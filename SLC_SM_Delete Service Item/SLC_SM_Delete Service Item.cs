@@ -53,12 +53,9 @@ namespace SLC_SM_Delete_Service_Item_1
 	using System;
 	using System.Collections.Generic;
 	using System.Linq;
-
 	using DomHelpers.SlcServicemanagement;
 	using Newtonsoft.Json;
-
 	using Skyline.DataMiner.Automation;
-	using Skyline.DataMiner.Net.Apps.DataMinerObjectModel;
 	using Skyline.DataMiner.Net.Messages;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.Relationship;
@@ -144,7 +141,7 @@ namespace SLC_SM_Delete_Service_Item_1
 			helper.CreateOrUpdate(service);
 		}
 
-		private void DeleteServiceItemFromInstance(DataHelperServiceSpecification helper, Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement.Models.ServiceSpecification spec, string label)
+		private void DeleteServiceItemFromInstance(DataHelperServiceSpecification helper, Models.ServiceSpecification spec, string label)
 		{
 			var serviceItemToRemove = spec.ServiceItems.FirstOrDefault(x => x.Label == label);
 			if (serviceItemToRemove == null)
@@ -174,15 +171,15 @@ namespace SLC_SM_Delete_Service_Item_1
 			var rm = new ResourceManagerHelper(_engine.SendSLNetSingleResponseMessage);
 			var reservation = rm.GetReservationInstance(refId);
 			if (reservation.StartTimeUTC > DateTime.UtcNow
-				&& (reservation.Status == ReservationStatus.Pending || reservation.Status == ReservationStatus.Confirmed))
+			    && (reservation.Status == ReservationStatus.Pending || reservation.Status == ReservationStatus.Confirmed))
 			{
 				rm.RemoveReservationInstances(reservation);
 				return false;
 			}
 
 			if (reservation.EndTimeUTC < DateTime.UtcNow
-				|| reservation.Status == ReservationStatus.Canceled
-				|| reservation.Status == ReservationStatus.Ended)
+			    || reservation.Status == ReservationStatus.Canceled
+			    || reservation.Status == ReservationStatus.Ended)
 			{
 				return false;
 			}

@@ -1,0 +1,21 @@
+{
+  "BehaviorDefinitionId": null,
+  "Id": {
+    "Id": "b3c7ef51-4f9a-44c1-9572-b8641c47f2b3",
+    "ModuleId": "(slc)servicemanagement"
+  },
+  "ModuleSettingsOverrides": null,
+  "Name": "Service Profile",
+  "SectionDefinitionLinks": [
+    {
+      "AllowMultipleSections": false,
+      "IsOptional": false,
+      "IsSoftDeleted": false,
+      "SectionDefinitionID": {
+        "Id": "ffb3508a-aaac-4312-bf6d-c64c5f9cd0a0",
+        "ModuleId": "(slc)servicemanagement"
+      }
+    }
+  ],
+  "VisualStructure": null
+}

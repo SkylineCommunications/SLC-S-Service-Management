@@ -89,6 +89,36 @@
           "$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.IFieldValidator, SLNetTypes]], mscorlib",
           "$values": []
         }
+      },
+      {
+        "$type": "Skyline.DataMiner.Net.Sections.DomInstanceFieldDescriptor, SLNetTypes",
+        "DefaultValue": null,
+        "DomDefinitionIds": {
+          "$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Apps.DataMinerObjectModel.DomDefinitionId, SLNetTypes]], mscorlib",
+          "$values": [
+            {
+              "$type": "Skyline.DataMiner.Net.Apps.DataMinerObjectModel.DomDefinitionId, SLNetTypes",
+              "Id": "3f872685-8bf7-4f59-80f8-6d21916d1f97",
+              "ModuleId": "(slc)servicemanagement"
+            }
+          ]
+        },
+        "FieldType": "System.Collections.Generic.List`1[[System.Guid, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089]], mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089",
+        "ID": {
+          "$type": "Skyline.DataMiner.Net.Sections.FieldDescriptorID, SLNetTypes",
+          "Id": "7038079c-a9ef-4f0b-8f43-798460315d7f"
+        },
+        "IsHidden": false,
+        "IsOptional": true,
+        "IsReadonly": false,
+        "IsSoftDeleted": false,
+        "ModuleId": "(slc)servicemanagement",
+        "Name": "Service Specifications Profiles",
+        "Tooltip": "Profile Configurations on Service Specification level",
+        "Validators": {
+          "$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.IFieldValidator, SLNetTypes]], mscorlib",
+          "$values": []
+        }
       }
     ]
   },

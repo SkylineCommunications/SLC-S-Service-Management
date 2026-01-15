@@ -53,10 +53,8 @@ namespace SLCSMCreateJobForServiceItem
 	using System;
 	using System.Linq;
 	using DomHelpers.SlcWorkflow;
-
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Net.Apps.DataMinerObjectModel;
-	using Skyline.DataMiner.Net.Jobs;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.Net.ResourceManager.Objects;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
@@ -66,13 +64,15 @@ namespace SLCSMCreateJobForServiceItem
 	using Skyline.DataMiner.Utils.MediaOps.Helpers.Workflows;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.IAS;
-	using OutputData = Skyline.DataMiner.Utils.MediaOps.Common.IOData.Scheduling.Scripts.JobHandler.OutputData;
+	using static DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Service_Behavior;
 
 	/// <summary>
 	///     Represents a DataMiner Automation script.
 	/// </summary>
 	public class Script
 	{
+		private const string ReferenceUnknown = "Reference Unknown";
+
 		/// <summary>
 		///     The script entry point.
 		/// </summary>
@@ -114,6 +114,123 @@ namespace SLCSMCreateJobForServiceItem
 			}
 		}
 
+		private static void UpdateState(DataHelperService srvHelper, Models.Service service)
+		{
+			// If all items are in progress -> move to In Progress
+			if (!service.ServiceItems.All(x => !String.IsNullOrEmpty(x.ImplementationReference) && x.ImplementationReference != ReferenceUnknown))
+			{
+				return;
+			}
+
+			if (service.Status == StatusesEnum.New)
+			{
+				service = srvHelper.UpdateState(service, TransitionsEnum.New_To_Designed);
+			}
+
+			if (service.Status == StatusesEnum.Designed)
+			{
+				service = srvHelper.UpdateState(service, TransitionsEnum.Designed_To_Reserved);
+			}
+
+			if (service.Status == StatusesEnum.Reserved)
+			{
+				service = srvHelper.UpdateState(service, TransitionsEnum.Reserved_To_Active);
+			}
+		}
+
+		private void AddOrUpdateServiceItemToInstance(DataHelperService helper, Models.Service instance, Models.ServiceItem newSection, string oldLabel)
+		{
+			var oldItem = instance.ServiceItems.FirstOrDefault(x => x.Label == oldLabel);
+			if (oldItem != null)
+			{
+				instance.ServiceItems.Remove(oldItem);
+			}
+			else
+			{
+				long[] ids = instance.ServiceItems.Select(x => x.ID).OrderBy(x => x).ToArray();
+				newSection.ID = ids.Any() ? ids.Max() + 1 : 0;
+			}
+
+			instance.ServiceItems.Add(newSection);
+			helper.CreateOrUpdate(instance);
+
+			UpdateState(helper, instance);
+		}
+
+		private CreateJobAction CreateJobConfiguration(Models.Service instance, Models.ServiceItem serviceItemsSection, Workflow workflow)
+		{
+			return new CreateJobAction
+			{
+				Name = $"{instance.Name} | {serviceItemsSection.Label}",
+				Description = $"{instance.ID} | {serviceItemsSection.Label}",
+				DomWorkflowId = workflow.Id,
+				Source = "Scheduling",
+				DesiredJobStatus = DesiredJobStatus.Tentative,
+				Start = instance.StartTime ?? throw new InvalidOperationException("No Start Time configured to create the job from"),
+				End = instance.EndTime ?? ReservationInstance.PermanentEnd,
+			};
+		}
+
+		private void CreateLink(IEngine engine, Models.Service instance, JobsInstance job)
+		{
+			var relationshipHelper = new RelationshipsHelper(engine);
+
+			var serviceObjectType = GetOrCreateObjectType(relationshipHelper, "Service");
+			var jobObjectType = GetOrCreateObjectType(relationshipHelper, "Job");
+
+			var linkDetailsConfiguration = CreateLinkDetailsConfiguration(instance, job, serviceObjectType, jobObjectType);
+			relationshipHelper.CreateLink(linkDetailsConfiguration);
+		}
+
+		private LinkConfiguration CreateLinkDetailsConfiguration(Models.Service instance, JobsInstance job, Guid serviceObjectType, Guid jobObjectType)
+		{
+			var linkConfiguration = new LinkConfiguration
+			{
+				Child = new LinkDetailsConfiguration
+				{
+					DomObjectTypeId = serviceObjectType,
+					ObjectId = instance.ID.ToString(),
+					ObjectName = instance.Name,
+					URL = "Link to open the service panel on service inventory app",
+				},
+				Parent = new LinkDetailsConfiguration
+				{
+					DomObjectTypeId = jobObjectType,
+					ObjectId = job.ID.Id.ToString(),
+					ObjectName = job.Name,
+				},
+			};
+
+			return linkConfiguration;
+		}
+
+		private JobsInstance FindJob(DomHelper domWorkflowHelper, Guid jobId)
+		{
+			var filter = DomInstanceExposers.Id.Equal(jobId);
+			var instance = domWorkflowHelper.DomInstances.Read(filter).FirstOrDefault();
+			if (instance != null)
+			{
+				return new JobsInstance(instance);
+			}
+
+			return default;
+		}
+
+		private Guid GetOrCreateObjectType(RelationshipsHelper relationshipHelper, string name)
+		{
+			var objectType = relationshipHelper.GetObjectType(name);
+			if (objectType == null)
+			{
+				return relationshipHelper.CreateObjectType(
+					new ObjectTypeConfiguration
+					{
+						Name = name,
+					});
+			}
+
+			return objectType.Id;
+		}
+
 		private void RunSafe(IEngine engine)
 		{
 			Guid domId = engine.ReadScriptParamFromApp<Guid>("DOM ID");
@@ -128,11 +245,11 @@ namespace SLCSMCreateJobForServiceItem
 			var instance = dataHelperService.Read(ServiceExposers.Guid.Equal(domId)).FirstOrDefault()
 			               ?? throw new InvalidOperationException($"No Service exists with ID '{domId}'");
 			var serviceItemsSection = instance.ServiceItems.SingleOrDefault(s => s.Label == label)
-				?? throw new InvalidOperationException($"Could not find the service item section with label '{label}'");
+			                          ?? throw new InvalidOperationException($"Could not find the service item section with label '{label}'");
 
 			var workflowHelper = new WorkflowHelper(engine);
 			var workflow = workflowHelper.GetAllWorkflows().FirstOrDefault(x => x.Name == serviceItemsSection.DefinitionReference)
-						   ?? throw new InvalidOperationException($"No Workflow found on the system with name '{serviceItemsSection.DefinitionReference}'");
+			               ?? throw new InvalidOperationException($"No Workflow found on the system with name '{serviceItemsSection.DefinitionReference}'");
 
 			if (instance.EndTime.HasValue && instance.EndTime.Value < DateTime.UtcNow)
 			{
@@ -193,100 +310,10 @@ namespace SLCSMCreateJobForServiceItem
 			AddOrUpdateServiceItemToInstance(dataHelperService, instance, serviceItemsSection, label);
 		}
 
-		private void CreateLink(IEngine engine, Models.Service instance, JobsInstance job)
-		{
-			var relationshipHelper = new RelationshipsHelper(engine);
-
-			var serviceObjectType = GetOrCreateObjectType(relationshipHelper, "Service");
-			var jobObjectType = GetOrCreateObjectType(relationshipHelper, "Job");
-
-			var linkDetailsConfiguration = CreateLinkDetailsConfiguration(instance, job, serviceObjectType, jobObjectType);
-			relationshipHelper.CreateLink(linkDetailsConfiguration);
-		}
-
-		private LinkConfiguration CreateLinkDetailsConfiguration(Models.Service instance, JobsInstance job, Guid serviceObjectType, Guid jobObjectType)
-		{
-			var linkConfiguration = new LinkConfiguration
-			{
-				Child = new LinkDetailsConfiguration
-				{
-					DomObjectTypeId = serviceObjectType,
-					ObjectId = instance.ID.ToString(),
-					ObjectName = instance.Name,
-					URL = "Link to open the service panel on service inventory app",
-				},
-				Parent = new LinkDetailsConfiguration
-				{
-					DomObjectTypeId = jobObjectType,
-					ObjectId = job.ID.Id.ToString(),
-					ObjectName = job.Name,
-				},
-			};
-
-			return linkConfiguration;
-		}
-
-		private CreateJobAction CreateJobConfiguration(Models.Service instance, Models.ServiceItem serviceItemsSection, Workflow workflow)
-		{
-			return new CreateJobAction
-			{
-				Name = $"{instance.Name} | {serviceItemsSection.Label}",
-				Description = $"{instance.ID} | {serviceItemsSection.Label}",
-				DomWorkflowId = workflow.Id,
-				Source = "Scheduling",
-				DesiredJobStatus = DesiredJobStatus.Tentative,
-				Start = instance.StartTime ?? throw new InvalidOperationException("No Start Time configured to create the job from"),
-				End = instance.EndTime ?? ReservationInstance.PermanentEnd,
-			};
-		}
-
-		private Guid GetOrCreateObjectType(RelationshipsHelper relationshipHelper, string name)
-		{
-			var objectType = relationshipHelper.GetObjectType(name);
-			if (objectType == null)
-			{
-				return relationshipHelper.CreateObjectType(new ObjectTypeConfiguration
-				{
-					Name = name,
-				});
-			}
-
-			return objectType.Id;
-		}
-
 		private void TrySetMonitoringSettingsForJob(JobsInstance job)
 		{
 			job.MonitoringSettings.AtJobStart = SlcWorkflowIds.Enums.Atjobstart.CreateServiceAtWorkflowStart;
 			job.MonitoringSettings.AtJobEnd = SlcWorkflowIds.Enums.Atjobend.DeleteServiceIfOneExists;
-		}
-
-		private JobsInstance FindJob(DomHelper domWorkflowHelper, Guid jobId)
-		{
-			var filter = DomInstanceExposers.Id.Equal(jobId);
-			var instance = domWorkflowHelper.DomInstances.Read(filter).FirstOrDefault();
-			if (instance != null)
-			{
-				return new JobsInstance(instance);
-			}
-
-			return default;
-		}
-
-		private void AddOrUpdateServiceItemToInstance(DataHelperService helper, Models.Service instance, Models.ServiceItem newSection, string oldLabel)
-		{
-			var oldItem = instance.ServiceItems.FirstOrDefault(x => x.Label == oldLabel);
-			if (oldItem != null)
-			{
-				instance.ServiceItems.Remove(oldItem);
-			}
-			else
-			{
-				long[] ids = instance.ServiceItems.Select(x => x.ID).OrderBy(x => x).ToArray();
-				newSection.ID = ids.Any() ? ids.Max() + 1 : 0;
-			}
-
-			instance.ServiceItems.Add(newSection);
-			helper.CreateOrUpdate(instance);
 		}
 	}
 }

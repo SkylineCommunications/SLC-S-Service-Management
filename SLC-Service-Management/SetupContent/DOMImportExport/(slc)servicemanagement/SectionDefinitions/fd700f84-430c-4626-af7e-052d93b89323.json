@@ -189,36 +189,6 @@
         }
       },
       {
-        "$type": "Skyline.DataMiner.Net.Sections.DomInstanceFieldDescriptor, SLNetTypes",
-        "DefaultValue": null,
-        "DomDefinitionIds": {
-          "$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Apps.DataMinerObjectModel.DomDefinitionId, SLNetTypes]], mscorlib",
-          "$values": [
-            {
-              "$type": "Skyline.DataMiner.Net.Apps.DataMinerObjectModel.DomDefinitionId, SLNetTypes",
-              "Id": "44a7ac35-c686-4312-9fcd-400ab80e38dd",
-              "ModuleId": "(slc)servicemanagement"
-            }
-          ]
-        },
-        "FieldType": "System.Collections.Generic.List`1[[System.Guid, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089]], mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089",
-        "ID": {
-          "$type": "Skyline.DataMiner.Net.Sections.FieldDescriptorID, SLNetTypes",
-          "Id": "226d2c8b-544b-4ee2-aec6-093dc3c0e8fa"
-        },
-        "IsHidden": false,
-        "IsOptional": true,
-        "IsReadonly": false,
-        "IsSoftDeleted": false,
-        "ModuleId": "(slc)servicemanagement",
-        "Name": "Service Configuration Parameters",
-        "Tooltip": "",
-        "Validators": {
-          "$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.IFieldValidator, SLNetTypes]], mscorlib",
-          "$values": []
-        }
-      },
-      {
         "$type": "Skyline.DataMiner.Net.Sections.FieldDescriptor, SLNetTypes",
         "DefaultValue": null,
         "FieldType": "System.String, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089",
@@ -254,6 +224,66 @@
         "IsSoftDeleted": false,
         "Name": "Generate Monitoring Service",
         "Tooltip": "Will create a dataminer service that for monitoring and alarming purposes.",
+        "Validators": {
+          "$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.IFieldValidator, SLNetTypes]], mscorlib",
+          "$values": []
+        }
+      },
+      {
+        "$type": "Skyline.DataMiner.Net.Sections.DomInstanceFieldDescriptor, SLNetTypes",
+        "DefaultValue": null,
+        "DomDefinitionIds": {
+          "$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Apps.DataMinerObjectModel.DomDefinitionId, SLNetTypes]], mscorlib",
+          "$values": [
+            {
+              "$type": "Skyline.DataMiner.Net.Apps.DataMinerObjectModel.DomDefinitionId, SLNetTypes",
+              "Id": "42e3f398-b966-41fa-96c7-a7a0189f0aab",
+              "ModuleId": "(slc)servicemanagement"
+            }
+          ]
+        },
+        "FieldType": "System.Guid, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089",
+        "ID": {
+          "$type": "Skyline.DataMiner.Net.Sections.FieldDescriptorID, SLNetTypes",
+          "Id": "f50b9d0a-009c-4ce5-bc08-5188784d7994"
+        },
+        "IsHidden": false,
+        "IsOptional": true,
+        "IsReadonly": false,
+        "IsSoftDeleted": false,
+        "ModuleId": "(slc)servicemanagement",
+        "Name": "Service Configuration",
+        "Tooltip": "Reference to the stored configuration in (slc)servicemanagement",
+        "Validators": {
+          "$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.IFieldValidator, SLNetTypes]], mscorlib",
+          "$values": []
+        }
+      },
+      {
+        "$type": "Skyline.DataMiner.Net.Sections.DomInstanceFieldDescriptor, SLNetTypes",
+        "DefaultValue": null,
+        "DomDefinitionIds": {
+          "$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Apps.DataMinerObjectModel.DomDefinitionId, SLNetTypes]], mscorlib",
+          "$values": [
+            {
+              "$type": "Skyline.DataMiner.Net.Apps.DataMinerObjectModel.DomDefinitionId, SLNetTypes",
+              "Id": "42e3f398-b966-41fa-96c7-a7a0189f0aab",
+              "ModuleId": "(slc)servicemanagement"
+            }
+          ]
+        },
+        "FieldType": "System.Collections.Generic.List`1[[System.Guid, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089]], mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089",
+        "ID": {
+          "$type": "Skyline.DataMiner.Net.Sections.FieldDescriptorID, SLNetTypes",
+          "Id": "2aafde72-b16e-4b66-9a80-fbd85655ad45"
+        },
+        "IsHidden": false,
+        "IsOptional": true,
+        "IsReadonly": false,
+        "IsSoftDeleted": false,
+        "ModuleId": "(slc)servicemanagement",
+        "Name": "Configuration Versions",
+        "Tooltip": "Reference list to the stored service configuration version in (slc)servicemanagement",
         "Validators": {
           "$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.IFieldValidator, SLNetTypes]], mscorlib",
           "$values": []

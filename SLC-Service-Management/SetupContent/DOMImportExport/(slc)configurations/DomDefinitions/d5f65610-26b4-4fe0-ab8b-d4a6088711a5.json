@@ -1,0 +1,37 @@
+{
+  "BehaviorDefinitionId": null,
+  "Id": {
+    "Id": "d5f65610-26b4-4fe0-ab8b-d4a6088711a5",
+    "ModuleId": "(slc)configurations"
+  },
+  "ModuleSettingsOverrides": {
+    "HistorySettings": null,
+    "NameDefinition": {
+      "ConcatenationItems": [
+        {
+          "$type": "Skyline.DataMiner.Net.Apps.DataMinerObjectModel.Concatenation.FieldValueConcatenationItem, SLNetTypes",
+          "FieldDescriptorId": {
+            "Id": "ffac1d81-d314-4430-99e7-db82b57c4a23"
+          }
+        }
+      ]
+    },
+    "ScriptSettings": null
+  },
+  "Name": "Profile",
+  "SectionDefinitionLinks": [
+    {
+      "AllowMultipleSections": false,
+      "IsOptional": false,
+      "IsSoftDeleted": false,
+      "SectionDefinitionID": {
+        "Id": "94e60948-5051-42bd-b4d8-00b184583a72",
+        "ModuleId": "(slc)configurations"
+      }
+    }
+  ],
+  "VisualStructure": {
+    "IsHidden": false,
+    "SectionDefinitionInfos": []
+  }
+}

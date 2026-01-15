@@ -1,0 +1,39 @@
+{
+  "$type": "Skyline.DataMiner.Net.Sections.CustomSectionDefinition, SLNetTypes",
+  "FieldDescriptors": {
+    "$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.FieldDescriptor, SLNetTypes]], mscorlib",
+    "$values": [
+      {
+        "$type": "Skyline.DataMiner.Net.Sections.FieldDescriptor, SLNetTypes",
+        "DefaultValue": null,
+        "FieldType": "System.String, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089",
+        "ID": {
+          "$type": "Skyline.DataMiner.Net.Sections.FieldDescriptorID, SLNetTypes",
+          "Id": "942259dc-1708-469b-8802-c9435f9a1abc"
+        },
+        "IsHidden": false,
+        "IsOptional": true,
+        "IsReadonly": false,
+        "IsSoftDeleted": false,
+        "Name": "Discrete Value",
+        "Tooltip": "Value as an option for Discrete Properties",
+        "Validators": {
+          "$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.IFieldValidator, SLNetTypes]], mscorlib",
+          "$values": []
+        }
+      }
+    ]
+  },
+  "ID": {
+    "$type": "Skyline.DataMiner.Net.Sections.SectionDefinitionID, SLNetTypes",
+    "Id": "342bb39e-e8c2-4e82-9a97-606a942dca27",
+    "ModuleId": "(slc)servicemanagement"
+  },
+  "IsHidden": false,
+  "Name": "Discrete Service Property Value Options",
+  "ReservationLinkInfo": null,
+  "SectionValidators": {
+    "$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.ISectionValidator, SLNetTypes]], mscorlib",
+    "$values": []
+  }
+}

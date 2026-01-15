@@ -34,18 +34,21 @@
 					ProfileDefinition = currentConfig.ProfileDefinition,
 				};
 
-				foreach (var currentParameterConfig in currentConfig.Profile.ConfigurationParameterValues)
+				if (configParams != null)
 				{
-					var configParam = configParams.Find(x => x.ID == currentParameterConfig?.ConfigurationParameterId);
-					if (configParam == null)
+					foreach (var currentParameterConfig in currentConfig.Profile.ConfigurationParameterValues)
 					{
-						continue;
+						var configParam = configParams.Find(x => x.ID == currentParameterConfig?.ConfigurationParameterId);
+						if (configParam == null)
+						{
+							continue;
+						}
+
+						var referencedParam = currentConfig.ProfileDefinition.ConfigurationParameters.Find(x => x.ConfigurationParameter == configParam.ID);
+
+						ProfileParameterDataRecord dataParameterRecord = ProfileParameterDataRecord.BuildParameterDataRecord(currentParameterConfig, configParam, referencedParam, state);
+						dataRecord.ProfileParameterConfigs.Add(dataParameterRecord);
 					}
-
-					var referencedParam = currentConfig.ProfileDefinition.ConfigurationParameters.Find(x => x.ConfigurationParameter == configParam.ID);
-
-					ProfileParameterDataRecord dataParameterRecord = ProfileParameterDataRecord.BuildParameterDataRecord(currentParameterConfig, configParam, referencedParam, state);
-					dataRecord.ProfileParameterConfigs.Add(dataParameterRecord);
 				}
 
 				return dataRecord;

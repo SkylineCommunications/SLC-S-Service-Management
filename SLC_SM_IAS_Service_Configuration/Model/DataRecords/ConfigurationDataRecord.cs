@@ -1,28 +1,24 @@
 ﻿namespace SLC_SM_IAS_Service_Configuration.Presenters
 {
-	using System;
 	using System.Collections.Generic;
 	using System.Linq;
-
-	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
 
 	public partial class ServiceConfigurationPresenter
 	{
 		internal sealed class ConfigurationDataRecord
 		{
-			public State State { get; set; }
+			public State State { get; private set; } = State.Create;
 
-			public Models.ServiceConfigurationVersion ServiceConfigurationVersion { get; set; }
+			public Models.ServiceConfigurationVersion ServiceConfigurationVersion { get; private set; }
 
-			public List<StandaloneParameterDataRecord> ServiceParameterConfigs { get; set; }
+			public List<StandaloneParameterDataRecord> ServiceParameterConfigs { get; private set; } = new List<StandaloneParameterDataRecord>();
 
-			public List<ProfileDataRecord> ServiceProfileConfigs { get; set; }
+			public List<ProfileDataRecord> ServiceProfileConfigs { get; private set; } = new List<ProfileDataRecord>();
 
 			internal static ConfigurationDataRecord BuildConfigurationDataRecordRecord(
 				Models.ServiceConfigurationVersion currentConfig,
 				List<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter> configParams,
-				Models.ServiceSpecification serviceSpecifivation,
 				State state = State.Update)
 			{
 				var dataRecord = new ConfigurationDataRecord

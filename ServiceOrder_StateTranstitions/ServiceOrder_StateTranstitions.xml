@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8" ?>
+﻿<?xml version="1.0" encoding="utf-8" ?>
 <DMSScript options="272" xmlns="http://www.skyline.be/automation">
 	<Name>ServiceOrder_StateTranstitions</Name>
 	<Description />
@@ -16,6 +16,9 @@
 		</ScriptParameter>
 		<ScriptParameter id="3" type="string" values="">
 			<Description>NextState</Description>
+		</ScriptParameter>
+		<ScriptParameter id="4" type="string" values="">
+			<Description>ServiceOrderReference</Description>
 		</ScriptParameter>
 	</Parameters>
 	<Script>

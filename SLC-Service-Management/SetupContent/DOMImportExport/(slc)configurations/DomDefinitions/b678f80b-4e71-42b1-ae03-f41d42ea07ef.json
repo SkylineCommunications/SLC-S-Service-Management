@@ -1,0 +1,28 @@
+{
+  "BehaviorDefinitionId": null,
+  "Id": {
+    "Id": "b678f80b-4e71-42b1-ae03-f41d42ea07ef",
+    "ModuleId": "(slc)configurations"
+  },
+  "ModuleSettingsOverrides": {
+    "HistorySettings": null,
+    "NameDefinition": null,
+    "ScriptSettings": null
+  },
+  "Name": "Script",
+  "SectionDefinitionLinks": [
+    {
+      "AllowMultipleSections": false,
+      "IsOptional": false,
+      "IsSoftDeleted": false,
+      "SectionDefinitionID": {
+        "Id": "7b3cd4a3-54d4-4888-b849-10e0be91c613",
+        "ModuleId": "(slc)configurations"
+      }
+    }
+  ],
+  "VisualStructure": {
+    "IsHidden": false,
+    "SectionDefinitionInfos": []
+  }
+}

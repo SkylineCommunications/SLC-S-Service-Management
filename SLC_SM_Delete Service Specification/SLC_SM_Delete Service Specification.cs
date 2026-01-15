@@ -57,7 +57,7 @@ namespace SLC_SM_Delete_Service_Specification
 	using System.Linq;
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.IAS;
@@ -121,14 +121,14 @@ namespace SLC_SM_Delete_Service_Specification
 				return;
 			}
 
-			var repo = new DataHelpersServiceManagement(_engine.GetUserConnection());
-			var orderItemInstance = repo.ServiceSpecifications.Read(ServiceSpecificationExposers.Guid.Equal(domId)).FirstOrDefault();
-			if (orderItemInstance == null)
+			var helper = new DataHelperServiceSpecification(_engine.GetUserConnection());
+			var specification = helper.Read(ServiceSpecificationExposers.Guid.Equal(domId)).FirstOrDefault();
+			if (specification == null)
 			{
 				return;
 			}
 
-			repo.ServiceSpecifications.TryDelete(orderItemInstance);
+			helper.TryDelete(specification);
 		}
 	}
 }

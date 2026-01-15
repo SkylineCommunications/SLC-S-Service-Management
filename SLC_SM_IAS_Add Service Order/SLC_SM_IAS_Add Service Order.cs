@@ -53,12 +53,12 @@ namespace SLC_SM_IAS_Add_Service_Order_1
 	using System;
 	using System.Collections.Generic;
 	using System.Linq;
+	using Library.Ownership;
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.IAS;
-	using Skyline.DataMiner.Utils.ServiceManagement.Common.IAS.Dialogs;
 	using SLC_SM_IAS_Add_Service_Order_1.Presenters;
 	using SLC_SM_IAS_Add_Service_Order_1.Views;
 
@@ -142,14 +142,22 @@ namespace SLC_SM_IAS_Add_Service_Order_1
 			var presenter = new ServiceOrderPresenter(_engine, view, usedOrderItemLabels, usedOrderIds);
 
 			// Events
-			view.BtnCancel.Pressed += (sender, args) => throw new ScriptAbortException("OK");
 			view.BtnAdd.Pressed += (sender, args) =>
 			{
-				if (presenter.Validate())
+				if (!presenter.Validate())
 				{
-					dataHelperOrders.CreateOrUpdate(presenter.GetData);
-					throw new ScriptAbortException("OK");
+					return;
 				}
+
+				Models.ServiceOrder orderToUpdate = presenter.GetData;
+				if (action == Action.Add)
+				{
+					// Take ownership if possible when adding new order
+					orderToUpdate.TakeOwnershipForOrder(_engine);
+				}
+
+				dataHelperOrders.CreateOrUpdate(orderToUpdate);
+				throw new ScriptAbortException("OK");
 			};
 
 			if (action == Action.Add)

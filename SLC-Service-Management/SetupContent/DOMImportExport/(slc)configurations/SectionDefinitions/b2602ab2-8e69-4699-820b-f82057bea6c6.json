@@ -1,0 +1,94 @@
+{
+  "$type": "Skyline.DataMiner.Net.Sections.CustomSectionDefinition, SLNetTypes",
+  "FieldDescriptors": {
+    "$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.FieldDescriptor, SLNetTypes]], mscorlib",
+    "$values": [
+      {
+        "$type": "Skyline.DataMiner.Net.Sections.DomInstanceFieldDescriptor, SLNetTypes",
+        "DefaultValue": null,
+        "DomDefinitionIds": {
+          "$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Apps.DataMinerObjectModel.DomDefinitionId, SLNetTypes]], mscorlib",
+          "$values": [
+            {
+              "$type": "Skyline.DataMiner.Net.Apps.DataMinerObjectModel.DomDefinitionId, SLNetTypes",
+              "Id": "0939b425-d30c-4839-9b19-180668beafc1",
+              "ModuleId": "(slc)configurations"
+            }
+          ]
+        },
+        "FieldType": "System.Guid, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089",
+        "ID": {
+          "$type": "Skyline.DataMiner.Net.Sections.FieldDescriptorID, SLNetTypes",
+          "Id": "2240ba60-ab38-44f1-b8a4-5c92299b5051"
+        },
+        "IsHidden": false,
+        "IsOptional": false,
+        "IsReadonly": false,
+        "IsSoftDeleted": false,
+        "ModuleId": "(slc)configurations",
+        "Name": "Profile Definition",
+        "Tooltip": "",
+        "Validators": {
+          "$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.IFieldValidator, SLNetTypes]], mscorlib",
+          "$values": []
+        }
+      },
+      {
+        "$type": "Skyline.DataMiner.Net.Sections.FieldDescriptor, SLNetTypes",
+        "DefaultValue": {
+          "$type": "Skyline.DataMiner.Net.Sections.ValueWrapper`1[[System.Boolean, mscorlib]], SLNetTypes",
+          "Value": false
+        },
+        "FieldType": "System.Boolean, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089",
+        "ID": {
+          "$type": "Skyline.DataMiner.Net.Sections.FieldDescriptorID, SLNetTypes",
+          "Id": "8d237dca-b9db-421a-88de-d2b41ef6b206"
+        },
+        "IsHidden": false,
+        "IsOptional": false,
+        "IsReadonly": false,
+        "IsSoftDeleted": false,
+        "Name": "Mandatory",
+        "Tooltip": "",
+        "Validators": {
+          "$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.IFieldValidator, SLNetTypes]], mscorlib",
+          "$values": []
+        }
+      },
+      {
+        "$type": "Skyline.DataMiner.Net.Sections.FieldDescriptor, SLNetTypes",
+        "DefaultValue": {
+          "$type": "Skyline.DataMiner.Net.Sections.ValueWrapper`1[[System.Boolean, mscorlib]], SLNetTypes",
+          "Value": false
+        },
+        "FieldType": "System.Boolean, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089",
+        "ID": {
+          "$type": "Skyline.DataMiner.Net.Sections.FieldDescriptorID, SLNetTypes",
+          "Id": "ac8afed8-f429-4496-b973-23ae03b8e11b"
+        },
+        "IsHidden": false,
+        "IsOptional": false,
+        "IsReadonly": false,
+        "IsSoftDeleted": false,
+        "Name": "Allow Multiple",
+        "Tooltip": "",
+        "Validators": {
+          "$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.IFieldValidator, SLNetTypes]], mscorlib",
+          "$values": []
+        }
+      }
+    ]
+  },
+  "ID": {
+    "$type": "Skyline.DataMiner.Net.Sections.SectionDefinitionID, SLNetTypes",
+    "Id": "b2602ab2-8e69-4699-820b-f82057bea6c6",
+    "ModuleId": "(slc)configurations"
+  },
+  "IsHidden": false,
+  "Name": "Referenced Profile Definitions Info",
+  "ReservationLinkInfo": null,
+  "SectionValidators": {
+    "$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.ISectionValidator, SLNetTypes]], mscorlib",
+    "$values": []
+  }
+}

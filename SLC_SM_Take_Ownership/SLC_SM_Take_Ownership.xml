@@ -1,11 +1,12 @@
 ﻿<?xml version="1.0" encoding="utf-8" ?>
 <DMSScript options="272" xmlns="http://www.skyline.be/automation">
-	<Name>SLC_SM_ButtonStateTransitions</Name>
+	<Name>SLC_SM_Take_Ownership</Name>
 	<Description></Description>
 	<Type>Automation</Type>
-	<Author>JVY</Author>
+	<Author>RME</Author>
 	<CheckSets>FALSE</CheckSets>
 	<Folder>Service Management</Folder>
+	<Interactivity>Auto</Interactivity>
 
 	<Protocols>
 	</Protocols>
@@ -14,20 +15,14 @@
 	</Memory>
 
 	<Parameters>
-		<ScriptParameter id="2" type="string" values="">
-			<Description>ServiceOrderReference</Description>
-		</ScriptParameter>
-		<ScriptParameter id="3" type="string" values="">
-			<Description>PreviousState</Description>
-		</ScriptParameter>
-		<ScriptParameter id="4" type="string" values="">
-			<Description>NextState</Description>
+		<ScriptParameter id="10" type="string" values="">
+			<Description>DOM ID</Description>
 		</ScriptParameter>
 	</Parameters>
 
 	<Script>
 		<Exe id="1" type="csharp">
-			<Value><![CDATA[[Project:SLC_SM_ButtonStateTransitions]]]></Value>
+			<Value><![CDATA[[Project:SLC_SM_Take_Ownership]]]></Value>
 			<!--<Param type="debug">true</Param>-->
 			<Message></Message>
 		</Exe>

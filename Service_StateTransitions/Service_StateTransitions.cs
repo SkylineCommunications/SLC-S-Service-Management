@@ -8,6 +8,7 @@ namespace ServiceStateTransitions
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
+	using Skyline.DataMiner.Utils.ServiceManagement.Common.IAS;
 	using static DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Service_Behavior;
 
 	/// <summary>
@@ -21,6 +22,18 @@ namespace ServiceStateTransitions
 		/// <param name="engine">Link with SLAutomation process.</param>
 		public void Run(IEngine engine)
 		{
+			/*
+			* Note:
+			* Do not remove the commented methods below!
+			* The lines are needed to execute an interactive automation script from the non-interactive automation script or from Visio!
+			*
+			* engine.ShowUI();
+			*/
+			if (engine.IsInteractive)
+			{
+				engine.FindInteractiveClient("Failed to run script in interactive mode", 1);
+			}
+
 			try
 			{
 				RunSafe(engine);
@@ -28,27 +41,23 @@ namespace ServiceStateTransitions
 			catch (ScriptAbortException)
 			{
 				// Catch normal abort exceptions (engine.ExitFail or engine.ExitSuccess)
-				throw; // Comment if it should be treated as a normal exit of the script.
 			}
 			catch (ScriptForceAbortException)
 			{
 				// Catch forced abort exceptions, caused via external maintenance messages.
-				throw;
 			}
 			catch (ScriptTimeoutException)
 			{
 				// Catch timeout exceptions for when a script has been running for too long.
-				throw;
 			}
 			catch (InteractiveUserDetachedException)
 			{
 				// Catch a user detaching from the interactive script by closing the window.
 				// Only applicable for interactive scripts, can be removed for non-interactive scripts.
-				throw;
 			}
 			catch (Exception e)
 			{
-				engine.ExitFail("Run|Something went wrong: " + e);
+				engine.ShowErrorDialog(e);
 			}
 		}
 
@@ -69,6 +78,29 @@ namespace ServiceStateTransitions
 
 			engine.GenerateInformation($"Service Status Transition starting: previousState: {previousState}, nextState: {nextState}");
 			srvHelper.UpdateState(service, transition);
+
+			if (transition == TransitionsEnum.Reserved_To_Active)
+			{
+				// Transition order item to Complete
+				var itemHelper = new DataHelperServiceOrderItem(engine.GetUserConnection());
+				var orderItem = itemHelper.Read().Find(o => o.ServiceId == service.ID);
+				if (orderItem != null && orderItem.Status == DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Serviceorderitem_Behavior.StatusesEnum.InProgress)
+				{
+					engine.GenerateInformation($" - Transitioning Service Order Item '{orderItem.Name}' to Completed");
+					orderItem = itemHelper.UpdateState(orderItem, DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Serviceorderitem_Behavior.TransitionsEnum.Inprogress_To_Completed);
+
+					var orderHelper = new DataHelperServiceOrder(engine.GetUserConnection());
+					var order = orderHelper.Read(ServiceOrderExposers.ServiceOrderItemsExposers.ServiceOrderItem.Equal(orderItem)).FirstOrDefault();
+					if (order != null
+						&& order.Status == DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Serviceorder_Behavior.StatusesEnum.InProgress
+						&& order.OrderItems.All(o => o.ServiceOrderItem.Status == DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Serviceorderitem_Behavior.StatusesEnum.Completed))
+					{
+						// Transition order to Completed
+						engine.GenerateInformation($" - Transitioning Service Order '{order.Name}' to Completed");
+						orderHelper.UpdateState(order, DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Serviceorder_Behavior.TransitionsEnum.Inprogress_To_Completed);
+					}
+				}
+			}
 		}
 	}
 }

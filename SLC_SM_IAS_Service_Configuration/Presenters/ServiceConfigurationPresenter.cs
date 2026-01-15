@@ -28,7 +28,7 @@
 		private DataHelpersConfigurations repoConfig;
 		private DataHelpersServiceManagement repoService;
 		private bool showDetails;
-		private Models.ServiceSpecification serviceSpecifivation;
+		private Models.ServiceSpecification serviceSpecification;
 
 		private int collapeButtonWidth = 85;
 		private int addButtonWidth = 70;
@@ -86,7 +86,6 @@
 				configuration = ConfigurationDataRecord.BuildConfigurationDataRecordRecord(
 					newConfigurationVersion,
 					repoConfig.ConfigurationParameters.Read(),
-					serviceSpecifivation,
 					State.Create);
 				BuildUI(this.showDetails);
 			};
@@ -99,17 +98,15 @@
 					view.StandaloneParameters.IsCollapsed = true;
 					view.Details.Clear();
 					configuration = ConfigurationDataRecord.BuildConfigurationDataRecordRecord(
-						HelperMethods.CreateNewServiceConfigurationVersion(serviceSpecifivation, instanceService),
+						HelperMethods.CreateNewServiceConfigurationVersion(serviceSpecification, instanceService),
 						repoConfig.ConfigurationParameters.Read(),
-						serviceSpecifivation,
 						State.Create);
 				}
 				else
 				{
 					configuration = ConfigurationDataRecord.BuildConfigurationDataRecordRecord(
 						args.Selected,
-						repoConfig.ConfigurationParameters.Read(),
-						serviceSpecifivation);
+						repoConfig.ConfigurationParameters.Read());
 				}
 
 				BuildUI(this.showDetails);
@@ -127,14 +124,22 @@
 			repoConfig = new DataHelpersConfigurations(engine.GetUserConnection());
 
 			var configParams = repoConfig.ConfigurationParameters.Read();
-			var refConfigParams = repoConfig.ReferencedConfigurationParameters.Read();
-			serviceSpecifivation = instanceService.ServiceSpecificationId.HasValue
+			////var refConfigParams = repoConfig.ReferencedConfigurationParameters.Read();
+			serviceSpecification = instanceService.ServiceSpecificationId.HasValue
 					? repoService.ServiceSpecifications.Read(Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceSpecificationExposers.Guid.Equal(instanceService.ServiceSpecificationId.Value))[0]
 					: null;
 
-			if (instanceService.ServiceConfiguration != null)
+			if (instanceService.ServiceConfiguration == null)
 			{
-				configuration = ConfigurationDataRecord.BuildConfigurationDataRecordRecord(instanceService.ServiceConfiguration, configParams, serviceSpecifivation);
+				// Create a new version
+				configuration = ConfigurationDataRecord.BuildConfigurationDataRecordRecord(
+					HelperMethods.CreateNewServiceConfigurationVersion(serviceSpecification, instanceService),
+					repoConfig.ConfigurationParameters.Read(),
+					State.Create);
+			}
+			else
+			{
+				configuration = ConfigurationDataRecord.BuildConfigurationDataRecordRecord(instanceService.ServiceConfiguration, configParams);
 			}
 
 			BuildUI(false);
@@ -333,6 +338,7 @@
 			{
 				row = BuildExceedNumberOfVersionUI(row);
 			}
+
 			view.AddWidget(new WhiteSpace(), ++row, 0);
 			view.AddWidget(view.BtnUpdate, ++row, 0, HorizontalAlignment.Center);
 			view.AddWidget(view.BtnCancel, row, 1);
@@ -353,7 +359,7 @@
 			InitializeConfigurationVersions();
 
 			var lblCreateAt = new Label("Create At") { Style = TextStyle.Heading, MaxWidth = 100 };
-			var createdAt = new TextBox(configuration.ServiceConfigurationVersion.CreatedAt?.ToString("g")) { IsEnabled = false };
+			var createdAt = new TextBox(configuration.ServiceConfigurationVersion?.CreatedAt?.ToString("g") ?? String.Empty) { IsEnabled = false };
 
 			view.AddWidget(view.ConfigurationVersions, row, 1);
 			view.AddWidget(view.BtnCopyConfiguration, row, 2);
@@ -367,25 +373,18 @@
 		private void InitializeConfigurationVersions()
 		{
 			var configurationVersionOptions = new List<Option<Models.ServiceConfigurationVersion>> { new Option<Models.ServiceConfigurationVersion>("- Add New Version -", null) };
-			if (instanceService.ConfigurationVersions != null)
+			if (instanceService.ConfigurationVersions != null && instanceService.ConfigurationVersions.Count > 0)
 			{
-				configurationVersionOptions.AddRange(instanceService.ConfigurationVersions.Select(cv => new Option<Models.ServiceConfigurationVersion>(cv.VersionName, cv)));
+				configurationVersionOptions.AddRange(instanceService.ConfigurationVersions.Select(cv => new Option<Models.ServiceConfigurationVersion>(cv.VersionName ?? cv.ID.ToString(), cv)));
 			}
 
-			if (view.ConfigurationVersions == null)
-			{
-				view.ConfigurationVersions.SetOptions(configurationVersionOptions);
-			}
-			else
-			{
-				view.ConfigurationVersions.Options = configurationVersionOptions;
-			}
+			view.ConfigurationVersions.SetOptions(configurationVersionOptions);
 
-			if (configuration.ServiceConfigurationVersion != null)
+			if (configuration?.ServiceConfigurationVersion != null)
 			{
 				if (!configurationVersionOptions.Exists(cv => cv.Value?.ID == configuration.ServiceConfigurationVersion.ID))
 				{
-					view.ConfigurationVersions.AddOption(new Option<Models.ServiceConfigurationVersion>(configuration.ServiceConfigurationVersion.VersionName, configuration.ServiceConfigurationVersion));
+					view.ConfigurationVersions.AddOption(new Option<Models.ServiceConfigurationVersion>(configuration.ServiceConfigurationVersion.VersionName ?? configuration.ServiceConfigurationVersion.ID.ToString(), configuration.ServiceConfigurationVersion));
 				}
 
 				view.ConfigurationVersions.Selected = configuration.ServiceConfigurationVersion;
@@ -403,8 +402,8 @@
 			view.AddWidget(view.GeneralSettings, row, 0, HorizontalAlignment.Center);
 			BuildGeneralSettingsHeaderRow(++row, view.GeneralSettings);
 
-			var versionName = new TextBox(configuration.ServiceConfigurationVersion.VersionName) { IsVisible = !view.GeneralSettings.IsCollapsed };
-			var description = new TextBox(configuration.ServiceConfigurationVersion.Description) { IsVisible = !view.GeneralSettings.IsCollapsed };
+			var versionName = new TextBox(configuration.ServiceConfigurationVersion.VersionName ?? String.Empty) { IsVisible = !view.GeneralSettings.IsCollapsed };
+			var description = new TextBox(configuration.ServiceConfigurationVersion.Description ?? String.Empty) { IsVisible = !view.GeneralSettings.IsCollapsed };
 			var startDate = new DateTimePicker(configuration.ServiceConfigurationVersion.StartDate ?? DateTime.MinValue) { IsVisible = !view.GeneralSettings.IsCollapsed };
 			var endDate = new DateTimePicker(configuration.ServiceConfigurationVersion.EndDate ?? DateTime.MinValue) { IsVisible = !view.GeneralSettings.IsCollapsed };
 
@@ -439,22 +438,19 @@
 
 			var profileDefinitionOptions = repoConfig.ProfileDefinitions.Read().Select(x => new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ProfileDefinition>(x.Name, x)).OrderBy(x => x.DisplayValue).ToList();
 			profileDefinitionOptions.Insert(0, new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ProfileDefinition>("- Profile Definition -", null));
-			view.ProfileDefintionToAdd = new DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ProfileDefinition>(profileDefinitionOptions)
-			{
-				IsDisplayFilterShown = true,
-			};
-			view.AddWidget(view.ProfileDefintionToAdd, row, 1);
+			view.ProfileDefinitionToAdd.SetOptions(profileDefinitionOptions);
+			view.AddWidget(view.ProfileDefinitionToAdd, row, 1);
 
 			var addProfileButton = new Button("Add") { Width = addButtonWidth };
 			view.AddWidget(addProfileButton, row, 2);
 			addProfileButton.Pressed += (sender, args) =>
 			{
-				if (view.ProfileDefintionToAdd == null || view.ProfileDefintionToAdd.Selected == null)
+				if (view.ProfileDefinitionToAdd?.Selected == null)
 				{
 					return;
 				}
 
-				AddProfileConfigModel(view.ProfileDefintionToAdd.Selected);
+				AddProfileConfigModel(view.ProfileDefinitionToAdd.Selected);
 				BuildUI(showDetails);
 			};
 
@@ -525,7 +521,7 @@
 			int originalSectionRow = row;
 			int sectionRow = 0;
 
-			foreach (var profileParameter in profile.ProfileParameterConfigs.Where(x => x.State != State.Delete))
+			foreach (var profileParameter in profile.ProfileParameterConfigs.Where(x => x.State != State.Delete).OrderBy(x => x.ConfigurationParam?.Name))
 			{
 				BuildParameterUIRow(collapseButton, profileParameter, ++row, ++sectionRow, DeleteProfileParameter(profile, profileParameter), profile.ServiceProfileConfig.Mandatory || profileParameter.Mandatory);
 			}
@@ -576,7 +572,7 @@
 			collapseButton.LinkedWidgets.Add(addParameterButton);
 			addParameterButton.Pressed += (sender, args) =>
 			{
-				if (parameterDropDown == null || parameterDropDown.Selected == null)
+				if (parameterDropDown.Selected == null)
 				{
 					return;
 				}
@@ -622,10 +618,8 @@
 
 			var parameterOptions = repoConfig.ConfigurationParameters.Read().Select(x => new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter>(x.Name, x)).OrderBy(x => x.DisplayValue).ToList();
 			parameterOptions.Insert(0, new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter>("- Add -", null));
-			view.StandaloneParametersToAdd = new DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter>(parameterOptions)
-			{
-				IsVisible = !view.StandaloneParameters.IsCollapsed,
-			};
+			view.StandaloneParametersToAdd.SetOptions(parameterOptions);
+			view.StandaloneParametersToAdd.IsVisible = !view.StandaloneParameters.IsCollapsed;
 			view.AddWidget(view.StandaloneParametersToAdd, row, 1);
 			view.StandaloneParameters.LinkedWidgets.Add(view.StandaloneParametersToAdd);
 
@@ -634,7 +628,7 @@
 			view.StandaloneParameters.LinkedWidgets.Add(addParameterButton);
 			addParameterButton.Pressed += (sender, args) =>
 			{
-				if (view.StandaloneParametersToAdd == null || view.StandaloneParametersToAdd.Selected == null)
+				if (view.StandaloneParametersToAdd?.Selected == null)
 				{
 					return;
 				}
@@ -670,6 +664,7 @@
 			var decimals = new Numeric { StepSize = 1, Minimum = 0, Maximum = 6, IsEnabled = false, MaxWidth = 80, IsVisible = !collapseButtom.IsCollapsed };
 			var values = new Button("...") { IsEnabled = false, IsVisible = !collapseButtom.IsCollapsed };
 			var delete = new Button("🚫") { IsEnabled = !mandatory, IsVisible = !collapseButtom.IsCollapsed };
+			bool isValueFixed = record.ConfigurationParamValue.ValueFixed;
 
 			label.Changed += (sender, args) => record.ConfigurationParamValue.Label = args.Value;
 
@@ -695,17 +690,17 @@
 				switch (parameter.Selected.Type)
 				{
 					case SlcConfigurationsIds.Enums.Type.Number:
-						collapseButtom.LinkedWidgets.Add(AddNumericWidgets(record, row, parameter, unit, start, end, step, decimals, !collapseButtom.IsCollapsed));
+						collapseButtom.LinkedWidgets.Add(AddNumericWidgets(record, row, parameter, unit, start, end, step, decimals, !collapseButtom.IsCollapsed, isValueFixed));
 
 						break;
 
 					case SlcConfigurationsIds.Enums.Type.Discrete:
-						collapseButtom.LinkedWidgets.Add(AddDiscreteWidgets(record, row, !collapseButtom.IsCollapsed));
+						collapseButtom.LinkedWidgets.Add(AddDiscreteWidgets(record, row, !collapseButtom.IsCollapsed, isValueFixed));
 
 						break;
 
 					default:
-						collapseButtom.LinkedWidgets.Add(AddTextWidgets(record, row, !collapseButtom.IsCollapsed));
+						collapseButtom.LinkedWidgets.Add(AddTextWidgets(record, row, !collapseButtom.IsCollapsed, isValueFixed));
 
 						break;
 				}
@@ -761,12 +756,13 @@
 			};
 		}
 
-		private TextBox AddTextWidgets(IParameterDataRecord record, int row, bool isVisible = true)
+		private TextBox AddTextWidgets(IParameterDataRecord record, int row, bool isVisible = true, bool isValueFixed = false)
 		{
 			var value = new TextBox(record.ConfigurationParamValue.StringValue ?? record.ConfigurationParamValue.TextOptions?.Default ?? String.Empty)
 			{
 				Tooltip = record.ConfigurationParamValue.TextOptions?.UserMessage ?? String.Empty,
 				IsVisible = isVisible,
+				IsEnabled = !isValueFixed,
 			};
 			value.Changed += (sender, args) =>
 			{
@@ -786,14 +782,18 @@
 			return value;
 		}
 
-		private DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.DiscreteValue> AddDiscreteWidgets(IParameterDataRecord record, int row, bool isVisible = true)
+		private DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.DiscreteValue> AddDiscreteWidgets(IParameterDataRecord record, int row, bool isVisible = true, bool isValueFixed = false)
 		{
 			var discretes = record.ConfigurationParamValue.DiscreteOptions.DiscreteValues
 											.Select(x => new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.DiscreteValue>(x.Value, x))
 											.OrderBy(x => x.DisplayValue)
 											.ToList();
 
-			var value = new DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.DiscreteValue>(discretes) { IsVisible = isVisible };
+			var value = new DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.DiscreteValue>(discretes)
+			{
+				IsVisible = isVisible,
+				IsEnabled = !isValueFixed,
+			};
 			if (record.ConfigurationParamValue.StringValue != null
 				&& value.Options.Any(x => x.DisplayValue == record.ConfigurationParamValue.StringValue))
 			{
@@ -810,7 +810,17 @@
 			return value;
 		}
 
-		private Numeric AddNumericWidgets(IParameterDataRecord record, int row, DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter> parameter, DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationUnit> unit, Numeric start, Numeric end, Numeric step, Numeric decimals, bool isVisible = true)
+		private Numeric AddNumericWidgets(
+			IParameterDataRecord record,
+			int row,
+			DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter> parameter,
+			DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationUnit> unit,
+			Numeric start,
+			Numeric end,
+			Numeric step,
+			Numeric decimals,
+			bool isVisible = true,
+			bool isValueFixed = false)
 		{
 			double minimum = record.ConfigurationParamValue.NumberOptions.MinRange ?? -10_000;
 			double maximum = record.ConfigurationParamValue.NumberOptions.MaxRange ?? 10_000;
@@ -823,6 +833,7 @@
 				StepSize = stepSize,
 				Decimals = decimalVal,
 				IsVisible = isVisible,
+				IsEnabled = !isValueFixed,
 			};
 			unit.SetOptions(GetUnits(record.ConfigurationParamValue.NumberOptions, parameter.Selected));
 			unit.Selected = GetDefaultUnit(record.ConfigurationParamValue.NumberOptions, parameter.Selected);
@@ -909,16 +920,12 @@
 
 		private void ShowHideProfileParametersDetails(bool showDetails, string profileName, Section details)
 		{
-			details.IsVisible = showDetails
-								? showDetails && !view.ProfileCollapseButtons[profileName].IsCollapsed
-								: showDetails;
+			details.IsVisible = showDetails && !view.ProfileCollapseButtons[profileName].IsCollapsed;
 		}
 
 		private void ShowHideStandaloneParametersDetails(bool showDetails, Section section)
 		{
-			section.IsVisible = showDetails
-							? showDetails && !view.StandaloneParameters.IsCollapsed
-							: showDetails;
+			section.IsVisible = showDetails && !view.StandaloneParameters.IsCollapsed;
 		}
 	}
 }

@@ -6,7 +6,6 @@
 
 	using DomHelpers.SlcPeople_Organizations;
 	using DomHelpers.SlcServicemanagement;
-
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Net.Apps.DataMinerObjectModel;
 	using Skyline.DataMiner.Net.Helper;
@@ -39,6 +38,7 @@
 
 			view.TboxName.Changed += (sender, args) => ValidateLabel(args.Value);
 			view.Org.Changed += (sender, args) => UpdateContactOnSelectedOrganization(args.Selected);
+			view.BtnCancel.Pressed += (sender, args) => throw new ScriptAbortException("OK");
 		}
 
 		public Models.ServiceOrder GetData

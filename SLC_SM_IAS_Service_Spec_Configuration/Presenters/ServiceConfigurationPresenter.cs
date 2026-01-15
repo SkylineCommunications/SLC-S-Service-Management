@@ -478,9 +478,9 @@
 				int originalSectionRow = row;
 				int sectionRow = 0;
 
-				foreach (var profileParameter in profile.ProfileParameterConfigs.Where(x => x.State != State.Delete))
+				foreach (var profileParameter in profile.ProfileParameterConfigs.Where(x => x.State != State.Delete).OrderBy(x => x.ConfigurationParam?.Name))
 				{
-					BuildParameterUIRow(collapseButton, profileParameter, ++row, ++sectionRow, DeleteProfileParameter(profile,profileParameter), profileParameter.ReferencedConfiguration.Mandatory);
+					BuildParameterUIRow(collapseButton, profileParameter, ++row, ++sectionRow, DeleteProfileParameter(profile, profileParameter), profileParameter.ReferencedConfiguration.Mandatory);
 				}
 
 				view.AddSection(view.Details[profile.Profile.Name], originalSectionRow, detailsColumnIndex);

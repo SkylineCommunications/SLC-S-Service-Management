@@ -186,7 +186,7 @@
 
 			int originalSectionRow = row;
 			int sectionRow = 0;
-			foreach (var configuration in configurations.Where(x => x.State != State.Delete))
+			foreach (var configuration in configurations.Where(x => x.State != State.Delete).OrderBy(x => x.ConfigurationParam?.Name))
 			{
 				BuildUIRow(configuration, ++row, ++sectionRow);
 			}
@@ -227,9 +227,10 @@
 				IsEnabled = false,
 			};
 			var isFixed = new CheckBox { IsChecked = record.ConfigurationParamValue.ValueFixed, IsEnabled = false };
-			var link = new CheckBox { IsChecked = record.ConfigurationParamValue.LinkedConfigurationReference != null };
+			var link = new CheckBox { IsChecked = record.ConfigurationParamValue.LinkedConfigurationReference != null, IsEnabled = !isFixed.IsChecked };
 			var unit = new DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationUnit>(
-				new[] { new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationUnit>("-", null) }) { IsEnabled = false, MaxWidth = 80 };
+				new[] { new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationUnit>("-", null) })
+			{ IsEnabled = false, MaxWidth = 80 };
 			var start = new Numeric { IsEnabled = false, MaxWidth = 100 };
 			var end = new Numeric { IsEnabled = false, MaxWidth = 100 };
 			var step = new Numeric { IsEnabled = false, Minimum = 0, Maximum = 1, MaxWidth = 100 };
@@ -239,7 +240,6 @@
 			var delete = new Button("🚫") { IsEnabled = !record.ServiceConfig.Mandatory };
 
 			label.Changed += (sender, args) => record.ConfigurationParamValue.Label = args.Value;
-			isFixed.Changed += (sender, args) => record.ConfigurationParamValue.ValueFixed = args.IsChecked;
 			delete.Pressed += (sender, args) =>
 			{
 				record.State = State.Delete;
@@ -261,138 +261,145 @@
 				switch (parameter.Selected.Type)
 				{
 					case SlcConfigurationsIds.Enums.Type.Number:
-					{
-						double minimum = record.ConfigurationParamValue.NumberOptions.MinRange ?? -10_000;
-						double maximum = record.ConfigurationParamValue.NumberOptions.MaxRange ?? 10_000;
-						int decimalVal = Convert.ToInt32(record.ConfigurationParamValue.NumberOptions.Decimals);
-						double stepSize = record.ConfigurationParamValue.NumberOptions.StepSize ?? 1;
-						Numeric value = new Numeric(record.ConfigurationParamValue.DoubleValue ?? record.ConfigurationParamValue.NumberOptions.DefaultValue ?? 0)
 						{
-							Minimum = minimum,
-							Maximum = maximum,
-							StepSize = stepSize,
-							Decimals = decimalVal,
-							IsEnabled = !isFixed.IsChecked,
-						};
-						unit.SetOptions(GetUnits(record.ConfigurationParamValue.NumberOptions, parameter.Selected));
-						unit.Selected = GetDefaultUnit(record.ConfigurationParamValue.NumberOptions, parameter.Selected);
-						unit.IsEnabled = true;
-						start.Value = minimum;
-						start.IsEnabled = true;
-						end.Value = maximum;
-						end.IsEnabled = true;
-						decimals.Value = decimalVal;
-						decimals.IsEnabled = true;
-						step.Value = stepSize;
-						step.StepSize = 1 / Math.Pow(10, decimalVal);
-						step.Decimals = decimalVal;
-						step.IsEnabled = true;
+							bool hasValue = record.ConfigurationParamValue.DoubleValue != null || record.ConfigurationParamValue.NumberOptions.DefaultValue != null;
+							double minimum = record.ConfigurationParamValue.NumberOptions.MinRange ?? -10_000;
+							double maximum = record.ConfigurationParamValue.NumberOptions.MaxRange ?? 10_000;
+							int decimalVal = Convert.ToInt32(record.ConfigurationParamValue.NumberOptions.Decimals);
+							double stepSize = record.ConfigurationParamValue.NumberOptions.StepSize ?? 1;
+							bool widgetEnabled = !isFixed.IsChecked || (isFixed.IsChecked && !hasValue);
+							Numeric value = new Numeric(record.ConfigurationParamValue.DoubleValue ?? record.ConfigurationParamValue.NumberOptions.DefaultValue ?? 0)
+							{
+								Minimum = minimum,
+								Maximum = maximum,
+								StepSize = stepSize,
+								Decimals = decimalVal,
+								IsEnabled = widgetEnabled,
+							};
+							unit.SetOptions(GetUnits(record.ConfigurationParamValue.NumberOptions, parameter.Selected));
+							unit.Selected = GetDefaultUnit(record.ConfigurationParamValue.NumberOptions, parameter.Selected);
+							unit.IsEnabled = widgetEnabled;
+							start.Value = minimum;
+							start.IsEnabled = widgetEnabled;
+							end.Value = maximum;
+							end.IsEnabled = widgetEnabled;
+							decimals.Value = decimalVal;
+							decimals.IsEnabled = widgetEnabled;
+							step.Value = stepSize;
+							step.StepSize = 1 / Math.Pow(10, decimalVal);
+							step.Decimals = decimalVal;
+							step.IsEnabled = widgetEnabled;
 
-						start.Changed += (sender, args) =>
-						{
-							value.Minimum = args.Value;
-							step.Minimum = args.Value;
-							record.ConfigurationParamValue.NumberOptions.MinRange = args.Value;
-						};
-						end.Changed += (sender, args) =>
-						{
-							value.Maximum = args.Value;
-							step.Maximum = args.Value;
-							record.ConfigurationParamValue.NumberOptions.MaxRange = args.Value;
-						};
-						decimals.Changed += (sender, args) =>
-						{
-							value.Decimals = Convert.ToInt32(args.Value);
-							step.Decimals = Convert.ToInt32(args.Value);
-							double newStepsize = 1 / Math.Pow(10, args.Value);
-							value.StepSize = newStepsize;
-							step.StepSize = newStepsize;
-							record.ConfigurationParamValue.NumberOptions.Decimals = Convert.ToInt32(args.Value);
-						};
-						step.Changed += (sender, args) =>
-						{
-							value.StepSize = args.Value;
-							record.ConfigurationParamValue.NumberOptions.StepSize = args.Value;
-						};
-						unit.Changed += (sender, args) => record.ConfigurationParamValue.NumberOptions.DefaultUnit = args.Selected;
-						value.Changed += (sender, args) => { record.ConfigurationParamValue.DoubleValue = args.Value; };
-						view.AddWidget(value, row, 3);
-					}
+							start.Changed += (sender, args) =>
+							{
+								value.Minimum = args.Value;
+								step.Minimum = args.Value;
+								record.ConfigurationParamValue.NumberOptions.MinRange = args.Value;
+							};
+							end.Changed += (sender, args) =>
+							{
+								value.Maximum = args.Value;
+								step.Maximum = args.Value;
+								record.ConfigurationParamValue.NumberOptions.MaxRange = args.Value;
+							};
+							decimals.Changed += (sender, args) =>
+							{
+								value.Decimals = Convert.ToInt32(args.Value);
+								step.Decimals = Convert.ToInt32(args.Value);
+								double newStepsize = 1 / Math.Pow(10, args.Value);
+								value.StepSize = newStepsize;
+								step.StepSize = newStepsize;
+								record.ConfigurationParamValue.NumberOptions.Decimals = Convert.ToInt32(args.Value);
+							};
+							step.Changed += (sender, args) =>
+							{
+								value.StepSize = args.Value;
+								record.ConfigurationParamValue.NumberOptions.StepSize = args.Value;
+							};
+							unit.Changed += (sender, args) => record.ConfigurationParamValue.NumberOptions.DefaultUnit = args.Selected;
+							value.Changed += (sender, args) => { record.ConfigurationParamValue.DoubleValue = args.Value; };
+							view.AddWidget(value, row, 3);
+						}
 
 						break;
 
 					case SlcConfigurationsIds.Enums.Type.Discrete:
-					{
-						var allDiscretes = record.ConfigurationParam.DiscreteOptions.DiscreteValues
-							.Select(x => new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.DiscreteValue>(x.Value, x))
-							.OrderBy(x => x.DisplayValue)
-							.ToList();
-						var discretes = allDiscretes.Where(d => record.ConfigurationParamValue.DiscreteOptions.DiscreteValues.Any(r => d.Value.Equals(r))).ToList();
-
-						var value = new DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.DiscreteValue>(discretes) { IsEnabled = !isFixed.IsChecked };
-						if (record.ConfigurationParamValue.StringValue != null
-						    && value.Options.Any(x => x.DisplayValue == record.ConfigurationParamValue.StringValue))
 						{
-							value.Selected = value.Options.First(x => x.DisplayValue == record.ConfigurationParamValue.StringValue).Value;
-						}
+							var allDiscretes = record.ConfigurationParam.DiscreteOptions.DiscreteValues
+								.Select(x => new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.DiscreteValue>(x.Value, x))
+								.OrderBy(x => x.DisplayValue)
+								.ToList();
+							var discretes = allDiscretes.Where(d => record.ConfigurationParamValue.DiscreteOptions.DiscreteValues.Any(r => d.Value.Equals(r))).ToList();
 
-						values.IsEnabled = true;
-						if (record.ConfigurationParamValue.StringValue == null)
-						{
-							record.ConfigurationParamValue.StringValue = value.Selected?.Value;
-						}
-
-						value.Changed += (sender, args) => { record.ConfigurationParamValue.StringValue = args.SelectedOption.DisplayValue; };
-						values.Pressed += (sender, args) =>
-						{
-							var optionsView = new DiscreteValuesView(engine);
-							optionsView.Options.SetOptions(allDiscretes);
-							foreach (var option in optionsView.Options.Values.ToList())
+							bool hasValue = record.ConfigurationParamValue.StringValue != null && discretes.Any(x => x.DisplayValue == record.ConfigurationParamValue.StringValue);
+							bool widgetEnabled = !isFixed.IsChecked || (isFixed.IsChecked && !hasValue);
+							var value = new DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.DiscreteValue>(discretes)
 							{
-								if (value.Options.Any(o => o.Value.Equals(option)))
-								{
-									optionsView.Options.Check(option); // check only the available items.
-								}
+								IsEnabled = widgetEnabled,
+							};
+							if (hasValue)
+							{
+								value.Selected = value.Options.First(x => x.DisplayValue == record.ConfigurationParamValue.StringValue).Value;
 							}
 
-							optionsView.BtnApply.Pressed += (o, eventArgs) =>
+							values.IsEnabled = widgetEnabled;
+							if (record.ConfigurationParamValue.StringValue == null)
 							{
-								value.SetOptions(optionsView.Options.CheckedOptions);
 								record.ConfigurationParamValue.StringValue = value.Selected?.Value;
-								record.ConfigurationParamValue.DiscreteOptions.DiscreteValues = optionsView.Options.Checked.ToList();
-								controller.ShowDialog(view);
+							}
+
+							value.Changed += (sender, args) => { record.ConfigurationParamValue.StringValue = args.SelectedOption.DisplayValue; };
+							values.Pressed += (sender, args) =>
+							{
+								var optionsView = new DiscreteValuesView(engine);
+								optionsView.Options.SetOptions(allDiscretes);
+								foreach (var option in optionsView.Options.Values.ToList())
+								{
+									if (value.Options.Any(o => o.Value.Equals(option)))
+									{
+										optionsView.Options.Check(option); // check only the available items.
+									}
+								}
+
+								optionsView.BtnApply.Pressed += (o, eventArgs) =>
+								{
+									value.SetOptions(optionsView.Options.CheckedOptions);
+									record.ConfigurationParamValue.StringValue = value.Selected?.Value;
+									record.ConfigurationParamValue.DiscreteOptions.DiscreteValues = optionsView.Options.Checked.ToList();
+									controller.ShowDialog(view);
+								};
+								optionsView.BtnCancel.Pressed += (o, eventArgs) => controller.ShowDialog(view);
+								controller.ShowDialog(optionsView);
 							};
-							optionsView.BtnCancel.Pressed += (o, eventArgs) => controller.ShowDialog(view);
-							controller.ShowDialog(optionsView);
-						};
-						view.AddWidget(value, row, 3);
-					}
+							view.AddWidget(value, row, 3);
+						}
 
 						break;
 
 					default:
-					{
-						var value = new TextBox(record.ConfigurationParamValue.StringValue ?? record.ConfigurationParamValue.TextOptions?.Default ?? String.Empty)
 						{
-							Tooltip = record.ConfigurationParamValue.TextOptions?.UserMessage ?? String.Empty,
-							IsEnabled = !isFixed.IsChecked,
-						};
-						value.Changed += (sender, args) =>
-						{
-							if (record.ConfigurationParamValue.TextOptions?.Regex != null && !Regex.IsMatch(args.Value, record.ConfigurationParamValue.TextOptions.Regex))
+							bool hasValue = record.ConfigurationParamValue.StringValue != null || record.ConfigurationParamValue.TextOptions?.Default != null;
+							var value = new TextBox(record.ConfigurationParamValue.StringValue ?? record.ConfigurationParamValue.TextOptions?.Default ?? String.Empty)
 							{
-								value.ValidationState = UIValidationState.Invalid;
-								value.ValidationText = $"Input did not match Regex '{record.ConfigurationParamValue.TextOptions.Regex}' - reverted to previous value";
-								value.Text = args.Previous;
-								return;
-							}
+								Tooltip = record.ConfigurationParamValue.TextOptions?.UserMessage ?? String.Empty,
+								IsEnabled = !isFixed.IsChecked || (isFixed.IsChecked && !hasValue),
+							};
+							value.Changed += (sender, args) =>
+							{
+								if (record.ConfigurationParamValue.TextOptions?.Regex != null && !Regex.IsMatch(args.Value, record.ConfigurationParamValue.TextOptions.Regex))
+								{
+									value.ValidationState = UIValidationState.Invalid;
+									value.ValidationText = $"Input did not match Regex '{record.ConfigurationParamValue.TextOptions.Regex}' - reverted to previous value";
+									value.Text = args.Previous;
+									return;
+								}
 
-							value.ValidationState = UIValidationState.Valid;
-							value.ValidationText = record.ConfigurationParamValue.TextOptions?.UserMessage;
-							record.ConfigurationParamValue.StringValue = args.Value;
-						};
-						view.AddWidget(value, row, 3);
-					}
+								value.ValidationState = UIValidationState.Valid;
+								value.ValidationText = record.ConfigurationParamValue.TextOptions?.UserMessage;
+								record.ConfigurationParamValue.StringValue = args.Value;
+							};
+							view.AddWidget(value, row, 3);
+						}
 
 						break;
 				}

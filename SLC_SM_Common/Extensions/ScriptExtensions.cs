@@ -2,8 +2,10 @@
 {
 	using System;
 	using System.Collections.Generic;
+	using System.Diagnostics;
 	using System.Linq;
 	using Newtonsoft.Json;
+	using Skyline.DataMiner.Analytics.GenericInterface;
 	using Skyline.DataMiner.Automation;
 
 	public static class ScriptExtensions
@@ -51,6 +53,46 @@
 		public static ICollection<string> ReadScriptParamsFromApp(this IEngine engine, string name)
 		{
 			return ReadScriptParamsFromApp<string>(engine, name);
+		}
+
+		public static T PerformanceLogger<T>(this IEngine engine, string methodName, Func<T> func)
+		{
+			if (func == null)
+			{
+				throw new ArgumentNullException(nameof(func));
+			}
+
+			var stopwatch = Stopwatch.StartNew();
+
+			try
+			{
+				return func();
+			}
+			finally
+			{
+				stopwatch.Stop();
+				engine.GenerateInformation($"[{methodName}] executed in {stopwatch.ElapsedMilliseconds} ms");
+			}
+		}
+
+		public static void PerformanceLogger(this IEngine engine, string methodName, Action action)
+		{
+			if (action == null)
+			{
+				throw new ArgumentNullException(nameof(action));
+			}
+
+			var stopwatch = Stopwatch.StartNew();
+
+			try
+			{
+				action();
+			}
+			finally
+			{
+				stopwatch.Stop();
+				engine.GenerateInformation($"[{methodName}] executed in {stopwatch.ElapsedMilliseconds} ms");
+			}
 		}
 	}
 }

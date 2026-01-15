@@ -1,0 +1,21 @@
+{
+  "BehaviorDefinitionId": null,
+  "Id": {
+    "Id": "42e3f398-b966-41fa-96c7-a7a0189f0aab",
+    "ModuleId": "(slc)servicemanagement"
+  },
+  "ModuleSettingsOverrides": null,
+  "Name": "Service Configuration Version",
+  "SectionDefinitionLinks": [
+    {
+      "AllowMultipleSections": false,
+      "IsOptional": false,
+      "IsSoftDeleted": false,
+      "SectionDefinitionID": {
+        "Id": "f91f1783-75c4-447b-a82c-76150902a33d",
+        "ModuleId": "(slc)servicemanagement"
+      }
+    }
+  ],
+  "VisualStructure": null
+}

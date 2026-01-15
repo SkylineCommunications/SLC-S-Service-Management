@@ -115,6 +115,8 @@ namespace SLC_SM_IAS_Service_Configuration
 
 		private void RunSafe()
 		{
+			_engine.Timeout = TimeSpan.FromHours(1);
+
 			// Input
 			Guid domId = _engine.ReadScriptParamFromApp<Guid>("DOM ID");
 

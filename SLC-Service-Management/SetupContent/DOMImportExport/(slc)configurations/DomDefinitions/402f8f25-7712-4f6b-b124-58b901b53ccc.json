@@ -1,0 +1,28 @@
+{
+  "BehaviorDefinitionId": null,
+  "Id": {
+    "Id": "402f8f25-7712-4f6b-b124-58b901b53ccc",
+    "ModuleId": "(slc)configurations"
+  },
+  "ModuleSettingsOverrides": {
+    "HistorySettings": null,
+    "NameDefinition": null,
+    "ScriptSettings": null
+  },
+  "Name": "Protocol Test",
+  "SectionDefinitionLinks": [
+    {
+      "AllowMultipleSections": false,
+      "IsOptional": false,
+      "IsSoftDeleted": false,
+      "SectionDefinitionID": {
+        "Id": "03ce0808-7550-4102-be91-5ce101c5e9c8",
+        "ModuleId": "(slc)configurations"
+      }
+    }
+  ],
+  "VisualStructure": {
+    "IsHidden": false,
+    "SectionDefinitionInfos": []
+  }
+}

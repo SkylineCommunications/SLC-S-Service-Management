@@ -52,10 +52,23 @@ DATE		VERSION		AUTHOR			COMMENTS
 namespace SLCSMDemo
 {
 	using System;
+	using System.Collections.Generic;
 	using System.Linq;
-
+	using DomHelpers.SlcConfigurations;
+	using DomHelpers.SlcPeople_Organizations;
+	using DomHelpers.SlcServicemanagement;
+	using Newtonsoft.Json;
+	using Skyline.DataMiner.Analytics.GenericInterface.QueryBuilder;
 	using Skyline.DataMiner.Automation;
+	using Skyline.DataMiner.Net.Apps.DataMinerObjectModel;
+	using Skyline.DataMiner.Net.Helper;
+	using Skyline.DataMiner.Net.Messages.SLDataGateway;
+	using Skyline.DataMiner.Net.Sections;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM;
+	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement.Models;
 
 	/// <summary>
 	/// Represents a DataMiner Automation script.
@@ -68,6 +81,13 @@ namespace SLCSMDemo
 		/// <param name="engine">Link with SLAutomation process.</param>
 		public void Run(IEngine engine)
 		{
+			/*
+			* Note:
+			* Do not remove the commented methods below!
+			* The lines are needed to execute an interactive automation script from the non-interactive automation script or from Visio!
+			*
+			* engine.ShowUI();
+			*/
 			try
 			{
 				RunSafe(engine);
@@ -99,41 +119,48 @@ namespace SLCSMDemo
 		{
 			//FilterServiceOnCategory(engine);
 
-			FilterServiceOnCharacteristic(engine);
-			//RemoveSpecProperties(engine);
+			//FilterServiceOnCharacteristic(engine);
+
+			//CreateServiceInventoryItemsPerOrder(engine);
+			//UpdateAllFixedValueParams(engine);
+			AddFieldDescriptor(engine);
 		}
 
-		////private void RemoveSpecProperties(IEngine engine)
-		////{
-		////	var helper = new DomHelper(engine.SendSLNetMessages, SlcServicemanagementIds.ModuleId);
-		////	var inst = helper.DomInstances.Read(DomInstanceExposers.DomDefinitionId.Equal(SlcServicemanagementIds.Definitions.ServiceSpecifications.Id));
+		private static void AddFieldDescriptor(IEngine engine)
+		{
+			DomHelper domHelper = new DomHelper(engine.SendSLNetMessages, SlcServicemanagementIds.ModuleId);
 
-		////	foreach (var i in inst)
-		////	{
-		////		var ss = new ServiceSpecificationsInstance(i);
-		////		if (ss.ServiceSpecificationInfo.ServiceProperties == null)
-		////		{
-		////			continue;
-		////		}
+			var ownerField = new DomInstanceFieldDescriptor
+			{
+				ID = new FieldDescriptorID(new Guid("1856aa22-c48b-4cfa-9418-2e4aa1ced47b")),
+				Name = "Owner",
+				FieldType = typeof(Guid),
+				IsOptional = true,
+				IsHidden = false,
+				IsReadonly = false,
+				IsSoftDeleted = false,
+				DomDefinitionIds = { new DomDefinitionId(SlcPeople_OrganizationsIds.Definitions.People.Id) }
+			};
 
-		////		ss.ServiceSpecificationInfo.ServiceProperties = null;
-		////		ss.Save(helper);
-		////	}
-		////}
+			var section = domHelper.SectionDefinitions.Read(SectionDefinitionExposers.ID.Equal(SlcServicemanagementIds.Sections.ServiceOrderInfo.Id))[0] as CustomSectionDefinition;
+			section.AddOrReplaceFieldDescriptor(ownerField);
 
-		////private static void FilterServiceOnCategory(IEngine engine)
-		////{
-		////	string categoryType = "Channel";
-		////	string categoryName = "ARD";
+			domHelper.SectionDefinitions.Update(section);
+		}
 
-		////	var dataHelpers = new DataHelpersServiceManagement(engine.GetUserConnection());
+		private static void FilterServiceOnCategory(IEngine engine)
+		{
+			string categoryType = "Channel";
+			string categoryName = "ARD";
 
-		////	var categoryToMatch = dataHelpers.ServiceCategories.Read().Find(x => x.Type == categoryType && x.Name == categoryName)
-		////	                      ?? throw new InvalidOperationException($"No Category found matching '{categoryType}-{categoryName}'");
+			var dataHelpers = new DataHelpersServiceManagement(engine.GetUserConnection());
 
-		////	var services = dataHelpers.Services.Read(ServicesInstanceExposers.ServiceInfoSection.ServiceCategory.Equal(categoryToMatch));
-		////	engine.GenerateInformation($"Service(s) found:\r\n{String.Join(Environment.NewLine, services.Select(s => $"{s.Name} ({s.ID})"))}");
-		////}
+			var categoryToMatch = dataHelpers.ServiceCategories.Read().Find(x => x.Type == categoryType && x.Name == categoryName)
+								  ?? throw new InvalidOperationException($"No Category found matching '{categoryType}-{categoryName}'");
+
+			var services = dataHelpers.Services.Read(ServiceExposers.ServiceCategory.Equal(categoryToMatch));
+			engine.GenerateInformation($"Service(s) found:\r\n{String.Join(Environment.NewLine, services.Select(s => $"{s.Name} ({s.ID})"))}");
+		}
 
 		private static void FilterServiceOnCharacteristic(IEngine engine)
 		{
@@ -145,6 +172,75 @@ namespace SLCSMDemo
 			var services = dataHelpersSrvMgmt.Services.GetServicesByCharacteristic(configurationParameter, null, configurationParameterValue);
 
 			engine.GenerateInformation($"Service(s) found:\r\n{String.Join(Environment.NewLine, services.Select(s => $"{s.Name} ({s.ID})"))}");
+		}
+
+		private static void UpdateAllFixedValueParams(IEngine engine)
+		{
+			DomHelper domHelper = new DomHelper(engine.SendSLNetMessages, SlcConfigurationsIds.ModuleId);
+			var instances = domHelper.DomInstances.Read(DomInstanceExposers.DomDefinitionId.Equal(SlcConfigurationsIds.Definitions.ConfigurationParameterValue.Id));
+			engine.GenerateInformation(JsonConvert.SerializeObject(instances));
+			//foreach (var item in instances)
+			//{
+			//	item.Sections.First(x => x.SectionDefinitionID.Id == SlcConfigurationsIds.Sections.ConfigurationParameterValue.Id.Id).RemoveFieldValueById(SlcConfigurationsIds.Sections.ConfigurationParameterValue.ValueFixed);
+			//}
+
+			//engine.GenerateInformation($"Items to update: {instances.Count}");
+			//foreach (var batch in instances.Batch(100))
+			//{
+			//	domHelper.DomInstances.CreateOrUpdate(batch.ToList());
+			//}
+
+			//var section = domHelper.SectionDefinitions.Read(SectionDefinitionExposers.ID.Equal(SlcConfigurationsIds.Sections.ConfigurationParameterValue.Id.Id)).FirstOrDefault();
+			//section.GetFieldDescriptorById(SlcConfigurationsIds.Sections.ConfigurationParameterValue.ValueFixed).FieldType = typeof(bool);
+			//domHelper.SectionDefinitions.Update(section);
+		}
+
+		private static void CreateServiceInventoryItemsPerOrder(IEngine engine)
+		{
+			var dataHelper = new DataHelpersServiceManagement(engine.GetUserConnection());
+			var orders = dataHelper.ServiceOrders.Read();
+			int i = 0;
+			foreach (var order in orders)
+			{
+				foreach (var orderItem in order.OrderItems)
+				{
+					if (orderItem.ServiceOrderItem.ServiceId.HasValue)
+					{
+						continue;
+					}
+
+					////if (i > 10)
+					////{
+					////	return;
+					////}
+
+					RunScript(engine, orderItem.ServiceOrderItem);
+					i++;
+				}
+			}
+		}
+
+		private static void RunScript(IEngine engine, Models.ServiceOrderItem orderItem)
+		{
+			engine.GenerateInformation($"Creating Service Inventory Item for Order Item ID {orderItem.ID}/{orderItem.Name}");
+
+			// Prepare a subscript
+			SubScriptOptions subScript = engine.PrepareSubScript("SLC_SM_Create Service Inventory Item");
+
+			// Link the main script dummies to the subscript
+			subScript.SelectScriptParam("DOM ID", orderItem.ID.ToString());
+			subScript.SelectScriptParam("Action", "AddItemSilent");
+
+			// Set some more options
+			subScript.Synchronous = true;
+			subScript.InheritScriptOutput = true;
+
+			// Launch the script
+			subScript.StartScript();
+			if (subScript.HadError)
+			{
+				throw new InvalidOperationException("Script failed");
+			}
 		}
 	}
 }
