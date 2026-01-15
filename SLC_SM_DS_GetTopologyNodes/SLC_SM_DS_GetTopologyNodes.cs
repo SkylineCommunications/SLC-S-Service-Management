@@ -288,7 +288,7 @@ namespace SLCSMDSGetTopologyNodes
 
 			if (item.Type == SlcServicemanagementIds.Enums.ServiceitemtypesEnum.Service)
 			{
-				return new DataHelperLink(_dms.GetConnection()).Read().Find(x => x.ParentID == _domId.ToString())?.ChildID ?? String.Empty;
+				return new DataHelperLink(_dms.GetConnection()).Read(LinkExposers.ParentID.Equal(_domId.ToString())).FirstOrDefault()?.ChildID ?? String.Empty;
 			}
 
 			throw new InvalidOperationException("Unsupported service item type");

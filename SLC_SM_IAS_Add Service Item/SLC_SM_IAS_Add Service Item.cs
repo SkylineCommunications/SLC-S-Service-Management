@@ -231,7 +231,7 @@ namespace SLC_SM_IAS_Add_Service_Item
 			}
 
 			var dataHelper = new DataHelperLink(_engine.GetUserConnection());
-			var link = dataHelper.Read().Find(x => x.ParentID == serviceInstanceId.ToString() && x.ChildID == newSection.ImplementationReference);
+			var link = dataHelper.Read(LinkExposers.ParentID.Equal(serviceInstanceId.ToString()).AND(LinkExposers.ChildID.Equal(newSection.ImplementationReference))).FirstOrDefault();
 			if (link != null)
 			{
 				// Already linked OK

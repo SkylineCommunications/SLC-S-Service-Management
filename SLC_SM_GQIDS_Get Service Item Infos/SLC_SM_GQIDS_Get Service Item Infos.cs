@@ -117,7 +117,7 @@ namespace SLC_SM_GQIDS_Get_Service_Item_Infos
 			string org = String.Empty;
 			if (service.OrganizationId.HasValue)
 			{
-				org = new DataHelpersPeopleAndOrganizations(_dms.GetConnection()).Organizations.Read().Find(x => x.ID == service.OrganizationId.Value)?.Name ?? String.Empty;
+				org = new DataHelpersPeopleAndOrganizations(_dms.GetConnection()).Organizations.Read(OrganizationExposers.Guid.Equal(service.OrganizationId.Value)).FirstOrDefault()?.Name ?? String.Empty;
 			}
 
 			string alarmLevel = String.Empty;

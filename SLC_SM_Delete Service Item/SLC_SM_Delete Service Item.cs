@@ -259,7 +259,7 @@ namespace SLC_SM_Delete_Service_Item_1
 		private bool LinksStillExist(Guid refId)
 		{
 			var linkHelper = new DataHelperLink(_engine.GetUserConnection());
-			Skyline.DataMiner.ProjectApi.ServiceManagement.API.Relationship.Models.Link link = linkHelper.Read().Find(x => x.ID == refId);
+			Skyline.DataMiner.ProjectApi.ServiceManagement.API.Relationship.Models.Link link = linkHelper.Read(LinkExposers.Guid.Equal(refId)).FirstOrDefault();
 			if (link == null)
 			{
 				return false;

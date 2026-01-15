@@ -65,7 +65,7 @@ namespace ServiceStateTransitions
 		private static void SetOrderItemToComplete(IEngine engine, Models.Service service, OrderActionType type)
 		{
 			var itemHelper = new DataHelperServiceOrderItem(engine.GetUserConnection());
-			var orderItem = itemHelper.Read().Find(o => o.ServiceId == service.ID && o.Action == type.ToString());
+			var orderItem = itemHelper.Read(ServiceOrderItemExposers.ServiceID.Equal(service.ID).AND(ServiceOrderItemExposers.Action.Equal(type.ToString()))).FirstOrDefault();
 			if (orderItem == null)
 			{
 				return;
