@@ -40,15 +40,6 @@
 			AddWidget(BtnCancel, row, 2);
 		}
 
-		public enum ActionTypeEnum
-		{
-			Add,
-			Modify,
-			Delete,
-			NoChange,
-			Undefined,
-		}
-
 		public Label LblName { get; } = new Label("Label");
 
 		public TextBox TboxName { get; } = new TextBox { Width = Defaults.WidgetWidth };
@@ -57,16 +48,16 @@
 
 		public Label LblAction { get; } = new Label("Action");
 
-		public DropDown<ActionTypeEnum> ActionType { get; } = new DropDown<ActionTypeEnum>
+		public DropDown<OrderActionType> ActionType { get; } = new DropDown<OrderActionType>
 		{
 			Width = Defaults.WidgetWidth,
 			Options = new[]
 			{
-				new Option<ActionTypeEnum>("Add", ActionTypeEnum.Add),
-				new Option<ActionTypeEnum>("Delete", ActionTypeEnum.Delete),
-				new Option<ActionTypeEnum>("Modify", ActionTypeEnum.Modify),
-				new Option<ActionTypeEnum>("No Change", ActionTypeEnum.NoChange),
-				new Option<ActionTypeEnum>("Undefined", ActionTypeEnum.Undefined),
+				new Option<OrderActionType>("Add", OrderActionType.Add),
+				new Option<OrderActionType>("Delete", OrderActionType.Delete),
+				new Option<OrderActionType>("Modify", OrderActionType.Modify),
+				new Option<OrderActionType>("No Change", OrderActionType.NoChange),
+				new Option<OrderActionType>("Undefined", OrderActionType.Undefined),
 			},
 		};
 

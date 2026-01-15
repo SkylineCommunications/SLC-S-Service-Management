@@ -3,6 +3,7 @@
 	using System;
 	using System.Collections.Generic;
 	using System.Linq;
+	using Library;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
@@ -116,9 +117,9 @@
 
 			view.BtnAdd.Text = "Save";
 			view.TboxName.Text = instance.ServiceOrderItem.Name;
-			view.ActionType.Selected = Enum.TryParse(instance.ServiceOrderItem.Action, true, out ServiceOrderItemView.ActionTypeEnum action)
+			view.ActionType.Selected = Enum.TryParse(instance.ServiceOrderItem.Action, true, out OrderActionType action)
 				? action
-				: ServiceOrderItemView.ActionTypeEnum.NoChange;
+				: OrderActionType.NoChange;
 
 			view.Start.DateTime = instance.ServiceOrderItem.StartTime ?? DateTime.Now;
 			view.End.DateTime = instance.ServiceOrderItem.EndTime ?? DateTime.Now + TimeSpan.FromDays(7);
@@ -159,7 +160,7 @@
 
 			ok &= ValidateLabel(Name);
 
-			if (view.ActionType.Selected == ServiceOrderItemView.ActionTypeEnum.Add && view.Specification.Selected == null)
+			if (view.ActionType.Selected == OrderActionType.Add && view.Specification.Selected == null)
 			{
 				ok = false;
 				view.ErrorSpecification.Text = "Selection is mandatory!";
@@ -169,7 +170,7 @@
 				view.ErrorSpecification.Text = String.Empty;
 			}
 
-			if ((view.ActionType.Selected == ServiceOrderItemView.ActionTypeEnum.Modify || view.ActionType.Selected == ServiceOrderItemView.ActionTypeEnum.Delete) && view.Service.Selected == null)
+			if ((view.ActionType.Selected == OrderActionType.Modify || view.ActionType.Selected == OrderActionType.Delete) && view.Service.Selected == null)
 			{
 				ok = false;
 				view.ErrorService.Text = "Selection is mandatory!";
@@ -182,7 +183,7 @@
 			return ok;
 		}
 
-		private void UpdateUiOnActionTypeChange(Option<ServiceOrderItemView.ActionTypeEnum> actionTypeSelected)
+		private void UpdateUiOnActionTypeChange(Option<OrderActionType> actionTypeSelected)
 		{
 			view.TboxName.PlaceHolder = $"{actionTypeSelected.DisplayValue}";
 
@@ -191,12 +192,12 @@
 				view.TboxName.PlaceHolder += $" - {view.Specification.Selected?.Name}";
 			}
 
-			if (actionTypeSelected.Value == ServiceOrderItemView.ActionTypeEnum.Add)
+			if (actionTypeSelected.Value == OrderActionType.Add)
 			{
 				view.Service.IsEnabled = false;
 				view.Specification.IsEnabled = true;
 			}
-			else if (actionTypeSelected.Value == ServiceOrderItemView.ActionTypeEnum.Delete || actionTypeSelected.Value == ServiceOrderItemView.ActionTypeEnum.Modify)
+			else if (actionTypeSelected.Value == OrderActionType.Delete || actionTypeSelected.Value == OrderActionType.Modify)
 			{
 				view.Service.IsEnabled = true;
 				view.Specification.IsEnabled = false;

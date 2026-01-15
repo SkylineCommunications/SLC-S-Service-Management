@@ -3,7 +3,6 @@ namespace ServiceOrder_StateTranstitions_1
 	using System;
 	using System.Linq;
 	using Skyline.DataMiner.Automation;
-	using Skyline.DataMiner.Net.Apps.DataMinerObjectModel;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM;
@@ -14,7 +13,7 @@ namespace ServiceOrder_StateTranstitions_1
 	public class Script
 	{
 		/// <summary>
-		/// The script entry point.
+		///     The script entry point.
 		/// </summary>
 		/// <param name="engine">Link with SLAutomation process.</param>
 		public void Run(IEngine engine)
@@ -58,20 +57,43 @@ namespace ServiceOrder_StateTranstitions_1
 			}
 		}
 
-		public void RunSafe(IEngine engine)
+		private static void RunScriptInitServiceInventoryItem(IEngine engine, Models.ServiceOrderItem orderItem)
+		{
+			engine.GenerateInformation($"Creating Service Inventory Item for Order Item ID {orderItem.ID}/{orderItem.Name}");
+
+			// Prepare a subscript
+			SubScriptOptions subScript = engine.PrepareSubScript("SLC_SM_Create Service Inventory Item");
+
+			// Link the main script dummies to the subscript
+			subScript.SelectScriptParam("DOM ID", orderItem.ID.ToString());
+			subScript.SelectScriptParam("Action", "AddItemSilent");
+
+			// Set some more options
+			subScript.Synchronous = true;
+			subScript.InheritScriptOutput = true;
+
+			// Launch the script
+			subScript.StartScript();
+			if (subScript.HadError)
+			{
+				throw new InvalidOperationException("Script failed");
+			}
+		}
+
+		private void RunSafe(IEngine engine)
 		{
 			var instanceId = engine.ReadScriptParamFromApp<Guid>("ServiceOrderReference");
 			var previousState = engine.ReadScriptParamFromApp("PreviousState").ToLower();
 			var nextState = engine.ReadScriptParamFromApp("NextState").ToLower();
 
 			TransitionsEnum transition = Enum.GetValues(typeof(TransitionsEnum))
-				.Cast<TransitionsEnum?>()
-				.FirstOrDefault(t => t.ToString().Equals($"{previousState}_to_{nextState}", StringComparison.OrdinalIgnoreCase))
-				?? throw new NotSupportedException($"The provided previousState '{previousState}' is not supported for nextState '{nextState}'");
+				                             .Cast<TransitionsEnum?>()
+				                             .FirstOrDefault(t => t.ToString().Equals($"{previousState}_to_{nextState}", StringComparison.OrdinalIgnoreCase))
+			                             ?? throw new NotSupportedException($"The provided previousState '{previousState}' is not supported for nextState '{nextState}'");
 
 			var orderHelper = new DataHelperServiceOrder(engine.GetUserConnection());
 			var order = orderHelper.Read(ServiceOrderExposers.Guid.Equal(instanceId)).FirstOrDefault()
-						  ?? throw new NotSupportedException($"No Order with ID '{instanceId}' exists on the system");
+			            ?? throw new NotSupportedException($"No Order with ID '{instanceId}' exists on the system");
 
 			engine.GenerateInformation($"Service Order Status Transition starting: previousState: {previousState}, nextState: {nextState}");
 			order = orderHelper.UpdateState(order, transition);
@@ -105,7 +127,8 @@ namespace ServiceOrder_StateTranstitions_1
 					var itemHelper = new DataHelperServiceOrderItem(engine.GetUserConnection());
 					foreach (var item in order.OrderItems.Where(x => x.ServiceOrderItem.Status == DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Serviceorderitem_Behavior.StatusesEnum.Acknowledged))
 					{
-						var updatedItem = itemHelper.Read(ServiceOrderItemExposers.Guid.Equal(item.ServiceOrderItem.ID)).FirstOrDefault() ?? throw new InvalidOperationException($"Service Order Item with ID '{item.ServiceOrderItem.ID}' no longer exists.");
+						var updatedItem = itemHelper.Read(ServiceOrderItemExposers.Guid.Equal(item.ServiceOrderItem.ID)).FirstOrDefault()
+						                  ?? throw new InvalidOperationException($"Service Order Item with ID '{item.ServiceOrderItem.ID}' no longer exists.");
 						if (updatedItem.Status == DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Serviceorderitem_Behavior.StatusesEnum.Acknowledged)
 						{
 							engine.GenerateInformation($" - Transitioning Service Order Item '{item.ServiceOrderItem.Name}' to In Progress");
@@ -115,29 +138,6 @@ namespace ServiceOrder_StateTranstitions_1
 						RunScriptInitServiceInventoryItem(engine, item.ServiceOrderItem); // Init inventory item automatically
 					}
 				}
-			}
-		}
-
-		private static void RunScriptInitServiceInventoryItem(IEngine engine, Models.ServiceOrderItem orderItem)
-		{
-			engine.GenerateInformation($"Creating Service Inventory Item for Order Item ID {orderItem.ID}/{orderItem.Name}");
-
-			// Prepare a subscript
-			SubScriptOptions subScript = engine.PrepareSubScript("SLC_SM_Create Service Inventory Item");
-
-			// Link the main script dummies to the subscript
-			subScript.SelectScriptParam("DOM ID", orderItem.ID.ToString());
-			subScript.SelectScriptParam("Action", "AddItemSilent");
-
-			// Set some more options
-			subScript.Synchronous = true;
-			subScript.InheritScriptOutput = true;
-
-			// Launch the script
-			subScript.StartScript();
-			if (subScript.HadError)
-			{
-				throw new InvalidOperationException("Script failed");
 			}
 		}
 	}

@@ -2,8 +2,9 @@ namespace ServiceStateTransitions
 {
 	using System;
 	using System.Linq;
+	using DomHelpers.SlcServicemanagement;
+	using Library;
 	using Skyline.DataMiner.Automation;
-	using Skyline.DataMiner.Net.Apps.DataMinerObjectModel;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM;
@@ -12,12 +13,12 @@ namespace ServiceStateTransitions
 	using static DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Service_Behavior;
 
 	/// <summary>
-	/// Represents a DataMiner Automation script.
+	///     Represents a DataMiner Automation script.
 	/// </summary>
 	public class Script
 	{
 		/// <summary>
-		/// The script entry point.
+		///     The script entry point.
 		/// </summary>
 		/// <param name="engine">Link with SLAutomation process.</param>
 		public void Run(IEngine engine)
@@ -61,6 +62,35 @@ namespace ServiceStateTransitions
 			}
 		}
 
+		private static void SetOrderItemToComplete(IEngine engine, Models.Service service, OrderActionType type)
+		{
+			var itemHelper = new DataHelperServiceOrderItem(engine.GetUserConnection());
+			var orderItem = itemHelper.Read().Find(o => o.ServiceId == service.ID && o.Action == type.ToString());
+			if (orderItem == null)
+			{
+				return;
+			}
+
+			if (orderItem.Status == SlcServicemanagementIds.Behaviors.Serviceorderitem_Behavior.StatusesEnum.InProgress)
+			{
+				engine.GenerateInformation($" - Transitioning Service Order Item '{orderItem.Name}' to Completed");
+				orderItem = itemHelper.UpdateState(orderItem, SlcServicemanagementIds.Behaviors.Serviceorderitem_Behavior.TransitionsEnum.Inprogress_To_Completed);
+			}
+
+			var orderHelper = new DataHelperServiceOrder(engine.GetUserConnection());
+			var order = orderHelper.Read(ServiceOrderExposers.ServiceOrderItemsExposers.ServiceOrderItem.Equal(orderItem)).FirstOrDefault();
+			if (order == null
+				|| order.Status != SlcServicemanagementIds.Behaviors.Serviceorder_Behavior.StatusesEnum.InProgress
+				|| order.OrderItems.Any(o => o.ServiceOrderItem.Status != SlcServicemanagementIds.Behaviors.Serviceorderitem_Behavior.StatusesEnum.Completed))
+			{
+				return;
+			}
+
+			// Transition order to Completed as well since all Service Order items are in state completed.
+			engine.GenerateInformation($" - Transitioning Service Order '{order.Name}' to Completed");
+			orderHelper.UpdateState(order, SlcServicemanagementIds.Behaviors.Serviceorder_Behavior.TransitionsEnum.Inprogress_To_Completed);
+		}
+
 		private void RunSafe(IEngine engine)
 		{
 			var serviceReference = engine.ReadScriptParamFromApp<Guid>("ServiceReference");
@@ -68,38 +98,30 @@ namespace ServiceStateTransitions
 			var nextState = engine.ReadScriptParamFromApp("NextState").ToLower();
 
 			TransitionsEnum transition = Enum.GetValues(typeof(TransitionsEnum))
-				.Cast<TransitionsEnum?>()
-				.FirstOrDefault(t => t.ToString().Equals($"{previousState}_to_{nextState}", StringComparison.OrdinalIgnoreCase))
-				?? throw new NotSupportedException($"The provided previousState '{previousState}' is not supported for nextState '{nextState}'");
+											 .Cast<TransitionsEnum?>()
+											 .FirstOrDefault(t => t.ToString().Equals($"{previousState}_to_{nextState}", StringComparison.OrdinalIgnoreCase))
+										 ?? throw new NotSupportedException($"The provided previousState '{previousState}' is not supported for nextState '{nextState}'");
 
 			var srvHelper = new DataHelperService(engine.GetUserConnection());
 			var service = srvHelper.Read(ServiceExposers.Guid.Equal(serviceReference)).FirstOrDefault()
 						  ?? throw new NotSupportedException($"No Service with ID '{serviceReference}' exists on the system");
 
 			engine.GenerateInformation($"Service Status Transition starting: previousState: {previousState}, nextState: {nextState}");
-			srvHelper.UpdateState(service, transition);
+			service = srvHelper.UpdateState(service, transition);
 
-			if (transition == TransitionsEnum.Reserved_To_Active)
+			switch (transition)
 			{
-				// Transition order item to Complete
-				var itemHelper = new DataHelperServiceOrderItem(engine.GetUserConnection());
-				var orderItem = itemHelper.Read().Find(o => o.ServiceId == service.ID);
-				if (orderItem != null && orderItem.Status == DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Serviceorderitem_Behavior.StatusesEnum.InProgress)
-				{
-					engine.GenerateInformation($" - Transitioning Service Order Item '{orderItem.Name}' to Completed");
-					orderItem = itemHelper.UpdateState(orderItem, DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Serviceorderitem_Behavior.TransitionsEnum.Inprogress_To_Completed);
+				case TransitionsEnum.Reserved_To_Active:
+					SetOrderItemToComplete(engine, service, OrderActionType.Add);
+					break;
 
-					var orderHelper = new DataHelperServiceOrder(engine.GetUserConnection());
-					var order = orderHelper.Read(ServiceOrderExposers.ServiceOrderItemsExposers.ServiceOrderItem.Equal(orderItem)).FirstOrDefault();
-					if (order != null
-						&& order.Status == DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Serviceorder_Behavior.StatusesEnum.InProgress
-						&& order.OrderItems.All(o => o.ServiceOrderItem.Status == DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Serviceorderitem_Behavior.StatusesEnum.Completed))
-					{
-						// Transition order to Completed
-						engine.GenerateInformation($" - Transitioning Service Order '{order.Name}' to Completed");
-						orderHelper.UpdateState(order, DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Serviceorder_Behavior.TransitionsEnum.Inprogress_To_Completed);
-					}
-				}
+				case TransitionsEnum.Active_To_Terminated:
+					SetOrderItemToComplete(engine, service, OrderActionType.Add);
+					break;
+
+				default:
+					// Nothing to do
+					break;
 			}
 		}
 	}
