@@ -1,15 +1,10 @@
 ﻿namespace SLC_SM_IAS_Add_Service_Order_Item_1.Views
 {
 	using System;
-
-	using DomHelpers.SlcServicemanagement;
-
 	using Library;
-
 	using Skyline.DataMiner.Automation;
-	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
-
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
+	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
 
 	public class ServiceOrderItemView : Dialog
 	{

@@ -48,8 +48,9 @@
 			// Remove previous reference
 			RemoveConfigurationParameterReference(profilePage.ProfileDefinitionRecord, record.ConfigurationParameter.ID);
 
-			if (args.Selected != null) // User selected an existing profile definition
+			if (args.Selected != null)
 			{
+				// User selected an existing profile definition
 				AddConfigurationParameterReference(profilePage.ProfileDefinitionRecord, args.Selected.ID);
 				navigator.AddRecordToCurrentPage(
 					DataRecordFactory.CreateDataRecord(args.Selected, State.Equal, RecordType.Reference));
@@ -59,8 +60,9 @@
 				label.Text = args.Selected.Name;
 				button.IsEnabled = false;
 			}
-			else // User selected "-New-"
+			else
 			{
+				// User selected "-New-"
 				var newConfigurationParameter = CreateNewConfigurationParameter(navigator);
 
 				AddConfigurationParameterReference(profilePage.ProfileDefinitionRecord, newConfigurationParameter.ID);

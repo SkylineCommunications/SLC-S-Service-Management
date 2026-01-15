@@ -48,7 +48,7 @@ DATE        VERSION        AUTHOR            COMMENTS
 dd/mm/2025    1.0.0.1        XXX, Skyline    Initial version
 ****************************************************************************
 */
-namespace SLC_SM_IAS_Add_Service_Item_1
+namespace SLC_SM_IAS_Add_Service_Item
 {
 	using System;
 	using System.Collections.Generic;
@@ -62,9 +62,9 @@ namespace SLC_SM_IAS_Add_Service_Item_1
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.IAS;
+	using SLC_SM_IAS_Add_Service_Item.Presenters;
 	using SLC_SM_IAS_Add_Service_Item.ScriptModels;
-	using SLC_SM_IAS_Add_Service_Item_1.Presenters;
-	using SLC_SM_IAS_Add_Service_Item_1.Views;
+	using SLC_SM_IAS_Add_Service_Item.Views;
 	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement.Models;
 
 	/// <summary>

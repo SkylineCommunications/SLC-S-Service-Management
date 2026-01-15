@@ -20,6 +20,7 @@ namespace SLC_SM_GQIDS_Get_Service_Order_Items_1
 
 		// defining input argument, will be converted to guid by OnArgumentsProcessed
 		private readonly GQIStringArgument domIdArg = new GQIStringArgument("DOM ID") { IsRequired = false };
+
 		private GQIDMS _dms;
 		private IGQILogger _logger;
 
@@ -77,9 +78,7 @@ namespace SLC_SM_GQIDS_Get_Service_Order_Items_1
 
 		private static GQIRow BuildRow(Models.ServiceOrderItems item, List<Models.ServiceCategory> categories, List<Models.ServiceSpecification> specifications, List<Models.Service> services)
 		{
-			return new GQIRow(
-				item.ServiceOrderItem.ID.ToString(),
-				new[]
+			GQICell[] columns = new[]
 				{
 					new GQICell { Value = item.ServiceOrderItem.ID.ToString() },
 					new GQICell { Value = item.ServiceOrderItem.Name },
@@ -124,7 +123,8 @@ namespace SLC_SM_GQIDS_Get_Service_Order_Items_1
 					{
 						Value = Statuses.ToValue(item.ServiceOrderItem.Status),
 					},
-				});
+				};
+			return new GQIRow(item.ServiceOrderItem.ID.ToString(), columns);
 		}
 
 		private GQIPage BuildupRows()

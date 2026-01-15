@@ -1,13 +1,7 @@
 ﻿namespace SLC_SM_IAS_Profiles.Presenters
 {
-	using System;
-	using System.Collections.Generic;
-	using System.ComponentModel.DataAnnotations;
 	using System.Linq;
 	using Skyline.DataMiner.Automation;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations;
-	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
-	using SLC_SM_IAS_Profiles.Presenters;
 
 	public class ProfileEventHandlers : AbstractEventHandlers
 	{
@@ -46,53 +40,6 @@
 			EnsureMandatoryProfiles(record);
 
 			presenter.BuildUI();
-		}
-
-		public void Handle_ProfileDefinitionDropdown_Changed(
-			DataRecordPage page,
-			ProfileDataRecord record,
-			TextBox label,
-			Button btnOpen,
-			DropDown<Models.ProfileDefinition>.DropDownChangedEventArgs args)
-		{
-			//var profilePage = page as ProfilePage;
-			//if (profilePage == null)
-			//	return;
-
-			//if (args.Previous == null && args.Selected == null) // this happens when leaving the page.
-			//	return;
-
-			//record.State = State.Removed;
-
-			//// Remove previous reference
-			//RemoveProfileDefinitionReference(profilePage.ProfileDefinitionRecord, record.ProfileDefinition.ID);
-
-			//if (args.Selected != null) // User selected an existing profile definition
-			//{
-			//	AddProfileDefinitionReference(profilePage.ProfileDefinitionRecord, args.Selected.ID);
-			//	navigator.AddRecordToCurrentPage(
-			//		DataRecordFactory.CreateDataRecord(args.Selected, State.Equal, RecordType.Reference));
-
-			//	// Update UI
-			//	label.IsEnabled = false;
-			//	label.Text = args.Selected.Name;
-			//	btnOpen.IsEnabled = false;
-			//}
-			//else // User selected "-New-"
-			//{
-			//	var newProfileDefinition = CreateNewProfile(navigator);
-
-			//	AddProfileDefinitionReference(profilePage.ProfileDefinitionRecord, newProfileDefinition.ID);
-			//	navigator.AddRecordToCurrentPage(
-			//		DataRecordFactory.CreateDataRecord(newProfileDefinition, State.Updated, RecordType.New));
-
-			//	// Update UI
-			//	label.IsEnabled = true;
-			//	label.Text = newProfileDefinition.Name;
-			//	btnOpen.IsEnabled = true;
-			//}
-
-			//presenter.BuildUI();
 		}
 
 		private void EnsureMandatoryParameters(ProfileDataRecord profileRecord)

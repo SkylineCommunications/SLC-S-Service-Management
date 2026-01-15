@@ -676,7 +676,7 @@
 			var value = new TextBox(record.ConfigurationParamValue.StringValue ?? record.ConfigurationParamValue.TextOptions?.Default ?? String.Empty)
 			{
 				Tooltip = record.ConfigurationParamValue.TextOptions?.UserMessage ?? String.Empty,
-				IsVisible = isVisible
+				IsVisible = isVisible,
 			};
 			value.Changed += (sender, args) =>
 			{

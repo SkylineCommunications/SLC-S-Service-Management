@@ -84,7 +84,6 @@ namespace SLCSMASAddServiceItem
 			// However, because of the toolkit NuGet package, this string cannot be found here.
 			// So this comment is here as a workaround.
 			// engine.ShowUI();
-
 			try
 			{
 				_engine = engine;

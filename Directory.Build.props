@@ -1,4 +1,7 @@
 <Project>
+	<PropertyGroup>
+		<PlatformTarget>x86</PlatformTarget>
+	</PropertyGroup>
 	<PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
 		<DebugType>full</DebugType>
 		<CodeAnalysisRuleSet>..\Internal\Code Analysis\qaction-debug.ruleset</CodeAnalysisRuleSet>

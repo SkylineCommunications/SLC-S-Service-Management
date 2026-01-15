@@ -96,7 +96,7 @@
 
 			names.Reverse();
 
-			var path = "Home" + (names.Count > 0 ? " > " + string.Join(" > ", names) : "");
+			var path = "Home" + (names.Count > 0 ? " > " + string.Join(" > ", names) : string.Empty);
 
 			lblTitle.Text = path;
 

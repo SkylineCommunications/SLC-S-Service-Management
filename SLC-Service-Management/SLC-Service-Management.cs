@@ -32,7 +32,6 @@ internal class Script
 			_setupContentPath = installer.GetSetupContentDirectory();
 
 			// Custom installation logic can be added here for each individual install package.
-
 			var exceptions = new List<Exception>();
 			installer.Log("Importing DOM...");
 			exceptions.AddRange(ImportDom(engine));
@@ -56,7 +55,6 @@ internal class Script
 		{
 			// Will import all dom modules that are found in this folder
 			// ImportDom(engine, @"c:\Skyline DataMiner\DOM\EventManager");
-
 			string path = _setupContentPath + @"\DOMImportExport";
 			engine.GenerateInformation($"setupContentPath for DOM: {path}");
 

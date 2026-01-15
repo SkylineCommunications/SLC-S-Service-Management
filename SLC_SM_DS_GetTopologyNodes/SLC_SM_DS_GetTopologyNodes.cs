@@ -130,9 +130,7 @@ namespace SLCSMDSGetTopologyNodes
 
 		private GQIRow BuildRow(Models.ServiceItem serviceItem, string referenceId, string icon)
 		{
-			return new GQIRow(
-				Guid.NewGuid().ToString(),
-				new[]
+			GQICell[] columns = new[]
 				{
 					new GQICell { Value = serviceItem.ID.ToString() },
 					new GQICell { Value = serviceItem.Type.ToString() },
@@ -140,7 +138,8 @@ namespace SLCSMDSGetTopologyNodes
 					new GQICell { Value = serviceItem.DefinitionReference ?? String.Empty },
 					new GQICell { Value = referenceId ?? String.Empty },
 					new GQICell { Value = icon ?? String.Empty },
-				});
+				};
+			return new GQIRow(Guid.NewGuid().ToString(), columns);
 		}
 
 		private GQIPage BuildupRows()

@@ -86,8 +86,8 @@ namespace SLCSMASAddRelationship
 		{
 			try
 			{
-				//ATTENTION: THIS SCRIPT IS CURRENTLY NOT BEING USED.
-				//RunSafe(engine);
+				////ATTENTION: THIS SCRIPT IS CURRENTLY NOT BEING USED.
+				////RunSafe(engine);
 			}
 			catch (Exception e)
 			{
@@ -176,8 +176,7 @@ namespace SLCSMASAddRelationship
 				newRelationship.ParentServiceItem,
 				newRelationship.ParentServiceItemInterfaceID,
 				newRelationship.ChildServiceItem,
-				newRelationship.ChildServiceItemInterfaceID
-			);
+				newRelationship.ChildServiceItemInterfaceID);
 
 			if (existing == null)
 			{

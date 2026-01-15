@@ -60,8 +60,9 @@
 			// Remove previous reference
 			RemoveProfileDefinitionReference(profilePage.ProfileDefinitionRecord, record.ProfileDefinition.ID);
 
-			if (args.Selected != null) // User selected an existing profile definition
+			if (args.Selected != null)
 			{
+				// User selected an existing profile definition
 				AddProfileDefinitionReference(profilePage.ProfileDefinitionRecord, args.Selected.ID);
 				navigator.AddRecordToCurrentPage(
 					DataRecordFactory.CreateDataRecord(args.Selected, State.Equal, RecordType.Reference));
@@ -71,8 +72,9 @@
 				label.Text = args.Selected.Name;
 				btnOpen.IsEnabled = false;
 			}
-			else // User selected "-New-"
+			else
 			{
+				// User selected "-New-"
 				var newProfileDefinition = CreateNewProfileDefinition(navigator);
 
 				AddProfileDefinitionReference(profilePage.ProfileDefinitionRecord, newProfileDefinition.ID);

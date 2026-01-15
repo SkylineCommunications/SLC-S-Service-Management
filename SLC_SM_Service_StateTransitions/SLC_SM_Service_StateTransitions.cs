@@ -17,7 +17,6 @@ namespace SLCSMServiceStateTransitions
 		{
 			// DO NOT REMOVE
 			// engine.ShowUI();
-
 			var instanceId = context.ContextId as DomInstanceId;
 			var previousState = engine.ReadScriptParamFromApp("PreviousState");
 			var nextState = engine.ReadScriptParamFromApp("NextState");

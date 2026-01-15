@@ -1,4 +1,4 @@
-﻿namespace SLC_SM_IAS_Add_Service_Item_1.Views
+﻿namespace SLC_SM_IAS_Add_Service_Item.Views
 {
 	using System;
 

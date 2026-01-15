@@ -107,8 +107,7 @@ namespace SLCSMIASProfiles
 
 		private void RunSafe(IEngine engine)
 		{
-			//engine.WebUIVersion = WebUIVersion.V2;
-
+			////engine.WebUIVersion = WebUIVersion.V2;
 			engine.SetFlag(RunTimeFlags.NoCheckingSets);
 			engine.SetFlag(RunTimeFlags.NoKeyCaching);
 			engine.Timeout = TimeSpan.FromHours(1);

@@ -120,7 +120,6 @@ namespace SLCSMDSGetServiceByServiceType
 			};
 		}
 
-
 		public GQIPage GetNextPage(GetNextPageInputArgs args)
 		{
 			return _logger.PerformanceLogger(nameof(GetNextPage), BuildupRows);

@@ -60,9 +60,7 @@ namespace SLC_SM_GQIDS_Get_Service_Orders
 
 		private GQIRow BuildRow(Models.ServiceOrder item, List<Skyline.DataMiner.ProjectApi.ServiceManagement.API.PeopleAndOrganization.Models.Organization> organizations)
 		{
-			return new GQIRow(
-				item.ID.ToString(),
-				new[]
+			GQICell[] columns = new[]
 				{
 					new GQICell { Value = item.ID.ToString() },
 					new GQICell { Value = item.Name ?? String.Empty },
@@ -71,7 +69,8 @@ namespace SLC_SM_GQIDS_Get_Service_Orders
 					new GQICell { Value = item.ExternalID ?? String.Empty },
 					new GQICell { Value = item.OrganizationId.HasValue ? organizations.Find(x => x.ID == item.OrganizationId)?.Name ?? String.Empty : String.Empty },
 					new GQICell { Value = item.Status.GetDescription() },
-				});
+				};
+			return new GQIRow(item.ID.ToString(), columns);
 		}
 
 		private GQIPage BuildupRows()

@@ -8,8 +8,10 @@
 	[TestClass]
 	public class ScriptExtensionsTests
 	{
+#pragma warning disable CS8618 // Non-nullable field must contain a non-null value when exiting constructor. Consider adding the 'required' modifier or declaring as nullable.
 		private Mock<IEngine> engineMock;
 		private Mock<ScriptParam> paramMock;
+#pragma warning restore CS8618 // Non-nullable field must contain a non-null value when exiting constructor. Consider adding the 'required' modifier or declaring as nullable.
 
 		private enum TestEnum
 		{
@@ -89,12 +91,14 @@
 		}
 
 		[TestMethod]
-		[ExpectedException(typeof(ArgumentException))]
 		public void ReadScriptParamsFromApp_Generic_ThrowsIfParamNull()
 		{
-			engineMock.Setup(e => e.GetScriptParam("TestParam")).Returns((ScriptParam)null);
+			engineMock.Setup(e => e.GetScriptParam("TestParam")).Returns((ScriptParam?)null);
 
-			engineMock.Object.ReadScriptParamsFromApp<int>("TestParam");
+			Assert.ThrowsException<ArgumentException>(() =>
+			{
+				engineMock.Object.ReadScriptParamsFromApp<int>("TestParam");
+			});
 		}
 
 		[TestMethod]

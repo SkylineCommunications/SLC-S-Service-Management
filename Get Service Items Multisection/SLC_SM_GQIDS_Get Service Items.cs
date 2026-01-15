@@ -87,9 +87,7 @@ namespace SLC_SM_GQIDS_Get_Service_Items
 		private GQIRow BuildRow(Models.ServiceItem item)
 		{
 			var implementationRef = GetImplementationRefName(item.ImplementationReference, item.DefinitionReference);
-			return new GQIRow(
-				Guid.NewGuid().ToString(),
-				new[]
+			GQICell[] columns = new[]
 				{
 					new GQICell { Value = item.Label },
 					new GQICell { Value = (int)item.ID },
@@ -107,7 +105,8 @@ namespace SLC_SM_GQIDS_Get_Service_Items
 					new GQICell { Value = !String.IsNullOrEmpty(implementationRef.CustomLink) },
 					new GQICell { Value = implementationRef.MonServiceState },
 					new GQICell { Value = implementationRef.MonServiceDmaIdSid },
-				});
+				};
+			return new GQIRow(Guid.NewGuid().ToString(), columns);
 		}
 
 		private GQIPage BuildupRows()

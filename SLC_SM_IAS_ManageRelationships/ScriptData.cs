@@ -83,6 +83,15 @@ namespace SLCSMIASManageRelationships
 				throw new InvalidOperationException("Select a minimum of 2 service items to make a connection");
 		}
 
+		public override string ToString()
+		{
+			return $@"Dom ID:			{DomId}
+Service IDs:	{String.Join(", ", ServiceIds)}
+Def Ref:		{DefinitionReference}
+Has Def Ref:	{HasDefinitionReference}
+Type:			{Type}";
+		}
+
 		private void LoadScriptParameters()
 		{
 			DomId = _engine.ReadScriptParamFromApp<Guid>("DomId");
@@ -92,15 +101,6 @@ namespace SLCSMIASManageRelationships
 			DefinitionReference = _engine.ReadScriptParamFromApp("DefinitionReference");
 
 			Type = _engine.ReadScriptParamFromApp("Type");
-		}
-
-		public override string ToString()
-		{
-			return $@"Dom ID:			{DomId}
-Service IDs:	{String.Join(", ", ServiceIds)}
-Def Ref:		{DefinitionReference}
-Has Def Ref:	{HasDefinitionReference}
-Type:			{Type}";
 		}
 	}
 }

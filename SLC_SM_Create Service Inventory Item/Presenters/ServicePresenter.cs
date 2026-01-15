@@ -93,15 +93,6 @@
 			view.Specs.Changed += Specs_Changed;
 		}
 
-		private void Specs_Changed(object sender, DropDown<Models.ServiceSpecification>.DropDownChangedEventArgs e)
-		{
-			view.GenerateMonitoringService.IsEnabled = e.SelectedOption?.Value != null;
-			if (e.SelectedOption?.Value == null)
-			{
-				view.GenerateMonitoringService.IsChecked = false;
-			}
-		}
-
 		public void LoadFromModel(Models.Service instance)
 		{
 			instanceToReturn = instance;
@@ -205,6 +196,15 @@
 			}
 
 			return ok;
+		}
+
+		private void Specs_Changed(object sender, DropDown<Models.ServiceSpecification>.DropDownChangedEventArgs e)
+		{
+			view.GenerateMonitoringService.IsEnabled = e.SelectedOption?.Value != null;
+			if (e.SelectedOption?.Value == null)
+			{
+				view.GenerateMonitoringService.IsChecked = false;
+			}
 		}
 
 		private bool ValidateLabel(string newValue)

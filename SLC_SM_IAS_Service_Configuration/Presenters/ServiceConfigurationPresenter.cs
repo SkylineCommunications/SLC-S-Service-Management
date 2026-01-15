@@ -334,7 +334,8 @@
 
 			view.AddWidget(new WhiteSpace(), ++row, 0);
 
-			if (configuration.State == State.Create && view.ConfigurationVersions.Options.Count() > 3) // Only 2 versions allowed per service
+			// Only 2 versions allowed per service
+			if (configuration.State == State.Create && view.ConfigurationVersions.Options.Count() > 3)
 			{
 				row = BuildExceedNumberOfVersionUI(row);
 			}
