@@ -1,49 +1,54 @@
 {
-  "BehaviorDefinitionId": {
-    "Id": "9e644aab-6b60-4cce-a901-520162077080",
-    "ModuleId": "(slc)servicemanagement"
-  },
-  "Id": {
-    "Id": "1480b788-4aff-4e2a-9ee0-ec55bb0f8912",
-    "ModuleId": "(slc)servicemanagement"
-  },
-  "ModuleSettingsOverrides": {
-    "HistorySettings": null,
-    "NameDefinition": {
-      "ConcatenationItems": [
-        {
-          "$type": "Skyline.DataMiner.Net.Apps.DataMinerObjectModel.Concatenation.FieldValueConcatenationItem, SLNetTypes",
-          "FieldDescriptorId": {
-            "Id": "34985cc6-5a53-4b84-a8d9-757bd8755a3b"
-          }
-        }
-      ]
-    },
-    "ScriptSettings": null
-  },
-  "Name": "Service Order Items",
-  "SectionDefinitionLinks": [
-    {
-      "AllowMultipleSections": false,
-      "IsOptional": false,
-      "IsSoftDeleted": false,
-      "SectionDefinitionID": {
-        "Id": "48b18c79-a682-4dc0-a60f-6986d181e987",
-        "ModuleId": "(slc)servicemanagement"
-      }
-    },
-    {
-      "AllowMultipleSections": false,
-      "IsOptional": false,
-      "IsSoftDeleted": false,
-      "SectionDefinitionID": {
-        "Id": "4501adfb-7c9f-423c-b449-73a46d32a46b",
-        "ModuleId": "(slc)servicemanagement"
-      }
-    }
-  ],
-  "VisualStructure": {
-    "IsHidden": false,
-    "SectionDefinitionInfos": []
-  }
+	"Id": {
+		"Id": "1480b788-4aff-4e2a-9ee0-ec55bb0f8912",
+		"ModuleId": "(slc)servicemanagement"
+	},
+	"SectionDefinitionLinks": [
+		{
+			"SectionDefinitionID": {
+				"Id": "48b18c79-a682-4dc0-a60f-6986d181e987",
+				"ModuleId": "(slc)servicemanagement"
+			},
+			"IsSoftDeleted": false,
+			"IsOptional": false,
+			"AllowMultipleSections": false
+		},
+		{
+			"SectionDefinitionID": {
+				"Id": "4501adfb-7c9f-423c-b449-73a46d32a46b",
+				"ModuleId": "(slc)servicemanagement"
+			},
+			"IsSoftDeleted": false,
+			"IsOptional": false,
+			"AllowMultipleSections": false
+		}
+	],
+	"Name": "Service Order Items",
+	"VisualStructure": {
+		"SectionDefinitionInfos": [
+		],
+		"IsHidden": false
+	},
+	"BehaviorDefinitionId": {
+		"Id": "9e644aab-6b60-4cce-a901-520162077080",
+		"ModuleId": "(slc)servicemanagement"
+	},
+	"ModuleSettingsOverrides": {
+		"NameDefinition": {
+			"ConcatenationItems": [
+				{
+					"$type": "Skyline.DataMiner.Net.Apps.DataMinerObjectModel.Concatenation.FieldValueConcatenationItem, SLNetTypes",
+					"FieldDescriptorId": {
+						"Id": "34985cc6-5a53-4b84-a8d9-757bd8755a3b"
+					}
+				}
+			]
+		},
+		"ScriptSettings": null,
+		"HistorySettings": null
+	},
+	"SyncLastModified": "2026-01-16T12:46:31.9386167Z",
+	"LastModifiedBy": "Robin Meurisse",
+	"CreatedAt": "2026-01-12T10:03:06.4603903Z",
+	"CreatedBy": "Robin Meurisse"
 }

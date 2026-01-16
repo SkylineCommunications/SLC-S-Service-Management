@@ -3,8 +3,10 @@ namespace SLC_SM_GQIDS_Get_Service_Order_Items_1
 	using System;
 	using System.Collections.Generic;
 	using System.Linq;
+	using DomHelpers.SlcServicemanagement;
 	using Skyline.DataMiner.Analytics.GenericInterface;
 	using Skyline.DataMiner.Net;
+	using Skyline.DataMiner.Net.Apps.DataMinerObjectModel;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM;
@@ -44,6 +46,7 @@ namespace SLC_SM_GQIDS_Get_Service_Order_Items_1
 				new GQIStringColumn("Configuration"),
 				new GQIStringColumn("Status"),
 				new GQIStringColumn("StatusId"),
+				new GQIStringColumn("Description"),
 			};
 		}
 
@@ -103,10 +106,7 @@ namespace SLC_SM_GQIDS_Get_Service_Order_Items_1
 							? services.FirstOrDefault(x => x.ID == item.ServiceOrderItem.ServiceId)?.Name ?? String.Empty
 							: String.Empty,
 					},
-					new GQICell
-					{
-						Value = item.ServiceOrderItem.ServiceId?.ToString() ?? String.Empty,
-					},
+					new GQICell { Value = item.ServiceOrderItem.ServiceId?.ToString() ?? String.Empty },
 					new GQICell
 					{
 						Value = String.Empty, // Property has been removed
@@ -115,16 +115,11 @@ namespace SLC_SM_GQIDS_Get_Service_Order_Items_1
 					{
 						Value = String.Empty, // Config has been replaced by multiple
 					},
-					new GQICell
-					{
-						Value = item.ServiceOrderItem.Status.GetDescription(),
-					},
-					new GQICell
-					{
-						Value = Statuses.ToValue(item.ServiceOrderItem.Status),
-					},
+					new GQICell { Value = item.ServiceOrderItem.Status.GetDescription() },
+					new GQICell { Value = Statuses.ToValue(item.ServiceOrderItem.Status) },
+					new GQICell { Value = item.ServiceOrderItem.Description ?? String.Empty },
 				};
-			return new GQIRow(item.ServiceOrderItem.ID.ToString(), columns);
+			return new GQIRow(item.ServiceOrderItem.ID.ToString(), columns) { Metadata = new GenIfRowMetadata(new[] { new ObjectRefMetadata { Object = new DomInstanceId(item.ServiceOrderItem.ID) { ModuleId = SlcServicemanagementIds.ModuleId } } }) };
 		}
 
 		private GQIPage BuildupRows()

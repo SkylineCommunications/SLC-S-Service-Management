@@ -4,6 +4,7 @@ namespace ServiceStateTransitions
 	using System.Linq;
 	using DomHelpers.SlcServicemanagement;
 	using Library;
+	using Library.Dom;
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
@@ -62,33 +63,29 @@ namespace ServiceStateTransitions
 			}
 		}
 
-		private static void SetOrderItemToComplete(IEngine engine, Models.Service service, OrderActionType type)
+		private static void SetOrderItemToComplete(IEngine engine, DataHelperService srvHelper, Models.Service service, TransitionsEnum transition)
 		{
+			engine.GenerateInformation($"Service Status Transition starting: {transition}");
+			srvHelper.UpdateState(service, transition);
+
 			var itemHelper = new DataHelperServiceOrderItem(engine.GetUserConnection());
-			var orderItem = itemHelper.Read(ServiceOrderItemExposers.ServiceID.Equal(service.ID).AND(ServiceOrderItemExposers.Action.Equal(type.ToString()))).FirstOrDefault();
-			if (orderItem == null)
+			var orderItem = itemHelper.Read(ServiceOrderItemExposers.ServiceID.Equal(service.ID).AND(ServiceOrderItemExposers.Action.Equal(OrderActionType.Add.ToString()))).FirstOrDefault();
+			orderItem?.SetStatusToCompleted(engine);
+		}
+
+		private static void SetToTerminated(IEngine engine, DataHelperService srvHelper, Models.Service service, TransitionsEnum transition)
+		{
+			if (service.ServiceItems.Any(s => s.LinkedReferenceStillActive(engine)))
 			{
 				return;
 			}
 
-			if (orderItem.Status == SlcServicemanagementIds.Behaviors.Serviceorderitem_Behavior.StatusesEnum.InProgress)
-			{
-				engine.GenerateInformation($" - Transitioning Service Order Item '{orderItem.Name}' to Completed");
-				orderItem = itemHelper.UpdateState(orderItem, SlcServicemanagementIds.Behaviors.Serviceorderitem_Behavior.TransitionsEnum.Inprogress_To_Completed);
-			}
+			engine.GenerateInformation($"Service Status Transition starting: {transition}");
+			srvHelper.UpdateState(service, transition);
 
-			var orderHelper = new DataHelperServiceOrder(engine.GetUserConnection());
-			var order = orderHelper.Read(ServiceOrderExposers.ServiceOrderItemsExposers.ServiceOrderItem.Equal(orderItem)).FirstOrDefault();
-			if (order == null
-				|| order.Status != SlcServicemanagementIds.Behaviors.Serviceorder_Behavior.StatusesEnum.InProgress
-				|| order.OrderItems.Any(o => o.ServiceOrderItem.Status != SlcServicemanagementIds.Behaviors.Serviceorderitem_Behavior.StatusesEnum.Completed))
-			{
-				return;
-			}
-
-			// Transition order to Completed as well since all Service Order items are in state completed.
-			engine.GenerateInformation($" - Transitioning Service Order '{order.Name}' to Completed");
-			orderHelper.UpdateState(order, SlcServicemanagementIds.Behaviors.Serviceorder_Behavior.TransitionsEnum.Inprogress_To_Completed);
+			var itemHelper = new DataHelperServiceOrderItem(engine.GetUserConnection());
+			var orderItem = itemHelper.Read(ServiceOrderItemExposers.ServiceID.Equal(service.ID).AND(ServiceOrderItemExposers.Action.Equal(OrderActionType.Delete.ToString()))).FirstOrDefault();
+			orderItem?.SetStatusToCompleted(engine);
 		}
 
 		private void RunSafe(IEngine engine)
@@ -106,21 +103,19 @@ namespace ServiceStateTransitions
 			var service = srvHelper.Read(ServiceExposers.Guid.Equal(serviceReference)).FirstOrDefault()
 						  ?? throw new NotSupportedException($"No Service with ID '{serviceReference}' exists on the system");
 
-			engine.GenerateInformation($"Service Status Transition starting: previousState: {previousState}, nextState: {nextState}");
-			service = srvHelper.UpdateState(service, transition);
-
 			switch (transition)
 			{
 				case TransitionsEnum.Reserved_To_Active:
-					SetOrderItemToComplete(engine, service, OrderActionType.Add);
+					SetOrderItemToComplete(engine, srvHelper, service, transition);
 					break;
 
 				case TransitionsEnum.Active_To_Terminated:
-					SetOrderItemToComplete(engine, service, OrderActionType.Add);
+					SetToTerminated(engine, srvHelper, service, transition);
 					break;
 
 				default:
-					// Nothing to do
+					engine.GenerateInformation($"Service Status Transition starting: previousState: {previousState}, nextState: {nextState}");
+					srvHelper.UpdateState(service, transition);
 					break;
 			}
 		}

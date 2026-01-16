@@ -1,21 +1,25 @@
 {
-  "BehaviorDefinitionId": null,
-  "Id": {
-    "Id": "42e3f398-b966-41fa-96c7-a7a0189f0aab",
-    "ModuleId": "(slc)servicemanagement"
-  },
-  "ModuleSettingsOverrides": null,
-  "Name": "Service Configuration Version",
-  "SectionDefinitionLinks": [
-    {
-      "AllowMultipleSections": false,
-      "IsOptional": false,
-      "IsSoftDeleted": false,
-      "SectionDefinitionID": {
-        "Id": "f91f1783-75c4-447b-a82c-76150902a33d",
-        "ModuleId": "(slc)servicemanagement"
-      }
-    }
-  ],
-  "VisualStructure": null
+	"Id": {
+		"Id": "42e3f398-b966-41fa-96c7-a7a0189f0aab",
+		"ModuleId": "(slc)servicemanagement"
+	},
+	"SectionDefinitionLinks": [
+		{
+			"SectionDefinitionID": {
+				"Id": "f91f1783-75c4-447b-a82c-76150902a33d",
+				"ModuleId": "(slc)servicemanagement"
+			},
+			"IsSoftDeleted": false,
+			"IsOptional": false,
+			"AllowMultipleSections": false
+		}
+	],
+	"Name": "Service Configuration Version",
+	"VisualStructure": null,
+	"BehaviorDefinitionId": null,
+	"ModuleSettingsOverrides": null,
+	"SyncLastModified": "2026-01-16T12:46:32.257512Z",
+	"LastModifiedBy": "Robin Meurisse",
+	"CreatedAt": "2026-01-12T10:03:06.5172115Z",
+	"CreatedBy": "Robin Meurisse"
 }

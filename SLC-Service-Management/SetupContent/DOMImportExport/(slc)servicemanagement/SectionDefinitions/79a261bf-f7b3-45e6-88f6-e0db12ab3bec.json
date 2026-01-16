@@ -2,10 +2,10 @@
 	"$type": "Skyline.DataMiner.Net.Sections.CustomSectionDefinition, SLNetTypes",
 	"ID": {
 		"$type": "Skyline.DataMiner.Net.Sections.SectionDefinitionID, SLNetTypes",
-		"Id": "8a0d1812-2749-48b9-b673-3bc35c660976",
+		"Id": "79a261bf-f7b3-45e6-88f6-e0db12ab3bec",
 		"ModuleId": "(slc)servicemanagement"
 	},
-	"Name": "Service Category Info",
+	"Name": "Service Property Value",
 	"FieldDescriptors": {
 		"$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.FieldDescriptor, SLNetTypes]], mscorlib",
 		"$values": [
@@ -13,9 +13,9 @@
 				"$type": "Skyline.DataMiner.Net.Sections.FieldDescriptor, SLNetTypes",
 				"ID": {
 					"$type": "Skyline.DataMiner.Net.Sections.FieldDescriptorID, SLNetTypes",
-					"Id": "797eeb46-c5fa-4461-aa30-5c83f0a997ee"
+					"Id": "e4b41897-a6eb-452a-a6ad-88f11e9f9c22"
 				},
-				"Name": "Name",
+				"Name": "Property Name",
 				"Validators": {
 					"$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.IFieldValidator, SLNetTypes]], mscorlib",
 					"$values": [
@@ -33,9 +33,9 @@
 				"$type": "Skyline.DataMiner.Net.Sections.FieldDescriptor, SLNetTypes",
 				"ID": {
 					"$type": "Skyline.DataMiner.Net.Sections.FieldDescriptorID, SLNetTypes",
-					"Id": "dc3a4293-a40a-483f-80a8-1f337474d244"
+					"Id": "fa59e22e-1ea6-49c2-b134-d42273134508"
 				},
-				"Name": "Type",
+				"Name": "Value",
 				"Validators": {
 					"$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.IFieldValidator, SLNetTypes]], mscorlib",
 					"$values": [
@@ -45,27 +45,38 @@
 				"IsOptional": true,
 				"IsHidden": false,
 				"IsReadonly": false,
-				"Tooltip": "",
+				"Tooltip": "Value of the property for the instance this property value instance is linked to ",
 				"DefaultValue": null,
 				"IsSoftDeleted": false
 			},
 			{
-				"$type": "Skyline.DataMiner.Net.Sections.FieldDescriptor, SLNetTypes",
+				"$type": "Skyline.DataMiner.Net.Sections.DomInstanceFieldDescriptor, SLNetTypes",
 				"ID": {
 					"$type": "Skyline.DataMiner.Net.Sections.FieldDescriptorID, SLNetTypes",
-					"Id": "ca45e379-91dd-42db-a06d-f09588aadd7f"
+					"Id": "f8905e96-be94-48d2-9ebe-7bafee3c1224"
 				},
-				"Name": "Icon",
+				"Name": "Property",
 				"Validators": {
 					"$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.IFieldValidator, SLNetTypes]], mscorlib",
 					"$values": [
 					]
 				},
-				"FieldType": "System.String, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089",
+				"ModuleId": "(slc)servicemanagement",
+				"DomDefinitionIds": {
+					"$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Apps.DataMinerObjectModel.DomDefinitionId, SLNetTypes]], mscorlib",
+					"$values": [
+						{
+							"$type": "Skyline.DataMiner.Net.Apps.DataMinerObjectModel.DomDefinitionId, SLNetTypes",
+							"Id": "689844f0-bbc3-430b-998a-33a0a8da7358",
+							"ModuleId": "(slc)servicemanagement"
+						}
+					]
+				},
+				"FieldType": "System.Guid, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089",
 				"IsOptional": true,
 				"IsHidden": false,
 				"IsReadonly": false,
-				"Tooltip": "Icon used to represent the group",
+				"Tooltip": "Reference to the definition of the Property",
 				"DefaultValue": null,
 				"IsSoftDeleted": false
 			}
@@ -78,8 +89,8 @@
 	},
 	"ReservationLinkInfo": null,
 	"IsHidden": false,
-	"SyncLastModified": "2026-01-12T10:48:53.0301583Z",
-	"LastModifiedBy": "Robin Meurisse",
-	"CreatedAt": "2026-01-12T10:03:05.6755212Z",
-	"CreatedBy": "Robin Meurisse"
+	"SyncLastModified": "2025-03-05T13:34:34.4625212Z",
+	"LastModifiedBy": "Jonas Kockx",
+	"CreatedAt": "2025-01-21T09:34:36.1096124Z",
+	"CreatedBy": "Jonas Kockx"
 }

@@ -56,9 +56,10 @@
 			get
 			{
 				instanceToReturn.ServiceOrderItem.Name = Name;
+				instanceToReturn.ServiceOrderItem.Description = view.TboxDescription.Text ?? String.Empty;
 				instanceToReturn.ServiceOrderItem.Action = view.ActionType.Selected.ToString();
-				instanceToReturn.ServiceOrderItem.StartTime = view.Start.DateTime;
-				instanceToReturn.ServiceOrderItem.EndTime = view.IndefiniteTime.IsChecked ? default(DateTime?) : view.End.DateTime;
+				instanceToReturn.ServiceOrderItem.StartTime = view.Start.IsVisible ? view.Start.DateTime : default(DateTime?);
+				instanceToReturn.ServiceOrderItem.EndTime = !view.Start.IsVisible || view.IndefiniteTime.IsChecked ? default(DateTime?) : view.End.DateTime;
 				instanceToReturn.ServiceOrderItem.IndefiniteRuntime = view.IndefiniteTime.IsChecked;
 				instanceToReturn.ServiceOrderItem.ServiceCategoryId = view.Category.Selected?.ID;
 				instanceToReturn.ServiceOrderItem.SpecificationId = view.Specification.Selected?.ID;
@@ -120,7 +121,7 @@
 			view.ActionType.Selected = Enum.TryParse(instance.ServiceOrderItem.Action, true, out OrderActionType action)
 				? action
 				: OrderActionType.NoChange;
-
+			view.TboxDescription.Text = instance.ServiceOrderItem.Description ?? String.Empty;
 			view.Start.DateTime = instance.ServiceOrderItem.StartTime ?? DateTime.Now;
 			view.End.DateTime = instance.ServiceOrderItem.EndTime ?? DateTime.Now + TimeSpan.FromDays(7);
 			view.IndefiniteTime.IsChecked = instance.ServiceOrderItem.IndefiniteRuntime ?? false;
@@ -212,6 +213,13 @@
 				view.Service.IsEnabled = true;
 				view.Specification.IsEnabled = true;
 			}
+
+			bool timeApplicable = actionTypeSelected.Value == OrderActionType.Add;
+			view.LblStartTime.IsVisible = timeApplicable;
+			view.Start.IsVisible = timeApplicable;
+			view.LblEndTime.IsVisible = timeApplicable;
+			view.End.IsVisible = timeApplicable;
+			view.IndefiniteTime.IsVisible = timeApplicable;
 		}
 
 		private bool ValidateLabel(string newValue)

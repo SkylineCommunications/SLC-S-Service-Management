@@ -17,6 +17,8 @@
 			AddWidget(LblName, ++row, 0);
 			AddWidget(TboxName, row, 1, 1, 2);
 			AddWidget(ErrorName, row, 3);
+			AddWidget(LblDescription, ++row, 0);
+			AddWidget(TboxDescription, row, 1, 1, 2);
 			AddWidget(LblAction, ++row, 0);
 			AddWidget(ActionType, row, 1, 1, 2);
 			AddWidget(LblStartTime, ++row, 0);
@@ -45,6 +47,10 @@
 		public TextBox TboxName { get; } = new TextBox { Width = Defaults.WidgetWidth };
 
 		public Label ErrorName { get; } = new Label(String.Empty);
+
+		public Label LblDescription { get; } = new Label("Description");
+
+		public TextBox TboxDescription { get; } = new TextBox { MinWidth = Defaults.WidgetWidth, IsMultiline = true };
 
 		public Label LblAction { get; } = new Label("Action");
 

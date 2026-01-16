@@ -1,183 +1,195 @@
 {
-  "$type": "Skyline.DataMiner.Net.Sections.CustomSectionDefinition, SLNetTypes",
-  "FieldDescriptors": {
-    "$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.FieldDescriptor, SLNetTypes]], mscorlib",
-    "$values": [
-      {
-        "$type": "Skyline.DataMiner.Net.Sections.FieldDescriptor, SLNetTypes",
-        "DefaultValue": null,
-        "FieldType": "System.String, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089",
-        "ID": {
-          "$type": "Skyline.DataMiner.Net.Sections.FieldDescriptorID, SLNetTypes",
-          "Id": "24eeee19-8bef-44dc-be82-ef6c538d0f8d"
-        },
-        "IsHidden": true,
-        "IsOptional": true,
-        "IsReadonly": false,
-        "IsSoftDeleted": false,
-        "Name": "Label",
-        "Tooltip": "Label that is used to represent this Service Item",
-        "Validators": {
-          "$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.IFieldValidator, SLNetTypes]], mscorlib",
-          "$values": []
-        }
-      },
-      {
-        "$type": "Skyline.DataMiner.Net.Sections.FieldDescriptor, SLNetTypes",
-        "DefaultValue": null,
-        "FieldType": "System.Int64, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089",
-        "ID": {
-          "$type": "Skyline.DataMiner.Net.Sections.FieldDescriptorID, SLNetTypes",
-          "Id": "01c36e03-5baf-44f9-8bbb-f1e7383cc148"
-        },
-        "IsHidden": true,
-        "IsOptional": true,
-        "IsReadonly": false,
-        "IsSoftDeleted": false,
-        "Name": "Service Item ID",
-        "Tooltip": "Identifier of the Service Item within the Service Specifciation or Service",
-        "Validators": {
-          "$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.IFieldValidator, SLNetTypes]], mscorlib",
-          "$values": []
-        }
-      },
-      {
-        "$type": "Skyline.DataMiner.Net.Sections.GenericEnumFieldDescriptor, SLNetTypes",
-        "DefaultValue": null,
-        "FieldType": "Skyline.DataMiner.Net.GenericEnums.GenericEnum`1[[System.String, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089]], SLNetTypes, Version=1.0.0.0, Culture=neutral, PublicKeyToken=9789b1eac4cb1b12",
-        "GenericEnumInstance": {
-          "$type": "Skyline.DataMiner.Net.GenericEnums.GenericEnum`1[[System.String, mscorlib]], SLNetTypes",
-          "Entries": {
-            "$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.GenericEnums.GenericEnumEntry`1[[System.String, mscorlib]], SLNetTypes]], mscorlib",
-            "$values": [
-              {
-                "$type": "Skyline.DataMiner.Net.GenericEnums.GenericEnumEntry`1[[System.String, mscorlib]], SLNetTypes",
-                "DisplayName": "Workflow",
-                "IsHidden": false,
-                "IsSoftDeleted": false,
-                "Value": "Workflow"
-              },
-              {
-                "$type": "Skyline.DataMiner.Net.GenericEnums.GenericEnumEntry`1[[System.String, mscorlib]], SLNetTypes",
-                "DisplayName": "Service",
-                "IsHidden": false,
-                "IsSoftDeleted": false,
-                "Value": "Service"
-              },
-              {
-                "$type": "Skyline.DataMiner.Net.GenericEnums.GenericEnumEntry`1[[System.String, mscorlib]], SLNetTypes",
-                "DisplayName": "SRM Booking",
-                "IsHidden": false,
-                "IsSoftDeleted": false,
-                "Value": "SRM Booking"
-              }
-            ]
-          },
-          "EnumName": "Service Item Types"
-        },
-        "ID": {
-          "$type": "Skyline.DataMiner.Net.Sections.FieldDescriptorID, SLNetTypes",
-          "Id": "8b3e1590-2eeb-4c2c-b249-dd61023a1b06"
-        },
-        "IsHidden": true,
-        "IsOptional": true,
-        "IsReadonly": false,
-        "IsSoftDeleted": false,
-        "Name": "Service Item Type",
-        "Tooltip": "Indicates if the Service Item will be implemented using Worfklows, SRM Booking or Tasks",
-        "Validators": {
-          "$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.IFieldValidator, SLNetTypes]], mscorlib",
-          "$values": []
-        }
-      },
-      {
-        "$type": "Skyline.DataMiner.Net.Sections.FieldDescriptor, SLNetTypes",
-        "DefaultValue": null,
-        "FieldType": "System.String, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089",
-        "ID": {
-          "$type": "Skyline.DataMiner.Net.Sections.FieldDescriptorID, SLNetTypes",
-          "Id": "30c7c421-7c97-4723-91e1-046ba1792ec8"
-        },
-        "IsHidden": true,
-        "IsOptional": true,
-        "IsReadonly": false,
-        "IsSoftDeleted": false,
-        "Name": "Definition Reference",
-        "Tooltip": "References the definition to be used for this Service Item (Workflow, SRM Service Definition, ...)",
-        "Validators": {
-          "$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.IFieldValidator, SLNetTypes]], mscorlib",
-          "$values": []
-        }
-      },
-      {
-        "$type": "Skyline.DataMiner.Net.Sections.FieldDescriptor, SLNetTypes",
-        "DefaultValue": null,
-        "FieldType": "System.String, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089",
-        "ID": {
-          "$type": "Skyline.DataMiner.Net.Sections.FieldDescriptorID, SLNetTypes",
-          "Id": "bfc7a72c-5e0d-4ffe-9c96-27f5e749d3fa"
-        },
-        "IsHidden": true,
-        "IsOptional": true,
-        "IsReadonly": false,
-        "IsSoftDeleted": false,
-        "Name": "Service Item Script",
-        "Tooltip": "Custom script that can be used to for example book the servcie in case of SRM booking type Item",
-        "Validators": {
-          "$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.IFieldValidator, SLNetTypes]], mscorlib",
-          "$values": []
-        }
-      },
-      {
-        "$type": "Skyline.DataMiner.Net.Sections.FieldDescriptor, SLNetTypes",
-        "DefaultValue": null,
-        "FieldType": "System.String, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089",
-        "ID": {
-          "$type": "Skyline.DataMiner.Net.Sections.FieldDescriptorID, SLNetTypes",
-          "Id": "8cedc78a-a23f-46c4-92a3-30393704f340"
-        },
-        "IsHidden": true,
-        "IsOptional": true,
-        "IsReadonly": false,
-        "IsSoftDeleted": false,
-        "Name": "Implementation Reference",
-        "Tooltip": "Reference to the actual implemenation of the Service Item (being a job, SRM booking, ...)",
-        "Validators": {
-          "$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.IFieldValidator, SLNetTypes]], mscorlib",
-          "$values": []
-        }
-      },
-      {
-        "$type": "Skyline.DataMiner.Net.Sections.FieldDescriptor, SLNetTypes",
-        "DefaultValue": null,
-        "FieldType": "System.String, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089",
-        "ID": {
-          "$type": "Skyline.DataMiner.Net.Sections.FieldDescriptorID, SLNetTypes",
-          "Id": "9b0fdbce-8ecc-4480-afc0-42010e8e7a69"
-        },
-        "IsHidden": true,
-        "IsOptional": true,
-        "IsReadonly": false,
-        "IsSoftDeleted": false,
-        "Name": "Icon",
-        "Tooltip": "",
-        "Validators": {
-          "$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.IFieldValidator, SLNetTypes]], mscorlib",
-          "$values": []
-        }
-      }
-    ]
-  },
-  "ID": {
-    "$type": "Skyline.DataMiner.Net.Sections.SectionDefinitionID, SLNetTypes",
-    "Id": "1ac7e347-20e5-4b2b-8838-5cb412e89427",
-    "ModuleId": "(slc)servicemanagement"
-  },
-  "IsHidden": false,
-  "Name": "Service Items",
-  "ReservationLinkInfo": null,
-  "SectionValidators": {
-    "$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.ISectionValidator, SLNetTypes]], mscorlib",
-    "$values": []
-  }
+	"$type": "Skyline.DataMiner.Net.Sections.CustomSectionDefinition, SLNetTypes",
+	"ID": {
+		"$type": "Skyline.DataMiner.Net.Sections.SectionDefinitionID, SLNetTypes",
+		"Id": "1ac7e347-20e5-4b2b-8838-5cb412e89427",
+		"ModuleId": "(slc)servicemanagement"
+	},
+	"Name": "Service Items",
+	"FieldDescriptors": {
+		"$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.FieldDescriptor, SLNetTypes]], mscorlib",
+		"$values": [
+			{
+				"$type": "Skyline.DataMiner.Net.Sections.FieldDescriptor, SLNetTypes",
+				"ID": {
+					"$type": "Skyline.DataMiner.Net.Sections.FieldDescriptorID, SLNetTypes",
+					"Id": "24eeee19-8bef-44dc-be82-ef6c538d0f8d"
+				},
+				"Name": "Label",
+				"Validators": {
+					"$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.IFieldValidator, SLNetTypes]], mscorlib",
+					"$values": [
+					]
+				},
+				"FieldType": "System.String, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089",
+				"IsOptional": true,
+				"IsHidden": true,
+				"IsReadonly": false,
+				"Tooltip": "Label that is used to represent this Service Item",
+				"DefaultValue": null,
+				"IsSoftDeleted": false
+			},
+			{
+				"$type": "Skyline.DataMiner.Net.Sections.FieldDescriptor, SLNetTypes",
+				"ID": {
+					"$type": "Skyline.DataMiner.Net.Sections.FieldDescriptorID, SLNetTypes",
+					"Id": "01c36e03-5baf-44f9-8bbb-f1e7383cc148"
+				},
+				"Name": "Service Item ID",
+				"Validators": {
+					"$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.IFieldValidator, SLNetTypes]], mscorlib",
+					"$values": [
+					]
+				},
+				"FieldType": "System.Int64, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089",
+				"IsOptional": true,
+				"IsHidden": true,
+				"IsReadonly": false,
+				"Tooltip": "Identifier of the Service Item within the Service Specifciation or Service",
+				"DefaultValue": null,
+				"IsSoftDeleted": false
+			},
+			{
+				"$type": "Skyline.DataMiner.Net.Sections.GenericEnumFieldDescriptor, SLNetTypes",
+				"ID": {
+					"$type": "Skyline.DataMiner.Net.Sections.FieldDescriptorID, SLNetTypes",
+					"Id": "8b3e1590-2eeb-4c2c-b249-dd61023a1b06"
+				},
+				"Name": "Service Item Type",
+				"Validators": {
+					"$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.IFieldValidator, SLNetTypes]], mscorlib",
+					"$values": [
+					]
+				},
+				"GenericEnumInstance": {
+					"$type": "Skyline.DataMiner.Net.GenericEnums.GenericEnum`1[[System.String, mscorlib]], SLNetTypes",
+					"EnumName": "Service Item Types",
+					"Entries": {
+						"$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.GenericEnums.GenericEnumEntry`1[[System.String, mscorlib]], SLNetTypes]], mscorlib",
+						"$values": [
+							{
+								"$type": "Skyline.DataMiner.Net.GenericEnums.GenericEnumEntry`1[[System.String, mscorlib]], SLNetTypes",
+								"DisplayName": "Workflow",
+								"Value": "Workflow",
+								"IsHidden": false,
+								"IsSoftDeleted": false
+							},
+							{
+								"$type": "Skyline.DataMiner.Net.GenericEnums.GenericEnumEntry`1[[System.String, mscorlib]], SLNetTypes",
+								"DisplayName": "Service",
+								"Value": "Service",
+								"IsHidden": false,
+								"IsSoftDeleted": false
+							},
+							{
+								"$type": "Skyline.DataMiner.Net.GenericEnums.GenericEnumEntry`1[[System.String, mscorlib]], SLNetTypes",
+								"DisplayName": "SRM Booking",
+								"Value": "SRM Booking",
+								"IsHidden": false,
+								"IsSoftDeleted": false
+							}
+						]
+					}
+				},
+				"FieldType": "Skyline.DataMiner.Net.GenericEnums.GenericEnum`1[[System.String, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089]], SLNetTypes, Version=1.0.0.0, Culture=neutral, PublicKeyToken=9789b1eac4cb1b12",
+				"IsOptional": true,
+				"IsHidden": true,
+				"IsReadonly": false,
+				"Tooltip": "Indicates if the Service Item will be implemented using Worfklows, SRM Booking or Tasks",
+				"DefaultValue": null,
+				"IsSoftDeleted": false
+			},
+			{
+				"$type": "Skyline.DataMiner.Net.Sections.FieldDescriptor, SLNetTypes",
+				"ID": {
+					"$type": "Skyline.DataMiner.Net.Sections.FieldDescriptorID, SLNetTypes",
+					"Id": "30c7c421-7c97-4723-91e1-046ba1792ec8"
+				},
+				"Name": "Definition Reference",
+				"Validators": {
+					"$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.IFieldValidator, SLNetTypes]], mscorlib",
+					"$values": [
+					]
+				},
+				"FieldType": "System.String, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089",
+				"IsOptional": true,
+				"IsHidden": true,
+				"IsReadonly": false,
+				"Tooltip": "References the definition to be used for this Service Item (Workflow, SRM Service Definition, ...)",
+				"DefaultValue": null,
+				"IsSoftDeleted": false
+			},
+			{
+				"$type": "Skyline.DataMiner.Net.Sections.FieldDescriptor, SLNetTypes",
+				"ID": {
+					"$type": "Skyline.DataMiner.Net.Sections.FieldDescriptorID, SLNetTypes",
+					"Id": "bfc7a72c-5e0d-4ffe-9c96-27f5e749d3fa"
+				},
+				"Name": "Service Item Script",
+				"Validators": {
+					"$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.IFieldValidator, SLNetTypes]], mscorlib",
+					"$values": [
+					]
+				},
+				"FieldType": "System.String, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089",
+				"IsOptional": true,
+				"IsHidden": true,
+				"IsReadonly": false,
+				"Tooltip": "Custom script that can be used to for example book the servcie in case of SRM booking type Item",
+				"DefaultValue": null,
+				"IsSoftDeleted": false
+			},
+			{
+				"$type": "Skyline.DataMiner.Net.Sections.FieldDescriptor, SLNetTypes",
+				"ID": {
+					"$type": "Skyline.DataMiner.Net.Sections.FieldDescriptorID, SLNetTypes",
+					"Id": "8cedc78a-a23f-46c4-92a3-30393704f340"
+				},
+				"Name": "Implementation Reference",
+				"Validators": {
+					"$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.IFieldValidator, SLNetTypes]], mscorlib",
+					"$values": [
+					]
+				},
+				"FieldType": "System.String, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089",
+				"IsOptional": true,
+				"IsHidden": true,
+				"IsReadonly": false,
+				"Tooltip": "Reference to the actual implemenation of the Service Item (being a job, SRM booking, ...)",
+				"DefaultValue": null,
+				"IsSoftDeleted": false
+			},
+			{
+				"$type": "Skyline.DataMiner.Net.Sections.FieldDescriptor, SLNetTypes",
+				"ID": {
+					"$type": "Skyline.DataMiner.Net.Sections.FieldDescriptorID, SLNetTypes",
+					"Id": "9b0fdbce-8ecc-4480-afc0-42010e8e7a69"
+				},
+				"Name": "Icon",
+				"Validators": {
+					"$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.IFieldValidator, SLNetTypes]], mscorlib",
+					"$values": [
+					]
+				},
+				"FieldType": "System.String, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089",
+				"IsOptional": true,
+				"IsHidden": true,
+				"IsReadonly": false,
+				"Tooltip": "",
+				"DefaultValue": null,
+				"IsSoftDeleted": false
+			}
+		]
+	},
+	"SectionValidators": {
+		"$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.ISectionValidator, SLNetTypes]], mscorlib",
+		"$values": [
+		]
+	},
+	"ReservationLinkInfo": null,
+	"IsHidden": false,
+	"SyncLastModified": "2026-01-12T10:48:52.678413Z",
+	"LastModifiedBy": "Robin Meurisse",
+	"CreatedAt": "2026-01-12T10:03:05.329971Z",
+	"CreatedBy": "Robin Meurisse"
 }

@@ -1,12 +1,9 @@
 ﻿namespace SLC_SM_IAS_Add_Service_Order_1.Views
 {
 	using System;
-
 	using DomHelpers.SlcPeople_Organizations;
 	using DomHelpers.SlcServicemanagement;
-
 	using Library;
-
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
 
@@ -63,7 +60,7 @@
 
 		public Label LblDescription { get; } = new Label("Description");
 
-		public TextBox Description { get; } = new TextBox { Width = Defaults.WidgetWidth };
+		public TextBox Description { get; } = new TextBox { Width = Defaults.WidgetWidth, IsMultiline = true };
 
 		public Label LblOrg { get; } = new Label("Organization");
 

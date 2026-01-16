@@ -2,10 +2,10 @@
 	"$type": "Skyline.DataMiner.Net.Sections.CustomSectionDefinition, SLNetTypes",
 	"ID": {
 		"$type": "Skyline.DataMiner.Net.Sections.SectionDefinitionID, SLNetTypes",
-		"Id": "8a0d1812-2749-48b9-b673-3bc35c660976",
+		"Id": "49e14180-71a3-4797-8eb9-7c6b2afd853d",
 		"ModuleId": "(slc)servicemanagement"
 	},
-	"Name": "Service Category Info",
+	"Name": "Service Order Completion Info",
 	"FieldDescriptors": {
 		"$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.FieldDescriptor, SLNetTypes]], mscorlib",
 		"$values": [
@@ -13,19 +13,19 @@
 				"$type": "Skyline.DataMiner.Net.Sections.FieldDescriptor, SLNetTypes",
 				"ID": {
 					"$type": "Skyline.DataMiner.Net.Sections.FieldDescriptorID, SLNetTypes",
-					"Id": "797eeb46-c5fa-4461-aa30-5c83f0a997ee"
+					"Id": "80c6f201-fe09-4fe0-8d78-c058cee85fb1"
 				},
-				"Name": "Name",
+				"Name": "Requested Start Date",
 				"Validators": {
 					"$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.IFieldValidator, SLNetTypes]], mscorlib",
 					"$values": [
 					]
 				},
-				"FieldType": "System.String, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089",
+				"FieldType": "System.DateTime, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089",
 				"IsOptional": true,
 				"IsHidden": false,
 				"IsReadonly": false,
-				"Tooltip": "",
+				"Tooltip": "Date when the actions to finish the order and it's order items are supposed to be started.",
 				"DefaultValue": null,
 				"IsSoftDeleted": false
 			},
@@ -33,19 +33,19 @@
 				"$type": "Skyline.DataMiner.Net.Sections.FieldDescriptor, SLNetTypes",
 				"ID": {
 					"$type": "Skyline.DataMiner.Net.Sections.FieldDescriptorID, SLNetTypes",
-					"Id": "dc3a4293-a40a-483f-80a8-1f337474d244"
+					"Id": "e15f9546-699d-498c-9c88-442260189578"
 				},
-				"Name": "Type",
+				"Name": "Requested Completed Date",
 				"Validators": {
 					"$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.IFieldValidator, SLNetTypes]], mscorlib",
 					"$values": [
 					]
 				},
-				"FieldType": "System.String, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089",
+				"FieldType": "System.DateTime, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089",
 				"IsOptional": true,
 				"IsHidden": false,
 				"IsReadonly": false,
-				"Tooltip": "",
+				"Tooltip": "Date by when the order and it's order items are supposed to be fully terminated.",
 				"DefaultValue": null,
 				"IsSoftDeleted": false
 			},
@@ -53,19 +53,19 @@
 				"$type": "Skyline.DataMiner.Net.Sections.FieldDescriptor, SLNetTypes",
 				"ID": {
 					"$type": "Skyline.DataMiner.Net.Sections.FieldDescriptorID, SLNetTypes",
-					"Id": "ca45e379-91dd-42db-a06d-f09588aadd7f"
+					"Id": "673797fb-c7f5-4e0f-a15f-26d5e20eca7c"
 				},
-				"Name": "Icon",
+				"Name": "Completion Date",
 				"Validators": {
 					"$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.IFieldValidator, SLNetTypes]], mscorlib",
 					"$values": [
 					]
 				},
-				"FieldType": "System.String, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089",
+				"FieldType": "System.DateTime, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089",
 				"IsOptional": true,
 				"IsHidden": false,
 				"IsReadonly": false,
-				"Tooltip": "Icon used to represent the group",
+				"Tooltip": "Date when the order has been fully completed.",
 				"DefaultValue": null,
 				"IsSoftDeleted": false
 			}
@@ -78,8 +78,8 @@
 	},
 	"ReservationLinkInfo": null,
 	"IsHidden": false,
-	"SyncLastModified": "2026-01-12T10:48:53.0301583Z",
+	"SyncLastModified": "2026-01-15T12:36:19.5211967Z",
 	"LastModifiedBy": "Robin Meurisse",
-	"CreatedAt": "2026-01-12T10:03:05.6755212Z",
+	"CreatedAt": "2026-01-15T12:36:19.5211967Z",
 	"CreatedBy": "Robin Meurisse"
 }
