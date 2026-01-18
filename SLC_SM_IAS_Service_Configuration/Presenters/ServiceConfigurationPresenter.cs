@@ -853,13 +853,11 @@
 			start.Changed += (sender, args) =>
 			{
 				value.Minimum = args.Value;
-				step.Minimum = args.Value;
 				record.ConfigurationParamValue.NumberOptions.MinRange = args.Value;
 			};
 			end.Changed += (sender, args) =>
 			{
 				value.Maximum = args.Value;
-				step.Maximum = args.Value;
 				record.ConfigurationParamValue.NumberOptions.MaxRange = args.Value;
 			};
 			decimals.Changed += (sender, args) =>

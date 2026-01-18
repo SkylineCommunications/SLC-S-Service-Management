@@ -35,6 +35,20 @@
 			AddWidget(LblContact, ++row, 0);
 			AddWidget(Contact, row, 1, 1, 2);
 
+			AddWidget(BtnCompletedBy, ++row, 0);
+			AddWidget(LblCompletionInfoState, ++row, 0);
+			AddWidget(CompletionInfoState, row, 1);
+			AddWidget(LblCompletedByStart, ++row, 0);
+			AddWidget(CompletedByStart, row, 1);
+			AddWidget(LblFullyCompletedBy, ++row, 0);
+			AddWidget(FullyCompletedBy, row, 1);
+			BtnCompletedBy.LinkedWidgets.Add(LblCompletionInfoState);
+			BtnCompletedBy.LinkedWidgets.Add(CompletionInfoState);
+			BtnCompletedBy.LinkedWidgets.Add(LblCompletedByStart);
+			BtnCompletedBy.LinkedWidgets.Add(CompletedByStart);
+			BtnCompletedBy.LinkedWidgets.Add(LblFullyCompletedBy);
+			BtnCompletedBy.LinkedWidgets.Add(FullyCompletedBy);
+
 			AddWidget(new WhiteSpace(), ++row, 0);
 			AddWidget(BtnAdd, ++row, 1);
 			AddWidget(BtnCancel, row, 2);
@@ -68,7 +82,21 @@
 
 		public Label LblContact { get; } = new Label("Order Contact");
 
-		public CheckBoxList<PeopleInstance> Contact { get; } = new CheckBoxList<PeopleInstance> { Width = Defaults.WidgetWidth };
+		public CheckBoxList<PeopleInstance> Contact { get; } = new CheckBoxList<PeopleInstance> { Width = Defaults.WidgetWidth, MaxHeight = Defaults.WidgetWidth };
+
+		public CollapseButton BtnCompletedBy { get; } = new CollapseButton(true) { CollapseText = "Completion Details <<", ExpandText = "Completion Details >>", Tooltip = "Show all 'To be completed by' settings." };
+
+		public Label LblCompletionInfoState { get; } = new Label("Completion Settings Enabled");
+
+		public CheckBox CompletionInfoState { get; } = new CheckBox { IsChecked = false, Tooltip = "Indicate whether the completion info details will be configured or not." };
+
+		public Label LblCompletedByStart { get; } = new Label("Decommission Start");
+
+		public DateTimePicker CompletedByStart { get; } = new DateTimePicker { Width = Defaults.WidgetWidth };
+
+		public Label LblFullyCompletedBy { get; } = new Label("Fully Decommissioned By");
+
+		public DateTimePicker FullyCompletedBy { get; } = new DateTimePicker { Width = Defaults.WidgetWidth };
 
 		public Button BtnAdd { get; } = new Button("Create") { Style = ButtonStyle.CallToAction };
 
