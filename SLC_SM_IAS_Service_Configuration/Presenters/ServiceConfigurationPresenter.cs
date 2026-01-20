@@ -136,6 +136,7 @@
 					HelperMethods.CreateNewServiceConfigurationVersion(serviceSpecification, instanceService),
 					repoConfig.ConfigurationParameters.Read(),
 					State.Create);
+				instanceService.ServiceConfiguration = configuration.ServiceConfigurationVersion; // set as active
 			}
 			else
 			{
@@ -179,6 +180,7 @@
 
 			if (configuration.State == State.Create)
 			{
+				repoService.ServiceConfigurationVersions.CreateOrUpdate(configuration.ServiceConfigurationVersion);
 				instanceService.ConfigurationVersions.Add(configuration.ServiceConfigurationVersion);
 				repoService.Services.CreateOrUpdate(instanceService);
 			}
