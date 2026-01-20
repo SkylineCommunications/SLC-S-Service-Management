@@ -267,7 +267,11 @@
 		{
 			if (String.IsNullOrEmpty(selectedDefinitionReference))
 			{
-				view.ScriptSelection.Selected = null;
+				if (view.ScriptSelection.Options.Any(o => o.Value == null))
+				{
+					view.ScriptSelection.Selected = null;
+				}
+
 				return;
 			}
 
