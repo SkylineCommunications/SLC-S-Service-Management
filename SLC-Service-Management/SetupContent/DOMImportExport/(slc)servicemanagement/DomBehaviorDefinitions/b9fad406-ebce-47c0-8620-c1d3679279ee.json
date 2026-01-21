@@ -91,24 +91,6 @@
 				},
 				{
 					"FieldDescriptorId": {
-						"Id": "7a8c2a26-016d-4067-bf60-7b2ff07157cb"
-					},
-					"Visible": false,
-					"RequiredForStatus": false,
-					"ReadOnly": false,
-					"ClientReadOnly": false
-				},
-				{
-					"FieldDescriptorId": {
-						"Id": "7a8c2a26-016d-4067-bf60-7b2ff07157cb"
-					},
-					"Visible": false,
-					"RequiredForStatus": false,
-					"ReadOnly": false,
-					"ClientReadOnly": false
-				},
-				{
-					"FieldDescriptorId": {
 						"Id": "d0f0ea83-ce6f-4c5d-be6a-f30387a4a703"
 					},
 					"Visible": true,
@@ -1371,6 +1353,408 @@
 				"StatusId": "701ce0f7-637c-4c86-a807-d36fe499649c",
 				"SectionDefinitionId": {
 					"Id": "1ac7e347-20e5-4b2b-8838-5cb412e89427",
+					"ModuleId": "(slc)servicemanagement"
+				}
+			},
+			"AllowMultipleSections": true,
+			"IsSoftDeleted": false
+		},
+		{
+			"FieldDescriptorLinks": [
+				{
+					"FieldDescriptorId": {
+						"Id": "c42c343d-f8b5-4fe6-a55b-18076b91c5fe"
+					},
+					"Visible": true,
+					"RequiredForStatus": false,
+					"ReadOnly": false,
+					"ClientReadOnly": false
+				},
+				{
+					"FieldDescriptorId": {
+						"Id": "0b00add5-1d5d-41b5-a3f9-98bb8219085b"
+					},
+					"Visible": true,
+					"RequiredForStatus": false,
+					"ReadOnly": false,
+					"ClientReadOnly": false
+				},
+				{
+					"FieldDescriptorId": {
+						"Id": "33c36905-b227-4fcd-8866-a523c61fd5d9"
+					},
+					"Visible": true,
+					"RequiredForStatus": false,
+					"ReadOnly": false,
+					"ClientReadOnly": false
+				},
+				{
+					"FieldDescriptorId": {
+						"Id": "32a96c4e-7553-464a-822b-b8ab2620bfef"
+					},
+					"Visible": true,
+					"RequiredForStatus": false,
+					"ReadOnly": false,
+					"ClientReadOnly": false
+				},
+				{
+					"FieldDescriptorId": {
+						"Id": "f205a562-cbb7-416c-a04d-dd0d99e90d1a"
+					},
+					"Visible": true,
+					"RequiredForStatus": false,
+					"ReadOnly": false,
+					"ClientReadOnly": false
+				},
+				{
+					"FieldDescriptorId": {
+						"Id": "2c4ba097-9481-41e9-bf03-8bee166fc589"
+					},
+					"Visible": true,
+					"RequiredForStatus": false,
+					"ReadOnly": false,
+					"ClientReadOnly": false
+				}
+			],
+			"Id": {
+				"StatusId": "d7b94689-2565-48b2-8291-92bf9fc43498",
+				"SectionDefinitionId": {
+					"Id": "e1ccbd9b-fffb-448f-a6c5-de47e842be9b",
+					"ModuleId": "(slc)servicemanagement"
+				}
+			},
+			"AllowMultipleSections": true,
+			"IsSoftDeleted": false
+		},
+		{
+			"FieldDescriptorLinks": [
+				{
+					"FieldDescriptorId": {
+						"Id": "c42c343d-f8b5-4fe6-a55b-18076b91c5fe"
+					},
+					"Visible": true,
+					"RequiredForStatus": false,
+					"ReadOnly": false,
+					"ClientReadOnly": false
+				},
+				{
+					"FieldDescriptorId": {
+						"Id": "0b00add5-1d5d-41b5-a3f9-98bb8219085b"
+					},
+					"Visible": true,
+					"RequiredForStatus": false,
+					"ReadOnly": false,
+					"ClientReadOnly": false
+				},
+				{
+					"FieldDescriptorId": {
+						"Id": "33c36905-b227-4fcd-8866-a523c61fd5d9"
+					},
+					"Visible": true,
+					"RequiredForStatus": false,
+					"ReadOnly": false,
+					"ClientReadOnly": false
+				},
+				{
+					"FieldDescriptorId": {
+						"Id": "32a96c4e-7553-464a-822b-b8ab2620bfef"
+					},
+					"Visible": true,
+					"RequiredForStatus": false,
+					"ReadOnly": false,
+					"ClientReadOnly": false
+				},
+				{
+					"FieldDescriptorId": {
+						"Id": "f205a562-cbb7-416c-a04d-dd0d99e90d1a"
+					},
+					"Visible": true,
+					"RequiredForStatus": false,
+					"ReadOnly": false,
+					"ClientReadOnly": false
+				},
+				{
+					"FieldDescriptorId": {
+						"Id": "2c4ba097-9481-41e9-bf03-8bee166fc589"
+					},
+					"Visible": true,
+					"RequiredForStatus": false,
+					"ReadOnly": false,
+					"ClientReadOnly": false
+				}
+			],
+			"Id": {
+				"StatusId": "51d496fc-2596-4fcc-aca0-4fb5e4f7d211",
+				"SectionDefinitionId": {
+					"Id": "e1ccbd9b-fffb-448f-a6c5-de47e842be9b",
+					"ModuleId": "(slc)servicemanagement"
+				}
+			},
+			"AllowMultipleSections": true,
+			"IsSoftDeleted": false
+		},
+		{
+			"FieldDescriptorLinks": [
+				{
+					"FieldDescriptorId": {
+						"Id": "c42c343d-f8b5-4fe6-a55b-18076b91c5fe"
+					},
+					"Visible": true,
+					"RequiredForStatus": false,
+					"ReadOnly": false,
+					"ClientReadOnly": false
+				},
+				{
+					"FieldDescriptorId": {
+						"Id": "0b00add5-1d5d-41b5-a3f9-98bb8219085b"
+					},
+					"Visible": true,
+					"RequiredForStatus": false,
+					"ReadOnly": false,
+					"ClientReadOnly": false
+				},
+				{
+					"FieldDescriptorId": {
+						"Id": "33c36905-b227-4fcd-8866-a523c61fd5d9"
+					},
+					"Visible": true,
+					"RequiredForStatus": false,
+					"ReadOnly": false,
+					"ClientReadOnly": false
+				},
+				{
+					"FieldDescriptorId": {
+						"Id": "32a96c4e-7553-464a-822b-b8ab2620bfef"
+					},
+					"Visible": true,
+					"RequiredForStatus": false,
+					"ReadOnly": false,
+					"ClientReadOnly": false
+				},
+				{
+					"FieldDescriptorId": {
+						"Id": "f205a562-cbb7-416c-a04d-dd0d99e90d1a"
+					},
+					"Visible": true,
+					"RequiredForStatus": false,
+					"ReadOnly": false,
+					"ClientReadOnly": false
+				},
+				{
+					"FieldDescriptorId": {
+						"Id": "2c4ba097-9481-41e9-bf03-8bee166fc589"
+					},
+					"Visible": true,
+					"RequiredForStatus": false,
+					"ReadOnly": false,
+					"ClientReadOnly": false
+				}
+			],
+			"Id": {
+				"StatusId": "51d496fc-2596-4fcc-aca0-4fb5e4f7d211 (duplicate)",
+				"SectionDefinitionId": {
+					"Id": "e1ccbd9b-fffb-448f-a6c5-de47e842be9b",
+					"ModuleId": "(slc)servicemanagement"
+				}
+			},
+			"AllowMultipleSections": true,
+			"IsSoftDeleted": false
+		},
+		{
+			"FieldDescriptorLinks": [
+				{
+					"FieldDescriptorId": {
+						"Id": "c42c343d-f8b5-4fe6-a55b-18076b91c5fe"
+					},
+					"Visible": true,
+					"RequiredForStatus": false,
+					"ReadOnly": false,
+					"ClientReadOnly": false
+				},
+				{
+					"FieldDescriptorId": {
+						"Id": "0b00add5-1d5d-41b5-a3f9-98bb8219085b"
+					},
+					"Visible": true,
+					"RequiredForStatus": false,
+					"ReadOnly": false,
+					"ClientReadOnly": false
+				},
+				{
+					"FieldDescriptorId": {
+						"Id": "33c36905-b227-4fcd-8866-a523c61fd5d9"
+					},
+					"Visible": true,
+					"RequiredForStatus": false,
+					"ReadOnly": false,
+					"ClientReadOnly": false
+				},
+				{
+					"FieldDescriptorId": {
+						"Id": "32a96c4e-7553-464a-822b-b8ab2620bfef"
+					},
+					"Visible": true,
+					"RequiredForStatus": false,
+					"ReadOnly": false,
+					"ClientReadOnly": false
+				},
+				{
+					"FieldDescriptorId": {
+						"Id": "f205a562-cbb7-416c-a04d-dd0d99e90d1a"
+					},
+					"Visible": true,
+					"RequiredForStatus": false,
+					"ReadOnly": false,
+					"ClientReadOnly": false
+				},
+				{
+					"FieldDescriptorId": {
+						"Id": "2c4ba097-9481-41e9-bf03-8bee166fc589"
+					},
+					"Visible": true,
+					"RequiredForStatus": false,
+					"ReadOnly": false,
+					"ClientReadOnly": false
+				}
+			],
+			"Id": {
+				"StatusId": "51d496fc-2596-4fcc-aca0-4fb5e4f7d211 (duplicate) (duplicate)",
+				"SectionDefinitionId": {
+					"Id": "e1ccbd9b-fffb-448f-a6c5-de47e842be9b",
+					"ModuleId": "(slc)servicemanagement"
+				}
+			},
+			"AllowMultipleSections": true,
+			"IsSoftDeleted": false
+		},
+		{
+			"FieldDescriptorLinks": [
+				{
+					"FieldDescriptorId": {
+						"Id": "c42c343d-f8b5-4fe6-a55b-18076b91c5fe"
+					},
+					"Visible": true,
+					"RequiredForStatus": false,
+					"ReadOnly": false,
+					"ClientReadOnly": false
+				},
+				{
+					"FieldDescriptorId": {
+						"Id": "0b00add5-1d5d-41b5-a3f9-98bb8219085b"
+					},
+					"Visible": true,
+					"RequiredForStatus": false,
+					"ReadOnly": false,
+					"ClientReadOnly": false
+				},
+				{
+					"FieldDescriptorId": {
+						"Id": "33c36905-b227-4fcd-8866-a523c61fd5d9"
+					},
+					"Visible": true,
+					"RequiredForStatus": false,
+					"ReadOnly": false,
+					"ClientReadOnly": false
+				},
+				{
+					"FieldDescriptorId": {
+						"Id": "32a96c4e-7553-464a-822b-b8ab2620bfef"
+					},
+					"Visible": true,
+					"RequiredForStatus": false,
+					"ReadOnly": false,
+					"ClientReadOnly": false
+				},
+				{
+					"FieldDescriptorId": {
+						"Id": "f205a562-cbb7-416c-a04d-dd0d99e90d1a"
+					},
+					"Visible": true,
+					"RequiredForStatus": false,
+					"ReadOnly": false,
+					"ClientReadOnly": false
+				},
+				{
+					"FieldDescriptorId": {
+						"Id": "2c4ba097-9481-41e9-bf03-8bee166fc589"
+					},
+					"Visible": true,
+					"RequiredForStatus": false,
+					"ReadOnly": false,
+					"ClientReadOnly": false
+				}
+			],
+			"Id": {
+				"StatusId": "701ce0f7-637c-4c86-a807-d36fe499649c",
+				"SectionDefinitionId": {
+					"Id": "e1ccbd9b-fffb-448f-a6c5-de47e842be9b",
+					"ModuleId": "(slc)servicemanagement"
+				}
+			},
+			"AllowMultipleSections": true,
+			"IsSoftDeleted": false
+		},
+		{
+			"FieldDescriptorLinks": [
+				{
+					"FieldDescriptorId": {
+						"Id": "c42c343d-f8b5-4fe6-a55b-18076b91c5fe"
+					},
+					"Visible": true,
+					"RequiredForStatus": false,
+					"ReadOnly": false,
+					"ClientReadOnly": false
+				},
+				{
+					"FieldDescriptorId": {
+						"Id": "0b00add5-1d5d-41b5-a3f9-98bb8219085b"
+					},
+					"Visible": true,
+					"RequiredForStatus": false,
+					"ReadOnly": false,
+					"ClientReadOnly": false
+				},
+				{
+					"FieldDescriptorId": {
+						"Id": "33c36905-b227-4fcd-8866-a523c61fd5d9"
+					},
+					"Visible": true,
+					"RequiredForStatus": false,
+					"ReadOnly": false,
+					"ClientReadOnly": false
+				},
+				{
+					"FieldDescriptorId": {
+						"Id": "32a96c4e-7553-464a-822b-b8ab2620bfef"
+					},
+					"Visible": true,
+					"RequiredForStatus": false,
+					"ReadOnly": false,
+					"ClientReadOnly": false
+				},
+				{
+					"FieldDescriptorId": {
+						"Id": "f205a562-cbb7-416c-a04d-dd0d99e90d1a"
+					},
+					"Visible": true,
+					"RequiredForStatus": false,
+					"ReadOnly": false,
+					"ClientReadOnly": false
+				},
+				{
+					"FieldDescriptorId": {
+						"Id": "2c4ba097-9481-41e9-bf03-8bee166fc589"
+					},
+					"Visible": true,
+					"RequiredForStatus": false,
+					"ReadOnly": false,
+					"ClientReadOnly": false
+				}
+			],
+			"Id": {
+				"StatusId": "21923bba-4019-404f-bfb2-b32abd2de748",
+				"SectionDefinitionId": {
+					"Id": "e1ccbd9b-fffb-448f-a6c5-de47e842be9b",
 					"ModuleId": "(slc)servicemanagement"
 				}
 			},
@@ -1592,7 +1976,7 @@
 			]
 		}
 	],
-	"SyncLastModified": "2026-01-20T10:04:02.7203936Z",
+	"SyncLastModified": "2026-01-21T17:10:03.6055491Z",
 	"LastModifiedBy": "Robin Meurisse",
 	"CreatedAt": "2026-01-12T10:03:06.3609182Z",
 	"CreatedBy": "Robin Meurisse"
