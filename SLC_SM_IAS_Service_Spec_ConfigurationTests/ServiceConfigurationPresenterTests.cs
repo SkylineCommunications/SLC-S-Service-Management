@@ -1,6 +1,5 @@
 ﻿namespace SLC_SM_IAS_Service_Spec_Configuration.Tests.Presenters
 {
-	using System.Reflection;
 	using Moq;
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
@@ -27,9 +26,7 @@
 			};
 
 			// Act
-			var addConfigModelMethod = typeof(ServiceConfigurationPresenter)
-				.GetMethod("AddStandaloneParameterConfigModel", BindingFlags.NonPublic | BindingFlags.Instance);
-			addConfigModelMethod.Invoke(presenter, new object[] { param });
+			presenter.AddStandaloneParameterConfigModel(param);
 
 			// Assert
 			Assert.AreEqual(1, serviceSpecification.ConfigurationParameters.Count);
