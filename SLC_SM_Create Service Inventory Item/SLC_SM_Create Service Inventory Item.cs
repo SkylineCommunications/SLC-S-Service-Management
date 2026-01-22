@@ -173,7 +173,7 @@ namespace SLC_SM_Create_Service_Inventory_Item
 								ConfigurationParameter = x.ConfigurationParameter,
 								Mandatory = x.Mandatory,
 							};
-							scv.ConfigurationParameter.ID = Guid.Empty;
+							scv.ConfigurationParameter.ID = Guid.NewGuid();
 							RemoveServiceParameterOptionsLinks(scv);
 							return scv;
 						})
@@ -311,7 +311,7 @@ namespace SLC_SM_Create_Service_Inventory_Item
 								ConfigurationParameter = x.ConfigurationParameter,
 								Mandatory = x.MandatoryAtService,
 							};
-							scv.ConfigurationParameter.ID = Guid.Empty;
+							scv.ConfigurationParameter.ID = Guid.NewGuid();
 							RemoveServiceParameterOptionsLinks(scv);
 							return scv;
 						})
@@ -331,11 +331,11 @@ namespace SLC_SM_Create_Service_Inventory_Item
 								Profile = x.Profile,
 								Mandatory = x.MandatoryAtService,
 							};
-							sp.Profile.ID = Guid.Empty;
+							sp.Profile.ID = Guid.NewGuid();
 							sp.Profile.ConfigurationParameterValues = sp.Profile.ConfigurationParameterValues
 								.Select(cpv =>
 								{
-									cpv.ID = Guid.Empty;
+									cpv.ID = Guid.NewGuid();
 									RemoveParameterOptionsLinks(cpv);
 									return cpv;
 								})

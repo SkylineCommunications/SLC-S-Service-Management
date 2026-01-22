@@ -20,7 +20,7 @@
 			presenter.LoadFromModel();
 			presenter.BuildView();
 
-			view.Show();
+			view.Show(requireResponse: true);
 
 			return confirmed;
 		}
@@ -34,7 +34,7 @@
 			presenter.LoadFromModel();
 			presenter.BuildView();
 
-			view.Show();
+			view.Show(requireResponse: true);
 
 			return model.Message;
 		}
@@ -86,7 +86,7 @@
 			presenter.LoadFromModel();
 			presenter.BuildView();
 
-			view.Show();
+			view.Show(requireResponse: true);
 
 			return result;
 		}
