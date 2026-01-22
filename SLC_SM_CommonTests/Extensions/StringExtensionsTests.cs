@@ -10,7 +10,7 @@
 		{
 			// Arrange
 			string input = "First line\n\nSecond line";
-			string expected = "First line\r\n\r\nSecond line";
+			string expected = $"First line{Environment.NewLine}{Environment.NewLine}Second line";
 
 			// Act
 			var result = input.Wrap(20);
@@ -46,6 +46,11 @@
 		public void Wrap_VariousInputs_ExpectedOutput(string input, int width, string expected)
 		{
 			// Act
+			if (expected != null)
+			{
+				expected = expected.Replace("\r\n", Environment.NewLine);
+			}
+
 			var result = input.Wrap(width);
 
 			// Assert
