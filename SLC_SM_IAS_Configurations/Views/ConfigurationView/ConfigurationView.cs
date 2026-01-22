@@ -4,10 +4,8 @@
 	using System.IO;
 	using System.Linq;
 	using Library;
-	using Skyline.DataMiner.Analytics.GenericInterface.QueryBuilder;
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Net.Helper;
-	using Skyline.DataMiner.Net.Upload;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
 	using SLC_SM_IAS_Profiles.Presenters;
@@ -30,6 +28,9 @@
 			BtnCancel.Pressed += (sender, args) => throw new ScriptAbortException("OK");
 			BtnSave.Pressed += (sender, args) => callbacks.Common.Handle_Update_Pressed();
 			BtnBack.Pressed += (sender, args) => callbacks.Common.Handle_GoBack_Pressed();
+
+			BtnPrevious.Pressed += (sender, args) => callbacks.Common.Handle_GoTo_Previous_Page_Pressed();
+			BtnNext.Pressed += (sender, args) => callbacks.Common.Handle_GoTo_Next_Page_Pressed();
 		}
 
 		public Button BtnSave { get; } = new Button("Save") { Style = ButtonStyle.CallToAction, Width = DEFAULT_BUTTON_WIDTH };
@@ -37,6 +38,10 @@
 		public Button BtnCancel { get; } = new Button("Cancel") { Width = DEFAULT_BUTTON_WIDTH};
 
 		public Button BtnBack { get; } = new Button("Back") { Width = DEFAULT_BUTTON_WIDTH };
+
+		public Button BtnPrevious { get; } = new Button("Previous") { Width = DEFAULT_BUTTON_WIDTH };
+
+		public Button BtnNext { get; } = new Button("Next") { Width = DEFAULT_BUTTON_WIDTH };
 
 		protected List<Option<Models.ConfigurationUnit>> CachedUnits { get; }
 
@@ -52,13 +57,13 @@
 			var page = context.GetCurrentPage();
 			int row = 0;
 
-			BuildTitle(context, row);
+			BuildHeader(context, row);
 
 			AddWidget(new WhiteSpace(), ++row, 0);
 
 			BuildConfigurationParameterHeader(context, ++row);
 
-			var configurationRecords = page.Records
+			var configurationRecords = context.GetCurrentSliceRecords()
 				.Where(x => x.State != State.Removed && x is ConfigurationDataRecord)
 				.Cast<ConfigurationDataRecord>();
 
@@ -80,7 +85,7 @@
 			row.BuildRow(this);
 		}
 
-		protected void BuildTitle(IReadOnlyNavigator context, int row)
+		protected void BuildHeader(IReadOnlyNavigator context, int row)
 		{
 			var lblTitle = new Label();
 			lblTitle.Style = TextStyle.Heading;
@@ -100,7 +105,21 @@
 
 			lblTitle.Text = path;
 
-			AddWidget(lblTitle, row, 0, 1, 10);
+			AddWidget(lblTitle, row, 0);
+
+			if (!(this is ProfileDefinitionView))
+			{
+				var pageLabel = new Label();
+				pageLabel.Text = $"Page {context.GetCurrentSliceIndex() + 1} of {context.GetTotalSlicesForCurrentPage()}";
+
+				AddWidget(pageLabel, row, 10, HorizontalAlignment.Right);
+
+				BtnPrevious.IsEnabled = context.CanMovePreviousSlice();
+				BtnNext.IsEnabled = context.CanMoveNextSlice();
+
+				AddWidget(BtnPrevious, row, 11);
+				AddWidget(BtnNext, row, 12);
+			}
 		}
 
 		protected void BuildConfigurationParameterHeader(IReadOnlyNavigator context, int row)

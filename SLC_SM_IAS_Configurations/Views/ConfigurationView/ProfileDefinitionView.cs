@@ -30,7 +30,7 @@
 			var page = context.GetCurrentPage();
 			int row = 0;
 
-			BuildTitle(context, row);
+			BuildHeader(context, row);
 
 			AddWidget(new WhiteSpace(), ++row, 0);
 
