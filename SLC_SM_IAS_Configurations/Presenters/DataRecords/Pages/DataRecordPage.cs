@@ -25,6 +25,16 @@
 			_records.Add(record);
 		}
 
+		public void InsertRecord(int index, DataRecord record)
+		{
+			if (index < 0)
+				index = 0;
+			if (index > _records.Count)
+				index = _records.Count;
+
+			_records.Insert(index, record);
+		}
+
 		public void SetRecords(List<DataRecord> records)
 		{
 			_records.Clear();

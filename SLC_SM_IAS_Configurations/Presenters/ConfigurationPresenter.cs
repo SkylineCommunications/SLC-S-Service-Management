@@ -93,7 +93,6 @@
 		{
 			View.BuildUI(Navigator, _cachedConfigurationParameters, _cachedProfileDefinitions);
 		}
-		#endregion
 
 		public void StoreModels()
 		{
@@ -126,7 +125,9 @@
 		public List<DataRecord> LoadConfigurationParameters()
 		{
 			_cachedConfigurationParameters = RefreshCachedConfigurationParameters();
+
 			return _cachedConfigurationParameters
+						.OrderBy(cp => cp.Name, StringComparer.OrdinalIgnoreCase)
 						.Select(cp => DataRecordFactory.CreateDataRecord(cp, State.Equal, RecordType.Original))
 						.ToList();
 		}
@@ -141,8 +142,10 @@
 
 			var records =
 				configurationParameters
+					.OrderBy(cp => cp.Name, StringComparer.OrdinalIgnoreCase)
 					.Select(cp => DataRecordFactory.CreateDataRecord(cp, State.Equal, RecordType.Reference))
 					.Concat(profileDefinitions
+						.OrderBy(pd => pd.Name, StringComparer.OrdinalIgnoreCase)
 						.Select(pd => DataRecordFactory.CreateDataRecord(pd, State.Equal, RecordType.Reference)))
 					.Cast<DataRecord>()
 					.ToList();
@@ -159,6 +162,7 @@
 
 			return profileDefinitions
 				.Where(definition => !childIds.Contains(definition.ID))
+				.OrderBy(d => d.Name, StringComparer.OrdinalIgnoreCase)
 				.Select(d => DataRecordFactory.CreateDataRecord(d, State.Equal))
 				.ToList();
 		}
@@ -174,5 +178,6 @@
 			_cachedConfigurationParameters = Model.ReadConfigurationParameters();
 			return _cachedConfigurationParameters;
 		}
+		#endregion
 	}
 }
