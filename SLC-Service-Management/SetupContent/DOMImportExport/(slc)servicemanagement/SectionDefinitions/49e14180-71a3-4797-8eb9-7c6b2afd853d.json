@@ -1,0 +1,85 @@
+{
+	"$type": "Skyline.DataMiner.Net.Sections.CustomSectionDefinition, SLNetTypes",
+	"ID": {
+		"$type": "Skyline.DataMiner.Net.Sections.SectionDefinitionID, SLNetTypes",
+		"Id": "49e14180-71a3-4797-8eb9-7c6b2afd853d",
+		"ModuleId": "(slc)servicemanagement"
+	},
+	"Name": "Service Order Completion Info",
+	"FieldDescriptors": {
+		"$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.FieldDescriptor, SLNetTypes]], mscorlib",
+		"$values": [
+			{
+				"$type": "Skyline.DataMiner.Net.Sections.FieldDescriptor, SLNetTypes",
+				"ID": {
+					"$type": "Skyline.DataMiner.Net.Sections.FieldDescriptorID, SLNetTypes",
+					"Id": "80c6f201-fe09-4fe0-8d78-c058cee85fb1"
+				},
+				"Name": "Requested Start Date",
+				"Validators": {
+					"$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.IFieldValidator, SLNetTypes]], mscorlib",
+					"$values": [
+					]
+				},
+				"FieldType": "System.DateTime, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089",
+				"IsOptional": true,
+				"IsHidden": false,
+				"IsReadonly": false,
+				"Tooltip": "Date when the actions to finish the order and it's order items are supposed to be started.",
+				"DefaultValue": null,
+				"IsSoftDeleted": false
+			},
+			{
+				"$type": "Skyline.DataMiner.Net.Sections.FieldDescriptor, SLNetTypes",
+				"ID": {
+					"$type": "Skyline.DataMiner.Net.Sections.FieldDescriptorID, SLNetTypes",
+					"Id": "e15f9546-699d-498c-9c88-442260189578"
+				},
+				"Name": "Requested Completed Date",
+				"Validators": {
+					"$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.IFieldValidator, SLNetTypes]], mscorlib",
+					"$values": [
+					]
+				},
+				"FieldType": "System.DateTime, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089",
+				"IsOptional": true,
+				"IsHidden": false,
+				"IsReadonly": false,
+				"Tooltip": "Date by when the order and it's order items are supposed to be fully terminated.",
+				"DefaultValue": null,
+				"IsSoftDeleted": false
+			},
+			{
+				"$type": "Skyline.DataMiner.Net.Sections.FieldDescriptor, SLNetTypes",
+				"ID": {
+					"$type": "Skyline.DataMiner.Net.Sections.FieldDescriptorID, SLNetTypes",
+					"Id": "673797fb-c7f5-4e0f-a15f-26d5e20eca7c"
+				},
+				"Name": "Completion Date",
+				"Validators": {
+					"$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.IFieldValidator, SLNetTypes]], mscorlib",
+					"$values": [
+					]
+				},
+				"FieldType": "System.DateTime, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089",
+				"IsOptional": true,
+				"IsHidden": false,
+				"IsReadonly": false,
+				"Tooltip": "Date when the order has been fully completed.",
+				"DefaultValue": null,
+				"IsSoftDeleted": false
+			}
+		]
+	},
+	"SectionValidators": {
+		"$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.ISectionValidator, SLNetTypes]], mscorlib",
+		"$values": [
+		]
+	},
+	"ReservationLinkInfo": null,
+	"IsHidden": false,
+	"SyncLastModified": "2026-01-15T12:36:19.5211967Z",
+	"LastModifiedBy": "Robin Meurisse",
+	"CreatedAt": "2026-01-15T12:36:19.5211967Z",
+	"CreatedBy": "Robin Meurisse"
+}

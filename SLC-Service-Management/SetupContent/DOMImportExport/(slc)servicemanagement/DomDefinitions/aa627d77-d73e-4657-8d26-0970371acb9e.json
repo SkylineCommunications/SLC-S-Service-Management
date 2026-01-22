@@ -1,37 +1,42 @@
 {
-  "BehaviorDefinitionId": null,
-  "Id": {
-    "Id": "aa627d77-d73e-4657-8d26-0970371acb9e",
-    "ModuleId": "(slc)servicemanagement"
-  },
-  "ModuleSettingsOverrides": {
-    "HistorySettings": null,
-    "NameDefinition": {
-      "ConcatenationItems": [
-        {
-          "$type": "Skyline.DataMiner.Net.Apps.DataMinerObjectModel.Concatenation.FieldValueConcatenationItem, SLNetTypes",
-          "FieldDescriptorId": {
-            "Id": "797eeb46-c5fa-4461-aa30-5c83f0a997ee"
-          }
-        }
-      ]
-    },
-    "ScriptSettings": null
-  },
-  "Name": "Service Category",
-  "SectionDefinitionLinks": [
-    {
-      "AllowMultipleSections": false,
-      "IsOptional": false,
-      "IsSoftDeleted": false,
-      "SectionDefinitionID": {
-        "Id": "8a0d1812-2749-48b9-b673-3bc35c660976",
-        "ModuleId": "(slc)servicemanagement"
-      }
-    }
-  ],
-  "VisualStructure": {
-    "IsHidden": false,
-    "SectionDefinitionInfos": []
-  }
+	"Id": {
+		"Id": "aa627d77-d73e-4657-8d26-0970371acb9e",
+		"ModuleId": "(slc)servicemanagement"
+	},
+	"SectionDefinitionLinks": [
+		{
+			"SectionDefinitionID": {
+				"Id": "8a0d1812-2749-48b9-b673-3bc35c660976",
+				"ModuleId": "(slc)servicemanagement"
+			},
+			"IsSoftDeleted": false,
+			"IsOptional": false,
+			"AllowMultipleSections": false
+		}
+	],
+	"Name": "Service Category",
+	"VisualStructure": {
+		"SectionDefinitionInfos": [
+		],
+		"IsHidden": false
+	},
+	"BehaviorDefinitionId": null,
+	"ModuleSettingsOverrides": {
+		"NameDefinition": {
+			"ConcatenationItems": [
+				{
+					"$type": "Skyline.DataMiner.Net.Apps.DataMinerObjectModel.Concatenation.FieldValueConcatenationItem, SLNetTypes",
+					"FieldDescriptorId": {
+						"Id": "797eeb46-c5fa-4461-aa30-5c83f0a997ee"
+					}
+				}
+			]
+		},
+		"ScriptSettings": null,
+		"HistorySettings": null
+	},
+	"SyncLastModified": "2026-01-16T12:46:32.8371899Z",
+	"LastModifiedBy": "Robin Meurisse",
+	"CreatedAt": "2026-01-12T10:03:06.7251431Z",
+	"CreatedBy": "Robin Meurisse"
 }

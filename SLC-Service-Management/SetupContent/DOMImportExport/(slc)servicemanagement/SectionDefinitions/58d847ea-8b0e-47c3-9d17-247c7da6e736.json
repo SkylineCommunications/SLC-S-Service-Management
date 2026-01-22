@@ -1,0 +1,65 @@
+{
+	"$type": "Skyline.DataMiner.Net.Sections.CustomSectionDefinition, SLNetTypes",
+	"ID": {
+		"$type": "Skyline.DataMiner.Net.Sections.SectionDefinitionID, SLNetTypes",
+		"Id": "58d847ea-8b0e-47c3-9d17-247c7da6e736",
+		"ModuleId": "(slc)servicemanagement"
+	},
+	"Name": "Service Order Cancellation Info",
+	"FieldDescriptors": {
+		"$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.FieldDescriptor, SLNetTypes]], mscorlib",
+		"$values": [
+			{
+				"$type": "Skyline.DataMiner.Net.Sections.FieldDescriptor, SLNetTypes",
+				"ID": {
+					"$type": "Skyline.DataMiner.Net.Sections.FieldDescriptorID, SLNetTypes",
+					"Id": "e18ed868-b0ec-48da-aa67-de49dbb8188f"
+				},
+				"Name": "Date",
+				"Validators": {
+					"$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.IFieldValidator, SLNetTypes]], mscorlib",
+					"$values": [
+					]
+				},
+				"FieldType": "System.DateTime, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089",
+				"IsOptional": true,
+				"IsHidden": false,
+				"IsReadonly": false,
+				"Tooltip": "Date of when the order was cancelled.",
+				"DefaultValue": null,
+				"IsSoftDeleted": false
+			},
+			{
+				"$type": "Skyline.DataMiner.Net.Sections.FieldDescriptor, SLNetTypes",
+				"ID": {
+					"$type": "Skyline.DataMiner.Net.Sections.FieldDescriptorID, SLNetTypes",
+					"Id": "743abcc9-57ab-47f5-82f6-40f978c6224d"
+				},
+				"Name": "Reason",
+				"Validators": {
+					"$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.IFieldValidator, SLNetTypes]], mscorlib",
+					"$values": [
+					]
+				},
+				"FieldType": "System.String, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089",
+				"IsOptional": true,
+				"IsHidden": false,
+				"IsReadonly": false,
+				"Tooltip": "Reason for cancellation.",
+				"DefaultValue": null,
+				"IsSoftDeleted": false
+			}
+		]
+	},
+	"SectionValidators": {
+		"$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.ISectionValidator, SLNetTypes]], mscorlib",
+		"$values": [
+		]
+	},
+	"ReservationLinkInfo": null,
+	"IsHidden": false,
+	"SyncLastModified": "2026-01-15T13:05:07.1036903Z",
+	"LastModifiedBy": "Robin Meurisse",
+	"CreatedAt": "2026-01-15T13:05:07.1036903Z",
+	"CreatedBy": "Robin Meurisse"
+}

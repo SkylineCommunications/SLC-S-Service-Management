@@ -1,4 +1,4 @@
-﻿namespace SLC_SM_IAS_Add_Service_Item_1.Views
+﻿namespace SLC_SM_IAS_Add_Service_Item.Views
 {
 	using System;
 
@@ -47,7 +47,7 @@
 
 		public Label LblServiceItemType { get; } = new Label("Service Item Type");
 
-		public DropDown<SlcServicemanagementIds.Enums.ServiceitemtypesEnum> ServiceItemType { get; } = new DropDown<SlcServicemanagementIds.Enums.ServiceitemtypesEnum> { Width = Defaults.WidgetWidth };
+		public EnumDropDown<SlcServicemanagementIds.Enums.ServiceitemtypesEnum> ServiceItemType { get; } = new EnumDropDown<SlcServicemanagementIds.Enums.ServiceitemtypesEnum> { Width = Defaults.WidgetWidth };
 
 		public Label LblDefinitionReference { get; } = new Label("Definition Reference");
 

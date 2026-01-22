@@ -23,6 +23,7 @@ namespace SLC_SM_GQIDS_Get_Service_Item_Infos
 
 		// variable where input argument will be stored
 		private Guid instanceDomId;
+
 		private IGQILogger _logger;
 
 		public GQIColumn[] GetColumns()
@@ -57,23 +58,6 @@ namespace SLC_SM_GQIDS_Get_Service_Item_Infos
 			return _logger.PerformanceLogger(nameof(GetNextPage), BuildupRows);
 		}
 
-		private GQIPage BuildupRows()
-		{
-			try
-			{
-				return new GQIPage(GetRows())
-				{
-					HasNextPage = false,
-				};
-			}
-			catch (Exception e)
-			{
-				_dms.GenerateInformationMessage($"GQIDS|{DataSourceName}|Exception: {e}");
-				_logger.Error($"GQIDS|{DataSourceName}|Exception: {e}");
-				return new GQIPage(Enumerable.Empty<GQIRow>().ToArray());
-			}
-		}
-
 		public OnArgumentsProcessedOutputArgs OnArgumentsProcessed(OnArgumentsProcessedInputArgs args)
 		{
 			// adds the input argument to private variable
@@ -91,6 +75,23 @@ namespace SLC_SM_GQIDS_Get_Service_Item_Infos
 			_logger = args.Logger;
 			_logger.MinimumLogLevel = GQILogLevel.Debug;
 			return default;
+		}
+
+		private GQIPage BuildupRows()
+		{
+			try
+			{
+				return new GQIPage(GetRows())
+				{
+					HasNextPage = false,
+				};
+			}
+			catch (Exception e)
+			{
+				_dms.GenerateInformationMessage($"GQIDS|{DataSourceName}|Exception: {e}");
+				_logger.Error($"GQIDS|{DataSourceName}|Exception: {e}");
+				return new GQIPage(Enumerable.Empty<GQIRow>().ToArray());
+			}
 		}
 
 		private GQIRow[] GetRows()
@@ -116,7 +117,7 @@ namespace SLC_SM_GQIDS_Get_Service_Item_Infos
 			string org = String.Empty;
 			if (service.OrganizationId.HasValue)
 			{
-				org = new DataHelpersPeopleAndOrganizations(_dms.GetConnection()).Organizations.Read().Find(x => x.ID == service.OrganizationId.Value)?.Name ?? String.Empty;
+				org = new DataHelpersPeopleAndOrganizations(_dms.GetConnection()).Organizations.Read(OrganizationExposers.Guid.Equal(service.OrganizationId.Value)).FirstOrDefault()?.Name ?? String.Empty;
 			}
 
 			string alarmLevel = String.Empty;

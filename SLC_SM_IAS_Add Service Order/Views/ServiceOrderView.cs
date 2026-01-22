@@ -1,12 +1,9 @@
 ﻿namespace SLC_SM_IAS_Add_Service_Order_1.Views
 {
 	using System;
-
 	using DomHelpers.SlcPeople_Organizations;
 	using DomHelpers.SlcServicemanagement;
-
 	using Library;
-
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
 
@@ -38,6 +35,20 @@
 			AddWidget(LblContact, ++row, 0);
 			AddWidget(Contact, row, 1, 1, 2);
 
+			AddWidget(BtnCompletedBy, ++row, 0);
+			AddWidget(LblCompletionInfoState, ++row, 0);
+			AddWidget(CompletionInfoState, row, 1);
+			AddWidget(LblCompletedByStart, ++row, 0);
+			AddWidget(CompletedByStart, row, 1);
+			AddWidget(LblFullyCompletedBy, ++row, 0);
+			AddWidget(FullyCompletedBy, row, 1);
+			BtnCompletedBy.LinkedWidgets.Add(LblCompletionInfoState);
+			BtnCompletedBy.LinkedWidgets.Add(CompletionInfoState);
+			BtnCompletedBy.LinkedWidgets.Add(LblCompletedByStart);
+			BtnCompletedBy.LinkedWidgets.Add(CompletedByStart);
+			BtnCompletedBy.LinkedWidgets.Add(LblFullyCompletedBy);
+			BtnCompletedBy.LinkedWidgets.Add(FullyCompletedBy);
+
 			AddWidget(new WhiteSpace(), ++row, 0);
 			AddWidget(BtnAdd, ++row, 1);
 			AddWidget(BtnCancel, row, 2);
@@ -63,7 +74,7 @@
 
 		public Label LblDescription { get; } = new Label("Description");
 
-		public TextBox Description { get; } = new TextBox { Width = Defaults.WidgetWidth };
+		public TextBox Description { get; } = new TextBox { Width = Defaults.WidgetWidth, IsMultiline = true };
 
 		public Label LblOrg { get; } = new Label("Organization");
 
@@ -71,7 +82,21 @@
 
 		public Label LblContact { get; } = new Label("Order Contact");
 
-		public CheckBoxList<PeopleInstance> Contact { get; } = new CheckBoxList<PeopleInstance> { Width = Defaults.WidgetWidth };
+		public CheckBoxList<PeopleInstance> Contact { get; } = new CheckBoxList<PeopleInstance> { Width = Defaults.WidgetWidth, MaxHeight = Defaults.WidgetWidth };
+
+		public CollapseButton BtnCompletedBy { get; } = new CollapseButton(true) { CollapseText = "Hide Completion Details", ExpandText = "Show Completion Details", Tooltip = "Show all 'To be completed by' settings." };
+
+		public Label LblCompletionInfoState { get; } = new Label("Completion Settings Enabled");
+
+		public CheckBox CompletionInfoState { get; } = new CheckBox { IsChecked = false, Tooltip = "Indicate whether the completion info details will be configured or not." };
+
+		public Label LblCompletedByStart { get; } = new Label("Requested Start Date");
+
+		public DateTimePicker CompletedByStart { get; } = new DateTimePicker { Width = Defaults.WidgetWidth };
+
+		public Label LblFullyCompletedBy { get; } = new Label("Requested Completed Date");
+
+		public DateTimePicker FullyCompletedBy { get; } = new DateTimePicker { Width = Defaults.WidgetWidth };
 
 		public Button BtnAdd { get; } = new Button("Create") { Style = ButtonStyle.CallToAction };
 

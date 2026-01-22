@@ -136,6 +136,7 @@
 					HelperMethods.CreateNewServiceConfigurationVersion(serviceSpecification, instanceService),
 					repoConfig.ConfigurationParameters.Read(),
 					State.Create);
+				instanceService.ServiceConfiguration = configuration.ServiceConfigurationVersion; // set as active
 			}
 			else
 			{
@@ -179,6 +180,7 @@
 
 			if (configuration.State == State.Create)
 			{
+				repoService.ServiceConfigurationVersions.CreateOrUpdate(configuration.ServiceConfigurationVersion);
 				instanceService.ConfigurationVersions.Add(configuration.ServiceConfigurationVersion);
 				repoService.Services.CreateOrUpdate(instanceService);
 			}
@@ -334,7 +336,8 @@
 
 			view.AddWidget(new WhiteSpace(), ++row, 0);
 
-			if (configuration.State == State.Create && view.ConfigurationVersions.Options.Count() > 3) // Only 2 versions allowed per service
+			// Only 2 versions allowed per service
+			if (configuration.State == State.Create && view.ConfigurationVersions.Options.Count() > 3)
 			{
 				row = BuildExceedNumberOfVersionUI(row);
 			}
@@ -852,13 +855,11 @@
 			start.Changed += (sender, args) =>
 			{
 				value.Minimum = args.Value;
-				step.Minimum = args.Value;
 				record.ConfigurationParamValue.NumberOptions.MinRange = args.Value;
 			};
 			end.Changed += (sender, args) =>
 			{
 				value.Maximum = args.Value;
-				step.Maximum = args.Value;
 				record.ConfigurationParamValue.NumberOptions.MaxRange = args.Value;
 			};
 			decimals.Changed += (sender, args) =>

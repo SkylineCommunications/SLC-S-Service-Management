@@ -48,6 +48,7 @@ DATE		VERSION		AUTHOR			COMMENTS
 27/05/2025	1.0.0.1		RCA, Skyline	Initial version
 ****************************************************************************
 */
+
 namespace GetServiceItemRelationshipMultisection
 {
 	using System;
@@ -108,6 +109,24 @@ namespace GetServiceItemRelationshipMultisection
 			return _logger.PerformanceLogger(nameof(GetNextPage), BuildupRows);
 		}
 
+		public OnArgumentsProcessedOutputArgs OnArgumentsProcessed(OnArgumentsProcessedInputArgs args)
+		{
+			if (!Guid.TryParse(args.GetArgumentValue(domIdArg), out _specificationId))
+			{
+				_specificationId = Guid.Empty;
+			}
+
+			return new OnArgumentsProcessedOutputArgs();
+		}
+
+		public OnInitOutputArgs OnInit(OnInitInputArgs args)
+		{
+			_dms = args.DMS;
+			_logger = args.Logger;
+			_logger.MinimumLogLevel = GQILogLevel.Debug;
+			return default;
+		}
+
 		private GQIPage BuildupRows()
 		{
 			try
@@ -126,7 +145,7 @@ namespace GetServiceItemRelationshipMultisection
 				}
 
 				var items = _serviceInstance?.ServiceItems.Select(i => i.ID.ToString()).ToArray()
-				            ?? _serviceSpecificationInstance?.ServiceItems.Select(i => i.ID.ToString()).ToArray();
+							?? _serviceSpecificationInstance?.ServiceItems.Select(i => i.ID.ToString()).ToArray();
 				if (items == null)
 				{
 					return EmptyPage();
@@ -144,24 +163,6 @@ namespace GetServiceItemRelationshipMultisection
 				_logger.Error($"GQIDS|{DataSourceName}|Exception: {e}");
 				return new GQIPage(Enumerable.Empty<GQIRow>().ToArray());
 			}
-		}
-
-		public OnArgumentsProcessedOutputArgs OnArgumentsProcessed(OnArgumentsProcessedInputArgs args)
-		{
-			if (!Guid.TryParse(args.GetArgumentValue(domIdArg), out _specificationId))
-			{
-				_specificationId = Guid.Empty;
-			}
-
-			return new OnArgumentsProcessedOutputArgs();
-		}
-
-		public OnInitOutputArgs OnInit(OnInitInputArgs args)
-		{
-			_dms = args.DMS;
-			_logger = args.Logger;
-			_logger.MinimumLogLevel = GQILogLevel.Debug;
-			return default;
 		}
 
 		private GQIRow BuildRow(Models.ServiceItemRelationShip r)
@@ -197,7 +198,7 @@ namespace GetServiceItemRelationshipMultisection
 
 			if (type == SlcServicemanagementIds.Enums.ServiceitemtypesEnum.Workflow)
 			{
-				//return GetWorkflowInterfaceName(serviceItemId, interfaceId);
+				////return GetWorkflowInterfaceName(serviceItemId, interfaceId);
 				return interfaceId == "1" ? "Default Workflow Output" : "Default Workflow Input";
 			}
 

@@ -1,28 +1,33 @@
 {
-  "BehaviorDefinitionId": null,
-  "Id": {
-    "Id": "f384fc4f-708b-46a1-9474-bf9fbbe358a7",
-    "ModuleId": "(slc)servicemanagement"
-  },
-  "ModuleSettingsOverrides": {
-    "HistorySettings": null,
-    "NameDefinition": null,
-    "ScriptSettings": null
-  },
-  "Name": "Service Configuration",
-  "SectionDefinitionLinks": [
-    {
-      "AllowMultipleSections": true,
-      "IsOptional": false,
-      "IsSoftDeleted": false,
-      "SectionDefinitionID": {
-        "Id": "e1265675-b4a0-48ac-b19d-72ed90ed32e7",
-        "ModuleId": "(slc)servicemanagement"
-      }
-    }
-  ],
-  "VisualStructure": {
-    "IsHidden": false,
-    "SectionDefinitionInfos": []
-  }
+	"Id": {
+		"Id": "f384fc4f-708b-46a1-9474-bf9fbbe358a7",
+		"ModuleId": "(slc)servicemanagement"
+	},
+	"SectionDefinitionLinks": [
+		{
+			"SectionDefinitionID": {
+				"Id": "e1265675-b4a0-48ac-b19d-72ed90ed32e7",
+				"ModuleId": "(slc)servicemanagement"
+			},
+			"IsSoftDeleted": false,
+			"IsOptional": false,
+			"AllowMultipleSections": true
+		}
+	],
+	"Name": "Service Configuration",
+	"VisualStructure": {
+		"SectionDefinitionInfos": [
+		],
+		"IsHidden": false
+	},
+	"BehaviorDefinitionId": null,
+	"ModuleSettingsOverrides": {
+		"NameDefinition": null,
+		"ScriptSettings": null,
+		"HistorySettings": null
+	},
+	"SyncLastModified": "2026-01-16T12:46:33.1717938Z",
+	"LastModifiedBy": "Robin Meurisse",
+	"CreatedAt": "2026-01-12T10:03:06.9741148Z",
+	"CreatedBy": "Robin Meurisse"
 }

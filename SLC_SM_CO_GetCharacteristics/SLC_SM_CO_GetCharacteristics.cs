@@ -68,12 +68,12 @@ namespace SLCSMCOGetWorkflowIcon
 	public class SLCSMCOGetWorkflowIcon : IGQIColumnOperator, IGQIRowOperator, IGQIOnInit, IGQIInputArguments
 	{
 		private readonly GQIStringArgument _characteristicsNamesArg = new GQIStringArgument("Characteristics") { IsRequired = true };
+		private readonly string _domIdColumnName = "DOM ID";
+		private readonly List<GQIStringColumn> _newColumnsList = new List<GQIStringColumn>();
 		private List<string> _characteristicNamesList = new List<string>();
 		private IConnection _connection;
 		private GQIDMS _dms;
-		private readonly string _DomIdColumnName = "DOM ID";
-		private readonly List<GQIStringColumn> _newColumnsList = new List<GQIStringColumn>();
-		DataHelpersServiceManagement _serviceHelper;
+		private DataHelpersServiceManagement _serviceHelper;
 
 		public GQIArgument[] GetInputArguments()
 		{
@@ -84,7 +84,6 @@ namespace SLCSMCOGetWorkflowIcon
 		{
 			// add columns for the characterics indicated by the user
 			// column references are stored in separate list _newColumnList
-
 			foreach (var characteristic in _characteristicNamesList)
 			{
 				GQIStringColumn newColumn = new GQIStringColumn(characteristic);
@@ -95,9 +94,8 @@ namespace SLCSMCOGetWorkflowIcon
 
 		public void HandleRow(GQIEditableRow row)
 		{
-			// fetch the servcie, the characterisctics and add the characteristic values to the columns 
-
-			if (!Guid.TryParse(row.GetValue(_DomIdColumnName)?.ToString(), out Guid domId))
+			// fetch the servcie, the characterisctics and add the characteristic values to the columns
+			if (!Guid.TryParse(row.GetValue(_domIdColumnName)?.ToString(), out Guid domId))
 			{
 				return;
 			}

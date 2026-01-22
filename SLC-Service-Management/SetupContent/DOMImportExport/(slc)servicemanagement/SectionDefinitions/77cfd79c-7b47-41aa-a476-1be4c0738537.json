@@ -1,0 +1,65 @@
+{
+	"$type": "Skyline.DataMiner.Net.Sections.CustomSectionDefinition, SLNetTypes",
+	"ID": {
+		"$type": "Skyline.DataMiner.Net.Sections.SectionDefinitionID, SLNetTypes",
+		"Id": "77cfd79c-7b47-41aa-a476-1be4c0738537",
+		"ModuleId": "(slc)servicemanagement"
+	},
+	"Name": "Service Property Value Info",
+	"FieldDescriptors": {
+		"$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.FieldDescriptor, SLNetTypes]], mscorlib",
+		"$values": [
+			{
+				"$type": "Skyline.DataMiner.Net.Sections.FieldDescriptor, SLNetTypes",
+				"ID": {
+					"$type": "Skyline.DataMiner.Net.Sections.FieldDescriptorID, SLNetTypes",
+					"Id": "c3052330-1f04-4906-bd34-cbb56141526a"
+				},
+				"Name": "Linked Object ID",
+				"Validators": {
+					"$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.IFieldValidator, SLNetTypes]], mscorlib",
+					"$values": [
+					]
+				},
+				"FieldType": "System.String, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089",
+				"IsOptional": true,
+				"IsHidden": false,
+				"IsReadonly": false,
+				"Tooltip": "",
+				"DefaultValue": null,
+				"IsSoftDeleted": false
+			},
+			{
+				"$type": "Skyline.DataMiner.Net.Sections.FieldDescriptor, SLNetTypes",
+				"ID": {
+					"$type": "Skyline.DataMiner.Net.Sections.FieldDescriptorID, SLNetTypes",
+					"Id": "681ed31b-7d57-4140-9250-c6ed78b38c16"
+				},
+				"Name": "Linked Object DOM Module",
+				"Validators": {
+					"$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.IFieldValidator, SLNetTypes]], mscorlib",
+					"$values": [
+					]
+				},
+				"FieldType": "System.String, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089",
+				"IsOptional": true,
+				"IsHidden": false,
+				"IsReadonly": false,
+				"Tooltip": "DOM module of the instance the properties relate to",
+				"DefaultValue": null,
+				"IsSoftDeleted": false
+			}
+		]
+	},
+	"SectionValidators": {
+		"$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.ISectionValidator, SLNetTypes]], mscorlib",
+		"$values": [
+		]
+	},
+	"ReservationLinkInfo": null,
+	"IsHidden": false,
+	"SyncLastModified": "2025-03-05T13:34:34.6933922Z",
+	"LastModifiedBy": "Jonas Kockx",
+	"CreatedAt": "2025-01-20T15:29:23.2769626Z",
+	"CreatedBy": "Jonas Kockx"
+}

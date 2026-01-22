@@ -167,7 +167,7 @@ namespace SLCSMCreateJobForServiceItem
 				Source = "Scheduling",
 				DesiredJobStatus = DesiredJobStatus.Tentative,
 				Start = instance.StartTime ?? throw new InvalidOperationException("No Start Time configured to create the job from"),
-				End = instance.EndTime ?? ReservationInstance.PermanentEnd,
+				End = instance.EndTime ?? instance.StartTime.Value + TimeSpan.FromDays(365 * 5), ////ReservationInstance.PermanentEnd,
 			};
 		}
 

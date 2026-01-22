@@ -1,69 +1,76 @@
 {
-  "$type": "Skyline.DataMiner.Net.Sections.CustomSectionDefinition, SLNetTypes",
-  "FieldDescriptors": {
-    "$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.FieldDescriptor, SLNetTypes]], mscorlib",
-    "$values": [
-      {
-        "$type": "Skyline.DataMiner.Net.Sections.DomInstanceFieldDescriptor, SLNetTypes",
-        "DefaultValue": null,
-        "DomDefinitionIds": {
-          "$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Apps.DataMinerObjectModel.DomDefinitionId, SLNetTypes]], mscorlib",
-          "$values": [
-            {
-              "$type": "Skyline.DataMiner.Net.Apps.DataMinerObjectModel.DomDefinitionId, SLNetTypes",
-              "Id": "1480b788-4aff-4e2a-9ee0-ec55bb0f8912",
-              "ModuleId": "(slc)servicemanagement"
-            }
-          ]
-        },
-        "FieldType": "System.Guid, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089",
-        "ID": {
-          "$type": "Skyline.DataMiner.Net.Sections.FieldDescriptorID, SLNetTypes",
-          "Id": "853d9a8c-09e3-4e75-b270-5ebf827e9bdf"
-        },
-        "IsHidden": true,
-        "IsOptional": true,
-        "IsReadonly": false,
-        "IsSoftDeleted": false,
-        "ModuleId": "(slc)servicemanagement",
-        "Name": "Service Order Item",
-        "Tooltip": "Reference to the Service Order Item related to this Service Order",
-        "Validators": {
-          "$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.IFieldValidator, SLNetTypes]], mscorlib",
-          "$values": []
-        }
-      },
-      {
-        "$type": "Skyline.DataMiner.Net.Sections.FieldDescriptor, SLNetTypes",
-        "DefaultValue": null,
-        "FieldType": "System.Int64, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089",
-        "ID": {
-          "$type": "Skyline.DataMiner.Net.Sections.FieldDescriptorID, SLNetTypes",
-          "Id": "cad2201c-8663-4656-b53e-91babb984567"
-        },
-        "IsHidden": true,
-        "IsOptional": true,
-        "IsReadonly": false,
-        "IsSoftDeleted": false,
-        "Name": "Priority Order",
-        "Tooltip": "Priority of the Service Order Item within the Service Order",
-        "Validators": {
-          "$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.IFieldValidator, SLNetTypes]], mscorlib",
-          "$values": []
-        }
-      }
-    ]
-  },
-  "ID": {
-    "$type": "Skyline.DataMiner.Net.Sections.SectionDefinitionID, SLNetTypes",
-    "Id": "b9041ff9-4f7f-4412-822f-18c218a5444d",
-    "ModuleId": "(slc)servicemanagement"
-  },
-  "IsHidden": false,
-  "Name": "Service Order Items",
-  "ReservationLinkInfo": null,
-  "SectionValidators": {
-    "$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.ISectionValidator, SLNetTypes]], mscorlib",
-    "$values": []
-  }
+	"$type": "Skyline.DataMiner.Net.Sections.CustomSectionDefinition, SLNetTypes",
+	"ID": {
+		"$type": "Skyline.DataMiner.Net.Sections.SectionDefinitionID, SLNetTypes",
+		"Id": "b9041ff9-4f7f-4412-822f-18c218a5444d",
+		"ModuleId": "(slc)servicemanagement"
+	},
+	"Name": "Service Order Items",
+	"FieldDescriptors": {
+		"$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.FieldDescriptor, SLNetTypes]], mscorlib",
+		"$values": [
+			{
+				"$type": "Skyline.DataMiner.Net.Sections.DomInstanceFieldDescriptor, SLNetTypes",
+				"ID": {
+					"$type": "Skyline.DataMiner.Net.Sections.FieldDescriptorID, SLNetTypes",
+					"Id": "853d9a8c-09e3-4e75-b270-5ebf827e9bdf"
+				},
+				"Name": "Service Order Item",
+				"Validators": {
+					"$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.IFieldValidator, SLNetTypes]], mscorlib",
+					"$values": [
+					]
+				},
+				"ModuleId": "(slc)servicemanagement",
+				"DomDefinitionIds": {
+					"$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Apps.DataMinerObjectModel.DomDefinitionId, SLNetTypes]], mscorlib",
+					"$values": [
+						{
+							"$type": "Skyline.DataMiner.Net.Apps.DataMinerObjectModel.DomDefinitionId, SLNetTypes",
+							"Id": "1480b788-4aff-4e2a-9ee0-ec55bb0f8912",
+							"ModuleId": "(slc)servicemanagement"
+						}
+					]
+				},
+				"FieldType": "System.Guid, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089",
+				"IsOptional": true,
+				"IsHidden": true,
+				"IsReadonly": false,
+				"Tooltip": "Reference to the Service Order Item related to this Service Order",
+				"DefaultValue": null,
+				"IsSoftDeleted": false
+			},
+			{
+				"$type": "Skyline.DataMiner.Net.Sections.FieldDescriptor, SLNetTypes",
+				"ID": {
+					"$type": "Skyline.DataMiner.Net.Sections.FieldDescriptorID, SLNetTypes",
+					"Id": "cad2201c-8663-4656-b53e-91babb984567"
+				},
+				"Name": "Priority Order",
+				"Validators": {
+					"$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.IFieldValidator, SLNetTypes]], mscorlib",
+					"$values": [
+					]
+				},
+				"FieldType": "System.Int64, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089",
+				"IsOptional": true,
+				"IsHidden": true,
+				"IsReadonly": false,
+				"Tooltip": "Priority of the Service Order Item within the Service Order",
+				"DefaultValue": null,
+				"IsSoftDeleted": false
+			}
+		]
+	},
+	"SectionValidators": {
+		"$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.ISectionValidator, SLNetTypes]], mscorlib",
+		"$values": [
+		]
+	},
+	"ReservationLinkInfo": null,
+	"IsHidden": false,
+	"SyncLastModified": "2026-01-12T10:48:53.1855705Z",
+	"LastModifiedBy": "Robin Meurisse",
+	"CreatedAt": "2026-01-12T10:03:05.786199Z",
+	"CreatedBy": "Robin Meurisse"
 }

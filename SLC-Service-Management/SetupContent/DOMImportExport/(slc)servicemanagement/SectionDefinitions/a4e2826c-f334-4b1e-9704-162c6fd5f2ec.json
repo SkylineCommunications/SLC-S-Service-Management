@@ -1,116 +1,125 @@
 {
-  "$type": "Skyline.DataMiner.Net.Sections.CustomSectionDefinition, SLNetTypes",
-  "FieldDescriptors": {
-    "$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.FieldDescriptor, SLNetTypes]], mscorlib",
-    "$values": [
-      {
-        "$type": "Skyline.DataMiner.Net.Sections.DomInstanceFieldDescriptor, SLNetTypes",
-        "DefaultValue": null,
-        "DomDefinitionIds": {
-          "$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Apps.DataMinerObjectModel.DomDefinitionId, SLNetTypes]], mscorlib",
-          "$values": [
-            {
-              "$type": "Skyline.DataMiner.Net.Apps.DataMinerObjectModel.DomDefinitionId, SLNetTypes",
-              "Id": "6dd99cdc-9196-4c97-88fc-24fef32dd776",
-              "ModuleId": "(slc)configurations"
-            }
-          ]
-        },
-        "FieldType": "System.Guid, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089",
-        "ID": {
-          "$type": "Skyline.DataMiner.Net.Sections.FieldDescriptorID, SLNetTypes",
-          "Id": "92fda825-193c-4380-962e-86aa7c61f7f0"
-        },
-        "IsHidden": false,
-        "IsOptional": true,
-        "IsReadonly": false,
-        "IsSoftDeleted": false,
-        "ModuleId": "(slc)configurations",
-        "Name": "Configuration Parameter Value",
-        "Tooltip": "Reference to the stored value in (slc)configurations",
-        "Validators": {
-          "$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.IFieldValidator, SLNetTypes]], mscorlib",
-          "$values": []
-        }
-      },
-      {
-        "$type": "Skyline.DataMiner.Net.Sections.FieldDescriptor, SLNetTypes",
-        "DefaultValue": {
-          "$type": "Skyline.DataMiner.Net.Sections.ValueWrapper`1[[System.Boolean, mscorlib]], SLNetTypes",
-          "Value": false
-        },
-        "FieldType": "System.Boolean, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089",
-        "ID": {
-          "$type": "Skyline.DataMiner.Net.Sections.FieldDescriptorID, SLNetTypes",
-          "Id": "ac2649ef-e73e-4252-a577-2d0ad083d21b"
-        },
-        "IsHidden": false,
-        "IsOptional": true,
-        "IsReadonly": false,
-        "IsSoftDeleted": false,
-        "Name": "Mandatory at Service Level",
-        "Tooltip": "Defines if mandatory to fill this parameter with a value at Service Level",
-        "Validators": {
-          "$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.IFieldValidator, SLNetTypes]], mscorlib",
-          "$values": []
-        }
-      },
-      {
-        "$type": "Skyline.DataMiner.Net.Sections.FieldDescriptor, SLNetTypes",
-        "DefaultValue": {
-          "$type": "Skyline.DataMiner.Net.Sections.ValueWrapper`1[[System.Boolean, mscorlib]], SLNetTypes",
-          "Value": false
-        },
-        "FieldType": "System.Boolean, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089",
-        "ID": {
-          "$type": "Skyline.DataMiner.Net.Sections.FieldDescriptorID, SLNetTypes",
-          "Id": "7c991cd6-08e9-4d78-8a55-457e9d3ffa18"
-        },
-        "IsHidden": false,
-        "IsOptional": true,
-        "IsReadonly": false,
-        "IsSoftDeleted": false,
-        "Name": "Expose at Service Order Level",
-        "Tooltip": "Defines if the parameter will be shown to customers who order the Specification",
-        "Validators": {
-          "$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.IFieldValidator, SLNetTypes]], mscorlib",
-          "$values": []
-        }
-      },
-      {
-        "$type": "Skyline.DataMiner.Net.Sections.FieldDescriptor, SLNetTypes",
-        "DefaultValue": {
-          "$type": "Skyline.DataMiner.Net.Sections.ValueWrapper`1[[System.Boolean, mscorlib]], SLNetTypes",
-          "Value": false
-        },
-        "FieldType": "System.Boolean, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089",
-        "ID": {
-          "$type": "Skyline.DataMiner.Net.Sections.FieldDescriptorID, SLNetTypes",
-          "Id": "94cacd16-7b27-4f57-a8fe-669c79d8268e"
-        },
-        "IsHidden": false,
-        "IsOptional": true,
-        "IsReadonly": false,
-        "IsSoftDeleted": false,
-        "Name": "Mandatory at Service Order Level",
-        "Tooltip": "Defines if mandatory to fill this parameter with a value at Service Order Level",
-        "Validators": {
-          "$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.IFieldValidator, SLNetTypes]], mscorlib",
-          "$values": []
-        }
-      }
-    ]
-  },
-  "ID": {
-    "$type": "Skyline.DataMiner.Net.Sections.SectionDefinitionID, SLNetTypes",
-    "Id": "a4e2826c-f334-4b1e-9704-162c6fd5f2ec",
-    "ModuleId": "(slc)servicemanagement"
-  },
-  "IsHidden": false,
-  "Name": "Service Specification Configuration Value",
-  "ReservationLinkInfo": null,
-  "SectionValidators": {
-    "$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.ISectionValidator, SLNetTypes]], mscorlib",
-    "$values": []
-  }
+	"$type": "Skyline.DataMiner.Net.Sections.CustomSectionDefinition, SLNetTypes",
+	"ID": {
+		"$type": "Skyline.DataMiner.Net.Sections.SectionDefinitionID, SLNetTypes",
+		"Id": "a4e2826c-f334-4b1e-9704-162c6fd5f2ec",
+		"ModuleId": "(slc)servicemanagement"
+	},
+	"Name": "Service Specification Configuration Value",
+	"FieldDescriptors": {
+		"$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.FieldDescriptor, SLNetTypes]], mscorlib",
+		"$values": [
+			{
+				"$type": "Skyline.DataMiner.Net.Sections.DomInstanceFieldDescriptor, SLNetTypes",
+				"ID": {
+					"$type": "Skyline.DataMiner.Net.Sections.FieldDescriptorID, SLNetTypes",
+					"Id": "92fda825-193c-4380-962e-86aa7c61f7f0"
+				},
+				"Name": "Configuration Parameter Value",
+				"Validators": {
+					"$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.IFieldValidator, SLNetTypes]], mscorlib",
+					"$values": [
+					]
+				},
+				"ModuleId": "(slc)configurations",
+				"DomDefinitionIds": {
+					"$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Apps.DataMinerObjectModel.DomDefinitionId, SLNetTypes]], mscorlib",
+					"$values": [
+						{
+							"$type": "Skyline.DataMiner.Net.Apps.DataMinerObjectModel.DomDefinitionId, SLNetTypes",
+							"Id": "6dd99cdc-9196-4c97-88fc-24fef32dd776",
+							"ModuleId": "(slc)configurations"
+						}
+					]
+				},
+				"FieldType": "System.Guid, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089",
+				"IsOptional": true,
+				"IsHidden": false,
+				"IsReadonly": false,
+				"Tooltip": "Reference to the stored value in (slc)configurations",
+				"DefaultValue": null,
+				"IsSoftDeleted": false
+			},
+			{
+				"$type": "Skyline.DataMiner.Net.Sections.FieldDescriptor, SLNetTypes",
+				"ID": {
+					"$type": "Skyline.DataMiner.Net.Sections.FieldDescriptorID, SLNetTypes",
+					"Id": "ac2649ef-e73e-4252-a577-2d0ad083d21b"
+				},
+				"Name": "Mandatory at Service Level",
+				"Validators": {
+					"$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.IFieldValidator, SLNetTypes]], mscorlib",
+					"$values": [
+					]
+				},
+				"FieldType": "System.Boolean, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089",
+				"IsOptional": true,
+				"IsHidden": false,
+				"IsReadonly": false,
+				"Tooltip": "Defines if mandatory to fill this parameter with a value at Service Level",
+				"DefaultValue": {
+					"$type": "Skyline.DataMiner.Net.Sections.ValueWrapper`1[[System.Boolean, mscorlib]], SLNetTypes",
+					"Value": false
+				},
+				"IsSoftDeleted": false
+			},
+			{
+				"$type": "Skyline.DataMiner.Net.Sections.FieldDescriptor, SLNetTypes",
+				"ID": {
+					"$type": "Skyline.DataMiner.Net.Sections.FieldDescriptorID, SLNetTypes",
+					"Id": "7c991cd6-08e9-4d78-8a55-457e9d3ffa18"
+				},
+				"Name": "Expose at Service Order Level",
+				"Validators": {
+					"$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.IFieldValidator, SLNetTypes]], mscorlib",
+					"$values": [
+					]
+				},
+				"FieldType": "System.Boolean, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089",
+				"IsOptional": true,
+				"IsHidden": false,
+				"IsReadonly": false,
+				"Tooltip": "Defines if the parameter will be shown to customers who order the Specification",
+				"DefaultValue": {
+					"$type": "Skyline.DataMiner.Net.Sections.ValueWrapper`1[[System.Boolean, mscorlib]], SLNetTypes",
+					"Value": false
+				},
+				"IsSoftDeleted": false
+			},
+			{
+				"$type": "Skyline.DataMiner.Net.Sections.FieldDescriptor, SLNetTypes",
+				"ID": {
+					"$type": "Skyline.DataMiner.Net.Sections.FieldDescriptorID, SLNetTypes",
+					"Id": "94cacd16-7b27-4f57-a8fe-669c79d8268e"
+				},
+				"Name": "Mandatory at Service Order Level",
+				"Validators": {
+					"$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.IFieldValidator, SLNetTypes]], mscorlib",
+					"$values": [
+					]
+				},
+				"FieldType": "System.Boolean, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089",
+				"IsOptional": true,
+				"IsHidden": false,
+				"IsReadonly": false,
+				"Tooltip": "Defines if mandatory to fill this parameter with a value at Service Order Level",
+				"DefaultValue": {
+					"$type": "Skyline.DataMiner.Net.Sections.ValueWrapper`1[[System.Boolean, mscorlib]], SLNetTypes",
+					"Value": false
+				},
+				"IsSoftDeleted": false
+			}
+		]
+	},
+	"SectionValidators": {
+		"$type": "System.Collections.Generic.List`1[[Skyline.DataMiner.Net.Sections.ISectionValidator, SLNetTypes]], mscorlib",
+		"$values": [
+		]
+	},
+	"ReservationLinkInfo": null,
+	"IsHidden": false,
+	"SyncLastModified": "2026-01-12T10:48:53.0735068Z",
+	"LastModifiedBy": "Robin Meurisse",
+	"CreatedAt": "2026-01-12T10:03:05.7178617Z",
+	"CreatedBy": "Robin Meurisse"
 }

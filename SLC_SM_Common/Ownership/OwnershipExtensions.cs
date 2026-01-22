@@ -43,7 +43,7 @@
 			if (!String.IsNullOrEmpty(dmaUser?.EmailAdress))
 			{
 				// Try to match by email first
-				person = dataHelper.People.Read().FirstOrDefault(p => p.Mail == dmaUser.EmailAdress);
+				person = dataHelper.People.Read(PeopleExposers.Mail.Equal(dmaUser.EmailAdress)).FirstOrDefault();
 			}
 
 			if (person == null)

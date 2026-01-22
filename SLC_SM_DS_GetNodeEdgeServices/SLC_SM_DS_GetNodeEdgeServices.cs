@@ -48,6 +48,7 @@ DATE		VERSION		AUTHOR			COMMENTS
 08/09/2025	1.0.0.1		RCA, Skyline	Initial version
 ****************************************************************************
 */
+
 namespace SLCSMDSGetNodeEdgeServices
 {
 	using System;
@@ -101,6 +102,21 @@ namespace SLCSMDSGetNodeEdgeServices
 			return _logger.PerformanceLogger(nameof(GetNextPage), BuildupRows);
 		}
 
+		public OnArgumentsProcessedOutputArgs OnArgumentsProcessed(OnArgumentsProcessedInputArgs args)
+		{
+			return _arguments.OnArgumentsProcessed(args);
+		}
+
+		public OnInitOutputArgs OnInit(OnInitInputArgs args)
+		{
+			_dms = args.DMS;
+			_logger = args.Logger;
+			_logger.MinimumLogLevel = GQILogLevel.Debug;
+			_serviceMangerDomHelper = new DomHelper(args.DMS.SendMessages, SlcServicemanagementIds.ModuleId);
+			_configurationDomHelper = new DomHelper(args.DMS.SendMessages, SlcConfigurationsIds.ModuleId);
+			return new OnInitOutputArgs();
+		}
+
 		private GQIPage BuildupRows()
 		{
 			try
@@ -121,21 +137,6 @@ namespace SLCSMDSGetNodeEdgeServices
 				_logger.Error($"GQIDS|{DataSourceName}|Exception: {e}");
 				return new GQIPage(Enumerable.Empty<GQIRow>().ToArray());
 			}
-		}
-
-		public OnArgumentsProcessedOutputArgs OnArgumentsProcessed(OnArgumentsProcessedInputArgs args)
-		{
-			return _arguments.OnArgumentsProcessed(args);
-		}
-
-		public OnInitOutputArgs OnInit(OnInitInputArgs args)
-		{
-			_dms = args.DMS;
-			_logger = args.Logger;
-			_logger.MinimumLogLevel = GQILogLevel.Debug;
-			_serviceMangerDomHelper = new DomHelper(args.DMS.SendMessages, SlcServicemanagementIds.ModuleId);
-			_configurationDomHelper = new DomHelper(args.DMS.SendMessages, SlcConfigurationsIds.ModuleId);
-			return new OnInitOutputArgs();
 		}
 
 		private GQIRow BuildEdgeRow(ServicesInstance source, ServicesInstance destination)

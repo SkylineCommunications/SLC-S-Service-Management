@@ -48,10 +48,11 @@ DATE        VERSION        AUTHOR            COMMENTS
 13/03/2025    1.0.0.1	   XXX, Skyline    Initial version
 ****************************************************************************
 */
-namespace SLC_SM_Delete_Service_1
+namespace SLC_SM_Delete_Service
 {
 	using System;
 	using System.Collections.Generic;
+	using Library.Dom;
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Core.DataMinerSystem.Automation;
 	using Skyline.DataMiner.Core.DataMinerSystem.Common;
@@ -134,14 +135,28 @@ namespace SLC_SM_Delete_Service_1
 			var services = !filter.isEmpty() ? serviceManagementHelper.Services.Read(filter) : new List<Models.Service>();
 			foreach (var service in services)
 			{
-				if (service.GenerateMonitoringService == true && dms.ServiceExistsSafe(service.Name, out IDmsService dmsService))
-				{
-					dmsService.Delete();
-				}
-
-				_engine.GenerateInformation($"Service that will be removed: {service.ID}/{service.Name}");
-				serviceManagementHelper.Services.TryDelete(service);
+				RemoveService(dms, serviceManagementHelper, service);
 			}
+		}
+
+		private void RemoveService(IDms dms, DataHelpersServiceManagement serviceManagementHelper, Models.Service service)
+		{
+			if (service.GenerateMonitoringService == true && dms.ServiceExistsSafe(service.Name, out IDmsService dmsService))
+			{
+				dmsService.Delete();
+			}
+
+			_engine.GenerateInformation($"Service that will be removed: {service.ID}/{service.Name}");
+
+			foreach (Models.ServiceItem serviceItem in service.ServiceItems)
+			{
+				if (serviceItem.LinkedReferenceStillActive(_engine))
+				{
+					return;
+				}
+			}
+
+			serviceManagementHelper.Services.TryDelete(service);
 		}
 	}
 }

@@ -34,41 +34,58 @@ namespace ServiceOrderItemStateTranstitions
 			engine.GenerateInformation($"Service Order Item Status Transition starting: previousState: {previousState}, nextState: {nextState}");
 			orderItem = orderItemHelper.UpdateState(orderItem, transition);
 
-			if (transition == TransitionsEnum.New_To_Acknowledged)
+			switch (transition)
 			{
-				// Transition parent order to ACK as well
-				var orderHelper = new DataHelperServiceOrder(engine.GetUserConnection());
-				var order = orderHelper.Read(ServiceOrderExposers.ServiceOrderItemsExposers.ServiceOrderItem.Equal(orderItem)).FirstOrDefault()
-							  ?? throw new NotSupportedException($"No Service Order exists that contains Child ID '{orderItem.ID}' on the system");
-				if (order.Status == DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Serviceorder_Behavior.StatusesEnum.New && order.OrderItems.All(x => x.ServiceOrderItem.Status == StatusesEnum.Acknowledged))
-				{
-					engine.GenerateInformation($" - Transitioning Parent Service Order '{order.Name}' to Acknowledged");
-					orderHelper.UpdateState(order, DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Serviceorder_Behavior.TransitionsEnum.New_To_Acknowledged);
-				}
+				case TransitionsEnum.New_To_Acknowledged:
+					// Transition parent order to ACK as well
+					TransitionOrderToAck(engine, orderItem);
+					break;
+
+				case TransitionsEnum.Acknowledged_To_Inprogress:
+					// Transition parent order to In Progress as well
+					TransitionOrderToInprogress(engine, orderItem);
+					break;
+
+				case TransitionsEnum.Inprogress_To_Completed:
+					// Transition parent order to Active as well
+					TransitionOrderToCompleted(engine, orderItem);
+					break;
 			}
-			else if (transition == TransitionsEnum.Acknowledged_To_Inprogress)
+		}
+
+		private static void TransitionOrderToCompleted(IEngine engine, Models.ServiceOrderItem orderItem)
+		{
+			var orderHelper = new DataHelperServiceOrder(engine.GetUserConnection());
+			var order = orderHelper.Read(ServiceOrderExposers.ServiceOrderItemsExposers.ServiceOrderItem.Equal(orderItem)).FirstOrDefault()
+			            ?? throw new NotSupportedException($"No Service Order exists that contains Child ID '{orderItem.ID}' on the system");
+			if (order.Status == DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Serviceorder_Behavior.StatusesEnum.InProgress)
 			{
-				// Transition parent order to In Progress as well
-				var orderHelper = new DataHelperServiceOrder(engine.GetUserConnection());
-				var order = orderHelper.Read(ServiceOrderExposers.ServiceOrderItemsExposers.ServiceOrderItem.Equal(orderItem)).FirstOrDefault()
-							  ?? throw new NotSupportedException($"No Service Order exists that contains Child ID '{orderItem.ID}' on the system");
-				if (order.Status == DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Serviceorder_Behavior.StatusesEnum.Acknowledged)
-				{
-					engine.GenerateInformation($" - Transitioning Parent Service Order '{order.Name}' to In Progress");
-					orderHelper.UpdateState(order, DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Serviceorder_Behavior.TransitionsEnum.Acknowledged_To_Inprogress);
-				}
+				engine.GenerateInformation($" - Transitioning Parent Service Order '{order.Name}' to Activated");
+				orderHelper.UpdateState(order, DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Serviceorder_Behavior.TransitionsEnum.Inprogress_To_Completed);
 			}
-			else if (transition == TransitionsEnum.Inprogress_To_Completed)
+		}
+
+		private static void TransitionOrderToInprogress(IEngine engine, Models.ServiceOrderItem orderItem)
+		{
+			var orderHelper = new DataHelperServiceOrder(engine.GetUserConnection());
+			var order = orderHelper.Read(ServiceOrderExposers.ServiceOrderItemsExposers.ServiceOrderItem.Equal(orderItem)).FirstOrDefault()
+			            ?? throw new NotSupportedException($"No Service Order exists that contains Child ID '{orderItem.ID}' on the system");
+			if (order.Status == DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Serviceorder_Behavior.StatusesEnum.Acknowledged)
 			{
-				// Transition parent order to Active as well
-				var orderHelper = new DataHelperServiceOrder(engine.GetUserConnection());
-				var order = orderHelper.Read(ServiceOrderExposers.ServiceOrderItemsExposers.ServiceOrderItem.Equal(orderItem)).FirstOrDefault()
-							  ?? throw new NotSupportedException($"No Service Order exists that contains Child ID '{orderItem.ID}' on the system");
-				if (order.Status == DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Serviceorder_Behavior.StatusesEnum.InProgress)
-				{
-					engine.GenerateInformation($" - Transitioning Parent Service Order '{order.Name}' to Activated");
-					orderHelper.UpdateState(order, DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Serviceorder_Behavior.TransitionsEnum.Inprogress_To_Completed);
-				}
+				engine.GenerateInformation($" - Transitioning Parent Service Order '{order.Name}' to In Progress");
+				orderHelper.UpdateState(order, DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Serviceorder_Behavior.TransitionsEnum.Acknowledged_To_Inprogress);
+			}
+		}
+
+		private static void TransitionOrderToAck(IEngine engine, Models.ServiceOrderItem orderItem)
+		{
+			var orderHelper = new DataHelperServiceOrder(engine.GetUserConnection());
+			var order = orderHelper.Read(ServiceOrderExposers.ServiceOrderItemsExposers.ServiceOrderItem.Equal(orderItem)).FirstOrDefault()
+			            ?? throw new NotSupportedException($"No Service Order exists that contains Child ID '{orderItem.ID}' on the system");
+			if (order.Status == DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Serviceorder_Behavior.StatusesEnum.New && order.OrderItems.All(x => x.ServiceOrderItem.Status == StatusesEnum.Acknowledged))
+			{
+				engine.GenerateInformation($" - Transitioning Parent Service Order '{order.Name}' to Acknowledged");
+				orderHelper.UpdateState(order, DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Serviceorder_Behavior.TransitionsEnum.New_To_Acknowledged);
 			}
 		}
 

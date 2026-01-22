@@ -29,9 +29,9 @@
 
 		IEnumerable<NodesSection> IDefinitionObject.GetAvailableOutputs()
 		{
-			//return _existingRelationships.Any(r => r.ParentID == _serviceItem.GetId().Id.ToString())
-			//	? Enumerable.Empty<NodesSection>()
-			//	: new[] { new NodesSection { NodeID = "1", NodeAlias = "Default Service Link Output" } };
+			////return _existingRelationships.Any(r => r.ParentID == _serviceItem.GetId().Id.ToString())
+			////	? Enumerable.Empty<NodesSection>()
+			////	: new[] { new NodesSection { NodeID = "1", NodeAlias = "Default Service Link Output" } };
 			return new[] { new NodesSection { NodeID = "1", NodeAlias = "Default Service Link Output" } };
 		}
 	}

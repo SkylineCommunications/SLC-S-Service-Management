@@ -1,0 +1,42 @@
+{
+	"Id": {
+		"Id": "3f3ba92f-45dc-45ef-b6ed-5b98e2d17a33",
+		"ModuleId": "(slc)servicemanagement"
+	},
+	"SectionDefinitionLinks": [
+		{
+			"SectionDefinitionID": {
+				"Id": "79a261bf-f7b3-45e6-88f6-e0db12ab3bec",
+				"ModuleId": "(slc)servicemanagement"
+			},
+			"IsSoftDeleted": false,
+			"IsOptional": false,
+			"AllowMultipleSections": true
+		}
+	],
+	"Name": "Service Property Values",
+	"VisualStructure": {
+		"SectionDefinitionInfos": [
+		],
+		"IsHidden": false
+	},
+	"BehaviorDefinitionId": null,
+	"ModuleSettingsOverrides": {
+		"NameDefinition": {
+			"ConcatenationItems": [
+				{
+					"$type": "Skyline.DataMiner.Net.Apps.DataMinerObjectModel.Concatenation.FieldValueConcatenationItem, SLNetTypes",
+					"FieldDescriptorId": {
+						"Id": "e4b41897-a6eb-452a-a6ad-88f11e9f9c22"
+					}
+				}
+			]
+		},
+		"ScriptSettings": null,
+		"HistorySettings": null
+	},
+	"SyncLastModified": "2026-01-16T12:46:32.0118483Z",
+	"LastModifiedBy": "Robin Meurisse",
+	"CreatedAt": "2026-01-16T12:46:32.0118483Z",
+	"CreatedBy": "Robin Meurisse"
+}

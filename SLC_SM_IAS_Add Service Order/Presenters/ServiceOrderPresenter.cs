@@ -8,7 +8,6 @@
 	using DomHelpers.SlcServicemanagement;
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Net.Apps.DataMinerObjectModel;
-	using Skyline.DataMiner.Net.Helper;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
@@ -39,6 +38,7 @@
 			view.TboxName.Changed += (sender, args) => ValidateLabel(args.Value);
 			view.Org.Changed += (sender, args) => UpdateContactOnSelectedOrganization(args.Selected);
 			view.BtnCancel.Pressed += (sender, args) => throw new ScriptAbortException("OK");
+			view.CompletionInfoState.Changed += (sender, args) => OnUpdateCompletionDetails(args.IsChecked);
 		}
 
 		public Models.ServiceOrder GetData
@@ -51,14 +51,14 @@
 				instanceToReturn.Priority = view.Priority.Selected;
 				instanceToReturn.Description = view.Description.Text;
 				instanceToReturn.OrganizationId = view.Org.Selected?.ID.Id;
-
-				if (instanceToReturn.ContactIds == null)
+				instanceToReturn.ContactIds = view.Contact.CheckedOptions.Select(x => x.Value.ID.Id).ToList();
+				if (instanceToReturn.CompletionInfo == null)
 				{
-					instanceToReturn.ContactIds = new List<Guid>();
+					instanceToReturn.CompletionInfo = new Models.ServiceOrderCompletionInfo();
 				}
 
-				instanceToReturn.ContactIds.Clear();
-				view.Contact.CheckedOptions.Select(x => x.Value.ID.Id).ForEach(f => instanceToReturn.ContactIds.Add(f));
+				instanceToReturn.CompletionInfo.RequestedStartDate = view.CompletionInfoState.IsChecked ? view.CompletedByStart.DateTime.ToUniversalTime() : default(DateTime?);
+				instanceToReturn.CompletionInfo.RequestedCompletedDate = view.CompletionInfoState.IsChecked ? view.FullyCompletedBy.DateTime.ToUniversalTime() : default(DateTime?);
 
 				return instanceToReturn;
 			}
@@ -71,6 +71,10 @@
 			string defaultOrderId = GetDefaultOrderId(usedOrderIds);
 			view.TboxName.PlaceHolder = defaultOrderId;
 			view.OrderId.Text = defaultOrderId;
+			view.CompletedByStart.DateTime = DateTime.UtcNow + TimeSpan.FromDays(7);
+			view.FullyCompletedBy.DateTime = DateTime.UtcNow + TimeSpan.FromDays(7);
+			OnUpdateCompletionDetails(false);
+			view.BtnCompletedBy.Collapse();
 
 			// Load correct types
 			view.Priority.SetOptions(
@@ -115,6 +119,25 @@
 			view.TboxName.Text = instance.Name;
 			view.TboxName.PlaceHolder = instance.OrderId;
 			view.OrderId.Text = instance.OrderId;
+			if (instance.CompletionInfo?.RequestedStartDate != null)
+			{
+				view.CompletedByStart.DateTime = instance.CompletionInfo.RequestedStartDate.Value;
+			}
+
+			if (instance.CompletionInfo?.RequestedCompletedDate != null)
+			{
+				view.FullyCompletedBy.DateTime = instance.CompletionInfo.RequestedCompletedDate.Value;
+			}
+
+			OnUpdateCompletionDetails(instance.CompletionInfo?.RequestedCompletedDate != null);
+			if (instance.CompletionInfo?.RequestedCompletedDate != null)
+			{
+				view.BtnCompletedBy.Expand();
+			}
+			else
+			{
+				view.BtnCompletedBy.Collapse();
+			}
 
 			if (instance.Priority.HasValue)
 			{
@@ -150,6 +173,13 @@
 			var maxServiceId = usedOrderIds.Select(label => Int32.TryParse(label.Split('-').Last(), out int res) ? res : 0).ToArray();
 			int newNumber = maxServiceId.Length > 0 ? maxServiceId.Max() : 0;
 			return $"ORDER-{newNumber + 1:000000}";
+		}
+
+		private void OnUpdateCompletionDetails(bool areSettingsAvailable)
+		{
+			view.CompletionInfoState.IsChecked = areSettingsAvailable;
+			view.CompletedByStart.IsEnabled = areSettingsAvailable;
+			view.FullyCompletedBy.IsEnabled = areSettingsAvailable;
 		}
 
 		private void UpdateContactOnSelectedOrganization(OrganizationsInstance organizationsInstance)

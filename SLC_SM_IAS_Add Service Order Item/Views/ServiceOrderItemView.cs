@@ -1,15 +1,10 @@
 ﻿namespace SLC_SM_IAS_Add_Service_Order_Item_1.Views
 {
 	using System;
-
-	using DomHelpers.SlcServicemanagement;
-
 	using Library;
-
 	using Skyline.DataMiner.Automation;
-	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
-
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
+	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
 
 	public class ServiceOrderItemView : Dialog
 	{
@@ -22,6 +17,8 @@
 			AddWidget(LblName, ++row, 0);
 			AddWidget(TboxName, row, 1, 1, 2);
 			AddWidget(ErrorName, row, 3);
+			AddWidget(LblDescription, ++row, 0);
+			AddWidget(TboxDescription, row, 1, 1, 2);
 			AddWidget(LblAction, ++row, 0);
 			AddWidget(ActionType, row, 1, 1, 2);
 			AddWidget(LblStartTime, ++row, 0);
@@ -45,33 +42,28 @@
 			AddWidget(BtnCancel, row, 2);
 		}
 
-		public enum ActionTypeEnum
-		{
-			Add,
-			Modify,
-			Delete,
-			NoChange,
-			Undefined,
-		}
-
 		public Label LblName { get; } = new Label("Label");
 
 		public TextBox TboxName { get; } = new TextBox { Width = Defaults.WidgetWidth };
 
 		public Label ErrorName { get; } = new Label(String.Empty);
 
+		public Label LblDescription { get; } = new Label("Description");
+
+		public TextBox TboxDescription { get; } = new TextBox { MinWidth = Defaults.WidgetWidth, IsMultiline = true };
+
 		public Label LblAction { get; } = new Label("Action");
 
-		public DropDown<ActionTypeEnum> ActionType { get; } = new DropDown<ActionTypeEnum>
+		public DropDown<OrderActionType> ActionType { get; } = new DropDown<OrderActionType>
 		{
 			Width = Defaults.WidgetWidth,
 			Options = new[]
 			{
-				new Option<ActionTypeEnum>("Add", ActionTypeEnum.Add),
-				new Option<ActionTypeEnum>("Delete", ActionTypeEnum.Delete),
-				new Option<ActionTypeEnum>("Modify", ActionTypeEnum.Modify),
-				new Option<ActionTypeEnum>("No Change", ActionTypeEnum.NoChange),
-				new Option<ActionTypeEnum>("Undefined", ActionTypeEnum.Undefined),
+				new Option<OrderActionType>("Add", OrderActionType.Add),
+				new Option<OrderActionType>("Delete", OrderActionType.Delete),
+				new Option<OrderActionType>("Modify", OrderActionType.Modify),
+				new Option<OrderActionType>("No Change", OrderActionType.NoChange),
+				new Option<OrderActionType>("Undefined", OrderActionType.Undefined),
 			},
 		};
 

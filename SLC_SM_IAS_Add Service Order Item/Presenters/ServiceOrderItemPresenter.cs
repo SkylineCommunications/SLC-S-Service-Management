@@ -3,6 +3,7 @@
 	using System;
 	using System.Collections.Generic;
 	using System.Linq;
+	using Library;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
@@ -55,9 +56,10 @@
 			get
 			{
 				instanceToReturn.ServiceOrderItem.Name = Name;
+				instanceToReturn.ServiceOrderItem.Description = view.TboxDescription.Text ?? String.Empty;
 				instanceToReturn.ServiceOrderItem.Action = view.ActionType.Selected.ToString();
-				instanceToReturn.ServiceOrderItem.StartTime = view.Start.DateTime;
-				instanceToReturn.ServiceOrderItem.EndTime = view.IndefiniteTime.IsChecked ? default(DateTime?) : view.End.DateTime;
+				instanceToReturn.ServiceOrderItem.StartTime = view.Start.IsVisible ? view.Start.DateTime : default(DateTime?);
+				instanceToReturn.ServiceOrderItem.EndTime = !view.Start.IsVisible || view.IndefiniteTime.IsChecked ? default(DateTime?) : view.End.DateTime;
 				instanceToReturn.ServiceOrderItem.IndefiniteRuntime = view.IndefiniteTime.IsChecked;
 				instanceToReturn.ServiceOrderItem.ServiceCategoryId = view.Category.Selected?.ID;
 				instanceToReturn.ServiceOrderItem.SpecificationId = view.Specification.Selected?.ID;
@@ -116,10 +118,10 @@
 
 			view.BtnAdd.Text = "Save";
 			view.TboxName.Text = instance.ServiceOrderItem.Name;
-			view.ActionType.Selected = Enum.TryParse(instance.ServiceOrderItem.Action, true, out ServiceOrderItemView.ActionTypeEnum action)
+			view.ActionType.Selected = Enum.TryParse(instance.ServiceOrderItem.Action, true, out OrderActionType action)
 				? action
-				: ServiceOrderItemView.ActionTypeEnum.NoChange;
-
+				: OrderActionType.NoChange;
+			view.TboxDescription.Text = instance.ServiceOrderItem.Description ?? String.Empty;
 			view.Start.DateTime = instance.ServiceOrderItem.StartTime ?? DateTime.Now;
 			view.End.DateTime = instance.ServiceOrderItem.EndTime ?? DateTime.Now + TimeSpan.FromDays(7);
 			view.IndefiniteTime.IsChecked = instance.ServiceOrderItem.IndefiniteRuntime ?? false;
@@ -159,7 +161,7 @@
 
 			ok &= ValidateLabel(Name);
 
-			if (view.ActionType.Selected == ServiceOrderItemView.ActionTypeEnum.Add && view.Specification.Selected == null)
+			if (view.ActionType.Selected == OrderActionType.Add && view.Specification.Selected == null)
 			{
 				ok = false;
 				view.ErrorSpecification.Text = "Selection is mandatory!";
@@ -169,7 +171,7 @@
 				view.ErrorSpecification.Text = String.Empty;
 			}
 
-			if ((view.ActionType.Selected == ServiceOrderItemView.ActionTypeEnum.Modify || view.ActionType.Selected == ServiceOrderItemView.ActionTypeEnum.Delete) && view.Service.Selected == null)
+			if ((view.ActionType.Selected == OrderActionType.Modify || view.ActionType.Selected == OrderActionType.Delete) && view.Service.Selected == null)
 			{
 				ok = false;
 				view.ErrorService.Text = "Selection is mandatory!";
@@ -182,7 +184,7 @@
 			return ok;
 		}
 
-		private void UpdateUiOnActionTypeChange(Option<ServiceOrderItemView.ActionTypeEnum> actionTypeSelected)
+		private void UpdateUiOnActionTypeChange(Option<OrderActionType> actionTypeSelected)
 		{
 			view.TboxName.PlaceHolder = $"{actionTypeSelected.DisplayValue}";
 
@@ -191,12 +193,12 @@
 				view.TboxName.PlaceHolder += $" - {view.Specification.Selected?.Name}";
 			}
 
-			if (actionTypeSelected.Value == ServiceOrderItemView.ActionTypeEnum.Add)
+			if (actionTypeSelected.Value == OrderActionType.Add)
 			{
 				view.Service.IsEnabled = false;
 				view.Specification.IsEnabled = true;
 			}
-			else if (actionTypeSelected.Value == ServiceOrderItemView.ActionTypeEnum.Delete || actionTypeSelected.Value == ServiceOrderItemView.ActionTypeEnum.Modify)
+			else if (actionTypeSelected.Value == OrderActionType.Delete || actionTypeSelected.Value == OrderActionType.Modify)
 			{
 				view.Service.IsEnabled = true;
 				view.Specification.IsEnabled = false;
@@ -211,6 +213,13 @@
 				view.Service.IsEnabled = true;
 				view.Specification.IsEnabled = true;
 			}
+
+			bool timeApplicable = actionTypeSelected.Value == OrderActionType.Add;
+			view.LblStartTime.IsVisible = timeApplicable;
+			view.Start.IsVisible = timeApplicable;
+			view.LblEndTime.IsVisible = timeApplicable;
+			view.End.IsVisible = timeApplicable;
+			view.IndefiniteTime.IsVisible = timeApplicable;
 		}
 
 		private bool ValidateLabel(string newValue)

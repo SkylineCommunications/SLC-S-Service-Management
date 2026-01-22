@@ -20,9 +20,23 @@
 			presenter.LoadFromModel();
 			presenter.BuildView();
 
-			view.Show();
+			view.Show(requireResponse: true);
 
 			return confirmed;
+		}
+
+		public static string ShowFeedbackDialog(this IEngine engine, string info)
+		{
+			var model = new Dialogs.FeedbackDialog.FeedbackDialogModel(info);
+			var view = new Dialogs.FeedbackDialog.FeedbackDialogView(engine);
+			var presenter = new Dialogs.FeedbackDialog.FeedbackDialogPresenter(view, model);
+
+			presenter.LoadFromModel();
+			presenter.BuildView();
+
+			view.Show(requireResponse: true);
+
+			return model.Message;
 		}
 
 		public static bool ShowPopupDialog(this IEngine engine, string title, string message, string buttonText)
@@ -72,7 +86,7 @@
 			presenter.LoadFromModel();
 			presenter.BuildView();
 
-			view.Show();
+			view.Show(requireResponse: true);
 
 			return result;
 		}

@@ -5,8 +5,8 @@
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
-	using SLC_SM_IAS_Profiles.Presenters;
 	using SLC_SM_IAS_Profiles.Data;
+	using SLC_SM_IAS_Profiles.Presenters;
 
 	public class ViewFactory
 	{

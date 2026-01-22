@@ -48,6 +48,7 @@ DATE        VERSION        AUTHOR            COMMENTS
 dd/mm/2025    1.0.0.1        XXX, Skyline    Initial version
 ****************************************************************************
 */
+
 namespace SLC_SM_Create_Service_Inventory_Item
 {
 	using System;
@@ -66,6 +67,7 @@ namespace SLC_SM_Create_Service_Inventory_Item
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.IAS;
+	using SLC_SM_Common.Extensions;
 	using SLC_SM_Create_Service_Inventory_Item.Presenters;
 	using SLC_SM_Create_Service_Inventory_Item.Views;
 
@@ -134,223 +136,6 @@ namespace SLC_SM_Create_Service_Inventory_Item
 			}
 		}
 
-		private void AddOrUpdateService(DataHelpersServiceManagement repo, Models.Service instance)
-		{
-			if (!instance.ServiceSpecificationId.HasValue || instance.ServiceSpecificationId == Guid.Empty)
-			{
-				repo.Services.CreateOrUpdate(instance);
-				return;
-			}
-
-			var serviceSpecificationInstance = instance.ServiceSpecificationId.HasValue ? repo.ServiceSpecifications.Read(ServiceSpecificationExposers.Guid.Equal(instance.ServiceSpecificationId.Value)).FirstOrDefault() : null;
-
-			if (serviceSpecificationInstance != null)
-			{
-				//instance.Icon = serviceSpecificationInstance.Icon;
-				instance.Description = serviceSpecificationInstance.Description;
-			}
-
-			instance.ServiceConfiguration = new Models.ServiceConfigurationVersion
-			{
-				VersionName = serviceSpecificationInstance?.Name,
-				CreatedAt = DateTime.UtcNow,
-				Parameters = new List<Models.ServiceConfigurationValue>(),
-				Profiles = new List<Models.ServiceProfile>(),
-			};
-
-			if (serviceSpecificationInstance?.ConfigurationParameters != null)
-			{
-				instance.ServiceConfiguration.Parameters = serviceSpecificationInstance.ConfigurationParameters
-					.Where(x => x?.ConfigurationParameter != null)
-					.Select(
-						x =>
-						{
-							var scv = new Models.ServiceConfigurationValue
-							{
-								ConfigurationParameter = x.ConfigurationParameter,
-								Mandatory = x.MandatoryAtService,
-							};
-							scv.ConfigurationParameter.ID = Guid.Empty;
-							RemoveServiceParameterOptionsLinks(scv);
-							return scv;
-						})
-					.ToList();
-			}
-
-			if (serviceSpecificationInstance?.ConfigurationProfiles != null)
-			{
-				instance.ServiceConfiguration.Profiles = serviceSpecificationInstance.ConfigurationProfiles
-					.Where(x => x?.Profile != null)
-					.Select(
-						x =>
-						{
-							var sp = new Models.ServiceProfile
-							{
-								ProfileDefinition = x.ProfileDefinition,
-								Profile = x.Profile,
-								Mandatory = x.MandatoryAtService,
-							};
-							sp.Profile.ID = Guid.Empty;
-							sp.Profile.ConfigurationParameterValues = sp.Profile.ConfigurationParameterValues
-								.Select(cpv =>
-								{
-									cpv.ID = Guid.Empty;
-									RemoveParameterOptionsLinks(cpv);
-									return cpv;
-								})
-								.ToList();
-							return sp;
-						})
-					.ToList();
-			}
-
-			if (serviceSpecificationInstance?.ServiceItemsRelationships != null)
-			{
-				foreach (var relationship in serviceSpecificationInstance.ServiceItemsRelationships)
-				{
-					if (!instance.ServiceItemsRelationships.Contains(relationship))
-					{
-						instance.ServiceItemsRelationships.Add(relationship);
-					}
-				}
-			}
-
-			if (serviceSpecificationInstance?.ServiceItems != null)
-			{
-				foreach (var item in serviceSpecificationInstance.ServiceItems)
-				{
-					if (!instance.ServiceItems.Contains(item))
-					{
-						if (instance.ServiceItems.Any(x => x.ID == item.ID))
-						{
-							item.ID = instance.ServiceItems.Max(x => x.ID) + 1;
-						}
-
-						if (String.IsNullOrEmpty(item.Label))
-						{
-							item.Label = $"Service Item #{item.ID:000}";
-						}
-
-						if (String.IsNullOrEmpty(item.DefinitionReference))
-						{
-							item.DefinitionReference = String.Empty;
-						}
-
-						if (String.IsNullOrEmpty(item.Script))
-						{
-							item.Script = String.Empty;
-						}
-
-						item.Icon = instance.Icon; // inherit icon from service
-						instance.ServiceItems.Add(item);
-					}
-				}
-			}
-
-			repo.Services.CreateOrUpdate(instance);
-
-			if (instance.GenerateMonitoringService == true)
-			{
-				TryCreateDmsService(instance);
-			}
-		}
-
-		private void TryCreateDmsService(Models.Service instance)
-		{
-			var dms = _engine.GetDms();
-
-			if (_engine.FindService(instance.Name) != null) // agent.ServiceExists() throws when service doesn't exist :(
-			{
-				throw new InvalidOperationException($"A DataMiner service with name {instance.Name} already exists.");
-			}
-
-			var serviceConfiguration = new ServiceConfiguration(dms, instance.Name);
-			var serviceId = dms.GetAgents().First().CreateService(serviceConfiguration);
-
-			SetServiceIcon(dms, serviceId, instance.Icon);
-		}
-
-		private void SetServiceIcon(IDms dms, DmsServiceId serviceId, string icon)
-		{
-			if (!dms.PropertyExists("Logo", PropertyType.Service))
-			{
-				dms.CreateProperty("Logo", PropertyType.Service, false, false, false);
-			}
-
-			WaitUntilServiceCreated(serviceId, 5000);
-			var service = dms.GetService(serviceId);
-
-			var property = service.Properties.SingleOrDefault(p => p.Definition.Name == "Logo").AsWritable();
-
-			property.Value = icon;
-			service.Update();
-		}
-
-		private void WaitUntilServiceCreated(DmsServiceId serviceId, int timeout)
-		{
-			var sw = System.Diagnostics.Stopwatch.StartNew();
-
-			while (_engine.FindServiceByKey(serviceId.Value) == null)
-			{
-				if (sw.ElapsedMilliseconds > timeout)
-				{
-					throw new TimeoutException($"Service {serviceId} was not created within {timeout} ms.");
-				}
-
-				Thread.Sleep(250);
-			}
-		}
-
-		private void CreateNewServiceAndLinkItToServiceOrder(DataHelpersServiceManagement repo, Models.ServiceOrderItem serviceOrderItem)
-		{
-			if (serviceOrderItem.ServiceId.HasValue && repo.Services.Read(ServiceExposers.Guid.Equal(serviceOrderItem.ServiceId.Value)).Any())
-			{
-				// Already initialized - don't do anything, safety check
-				return;
-			}
-
-			// Create new service item based on order
-			Guid newServiceId = _engine.PerformanceLogger("Create Service Inventory Item", () => CreateServiceItemFromOrderItem(repo, serviceOrderItem));
-
-			// Provide link on Service Order
-			serviceOrderItem.ServiceId = newServiceId;
-			_engine.PerformanceLogger("Update Order", () => repo.ServiceOrderItems.CreateOrUpdate(serviceOrderItem));
-
-			// Update state
-			_engine.PerformanceLogger("Update Order Item State", () =>
-			{
-				if (serviceOrderItem.Status == SlcServicemanagementIds.Behaviors.Serviceorderitem_Behavior.StatusesEnum.New)
-				{
-					serviceOrderItem = repo.ServiceOrderItems.UpdateState(serviceOrderItem, SlcServicemanagementIds.Behaviors.Serviceorderitem_Behavior.TransitionsEnum.New_To_Acknowledged);
-					serviceOrderItem = repo.ServiceOrderItems.UpdateState(serviceOrderItem, SlcServicemanagementIds.Behaviors.Serviceorderitem_Behavior.TransitionsEnum.Acknowledged_To_Inprogress);
-				}
-
-				if (serviceOrderItem.Status == SlcServicemanagementIds.Behaviors.Serviceorderitem_Behavior.StatusesEnum.Acknowledged)
-				{
-					serviceOrderItem = repo.ServiceOrderItems.UpdateState(serviceOrderItem, SlcServicemanagementIds.Behaviors.Serviceorderitem_Behavior.TransitionsEnum.Acknowledged_To_Inprogress);
-				}
-			});
-
-			// Update state of main Service Order as well
-			_engine.PerformanceLogger("Update Order State", () =>
-			{
-				Models.ServiceOrder order = repo.ServiceOrders.Read(ServiceOrderExposers.ServiceOrderItemsExposers.ServiceOrderItem.Equal(serviceOrderItem)).FirstOrDefault();
-				if (order != null)
-				{
-					if (order.Status == SlcServicemanagementIds.Behaviors.Serviceorder_Behavior.StatusesEnum.New)
-					{
-						order = repo.ServiceOrders.UpdateState(order, SlcServicemanagementIds.Behaviors.Serviceorder_Behavior.TransitionsEnum.New_To_Acknowledged);
-						order = repo.ServiceOrders.UpdateState(order, SlcServicemanagementIds.Behaviors.Serviceorder_Behavior.TransitionsEnum.Acknowledged_To_Inprogress);
-					}
-
-					if (order.Status == SlcServicemanagementIds.Behaviors.Serviceorder_Behavior.StatusesEnum.Acknowledged)
-					{
-						order = repo.ServiceOrders.UpdateState(order, SlcServicemanagementIds.Behaviors.Serviceorder_Behavior.TransitionsEnum.Acknowledged_To_Inprogress);
-					}
-				}
-			});
-		}
-
 		private static Guid CreateServiceItemFromOrderItem(DataHelpersServiceManagement repo, Models.ServiceOrderItem serviceOrderItem)
 		{
 			Models.Service newService = new Models.Service
@@ -388,7 +173,7 @@ namespace SLC_SM_Create_Service_Inventory_Item
 								ConfigurationParameter = x.ConfigurationParameter,
 								Mandatory = x.Mandatory,
 							};
-							scv.ConfigurationParameter.ID = Guid.Empty;
+							scv.ConfigurationParameter.ID = Guid.NewGuid();
 							RemoveServiceParameterOptionsLinks(scv);
 							return scv;
 						})
@@ -488,6 +273,223 @@ namespace SLC_SM_Create_Service_Inventory_Item
 			{
 				config.TextOptions.ID = Guid.NewGuid();
 			}
+		}
+
+		private void AddOrUpdateService(DataHelpersServiceManagement repo, Models.Service instance)
+		{
+			if (!instance.ServiceSpecificationId.HasValue || instance.ServiceSpecificationId == Guid.Empty)
+			{
+				repo.Services.CreateOrUpdate(instance);
+				return;
+			}
+
+			var serviceSpecificationInstance = instance.ServiceSpecificationId.HasValue ? repo.ServiceSpecifications.Read(ServiceSpecificationExposers.Guid.Equal(instance.ServiceSpecificationId.Value)).FirstOrDefault() : null;
+
+			if (serviceSpecificationInstance != null)
+			{
+				////instance.Icon = serviceSpecificationInstance.Icon;
+				instance.Description = serviceSpecificationInstance.Description;
+			}
+
+			instance.ServiceConfiguration = new Models.ServiceConfigurationVersion
+			{
+				VersionName = serviceSpecificationInstance?.Name,
+				CreatedAt = DateTime.UtcNow,
+				Parameters = new List<Models.ServiceConfigurationValue>(),
+				Profiles = new List<Models.ServiceProfile>(),
+			};
+
+			if (serviceSpecificationInstance?.ConfigurationParameters != null)
+			{
+				instance.ServiceConfiguration.Parameters = serviceSpecificationInstance.ConfigurationParameters
+					.Where(x => x?.ConfigurationParameter != null)
+					.Select(
+						x =>
+						{
+							var scv = new Models.ServiceConfigurationValue
+							{
+								ConfigurationParameter = x.ConfigurationParameter,
+								Mandatory = x.MandatoryAtService,
+							};
+							scv.ConfigurationParameter.ID = Guid.NewGuid();
+							RemoveServiceParameterOptionsLinks(scv);
+							return scv;
+						})
+					.ToList();
+			}
+
+			if (serviceSpecificationInstance?.ConfigurationProfiles != null)
+			{
+				instance.ServiceConfiguration.Profiles = serviceSpecificationInstance.ConfigurationProfiles
+					.Where(x => x?.Profile != null)
+					.Select(
+						x =>
+						{
+							var sp = new Models.ServiceProfile
+							{
+								ProfileDefinition = x.ProfileDefinition,
+								Profile = x.Profile,
+								Mandatory = x.MandatoryAtService,
+							};
+							sp.Profile.ID = Guid.NewGuid();
+							sp.Profile.ConfigurationParameterValues = sp.Profile.ConfigurationParameterValues
+								.Select(cpv =>
+								{
+									cpv.ID = Guid.NewGuid();
+									RemoveParameterOptionsLinks(cpv);
+									return cpv;
+								})
+								.ToList();
+							return sp;
+						})
+					.ToList();
+			}
+
+			if (serviceSpecificationInstance?.ServiceItemsRelationships != null)
+			{
+				foreach (var relationship in serviceSpecificationInstance.ServiceItemsRelationships)
+				{
+					if (!instance.ServiceItemsRelationships.Contains(relationship))
+					{
+						instance.ServiceItemsRelationships.Add(relationship);
+					}
+				}
+			}
+
+			if (serviceSpecificationInstance?.ServiceItems != null)
+			{
+				foreach (var item in serviceSpecificationInstance.ServiceItems)
+				{
+					if (!instance.ServiceItems.Contains(item))
+					{
+						if (instance.ServiceItems.Any(x => x.ID == item.ID))
+						{
+							item.ID = instance.ServiceItems.Max(x => x.ID) + 1;
+						}
+
+						if (String.IsNullOrEmpty(item.Label))
+						{
+							item.Label = $"Service Item #{item.ID:000}";
+						}
+
+						if (String.IsNullOrEmpty(item.DefinitionReference))
+						{
+							item.DefinitionReference = String.Empty;
+						}
+
+						if (String.IsNullOrEmpty(item.Script))
+						{
+							item.Script = String.Empty;
+						}
+
+						item.Icon = instance.Icon; // inherit icon from service
+						instance.ServiceItems.Add(item);
+					}
+				}
+			}
+
+			repo.Services.CreateOrUpdate(instance);
+
+			if (instance.GenerateMonitoringService == true)
+			{
+				TryCreateDmsService(instance);
+			}
+		}
+
+		private void TryCreateDmsService(Models.Service instance)
+		{
+			var dms = _engine.GetDms();
+
+			if (dms.ServiceExistsSafe(instance.Name, out IDmsService _))
+			{
+				throw new InvalidOperationException($"A DataMiner service with name {instance.Name} already exists.");
+			}
+
+			var serviceConfiguration = new ServiceConfiguration(dms, instance.Name);
+			var serviceId = dms.GetAgents().First().CreateService(serviceConfiguration);
+
+			SetServiceIcon(dms, serviceId, instance.Icon);
+		}
+
+		private void SetServiceIcon(IDms dms, DmsServiceId serviceId, string icon)
+		{
+			if (!dms.PropertyExists("Logo", PropertyType.Service))
+			{
+				dms.CreateProperty("Logo", PropertyType.Service, false, false, false);
+			}
+
+			WaitUntilServiceCreated(serviceId, 5000);
+			var service = dms.GetService(serviceId);
+
+			var property = service.Properties.SingleOrDefault(p => p.Definition.Name == "Logo").AsWritable();
+
+			property.Value = icon;
+			service.Update();
+		}
+
+		private void WaitUntilServiceCreated(DmsServiceId serviceId, int timeout)
+		{
+			var sw = System.Diagnostics.Stopwatch.StartNew();
+
+			while (_engine.FindServiceByKey(serviceId.Value) == null)
+			{
+				if (sw.ElapsedMilliseconds > timeout)
+				{
+					throw new TimeoutException($"Service {serviceId} was not created within {timeout} ms.");
+				}
+
+				Thread.Sleep(250);
+			}
+		}
+
+		private void CreateNewServiceAndLinkItToServiceOrder(DataHelpersServiceManagement repo, Models.ServiceOrderItem serviceOrderItem)
+		{
+			if (serviceOrderItem.ServiceId.HasValue && repo.Services.Read(ServiceExposers.Guid.Equal(serviceOrderItem.ServiceId.Value)).Any())
+			{
+				// Already initialized - don't do anything, safety check
+				return;
+			}
+
+			// Create new service item based on order
+			Guid newServiceId = _engine.PerformanceLogger("Create Service Inventory Item", () => CreateServiceItemFromOrderItem(repo, serviceOrderItem));
+
+			// Provide link on Service Order
+			serviceOrderItem.ServiceId = newServiceId;
+			_engine.PerformanceLogger("Update Order", () => repo.ServiceOrderItems.CreateOrUpdate(serviceOrderItem));
+
+			// Update state
+			_engine.PerformanceLogger("Update Order Item State", () =>
+			{
+				if (serviceOrderItem.Status == SlcServicemanagementIds.Behaviors.Serviceorderitem_Behavior.StatusesEnum.New)
+				{
+					serviceOrderItem = repo.ServiceOrderItems.UpdateState(serviceOrderItem, SlcServicemanagementIds.Behaviors.Serviceorderitem_Behavior.TransitionsEnum.New_To_Acknowledged);
+					serviceOrderItem = repo.ServiceOrderItems.UpdateState(serviceOrderItem, SlcServicemanagementIds.Behaviors.Serviceorderitem_Behavior.TransitionsEnum.Acknowledged_To_Inprogress);
+				}
+
+				if (serviceOrderItem.Status == SlcServicemanagementIds.Behaviors.Serviceorderitem_Behavior.StatusesEnum.Acknowledged)
+				{
+					serviceOrderItem = repo.ServiceOrderItems.UpdateState(serviceOrderItem, SlcServicemanagementIds.Behaviors.Serviceorderitem_Behavior.TransitionsEnum.Acknowledged_To_Inprogress);
+				}
+			});
+
+			// Update state of main Service Order as well
+			_engine.PerformanceLogger("Update Order State", () =>
+			{
+				Models.ServiceOrder order = repo.ServiceOrders.Read(ServiceOrderExposers.ServiceOrderItemsExposers.ServiceOrderItem.Equal(serviceOrderItem)).FirstOrDefault();
+				if (order != null)
+				{
+					if (order.Status == SlcServicemanagementIds.Behaviors.Serviceorder_Behavior.StatusesEnum.New)
+					{
+						order = repo.ServiceOrders.UpdateState(order, SlcServicemanagementIds.Behaviors.Serviceorder_Behavior.TransitionsEnum.New_To_Acknowledged);
+						order = repo.ServiceOrders.UpdateState(order, SlcServicemanagementIds.Behaviors.Serviceorder_Behavior.TransitionsEnum.Acknowledged_To_Inprogress);
+					}
+
+					if (order.Status == SlcServicemanagementIds.Behaviors.Serviceorder_Behavior.StatusesEnum.Acknowledged)
+					{
+						order = repo.ServiceOrders.UpdateState(order, SlcServicemanagementIds.Behaviors.Serviceorder_Behavior.TransitionsEnum.Acknowledged_To_Inprogress);
+					}
+				}
+			});
 		}
 
 		private void RunSafe()

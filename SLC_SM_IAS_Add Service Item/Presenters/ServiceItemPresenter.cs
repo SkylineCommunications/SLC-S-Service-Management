@@ -1,4 +1,4 @@
-﻿namespace SLC_SM_IAS_Add_Service_Item_1.Presenters
+﻿namespace SLC_SM_IAS_Add_Service_Item.Presenters
 {
 	using System;
 	using System.Collections.Generic;
@@ -6,7 +6,6 @@
 	using DomHelpers.SlcServicemanagement;
 	using DomHelpers.SlcWorkflow;
 	using Skyline.DataMiner.Automation;
-	using Skyline.DataMiner.Core.DataMinerSystem.Common;
 	using Skyline.DataMiner.Net.Apps.DataMinerObjectModel;
 	using Skyline.DataMiner.Net.Messages;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
@@ -19,7 +18,7 @@
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
 	using SLC_SM_Common.Extensions;
 	using SLC_SM_IAS_Add_Service_Item.ScriptModels;
-	using SLC_SM_IAS_Add_Service_Item_1.Views;
+	using SLC_SM_IAS_Add_Service_Item.Views;
 
 	public class ServiceItemPresenter
 	{
@@ -268,7 +267,11 @@
 		{
 			if (String.IsNullOrEmpty(selectedDefinitionReference))
 			{
-				view.ScriptSelection.Selected = null;
+				if (view.ScriptSelection.Options.Any(o => o.Value == null))
+				{
+					view.ScriptSelection.Selected = null;
+				}
+
 				return;
 			}
 

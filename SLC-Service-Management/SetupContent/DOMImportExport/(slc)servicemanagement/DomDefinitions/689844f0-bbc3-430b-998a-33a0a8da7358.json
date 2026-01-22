@@ -1,0 +1,51 @@
+{
+	"Id": {
+		"Id": "689844f0-bbc3-430b-998a-33a0a8da7358",
+		"ModuleId": "(slc)servicemanagement"
+	},
+	"SectionDefinitionLinks": [
+		{
+			"SectionDefinitionID": {
+				"Id": "6bd03e43-d23a-43f9-8d1d-f81c7e713556",
+				"ModuleId": "(slc)servicemanagement"
+			},
+			"IsSoftDeleted": false,
+			"IsOptional": false,
+			"AllowMultipleSections": false
+		},
+		{
+			"SectionDefinitionID": {
+				"Id": "342bb39e-e8c2-4e82-9a97-606a942dca27",
+				"ModuleId": "(slc)servicemanagement"
+			},
+			"IsSoftDeleted": false,
+			"IsOptional": false,
+			"AllowMultipleSections": true
+		}
+	],
+	"Name": "Service Properties",
+	"VisualStructure": {
+		"SectionDefinitionInfos": [
+		],
+		"IsHidden": false
+	},
+	"BehaviorDefinitionId": null,
+	"ModuleSettingsOverrides": {
+		"NameDefinition": {
+			"ConcatenationItems": [
+				{
+					"$type": "Skyline.DataMiner.Net.Apps.DataMinerObjectModel.Concatenation.FieldValueConcatenationItem, SLNetTypes",
+					"FieldDescriptorId": {
+						"Id": "a98fbb45-fb12-4d22-b150-a27be7a7997b"
+					}
+				}
+			]
+		},
+		"ScriptSettings": null,
+		"HistorySettings": null
+	},
+	"SyncLastModified": "2026-01-16T12:46:32.623279Z",
+	"LastModifiedBy": "Robin Meurisse",
+	"CreatedAt": "2026-01-16T12:46:32.623279Z",
+	"CreatedBy": "Robin Meurisse"
+}

@@ -1,40 +1,45 @@
 {
-  "BehaviorDefinitionId": {
-    "Id": "9548dac2-dbef-4d14-b319-c608ed7c6ad8",
-    "ModuleId": "(slc)servicemanagement"
-  },
-  "Id": {
-    "Id": "6f8233c7-114a-47c1-b0c8-8573f0a848b5",
-    "ModuleId": "(slc)servicemanagement"
-  },
-  "ModuleSettingsOverrides": {
-    "HistorySettings": null,
-    "NameDefinition": null,
-    "ScriptSettings": null
-  },
-  "Name": "Service Orders",
-  "SectionDefinitionLinks": [
-    {
-      "AllowMultipleSections": false,
-      "IsOptional": false,
-      "IsSoftDeleted": false,
-      "SectionDefinitionID": {
-        "Id": "c8811d15-3006-4478-a29f-f286fb935b46",
-        "ModuleId": "(slc)servicemanagement"
-      }
-    },
-    {
-      "AllowMultipleSections": true,
-      "IsOptional": false,
-      "IsSoftDeleted": false,
-      "SectionDefinitionID": {
-        "Id": "b9041ff9-4f7f-4412-822f-18c218a5444d",
-        "ModuleId": "(slc)servicemanagement"
-      }
-    }
-  ],
-  "VisualStructure": {
-    "IsHidden": false,
-    "SectionDefinitionInfos": []
-  }
+	"Id": {
+		"Id": "6f8233c7-114a-47c1-b0c8-8573f0a848b5",
+		"ModuleId": "(slc)servicemanagement"
+	},
+	"SectionDefinitionLinks": [
+		{
+			"SectionDefinitionID": {
+				"Id": "c8811d15-3006-4478-a29f-f286fb935b46",
+				"ModuleId": "(slc)servicemanagement"
+			},
+			"IsSoftDeleted": false,
+			"IsOptional": false,
+			"AllowMultipleSections": false
+		},
+		{
+			"SectionDefinitionID": {
+				"Id": "b9041ff9-4f7f-4412-822f-18c218a5444d",
+				"ModuleId": "(slc)servicemanagement"
+			},
+			"IsSoftDeleted": false,
+			"IsOptional": false,
+			"AllowMultipleSections": true
+		}
+	],
+	"Name": "Service Orders",
+	"VisualStructure": {
+		"SectionDefinitionInfos": [
+		],
+		"IsHidden": false
+	},
+	"BehaviorDefinitionId": {
+		"Id": "9548dac2-dbef-4d14-b319-c608ed7c6ad8",
+		"ModuleId": "(slc)servicemanagement"
+	},
+	"ModuleSettingsOverrides": {
+		"NameDefinition": null,
+		"ScriptSettings": null,
+		"HistorySettings": null
+	},
+	"SyncLastModified": "2026-01-16T12:46:32.7147151Z",
+	"LastModifiedBy": "Robin Meurisse",
+	"CreatedAt": "2026-01-12T10:03:06.6466337Z",
+	"CreatedBy": "Robin Meurisse"
 }
