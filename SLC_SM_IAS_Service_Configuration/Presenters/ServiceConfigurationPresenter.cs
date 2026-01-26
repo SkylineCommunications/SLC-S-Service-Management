@@ -438,8 +438,11 @@
 		private int BuildProfileAdditionUI(int row)
 		{
 			view.AddWidget(new Label("Add Profile:") { Style = TextStyle.Heading, MaxWidth = 100 }, ++row, 0, HorizontalAlignment.Right);
+			var profileDefinitions = repoConfig.ProfileDefinitions.Read();
 
-			var profileDefinitionOptions = repoConfig.ProfileDefinitions.Read().Select(x => new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ProfileDefinition>(x.Name, x)).OrderBy(x => x.DisplayValue).ToList();
+			var profileDefinitionOptions = profileDefinitions == null
+				? new List<Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ProfileDefinition>>()
+				: profileDefinitions.Select(x => new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ProfileDefinition>(x.Name, x)).OrderBy(x => x.DisplayValue).ToList();
 			profileDefinitionOptions.Insert(0, new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ProfileDefinition>("- Profile Definition -", null));
 			view.ProfileDefinitionToAdd.SetOptions(profileDefinitionOptions);
 			view.AddWidget(view.ProfileDefinitionToAdd, row, 1);
@@ -652,7 +655,7 @@
 			// Init
 			var label = new TextBox(record.ConfigurationParamValue.Label) { IsVisible = !collapseButtom.IsCollapsed };
 			var parameter = new DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter>(
-				new[] { new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter>(record.ConfigurationParam.Name, record.ConfigurationParam) })
+				new[] { new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter>(record.ConfigurationParam?.Name, record.ConfigurationParam) })
 			{
 				IsEnabled = false,
 				IsVisible = !collapseButtom.IsCollapsed,
@@ -827,6 +830,7 @@
 			Numeric decimals,
 			bool isVisible = true,
 			bool isValueFixed = false)
+			if (record.ConfigurationParamValue.NumberOptions == null)
 		{
 			if (record.ConfigurationParamValue.NumberOptions == null)
 			{
