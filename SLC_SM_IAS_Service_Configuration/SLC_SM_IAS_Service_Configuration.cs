@@ -46,6 +46,7 @@ Revision History:
 DATE		VERSION		AUTHOR			COMMENTS
 
 28/05/2025	1.0.0.1		RME, Skyline	Initial version
+26/01/2026	1.0.0.2		SDT, Skyline	Added Logging.
 ****************************************************************************
 */
 namespace SLC_SM_IAS_Service_Configuration
@@ -87,7 +88,7 @@ namespace SLC_SM_IAS_Service_Configuration
 			try
 			{
 				_engine = engine;
-				_controller = new InteractiveController(engine) { ScriptAbortPopupBehavior = ScriptAbortPopupBehavior.HideAlways };
+				_controller = new InteractiveController(engine) { /*ScriptAbortPopupBehavior = ScriptAbortPopupBehavior.HideAlways */};
 				RunSafe();
 			}
 			catch (ScriptAbortException)
