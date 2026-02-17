@@ -1,0 +1,36 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<DMSScript options="272" xmlns="http://www.skyline.be/automation">
+	<Name>SLC_SM_AS_Service Item ContextMenu Actions</Name>
+	<Description></Description>
+	<Type>Automation</Type>
+	<Author>RME</Author>
+	<CheckSets>FALSE</CheckSets>
+	<Folder>Service Management</Folder>
+	<Interactivity>Auto</Interactivity>
+
+	<Protocols>
+	</Protocols>
+
+	<Memory>
+	</Memory>
+
+	<Parameters>
+		<ScriptParameter id="10" type="string" values="">
+			<Description>DOM ID</Description>
+		</ScriptParameter>
+		<ScriptParameter id="11" type="string" values="">
+			<Description>Service Item Label</Description>
+		</ScriptParameter>
+		<ScriptParameter id="12" type="string" values="">
+			<Description>ContextMenu Action</Description>
+		</ScriptParameter>
+	</Parameters>
+
+	<Script>
+		<Exe id="1" type="csharp">
+			<Value><![CDATA[[Project:SLC_SM_AS_Service Item ContextMenu Actions]]]></Value>
+			<!--<Param type="debug">true</Param>-->
+			<Message></Message>
+		</Exe>
+	</Script>
+</DMSScript>

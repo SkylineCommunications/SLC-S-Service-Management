@@ -198,7 +198,7 @@
 			throw new ScriptAbortException("OK");
 		}
 
-		internal void AddStandaloneParameterConfigModel(Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter selectedParameter)
+		public void AddStandaloneParameterConfigModel(Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter selectedParameter)
 		{
 			var configurationParameterInstance = selectedParameter ?? new Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter();
 			var config = new Models.ServiceSpecificationConfigurationValue

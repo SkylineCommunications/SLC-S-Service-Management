@@ -169,15 +169,15 @@ namespace Launch_Interactive_Subscript
 				service = srvHelper.Services.UpdateState(service, TransitionsEnum.New_To_Designed);
 			}
 
-			if (service.Status == StatusesEnum.Designed)
-			{
-				service = srvHelper.Services.UpdateState(service, TransitionsEnum.Designed_To_Reserved);
-			}
+			////if (service.Status == StatusesEnum.Designed)
+			////{
+			////	service = srvHelper.Services.UpdateState(service, TransitionsEnum.Designed_To_Reserved);
+			////}
 
-			if (service.Status == StatusesEnum.Reserved)
-			{
-				service = srvHelper.Services.UpdateState(service, TransitionsEnum.Reserved_To_Active);
-			}
+			////if (service.Status == StatusesEnum.Reserved)
+			////{
+			////	service = srvHelper.Services.UpdateState(service, TransitionsEnum.Reserved_To_Active);
+			////}
 		}
 
 		private static List<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter> GetFilteredConfigurationParameters(IEngine engine, Models.Service service)

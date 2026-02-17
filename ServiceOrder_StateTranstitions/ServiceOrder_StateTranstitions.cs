@@ -1,9 +1,12 @@
 namespace ServiceOrder_StateTranstitions_1
 {
 	using System;
+	using System.Collections.Generic;
 	using System.Linq;
-	using DomHelpers.SlcServicemanagement;
+	using Library;
+	using Library.Dom;
 	using Skyline.DataMiner.Automation;
+	using Skyline.DataMiner.Net;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM;
@@ -68,7 +71,7 @@ namespace ServiceOrder_StateTranstitions_1
 
 			// Link the main script dummies to the subscript
 			subScript.SelectScriptParam("DOM ID", orderItem.ID.ToString());
-			subScript.SelectScriptParam("Action", "AddItemSilent");
+			subScript.SelectScriptParam("Action", Defaults.ScriptAction_CreateServiceInventoryItem.AddItemSilent.ToString());
 
 			// Set some more options
 			subScript.Synchronous = true;
@@ -156,9 +159,9 @@ namespace ServiceOrder_StateTranstitions_1
 
 		private static void TransitionOrderItemsToRejected(IEngine engine, DataHelperServiceOrder orderHelper, Models.ServiceOrder order, TransitionsEnum transition)
 		{
-			if (order.OrderItems.Any(o => o.ServiceOrderItem.Status == InProgress))
+			if (order.OrderItems.Any(o => !o.ServiceOrderItem.CanBeRejected(engine.GetUserConnection())))
 			{
-				throw new NotSupportedException("Some underlying order items are already in progress, it's not possible to reject the order at this point");
+				throw new NotSupportedException("Some underlying order items or linked service items are already in progress, it's not possible to reject the order at this point");
 			}
 
 			if (!engine.ShowConfirmDialog("Do you wish to reject the current order?"))
@@ -171,17 +174,9 @@ namespace ServiceOrder_StateTranstitions_1
 			order.CancellationInfo.CancellationDate = DateTime.UtcNow;
 			orderHelper.CreateOrUpdate(order);
 
-			var itemHelper = new DataHelperServiceOrderItem(engine.GetUserConnection());
-			foreach (var item in order.OrderItems.Where(x => x.ServiceOrderItem.Status == New))
+			foreach (var item in order.OrderItems)
 			{
-				engine.GenerateInformation($" - Transitioning Service Order Item '{item.ServiceOrderItem.Name}' to Rejected");
-				itemHelper.UpdateState(item.ServiceOrderItem, DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Serviceorderitem_Behavior.TransitionsEnum.New_To_Rejected);
-			}
-
-			foreach (var item in order.OrderItems.Where(x => x.ServiceOrderItem.Status == Acknowledged))
-			{
-				engine.GenerateInformation($" - Transitioning Service Order Item '{item.ServiceOrderItem.Name}' to Rejected");
-				itemHelper.UpdateState(item.ServiceOrderItem, DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Serviceorderitem_Behavior.TransitionsEnum.Acknowledged_To_Rejected);
+				item.ServiceOrderItem.SetStatusToRejected(engine);
 			}
 
 			engine.GenerateInformation($"Service Order Status Transition starting: {transition}");

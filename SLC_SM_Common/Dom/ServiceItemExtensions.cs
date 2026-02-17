@@ -17,6 +17,46 @@
 
 	public static class ServiceItemExtensions
 	{
+		/// <summary>
+		/// Transitions the specified service to the Retired status if it is in a state that allows retirement.
+		/// </summary>
+		/// <param name="service">The service instance to transition to the Retired status. If null, the method performs no action.</param>
+		/// <param name="engine">The engine used to access user connection and perform the status transition. Cannot be null.</param>
+		public static void SetStatusToRetired(this Models.Service service, IEngine engine)
+		{
+			if (service == null)
+			{
+				return;
+			}
+
+			SlcServicemanagementIds.Behaviors.Service_Behavior.TransitionsEnum transition;
+			if (service.Status == SlcServicemanagementIds.Behaviors.Service_Behavior.StatusesEnum.New)
+			{
+				transition = SlcServicemanagementIds.Behaviors.Service_Behavior.TransitionsEnum.New_To_Retired;
+			}
+			else if (service.Status == SlcServicemanagementIds.Behaviors.Service_Behavior.StatusesEnum.Designed)
+			{
+				transition = SlcServicemanagementIds.Behaviors.Service_Behavior.TransitionsEnum.Designed_To_Retired;
+			}
+			else if (service.Status == SlcServicemanagementIds.Behaviors.Service_Behavior.StatusesEnum.Reserved)
+			{
+				transition = SlcServicemanagementIds.Behaviors.Service_Behavior.TransitionsEnum.Reserved_To_Retired;
+			}
+			else if (service.Status == SlcServicemanagementIds.Behaviors.Service_Behavior.StatusesEnum.Terminated)
+			{
+				transition = SlcServicemanagementIds.Behaviors.Service_Behavior.TransitionsEnum.Terminated_To_Retired;
+			}
+			else
+			{
+				return;
+			}
+
+			var srvHelper = new DataHelperService(engine.GetUserConnection());
+
+			engine.GenerateInformation($" - Transitioning Service '{service.Name}' to Rejected");
+			service = srvHelper.UpdateState(service, transition);
+		}
+
 		public static bool LinkedReferenceStillActive(this Models.ServiceItem serviceItem, IEngine engine)
 		{
 			if (!Guid.TryParse(serviceItem.ImplementationReference, out Guid refId))
@@ -50,15 +90,15 @@
 			var rm = new ResourceManagerHelper(engine.SendSLNetSingleResponseMessage);
 			var reservation = rm.GetReservationInstance(refId);
 			if (reservation.StartTimeUTC > DateTime.UtcNow
-			    && (reservation.Status == ReservationStatus.Pending || reservation.Status == ReservationStatus.Confirmed))
+				&& (reservation.Status == ReservationStatus.Pending || reservation.Status == ReservationStatus.Confirmed))
 			{
 				rm.RemoveReservationInstances(reservation);
 				return false;
 			}
 
 			if (reservation.EndTimeUTC < DateTime.UtcNow
-			    || reservation.Status == ReservationStatus.Canceled
-			    || reservation.Status == ReservationStatus.Ended)
+				|| reservation.Status == ReservationStatus.Canceled
+				|| reservation.Status == ReservationStatus.Ended)
 			{
 				return false;
 			}

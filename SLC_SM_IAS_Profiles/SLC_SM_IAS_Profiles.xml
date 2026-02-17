@@ -5,7 +5,7 @@
 	<Type>Automation</Type>
 	<Author>RCA</Author>
 	<CheckSets>FALSE</CheckSets>
-	<Folder></Folder>
+	<Folder>Service Management</Folder>
 	<Interactivity>Auto</Interactivity>
 
 	<Protocols>

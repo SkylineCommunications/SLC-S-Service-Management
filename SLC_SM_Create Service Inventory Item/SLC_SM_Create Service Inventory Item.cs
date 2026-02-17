@@ -56,6 +56,7 @@ namespace SLC_SM_Create_Service_Inventory_Item
 	using System.Linq;
 	using System.Threading;
 	using DomHelpers.SlcServicemanagement;
+	using Library;
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Core.DataMinerSystem.Automation;
 	using Skyline.DataMiner.Core.DataMinerSystem.Common;
@@ -78,14 +79,6 @@ namespace SLC_SM_Create_Service_Inventory_Item
 	{
 		private InteractiveController _controller;
 		private IEngine _engine;
-
-		public enum Action
-		{
-			Add,
-			AddItem,
-			AddItemSilent,
-			Edit,
-		}
 
 		/// <summary>
 		///     The script entry point.
@@ -495,9 +488,9 @@ namespace SLC_SM_Create_Service_Inventory_Item
 		private void RunSafe()
 		{
 			string actionRaw = _engine.ReadScriptParamFromApp("Action");
-			if (!Enum.TryParse(actionRaw, true, out Action action))
+			if (!Enum.TryParse(actionRaw, true, out Defaults.ScriptAction_CreateServiceInventoryItem action))
 			{
-				action = Action.AddItem;
+				action = Defaults.ScriptAction_CreateServiceInventoryItem.AddItem;
 			}
 
 			string domIdRaw = _engine.ReadScriptParamFromApp("DOM ID");
@@ -509,7 +502,7 @@ namespace SLC_SM_Create_Service_Inventory_Item
 			var view = new ServiceView(_engine, action);
 			var presenter = new ServicePresenter(_engine, repo, view);
 
-			if (action == Action.AddItem)
+			if (action == Defaults.ScriptAction_CreateServiceInventoryItem.AddItem)
 			{
 				var d = new MessageDialog(_engine, "Create Service Inventory Item from the selected service order item?") { Title = "Create Service Inventory Item From Order Item" };
 				d.OkButton.Pressed += (sender, args) =>
@@ -518,11 +511,11 @@ namespace SLC_SM_Create_Service_Inventory_Item
 				};
 				_controller.ShowDialog(d);
 			}
-			else if (action == Action.AddItemSilent)
+			else if (action == Defaults.ScriptAction_CreateServiceInventoryItem.AddItemSilent)
 			{
 				AddServiceItemForOrder(domId, repo);
 			}
-			else if (action == Action.Add)
+			else if (action == Defaults.ScriptAction_CreateServiceInventoryItem.Add)
 			{
 				presenter.LoadFromModel();
 				view.BtnAdd.Pressed += (sender, args) =>

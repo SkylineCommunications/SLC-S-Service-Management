@@ -2,7 +2,6 @@ namespace ServiceStateTransitions
 {
 	using System;
 	using System.Linq;
-	using DomHelpers.SlcServicemanagement;
 	using Library;
 	using Library.Dom;
 	using Skyline.DataMiner.Automation;
