@@ -1,12 +1,10 @@
 namespace ServiceOrder_StateTranstitions_1
 {
 	using System;
-	using System.Collections.Generic;
 	using System.Linq;
 	using Library;
 	using Library.Dom;
 	using Skyline.DataMiner.Automation;
-	using Skyline.DataMiner.Net;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM;
@@ -146,15 +144,20 @@ namespace ServiceOrder_StateTranstitions_1
 					if (updatedItem.Status == Acknowledged)
 					{
 						engine.GenerateInformation($" - Transitioning Service Order Item '{item.ServiceOrderItem.Name}' to In Progress");
-						itemHelper.UpdateState(updatedItem, DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Serviceorderitem_Behavior.TransitionsEnum.Acknowledged_To_Inprogress);
-					}
+						itemHelper.UpdateState(item.ServiceOrderItem, DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Serviceorderitem_Behavior.TransitionsEnum.Acknowledged_To_Inprogress);
 
-					RunScriptInitServiceInventoryItem(engine, item.ServiceOrderItem); // Init inventory item automatically
+						RunScriptInitServiceInventoryItem(engine, item.ServiceOrderItem); // Init inventory item automatically
+					}
+				}
+
+				engine.GenerateInformation($"Service Order Status Transition starting: {transition}");
+				order = orderHelper.Read(ServiceOrderExposers.Guid.Equal(order.ID)).FirstOrDefault()
+							?? throw new NotSupportedException($"No Order with ID '{order.ID}' exists on the system");
+				if (order.Status == StatusesEnum.Acknowledged)
+				{
+					orderHelper.UpdateState(order, transition);
 				}
 			}
-
-			engine.GenerateInformation($"Service Order Status Transition starting: {transition}");
-			orderHelper.UpdateState(order, transition);
 		}
 
 		private static void TransitionOrderItemsToRejected(IEngine engine, DataHelperServiceOrder orderHelper, Models.ServiceOrder order, TransitionsEnum transition)

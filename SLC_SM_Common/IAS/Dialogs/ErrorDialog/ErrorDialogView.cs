@@ -19,7 +19,7 @@
 
 		internal TextBox DetailsBox { get; } = new TextBox { MaxWidth = 800, IsMultiline = true, IsVisible = false, MinHeight = 100, MaxHeight = 250 };
 
-		internal Button DetailsButton { get; } = new Button("➕") { Height = ButtonHeight };
+		internal Button DetailsButton { get; } = new Button("➕") { Height = ButtonHeight, Width = DetailsButtonWidth };
 
 		internal Label MessageLabel { get; } = new Label { MinWidth = 400, MaxWidth = 850 };
 
