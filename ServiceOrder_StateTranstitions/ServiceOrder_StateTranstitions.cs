@@ -1,19 +1,24 @@
-namespace ServiceOrder_StateTranstitions_1
+﻿namespace ServiceOrder_StateTranstitions_1
 {
 	using System;
 	using System.Linq;
-	using DomHelpers.SlcServicemanagement;
+	using Library;
+	using Library.Dom;
 	using Skyline.DataMiner.Automation;
+	using Skyline.DataMiner.Net;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.IAS;
+	using SLC_SM_Common.Dom;
 	using static DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Serviceorder_Behavior;
 	using static DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Serviceorderitem_Behavior.StatusesEnum;
 
 	public class Script
 	{
+		private IEngine engine;
+
 		/// <summary>
 		///     The script entry point.
 		/// </summary>
@@ -34,7 +39,8 @@ namespace ServiceOrder_StateTranstitions_1
 
 			try
 			{
-				RunSafe(engine);
+				this.engine = engine;
+				RunSafe();
 			}
 			catch (ScriptAbortException)
 			{
@@ -68,7 +74,7 @@ namespace ServiceOrder_StateTranstitions_1
 
 			// Link the main script dummies to the subscript
 			subScript.SelectScriptParam("DOM ID", orderItem.ID.ToString());
-			subScript.SelectScriptParam("Action", "AddItemSilent");
+			subScript.SelectScriptParam("Action", Defaults.ScriptAction_CreateServiceInventoryItem.AddItemSilent.ToString());
 
 			// Set some more options
 			subScript.Synchronous = true;
@@ -82,7 +88,83 @@ namespace ServiceOrder_StateTranstitions_1
 			}
 		}
 
-		private void RunSafe(IEngine engine)
+		private static void TransitionOrderItemsToInit(IEngine engine, Models.ServiceOrder order)
+		{
+			bool transitionItems = engine.ShowConfirmDialog("Do you wish to transition all Service Order Items to In Progress as well?\r\nNote: this will initialize the items in the Service Inventory Portal.");
+			if (!transitionItems)
+			{
+				return;
+			}
+
+			// Transition all items to In Progress as well
+			IConnection connection = engine.GetUserConnection();
+			foreach (var item in order.OrderItems)
+			{
+				if (item.ServiceOrderItem.TryStatusUpdateToInProgress(connection))
+				{
+					RunScriptInitServiceInventoryItem(engine, item.ServiceOrderItem); // Init inventory item automatically
+				}
+			}
+		}
+
+		private static void TransitionOrderItemsToRejected(IEngine engine, Models.ServiceOrder order)
+		{
+			if (order.OrderItems.Any(o => !o.ServiceOrderItem.CanBeRejected(engine.GetUserConnection())))
+			{
+				throw new NotSupportedException("Some underlying order items or linked service items are already in progress, it's not possible to reject the order at this point");
+			}
+
+			if (!engine.ShowConfirmDialog("Do you wish to reject the current order?"))
+			{
+				return;
+			}
+
+			string cancellationReason = engine.ShowFeedbackDialog("Please provide a reason for cancellation");
+
+			foreach (var item in order.OrderItems)
+			{
+				item.ServiceOrderItem.UpdateStatusToRejected(engine.GetUserConnection());
+			}
+
+			order.StatusUpdateToRejected(engine.GetUserConnection(), cancellationReason);
+		}
+
+		private static void TransitionToCancelled(IEngine engine, Models.ServiceOrder order)
+		{
+			if (order.OrderItems.Any(o => o.ServiceOrderItem.Status != Cancelled))
+			{
+				throw new NotSupportedException("Some underlying order items are still in progress, it's not possible to cancel the order at this point");
+			}
+
+			if (!engine.ShowConfirmDialog("Do you wish to cancel the current order?"))
+			{
+				return;
+			}
+
+			string cancellationReason = engine.ShowFeedbackDialog("Please provide a reason for cancellation");
+
+			order.StatusUpdateToCanceled(engine.GetUserConnection(), cancellationReason);
+		}
+
+		private static void TransitionToComplete(IEngine engine, Models.ServiceOrder order)
+		{
+			if (!order.TryUpdateStatusToCompleted(engine.GetUserConnection()))
+			{
+				throw new NotSupportedException("Some underlying order items are not yet completed, it's not possible to complete the order at this point");
+			}
+		}
+
+		private static void TransitionOrderItemsToAck(IEngine engine, Models.ServiceOrder order)
+		{
+			foreach (var item in order.OrderItems)
+			{
+				item.ServiceOrderItem.TryUpdateStatusToAcknowledged(engine.GetUserConnection());
+			}
+
+			order.UpdateStatusToAcknowledged(engine.GetUserConnection());
+		}
+
+		private void RunSafe()
 		{
 			var instanceId = engine.ReadScriptParamFromApp<Guid>("ServiceOrderReference");
 			var previousState = engine.ReadScriptParamFromApp("PreviousState").ToLower();
@@ -101,136 +183,32 @@ namespace ServiceOrder_StateTranstitions_1
 			{
 				case TransitionsEnum.New_To_Acknowledged:
 					// Transition all items to ACK as well
-					TransitionOrderItemsToAck(engine, orderHelper, order, transition);
+					TransitionOrderItemsToAck(engine, order);
 					break;
 
 				case TransitionsEnum.New_To_Rejected:
 				case TransitionsEnum.Acknowledged_To_Rejected:
 					// Transition all items to Rejected as well
-					TransitionOrderItemsToRejected(engine, orderHelper, order, transition);
+					TransitionOrderItemsToRejected(engine, order);
 					break;
 
 				case TransitionsEnum.Pendingcancellation_To_Cancelled:
-					TransitionToCancelled(engine, orderHelper, order, transition);
+					TransitionToCancelled(engine, order);
 					break;
 
 				case TransitionsEnum.Acknowledged_To_Inprogress:
-					TransitionOrderItemsToInit(engine, orderHelper, order, transition);
+					TransitionOrderItemsToInit(engine, order);
 					break;
 
 				case TransitionsEnum.Inprogress_To_Completed:
-					TransitionToComplete(engine, orderHelper, order, transition);
+					TransitionToComplete(engine, order);
 					break;
 
 				default:
-					engine.GenerateInformation($"Service Order Status Transition starting: previousState: {previousState}, nextState: {nextState}");
+					engine.GenerateInformation($"[SMS] Status Transition: {order.Name} → {transition}");
 					orderHelper.UpdateState(order, transition);
 					break;
 			}
-		}
-
-		private static void TransitionOrderItemsToInit(IEngine engine, DataHelperServiceOrder orderHelper, Models.ServiceOrder order, TransitionsEnum transition)
-		{
-			bool transitionItems = engine.ShowConfirmDialog("Do you wish to transition all Service Order Items to In Progress as well?\r\nNote: this will initialize the items in the Service Inventory Portal.");
-			if (transitionItems)
-			{
-				// Transition all items to In Progress as well
-				var itemHelper = new DataHelperServiceOrderItem(engine.GetUserConnection());
-				foreach (var item in order.OrderItems.Where(x => x.ServiceOrderItem.Status == Acknowledged))
-				{
-					var updatedItem = itemHelper.Read(ServiceOrderItemExposers.Guid.Equal(item.ServiceOrderItem.ID)).FirstOrDefault()
-									  ?? throw new InvalidOperationException($"Service Order Item with ID '{item.ServiceOrderItem.ID}' no longer exists.");
-					if (updatedItem.Status == Acknowledged)
-					{
-						engine.GenerateInformation($" - Transitioning Service Order Item '{item.ServiceOrderItem.Name}' to In Progress");
-						itemHelper.UpdateState(updatedItem, DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Serviceorderitem_Behavior.TransitionsEnum.Acknowledged_To_Inprogress);
-					}
-
-					RunScriptInitServiceInventoryItem(engine, item.ServiceOrderItem); // Init inventory item automatically
-				}
-			}
-
-			engine.GenerateInformation($"Service Order Status Transition starting: {transition}");
-			orderHelper.UpdateState(order, transition);
-		}
-
-		private static void TransitionOrderItemsToRejected(IEngine engine, DataHelperServiceOrder orderHelper, Models.ServiceOrder order, TransitionsEnum transition)
-		{
-			if (order.OrderItems.Any(o => o.ServiceOrderItem.Status == InProgress))
-			{
-				throw new NotSupportedException("Some underlying order items are already in progress, it's not possible to reject the order at this point");
-			}
-
-			if (!engine.ShowConfirmDialog("Do you wish to reject the current order?"))
-			{
-				return;
-			}
-
-			string cancellationReason = engine.ShowFeedbackDialog("Please provide a reason for cancellation");
-			order.CancellationInfo.Reason = cancellationReason;
-			order.CancellationInfo.CancellationDate = DateTime.UtcNow;
-			orderHelper.CreateOrUpdate(order);
-
-			var itemHelper = new DataHelperServiceOrderItem(engine.GetUserConnection());
-			foreach (var item in order.OrderItems.Where(x => x.ServiceOrderItem.Status == New))
-			{
-				engine.GenerateInformation($" - Transitioning Service Order Item '{item.ServiceOrderItem.Name}' to Rejected");
-				itemHelper.UpdateState(item.ServiceOrderItem, DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Serviceorderitem_Behavior.TransitionsEnum.New_To_Rejected);
-			}
-
-			foreach (var item in order.OrderItems.Where(x => x.ServiceOrderItem.Status == Acknowledged))
-			{
-				engine.GenerateInformation($" - Transitioning Service Order Item '{item.ServiceOrderItem.Name}' to Rejected");
-				itemHelper.UpdateState(item.ServiceOrderItem, DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Serviceorderitem_Behavior.TransitionsEnum.Acknowledged_To_Rejected);
-			}
-
-			engine.GenerateInformation($"Service Order Status Transition starting: {transition}");
-			orderHelper.UpdateState(order, transition);
-		}
-
-		private static void TransitionToCancelled(IEngine engine, DataHelperServiceOrder orderHelper, Models.ServiceOrder order, TransitionsEnum transition)
-		{
-			if (order.OrderItems.Any(o => o.ServiceOrderItem.Status != Cancelled))
-			{
-				throw new NotSupportedException("Some underlying order items are still in progress, it's not possible to cancel the order at this point");
-			}
-
-			if (!engine.ShowConfirmDialog("Do you wish to cancel the current order?"))
-			{
-				return;
-			}
-
-			string cancellationReason = engine.ShowFeedbackDialog("Please provide a reason for cancellation");
-			order.CancellationInfo.Reason = cancellationReason;
-			order.CancellationInfo.CancellationDate = DateTime.UtcNow;
-			orderHelper.CreateOrUpdate(order);
-
-			engine.GenerateInformation($"Service Order Status Transition starting: {transition}");
-			orderHelper.UpdateState(order, transition);
-		}
-
-		private static void TransitionToComplete(IEngine engine, DataHelperServiceOrder orderHelper, Models.ServiceOrder order, TransitionsEnum transition)
-		{
-			if (order.OrderItems.Any(o => o.ServiceOrderItem.Status != Completed && o.ServiceOrderItem.Status != Cancelled))
-			{
-				throw new NotSupportedException("Some underlying order items are not yet completed, it's not possible to complete the order at this point");
-			}
-
-			engine.GenerateInformation($"Service Order Status Transition starting: {transition}");
-			orderHelper.UpdateState(order, transition);
-		}
-
-		private static void TransitionOrderItemsToAck(IEngine engine, DataHelperServiceOrder orderHelper, Models.ServiceOrder order, TransitionsEnum transition)
-		{
-			var itemHelper = new DataHelperServiceOrderItem(engine.GetUserConnection());
-			foreach (var item in order.OrderItems.Where(x => x.ServiceOrderItem.Status == New))
-			{
-				engine.GenerateInformation($" - Transitioning Service Order Item '{item.ServiceOrderItem.Name}' to Acknowledged");
-				itemHelper.UpdateState(item.ServiceOrderItem, DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Serviceorderitem_Behavior.TransitionsEnum.New_To_Acknowledged);
-			}
-
-			engine.GenerateInformation($"Service Order Status Transition starting: {transition}");
-			orderHelper.UpdateState(order, transition);
 		}
 	}
 }

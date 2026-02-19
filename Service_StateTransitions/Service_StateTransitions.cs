@@ -1,9 +1,7 @@
-namespace ServiceStateTransitions
+﻿namespace ServiceStateTransitions
 {
 	using System;
 	using System.Linq;
-	using DomHelpers.SlcServicemanagement;
-	using Library;
 	using Library.Dom;
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
@@ -18,6 +16,8 @@ namespace ServiceStateTransitions
 	/// </summary>
 	public class Script
 	{
+		private IEngine engine;
+
 		/// <summary>
 		///     The script entry point.
 		/// </summary>
@@ -38,7 +38,8 @@ namespace ServiceStateTransitions
 
 			try
 			{
-				RunSafe(engine);
+				this.engine = engine;
+				RunSafe();
 			}
 			catch (ScriptAbortException)
 			{
@@ -63,32 +64,7 @@ namespace ServiceStateTransitions
 			}
 		}
 
-		private static void SetOrderItemToComplete(IEngine engine, DataHelperService srvHelper, Models.Service service, TransitionsEnum transition)
-		{
-			engine.GenerateInformation($"Service Status Transition starting: {transition}");
-			srvHelper.UpdateState(service, transition);
-
-			var itemHelper = new DataHelperServiceOrderItem(engine.GetUserConnection());
-			var orderItem = itemHelper.Read(ServiceOrderItemExposers.ServiceID.Equal(service.ID).AND(ServiceOrderItemExposers.Action.Equal(OrderActionType.Add.ToString()))).FirstOrDefault();
-			orderItem?.SetStatusToCompleted(engine);
-		}
-
-		private static void SetToTerminated(IEngine engine, DataHelperService srvHelper, Models.Service service, TransitionsEnum transition)
-		{
-			if (service.ServiceItems.Any(s => s.LinkedReferenceStillActive(engine)))
-			{
-				return;
-			}
-
-			engine.GenerateInformation($"Service Status Transition starting: {transition}");
-			srvHelper.UpdateState(service, transition);
-
-			var itemHelper = new DataHelperServiceOrderItem(engine.GetUserConnection());
-			var orderItem = itemHelper.Read(ServiceOrderItemExposers.ServiceID.Equal(service.ID).AND(ServiceOrderItemExposers.Action.Equal(OrderActionType.Delete.ToString()))).FirstOrDefault();
-			orderItem?.SetStatusToCompleted(engine);
-		}
-
-		private void RunSafe(IEngine engine)
+		private void RunSafe()
 		{
 			var serviceReference = engine.ReadScriptParamFromApp<Guid>("ServiceReference");
 			var previousState = engine.ReadScriptParamFromApp("PreviousState").ToLower();
@@ -106,15 +82,16 @@ namespace ServiceStateTransitions
 			switch (transition)
 			{
 				case TransitionsEnum.Reserved_To_Active:
-					SetOrderItemToComplete(engine, srvHelper, service, transition);
+				case TransitionsEnum.Terminated_To_Active:
+					service.UpdateStatusToActive(engine.GetUserConnection());
 					break;
 
 				case TransitionsEnum.Active_To_Terminated:
-					SetToTerminated(engine, srvHelper, service, transition);
+					service.UpdateStatusToTerminated(engine);
 					break;
 
 				default:
-					engine.GenerateInformation($"Service Status Transition starting: previousState: {previousState}, nextState: {nextState}");
+					engine.GenerateInformation($"[SMS] Status Transition: {service.Name} → {transition}");
 					srvHelper.UpdateState(service, transition);
 					break;
 			}

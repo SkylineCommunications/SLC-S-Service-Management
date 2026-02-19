@@ -198,7 +198,7 @@
 			throw new ScriptAbortException("OK");
 		}
 
-		internal void AddStandaloneParameterConfigModel(Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter selectedParameter)
+		public void AddStandaloneParameterConfigModel(Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter selectedParameter)
 		{
 			var configurationParameterInstance = selectedParameter ?? new Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter();
 			var config = new Models.ServiceSpecificationConfigurationValue
@@ -636,11 +636,11 @@
 				switch (parameter.Selected.Type)
 				{
 					case SlcConfigurationsIds.Enums.Type.Number:
-						collapseButton.LinkedWidgets.Add(AddNumericWidget(record, row, parameter, na, unit, start, end, step, decimals, !collapseButton.IsCollapsed));
+						collapseButton.LinkedWidgets.Add(AddNumericWidget(record, row, parameter.Selected, na, unit, start, end, step, decimals, !collapseButton.IsCollapsed));
 						break;
 
 					case SlcConfigurationsIds.Enums.Type.Discrete:
-						collapseButton.LinkedWidgets.Add(AddDisceteWidget(record, row, na, values, !collapseButton.IsCollapsed));
+						collapseButton.LinkedWidgets.Add(AddDisceteWidget(record, row, parameter.Selected, na, values, !collapseButton.IsCollapsed));
 						break;
 
 					default:
@@ -714,8 +714,14 @@
 			return value;
 		}
 
-		private DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.DiscreteValue> AddDisceteWidget(IParameterDataRecord record, int row, CheckBox na, Button values, bool isVisible)
+		private DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.DiscreteValue> AddDisceteWidget(IParameterDataRecord record, int row, Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter parameter, CheckBox na, Button values, bool isVisible)
 		{
+			if (record.ConfigurationParamValue.DiscreteOptions == null)
+			{
+				record.ConfigurationParamValue.DiscreteOptions = parameter?.DiscreteOptions ?? throw new InvalidOperationException($"DiscreteOptions is null for parameter: {record.ConfigurationParam?.Name ?? "Unknown"}");
+				record.ConfigurationParamValue.DiscreteOptions.ID = Guid.NewGuid();
+			}
+
 			var allDiscretes = record.ConfigurationParam.DiscreteOptions.DiscreteValues
 											.Select(x => new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.DiscreteValue>(x.Value, x))
 											.OrderBy(x => x.DisplayValue)
@@ -780,8 +786,14 @@
 			return value;
 		}
 
-		private Numeric AddNumericWidget(IParameterDataRecord record, int row, DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter> parameter, CheckBox na, DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationUnit> unit, Numeric start, Numeric end, Numeric step, Numeric decimals, bool isVisible)
+		private Numeric AddNumericWidget(IParameterDataRecord record, int row, Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter parameter, CheckBox na, DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationUnit> unit, Numeric start, Numeric end, Numeric step, Numeric decimals, bool isVisible)
 		{
+			if (record.ConfigurationParamValue.NumberOptions == null)
+			{
+				record.ConfigurationParamValue.NumberOptions = parameter?.NumberOptions ?? throw new InvalidOperationException($"NumberOptions is null for parameter: {record.ConfigurationParam?.Name ?? "Unknown"}");
+				record.ConfigurationParamValue.NumberOptions.ID = Guid.NewGuid();
+			}
+
 			double minimum = record.ConfigurationParamValue.NumberOptions.MinRange ?? -10_000;
 			double maximum = record.ConfigurationParamValue.NumberOptions.MaxRange ?? 10_000;
 			int decimalVal = Convert.ToInt32(record.ConfigurationParamValue.NumberOptions.Decimals);
@@ -794,8 +806,8 @@
 				Decimals = decimalVal,
 				IsVisible = isVisible,
 			};
-			unit.SetOptions(GetUnits(record.ConfigurationParamValue.NumberOptions, parameter.Selected));
-			unit.Selected = GetDefaultUnit(record.ConfigurationParamValue.NumberOptions, parameter.Selected);
+			unit.SetOptions(GetUnits(record.ConfigurationParamValue.NumberOptions, parameter));
+			unit.Selected = GetDefaultUnit(record.ConfigurationParamValue.NumberOptions, parameter);
 			unit.IsEnabled = true;
 			start.Value = minimum;
 			start.IsEnabled = true;

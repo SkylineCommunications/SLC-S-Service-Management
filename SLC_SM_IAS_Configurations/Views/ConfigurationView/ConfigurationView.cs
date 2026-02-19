@@ -162,7 +162,7 @@
 			ConfigurationDataRecord record,
 			int row)
 		{
-			IEnumerable<Models.ConfigurationParameter> options = allConfigurationParameters;
+			var options = allConfigurationParameters.ToArray();
 			if (context.GetCurrentPage() is ProfilePage profilePage)
 			{
 				var siblings = profilePage.Records
@@ -173,7 +173,8 @@
 				options = allConfigurationParameters
 					.Except(new[] { record.ConfigurationParameter }, ConfigurationParameterIdComparer.Instance)
 					.Except(siblings, ConfigurationParameterIdComparer.Instance)
-					.DistinctBy(c => c.ID);
+					.DistinctBy(c => c.ID)
+					.ToArray();
 			}
 
 			return new ConfigurationRowData

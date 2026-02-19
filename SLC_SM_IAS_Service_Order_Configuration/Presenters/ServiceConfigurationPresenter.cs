@@ -261,144 +261,15 @@
 				switch (parameter.Selected.Type)
 				{
 					case SlcConfigurationsIds.Enums.Type.Number:
-						{
-							bool hasValue = record.ConfigurationParamValue.DoubleValue != null || record.ConfigurationParamValue.NumberOptions.DefaultValue != null;
-							double minimum = record.ConfigurationParamValue.NumberOptions.MinRange ?? -10_000;
-							double maximum = record.ConfigurationParamValue.NumberOptions.MaxRange ?? 10_000;
-							int decimalVal = Convert.ToInt32(record.ConfigurationParamValue.NumberOptions.Decimals);
-							double stepSize = record.ConfigurationParamValue.NumberOptions.StepSize ?? 1;
-							bool widgetEnabled = !isFixed.IsChecked || (isFixed.IsChecked && !hasValue);
-							Numeric value = new Numeric(record.ConfigurationParamValue.DoubleValue ?? record.ConfigurationParamValue.NumberOptions.DefaultValue ?? 0)
-							{
-								Minimum = minimum,
-								Maximum = maximum,
-								StepSize = stepSize,
-								Decimals = decimalVal,
-								IsEnabled = widgetEnabled,
-							};
-							unit.SetOptions(GetUnits(record.ConfigurationParamValue.NumberOptions, parameter.Selected));
-							unit.Selected = GetDefaultUnit(record.ConfigurationParamValue.NumberOptions, parameter.Selected);
-							unit.IsEnabled = widgetEnabled;
-							start.Value = minimum;
-							start.IsEnabled = widgetEnabled;
-							end.Value = maximum;
-							end.IsEnabled = widgetEnabled;
-							decimals.Value = decimalVal;
-							decimals.IsEnabled = widgetEnabled;
-							step.Value = stepSize;
-							step.StepSize = 1 / Math.Pow(10, decimalVal);
-							step.Decimals = decimalVal;
-							step.IsEnabled = widgetEnabled;
-
-							start.Changed += (sender, args) =>
-							{
-								value.Minimum = args.Value;
-								record.ConfigurationParamValue.NumberOptions.MinRange = args.Value;
-							};
-							end.Changed += (sender, args) =>
-							{
-								value.Maximum = args.Value;
-								record.ConfigurationParamValue.NumberOptions.MaxRange = args.Value;
-							};
-							decimals.Changed += (sender, args) =>
-							{
-								value.Decimals = Convert.ToInt32(args.Value);
-								step.Decimals = Convert.ToInt32(args.Value);
-								double newStepsize = 1 / Math.Pow(10, args.Value);
-								value.StepSize = newStepsize;
-								step.StepSize = newStepsize;
-								record.ConfigurationParamValue.NumberOptions.Decimals = Convert.ToInt32(args.Value);
-							};
-							step.Changed += (sender, args) =>
-							{
-								value.StepSize = args.Value;
-								record.ConfigurationParamValue.NumberOptions.StepSize = args.Value;
-							};
-							unit.Changed += (sender, args) => record.ConfigurationParamValue.NumberOptions.DefaultUnit = args.Selected;
-							value.Changed += (sender, args) => { record.ConfigurationParamValue.DoubleValue = args.Value; };
-							view.AddWidget(value, row, 3);
-						}
-
+						AddNumericParam(record, row, parameter, isFixed, unit, start, end, step, decimals);
 						break;
 
 					case SlcConfigurationsIds.Enums.Type.Discrete:
-						{
-							var allDiscretes = record.ConfigurationParam.DiscreteOptions.DiscreteValues
-								.Select(x => new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.DiscreteValue>(x.Value, x))
-								.OrderBy(x => x.DisplayValue)
-								.ToList();
-							var discretes = allDiscretes.Where(d => record.ConfigurationParamValue.DiscreteOptions.DiscreteValues.Any(r => d.Value.Equals(r))).ToList();
-
-							bool hasValue = record.ConfigurationParamValue.StringValue != null && discretes.Any(x => x.DisplayValue == record.ConfigurationParamValue.StringValue);
-							bool widgetEnabled = !isFixed.IsChecked || (isFixed.IsChecked && !hasValue);
-							var value = new DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.DiscreteValue>(discretes)
-							{
-								IsEnabled = widgetEnabled,
-							};
-							if (hasValue)
-							{
-								value.Selected = value.Options.First(x => x.DisplayValue == record.ConfigurationParamValue.StringValue).Value;
-							}
-
-							values.IsEnabled = widgetEnabled;
-							if (record.ConfigurationParamValue.StringValue == null)
-							{
-								record.ConfigurationParamValue.StringValue = value.Selected?.Value;
-							}
-
-							value.Changed += (sender, args) => { record.ConfigurationParamValue.StringValue = args.SelectedOption.DisplayValue; };
-							values.Pressed += (sender, args) =>
-							{
-								var optionsView = new DiscreteValuesView(engine);
-								optionsView.Options.SetOptions(allDiscretes);
-								foreach (var option in optionsView.Options.Values.ToList())
-								{
-									if (value.Options.Any(o => o.Value.Equals(option)))
-									{
-										optionsView.Options.Check(option); // check only the available items.
-									}
-								}
-
-								optionsView.BtnApply.Pressed += (o, eventArgs) =>
-								{
-									value.SetOptions(optionsView.Options.CheckedOptions);
-									record.ConfigurationParamValue.StringValue = value.Selected?.Value;
-									record.ConfigurationParamValue.DiscreteOptions.DiscreteValues = optionsView.Options.Checked.ToList();
-									controller.ShowDialog(view);
-								};
-								optionsView.BtnCancel.Pressed += (o, eventArgs) => controller.ShowDialog(view);
-								controller.ShowDialog(optionsView);
-							};
-							view.AddWidget(value, row, 3);
-						}
-
+						AddDiscreteParam(record, row, parameter, isFixed, values);
 						break;
 
 					default:
-						{
-							bool hasValue = record.ConfigurationParamValue.StringValue != null || record.ConfigurationParamValue.TextOptions?.Default != null;
-							var value = new TextBox(record.ConfigurationParamValue.StringValue ?? record.ConfigurationParamValue.TextOptions?.Default ?? String.Empty)
-							{
-								Tooltip = record.ConfigurationParamValue.TextOptions?.UserMessage ?? String.Empty,
-								IsEnabled = !isFixed.IsChecked || (isFixed.IsChecked && !hasValue),
-							};
-							value.Changed += (sender, args) =>
-							{
-								if (record.ConfigurationParamValue.TextOptions?.Regex != null && !Regex.IsMatch(args.Value, record.ConfigurationParamValue.TextOptions.Regex))
-								{
-									value.ValidationState = UIValidationState.Invalid;
-									value.ValidationText = $"Input did not match Regex '{record.ConfigurationParamValue.TextOptions.Regex}' - reverted to previous value";
-									value.Text = args.Previous;
-									return;
-								}
-
-								value.ValidationState = UIValidationState.Valid;
-								value.ValidationText = record.ConfigurationParamValue.TextOptions?.UserMessage;
-								record.ConfigurationParamValue.StringValue = args.Value;
-							};
-							view.AddWidget(value, row, 3);
-						}
-
+						AddTextParam(record, row, isFixed);
 						break;
 				}
 			}
@@ -418,6 +289,153 @@
 			view.LifeCycleDetails.AddWidget(mandatoryAtService, sectionRow, 1);
 
 			view.AddWidget(delete, row, 12);
+		}
+
+		private void AddTextParam(DataRecord record, int row, CheckBox isFixed)
+		{
+			bool hasValue = record.ConfigurationParamValue.StringValue != null || record.ConfigurationParamValue.TextOptions?.Default != null;
+			var value = new TextBox(record.ConfigurationParamValue.StringValue ?? record.ConfigurationParamValue.TextOptions?.Default ?? String.Empty)
+			{
+				Tooltip = record.ConfigurationParamValue.TextOptions?.UserMessage ?? String.Empty,
+				IsEnabled = !isFixed.IsChecked || (isFixed.IsChecked && !hasValue),
+			};
+			value.Changed += (sender, args) =>
+			{
+				if (record.ConfigurationParamValue.TextOptions?.Regex != null && !Regex.IsMatch(args.Value, record.ConfigurationParamValue.TextOptions.Regex))
+				{
+					value.ValidationState = UIValidationState.Invalid;
+					value.ValidationText = $"Input did not match Regex '{record.ConfigurationParamValue.TextOptions.Regex}' - reverted to previous value";
+					value.Text = args.Previous;
+					return;
+				}
+
+				value.ValidationState = UIValidationState.Valid;
+				value.ValidationText = record.ConfigurationParamValue.TextOptions?.UserMessage;
+				record.ConfigurationParamValue.StringValue = args.Value;
+			};
+			view.AddWidget(value, row, 3);
+		}
+
+		private void AddDiscreteParam(DataRecord record, int row, DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter> parameter, CheckBox isFixed, Button values)
+		{
+			if (record.ConfigurationParamValue.DiscreteOptions == null)
+			{
+				record.ConfigurationParamValue.DiscreteOptions = parameter.Selected?.DiscreteOptions ?? throw new InvalidOperationException($"DiscreteOptions is null for parameter: {record.ConfigurationParam?.Name ?? "Unknown"}");
+				record.ConfigurationParamValue.DiscreteOptions.ID = Guid.NewGuid();
+			}
+
+			var allDiscretes = record.ConfigurationParam.DiscreteOptions.DiscreteValues
+				.Select(x => new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.DiscreteValue>(x.Value, x))
+				.OrderBy(x => x.DisplayValue)
+				.ToList();
+			var discretes = allDiscretes.Where(d => record.ConfigurationParamValue.DiscreteOptions.DiscreteValues.Any(r => d.Value.Equals(r))).ToList();
+
+			bool hasValue = record.ConfigurationParamValue.StringValue != null && discretes.Any(x => x.DisplayValue == record.ConfigurationParamValue.StringValue);
+			bool widgetEnabled = !isFixed.IsChecked || (isFixed.IsChecked && !hasValue);
+			var value = new DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.DiscreteValue>(discretes)
+			{
+				IsEnabled = widgetEnabled,
+			};
+			if (hasValue)
+			{
+				value.Selected = value.Options.First(x => x.DisplayValue == record.ConfigurationParamValue.StringValue).Value;
+			}
+
+			values.IsEnabled = widgetEnabled;
+			if (record.ConfigurationParamValue.StringValue == null)
+			{
+				record.ConfigurationParamValue.StringValue = value.Selected?.Value;
+			}
+
+			value.Changed += (sender, args) => { record.ConfigurationParamValue.StringValue = args.SelectedOption.DisplayValue; };
+			values.Pressed += (sender, args) =>
+			{
+				var optionsView = new DiscreteValuesView(engine);
+				optionsView.Options.SetOptions(allDiscretes);
+				foreach (var option in optionsView.Options.Values.ToList())
+				{
+					if (value.Options.Any(o => o.Value.Equals(option)))
+					{
+						optionsView.Options.Check(option); // check only the available items.
+					}
+				}
+
+				optionsView.BtnApply.Pressed += (o, eventArgs) =>
+				{
+					value.SetOptions(optionsView.Options.CheckedOptions);
+					record.ConfigurationParamValue.StringValue = value.Selected?.Value;
+					record.ConfigurationParamValue.DiscreteOptions.DiscreteValues = optionsView.Options.Checked.ToList();
+					controller.ShowDialog(view);
+				};
+				optionsView.BtnCancel.Pressed += (o, eventArgs) => controller.ShowDialog(view);
+				controller.ShowDialog(optionsView);
+			};
+			view.AddWidget(value, row, 3);
+		}
+
+		private void AddNumericParam(DataRecord record, int row, DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter> parameter, CheckBox isFixed, DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationUnit> unit, Numeric start, Numeric end, Numeric step, Numeric decimals)
+		{
+			if (record.ConfigurationParamValue.NumberOptions == null)
+			{
+				record.ConfigurationParamValue.NumberOptions = parameter.Selected?.NumberOptions ?? throw new InvalidOperationException($"NumberOptions is null for parameter: {record.ConfigurationParam?.Name ?? "Unknown"}");
+				record.ConfigurationParamValue.NumberOptions.ID = Guid.NewGuid();
+			}
+
+			bool hasValue = record.ConfigurationParamValue.DoubleValue != null || record.ConfigurationParamValue.NumberOptions.DefaultValue != null;
+			double minimum = record.ConfigurationParamValue.NumberOptions.MinRange ?? -10_000;
+			double maximum = record.ConfigurationParamValue.NumberOptions.MaxRange ?? 10_000;
+			int decimalVal = Convert.ToInt32(record.ConfigurationParamValue.NumberOptions.Decimals);
+			double stepSize = record.ConfigurationParamValue.NumberOptions.StepSize ?? 1;
+			bool widgetEnabled = !isFixed.IsChecked || (isFixed.IsChecked && !hasValue);
+			Numeric value = new Numeric(record.ConfigurationParamValue.DoubleValue ?? record.ConfigurationParamValue.NumberOptions.DefaultValue ?? 0)
+			{
+				Minimum = minimum,
+				Maximum = maximum,
+				StepSize = stepSize,
+				Decimals = decimalVal,
+				IsEnabled = widgetEnabled,
+			};
+			unit.SetOptions(GetUnits(record.ConfigurationParamValue.NumberOptions, parameter.Selected));
+			unit.Selected = GetDefaultUnit(record.ConfigurationParamValue.NumberOptions, parameter.Selected);
+			unit.IsEnabled = widgetEnabled;
+			start.Value = minimum;
+			start.IsEnabled = widgetEnabled;
+			end.Value = maximum;
+			end.IsEnabled = widgetEnabled;
+			decimals.Value = decimalVal;
+			decimals.IsEnabled = widgetEnabled;
+			step.Value = stepSize;
+			step.StepSize = 1 / Math.Pow(10, decimalVal);
+			step.Decimals = decimalVal;
+			step.IsEnabled = widgetEnabled;
+
+			start.Changed += (sender, args) =>
+			{
+				value.Minimum = args.Value;
+				record.ConfigurationParamValue.NumberOptions.MinRange = args.Value;
+			};
+			end.Changed += (sender, args) =>
+			{
+				value.Maximum = args.Value;
+				record.ConfigurationParamValue.NumberOptions.MaxRange = args.Value;
+			};
+			decimals.Changed += (sender, args) =>
+			{
+				value.Decimals = Convert.ToInt32(args.Value);
+				step.Decimals = Convert.ToInt32(args.Value);
+				double newStepsize = 1 / Math.Pow(10, args.Value);
+				value.StepSize = newStepsize;
+				step.StepSize = newStepsize;
+				record.ConfigurationParamValue.NumberOptions.Decimals = Convert.ToInt32(args.Value);
+			};
+			step.Changed += (sender, args) =>
+			{
+				value.StepSize = args.Value;
+				record.ConfigurationParamValue.NumberOptions.StepSize = args.Value;
+			};
+			unit.Changed += (sender, args) => record.ConfigurationParamValue.NumberOptions.DefaultUnit = args.Selected;
+			value.Changed += (sender, args) => { record.ConfigurationParamValue.DoubleValue = args.Value; };
+			view.AddWidget(value, row, 3);
 		}
 
 		private Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationUnit GetDefaultUnit(

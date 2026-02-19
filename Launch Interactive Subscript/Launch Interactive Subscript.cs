@@ -55,6 +55,8 @@ namespace Launch_Interactive_Subscript
 	using System.IO;
 	using System.Linq;
 	using DomHelpers.SlcConfigurations;
+	using Library;
+	using Library.Dom;
 	using Newtonsoft.Json;
 	using Newtonsoft.Json.Converters;
 	using Skyline.DataMiner.Automation;
@@ -72,8 +74,6 @@ namespace Launch_Interactive_Subscript
 	/// </summary>
 	public class Script
 	{
-		private const string ReferenceUnknown = "Reference Unknown";
-
 		/// <summary>
 		///     The script entry point.
 		/// </summary>
@@ -141,42 +141,18 @@ namespace Launch_Interactive_Subscript
 
 				string scriptOutput = RunScript(engine, serviceItem.Script, serviceItem.DefinitionReference, serviceItemDetails);
 
-				serviceItem.ImplementationReference = !String.IsNullOrEmpty(scriptOutput) ? scriptOutput : ReferenceUnknown;
+				serviceItem.ImplementationReference = !String.IsNullOrEmpty(scriptOutput) ? scriptOutput : Defaults.ReferenceUnknown;
 				srvHelper.Services.CreateOrUpdate(service);
 
 				// Update Service Item to active (if applicable)
 				if (!String.IsNullOrEmpty(scriptOutput))
 				{
-					UpdateState(srvHelper, service);
+					service.UpdateStatusOnServiceItem(engine.GetUserConnection());
 				}
 			}
 			catch (Exception e)
 			{
 				engine.ShowErrorDialog(e);
-			}
-		}
-
-		private static void UpdateState(DataHelpersServiceManagement srvHelper, Models.Service service)
-		{
-			// If all items are in progress -> move to In Progress
-			if (!service.ServiceItems.All(x => !String.IsNullOrEmpty(x.ImplementationReference) && x.ImplementationReference != ReferenceUnknown))
-			{
-				return;
-			}
-
-			if (service.Status == StatusesEnum.New)
-			{
-				service = srvHelper.Services.UpdateState(service, TransitionsEnum.New_To_Designed);
-			}
-
-			if (service.Status == StatusesEnum.Designed)
-			{
-				service = srvHelper.Services.UpdateState(service, TransitionsEnum.Designed_To_Reserved);
-			}
-
-			if (service.Status == StatusesEnum.Reserved)
-			{
-				service = srvHelper.Services.UpdateState(service, TransitionsEnum.Reserved_To_Active);
 			}
 		}
 

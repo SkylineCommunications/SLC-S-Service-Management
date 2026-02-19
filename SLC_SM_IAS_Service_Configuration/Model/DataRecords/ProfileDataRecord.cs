@@ -44,7 +44,7 @@
 							continue;
 						}
 
-						var referencedParam = currentConfig.ProfileDefinition.ConfigurationParameters.Find(x => x.ConfigurationParameter == configParam.ID);
+						var referencedParam = currentConfig.ProfileDefinition?.ConfigurationParameters?.Find(x => x.ConfigurationParameter == configParam.ID);
 
 						ProfileParameterDataRecord dataParameterRecord = ProfileParameterDataRecord.BuildParameterDataRecord(currentParameterConfig, configParam, referencedParam, state);
 						dataRecord.ProfileParameterConfigs.Add(dataParameterRecord);
@@ -56,7 +56,14 @@
 
 			internal List<Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter>> GetAvailableProfileParameters(DataHelpersConfigurations repoConfig)
 			{
-				// var refConfigParams = HelperMethods.GetReferencedConfigParameters(repoConfig, ProfileDefinition);
+				if (ProfileDefinition == null)
+				{
+					return new List<Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter>>
+					{
+						new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter>("- Parameter -", null),
+					};
+				}
+
 				var configParams = HelperMethods.GetConfigParameters(repoConfig, ProfileDefinition.ConfigurationParameters);
 
 				var parameterOptions = ProfileDefinition.ConfigurationParameters

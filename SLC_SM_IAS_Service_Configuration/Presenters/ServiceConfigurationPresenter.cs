@@ -10,6 +10,7 @@
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.Logger;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
@@ -29,6 +30,8 @@
 		private DataHelpersServiceManagement repoService;
 		private bool showDetails;
 		private Models.ServiceSpecification serviceSpecification;
+		private List<string> serviceEditLogs;
+		private ServiceManagementLogHelper serviceManagementLogHelper;
 
 		private int collapeButtonWidth = 85;
 		private int addButtonWidth = 70;
@@ -45,6 +48,9 @@
 			this.view = view;
 			this.instanceService = instance;
 			this.showDetails = false;
+			this.serviceEditLogs = new List<string>();
+			this.serviceManagementLogHelper = new ServiceManagementLogHelper(engine.GetUserConnection(), "Inventory");
+			// this.serviceManagementLogHelper.LoggingEnabled = true;
 
 			view.BtnCancel.MaxWidth = buttonWidth;
 			view.BtnCancel.Pressed += (sender, args) => throw new ScriptAbortException("OK");
@@ -87,11 +93,14 @@
 					newConfigurationVersion,
 					repoConfig.ConfigurationParameters.Read(),
 					State.Create);
+				serviceEditLogs.Clear();
+				serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(instance.ServiceID, "Edit", $"Created new configuration version by copying existing version '{configuration.ServiceConfigurationVersion}'"));
 				BuildUI(this.showDetails);
 			};
 
 			view.ConfigurationVersions.Changed += (sender, args) =>
 			{
+				serviceEditLogs.Clear();
 				if (args.Selected == null)
 				{
 					view.GeneralSettings.IsCollapsed = true;
@@ -101,12 +110,14 @@
 						HelperMethods.CreateNewServiceConfigurationVersion(serviceSpecification, instanceService),
 						repoConfig.ConfigurationParameters.Read(),
 						State.Create);
+					serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(instance.ServiceID, "Edit", $"Created new configuration version '{configuration.ServiceConfigurationVersion.VersionName}'"));
 				}
 				else
 				{
 					configuration = ConfigurationDataRecord.BuildConfigurationDataRecordRecord(
 						args.Selected,
 						repoConfig.ConfigurationParameters.Read());
+					serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(instance.ServiceID, "Edit", $"Start editing configuration version '{configuration.ServiceConfigurationVersion.VersionName}'"));
 				}
 
 				BuildUI(this.showDetails);
@@ -137,10 +148,12 @@
 					repoConfig.ConfigurationParameters.Read(),
 					State.Create);
 				instanceService.ServiceConfiguration = configuration.ServiceConfigurationVersion; // set as active
+				serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(instanceService.ServiceID, "Edit", $"Created new configuration version '{configuration.ServiceConfigurationVersion.VersionName}'"));
 			}
 			else
 			{
 				configuration = ConfigurationDataRecord.BuildConfigurationDataRecordRecord(instanceService.ServiceConfiguration, configParams);
+				serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(instanceService.ServiceID, "Edit", $"Start editing configuration version '{configuration.ServiceConfigurationVersion.VersionName}'"));
 			}
 
 			BuildUI(false);
@@ -183,11 +196,21 @@
 				repoService.ServiceConfigurationVersions.CreateOrUpdate(configuration.ServiceConfigurationVersion);
 				instanceService.ConfigurationVersions.Add(configuration.ServiceConfigurationVersion);
 				repoService.Services.CreateOrUpdate(instanceService);
+				serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(
+					instanceService.ServiceID,
+					"Edit",
+					$"Created configuration version '{configuration.ServiceConfigurationVersion.VersionName}'"));
 			}
 			else
 			{
 				repoService.ServiceConfigurationVersions.CreateOrUpdate(configuration.ServiceConfigurationVersion);
+				serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(
+					instanceService.ServiceID,
+					"Edit",
+					$"Updated configuration version '{configuration.ServiceConfigurationVersion.VersionName}'"));
 			}
+
+			serviceManagementLogHelper.LogInfo(serviceEditLogs);
 		}
 
 		private void AddStandaloneConfigModel(Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter selectedParameter)
@@ -203,11 +226,16 @@
 			configuration.ServiceConfigurationVersion.Parameters.Add(config);
 
 			configuration.ServiceParameterConfigs.Add(StandaloneParameterDataRecord.BuildParameterDataRecord(config, configurationParameterInstance, State.Create));
+			serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(
+				instanceService.ServiceID,
+				"Edit",
+				$"Added standalone parameter '{configurationParameterInstance.Name}' with value {config.ConfigurationParameter.StringValue}"));
 		}
 
 		private void AddProfileConfigModel(Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ProfileDefinition profileDefinition)
 		{
 			var profileDefinitionInstance = profileDefinition ?? new Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ProfileDefinition();
+			string profileName = profileDefinition.Name.ReplaceTrailingParentesisContent(instanceService.ServiceID);
 			var configParams = HelperMethods.GetConfigParameters(repoConfig, profileDefinitionInstance.ConfigurationParameters);
 
 			var parameterValues = new List<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameterValue>();
@@ -221,6 +249,10 @@
 				}
 
 				parameterValues.Add(HelperMethods.BuildConfigurationParameter(configParam));
+				serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(
+				instanceService.ServiceID,
+				"Edit",
+				$"Added profile parameter '{configParam.Name}'"));
 			}
 
 			var profileConfig = new Models.ServiceProfile
@@ -230,7 +262,7 @@
 				ProfileDefinition = profileDefinitionInstance,
 				Profile = new Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.Profile
 				{
-					Name = profileDefinition.Name.ReplaceTrailingParentesisContent(instanceService.ServiceID),
+					Name = profileName,
 					ProfileDefinitionReference = profileDefinition.ID,
 					ConfigurationParameterValues = parameterValues,
 				},
@@ -243,6 +275,10 @@
 
 			configuration.ServiceConfigurationVersion.Profiles.Add(profileConfig);
 			configuration.ServiceProfileConfigs.Add(ProfileDataRecord.BuildProfileRecord(profileConfig, configParams, State.Create));
+			serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(
+				instanceService.ServiceID,
+				"Edit",
+				$"Added profile '{profileConfig.Profile.Name}'"));
 		}
 
 		private void AddProfileParameterConfigModel(ProfileDataRecord profile, Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter selected)
@@ -261,6 +297,7 @@
 				configurationParameterInstance,
 				profile.ProfileDefinition.ConfigurationParameters.FirstOrDefault(p => p.ConfigurationParameter == configurationParameterInstance.ID),
 				State.Create));
+			serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(instanceService.ServiceID, "Edit", $"Added profile parameter '{configurationParameterInstance.Name}' with value {configParamValue.StringValue}"));
 
 			configuration.ServiceConfigurationVersion.Profiles.Find(p => p.ID == profile.ServiceProfileConfig.ID).Profile.ConfigurationParameterValues.Add(configParamValue);
 		}
@@ -413,11 +450,24 @@
 			versionName.Changed += (sender, args) =>
 			{
 				configuration.ServiceConfigurationVersion.VersionName = args.Value;
+				serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(instanceService.ServiceID, "Edit", $"Changed configuration version name from '{args.Previous}' to '{args.Value}'"));
 				InitializeConfigurationVersions();
 			};
-			description.Changed += (sender, args) => configuration.ServiceConfigurationVersion.Description = args.Value;
-			startDate.Changed += (sender, args) => configuration.ServiceConfigurationVersion.StartDate = args.DateTime;
-			endDate.Changed += (sender, args) => configuration.ServiceConfigurationVersion.EndDate = args.DateTime;
+			description.Changed += (sender, args) =>
+			{
+				configuration.ServiceConfigurationVersion.Description = args.Value;
+				serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(instanceService.ServiceID, "Edit", $"Changed configuration version description from '{args.Previous}' to '{args.Value}'"));
+			};
+			startDate.Changed += (sender, args) =>
+			{
+				configuration.ServiceConfigurationVersion.StartDate = args.DateTime;
+				serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(instanceService.ServiceID, "Edit", $"Changed configuration version start date from '{args.Previous}' to '{args.DateTime}'"));
+			};
+			endDate.Changed += (sender, args) =>
+			{
+				configuration.ServiceConfigurationVersion.EndDate = args.DateTime;
+				serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(instanceService.ServiceID, "Edit", $"Changed configuration version end date from '{args.Previous}' to '{args.DateTime}'"));
+			};
 
 			view.AddWidget(versionName, ++row, 0);
 			view.GeneralSettings.LinkedWidgets.Add(versionName);
@@ -438,8 +488,11 @@
 		private int BuildProfileAdditionUI(int row)
 		{
 			view.AddWidget(new Label("Add Profile:") { Style = TextStyle.Heading, MaxWidth = 100 }, ++row, 0, HorizontalAlignment.Right);
+			var profileDefinitions = repoConfig.ProfileDefinitions.Read();
 
-			var profileDefinitionOptions = repoConfig.ProfileDefinitions.Read().Select(x => new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ProfileDefinition>(x.Name, x)).OrderBy(x => x.DisplayValue).ToList();
+			var profileDefinitionOptions = profileDefinitions == null
+				? new List<Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ProfileDefinition>>()
+				: profileDefinitions.Select(x => new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ProfileDefinition>(x.Name, x)).OrderBy(x => x.DisplayValue).ToList();
 			profileDefinitionOptions.Insert(0, new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ProfileDefinition>("- Profile Definition -", null));
 			view.ProfileDefinitionToAdd.SetOptions(profileDefinitionOptions);
 			view.AddWidget(view.ProfileDefinitionToAdd, row, 1);
@@ -509,6 +562,7 @@
 					view.ProfileCollapseButtons[profile.Profile.Name] = view.ProfileCollapseButtons[collapseButton.Tooltip];
 					view.ProfileCollapseButtons.Remove(collapseButton.Tooltip);
 					view.Details.Remove(collapseButton.Tooltip);
+					serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(instanceService.ServiceID, "Edit", $"Changed profile name from '{args.Previous}' to '{profile.Profile.Name}'"));
 					BuildUI(this.showDetails);
 				};
 				view.AddWidget(profileLabel, ++row, 1);
@@ -652,7 +706,7 @@
 			// Init
 			var label = new TextBox(record.ConfigurationParamValue.Label) { IsVisible = !collapseButtom.IsCollapsed };
 			var parameter = new DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter>(
-				new[] { new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter>(record.ConfigurationParam.Name, record.ConfigurationParam) })
+				new[] { new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter>(record.ConfigurationParam?.Name, record.ConfigurationParam) })
 			{
 				IsEnabled = false,
 				IsVisible = !collapseButtom.IsCollapsed,
@@ -669,7 +723,11 @@
 			var delete = new Button("🚫") { IsEnabled = !mandatory, IsVisible = !collapseButtom.IsCollapsed };
 			bool isValueFixed = record.ConfigurationParamValue.ValueFixed;
 
-			label.Changed += (sender, args) => record.ConfigurationParamValue.Label = args.Value;
+			label.Changed += (sender, args) =>
+			{
+				record.ConfigurationParamValue.Label = args.Value;
+				serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(instanceService.ServiceID, "Edit", $"Changed {(collapseButtom.Tooltip == ServiceConfigurationView.StandaloneCollapseButtonTitle ? "standalone" : $"profile '{collapseButtom.Tooltip}'")} parameter label from '{args.Previous}' to '{args.Value}'"));
+			};
 
 			if (deleteEventHandler != null)
 			{
@@ -679,6 +737,7 @@
 			link.Changed += (sender, args) =>
 			{
 				record.ConfigurationParamValue.LinkedConfigurationReference = args.IsChecked ? "Dummy Link" : null;
+				serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(instanceService.ServiceID, "Edit", $"Changed {(collapseButtom.Tooltip == ServiceConfigurationView.StandaloneCollapseButtonTitle ? "standalone" : $"profile '{collapseButtom.Tooltip}'")} parameter link to '{(args.IsChecked ? "set" : "unset")}'"));
 				BuildUI(view.Details[collapseButtom.Tooltip].IsVisible);
 			};
 
@@ -693,18 +752,15 @@
 				switch (parameter.Selected.Type)
 				{
 					case SlcConfigurationsIds.Enums.Type.Number:
-						collapseButtom.LinkedWidgets.Add(AddNumericWidgets(record, row, parameter, unit, start, end, step, decimals, !collapseButtom.IsCollapsed, isValueFixed));
-
+						collapseButtom.LinkedWidgets.Add(AddNumericWidgets(record, row, parameter.Selected, unit, start, end, step, decimals, !collapseButtom.IsCollapsed, isValueFixed, collapseButtom.Tooltip));
 						break;
 
 					case SlcConfigurationsIds.Enums.Type.Discrete:
-						collapseButtom.LinkedWidgets.Add(AddDiscreteWidgets(record, row, !collapseButtom.IsCollapsed, isValueFixed));
-
+						collapseButtom.LinkedWidgets.Add(AddDiscreteWidgets(record, row, parameter.Selected, !collapseButtom.IsCollapsed, isValueFixed, collapseButtom.Tooltip));
 						break;
 
 					default:
-						collapseButtom.LinkedWidgets.Add(AddTextWidgets(record, row, !collapseButtom.IsCollapsed, isValueFixed));
-
+						collapseButtom.LinkedWidgets.Add(AddTextWidgets(record, row, !collapseButtom.IsCollapsed, isValueFixed, collapseButtom.Tooltip));
 						break;
 				}
 			}
@@ -735,6 +791,10 @@
 			{
 				record.State = State.Delete;
 				configuration.ServiceConfigurationVersion.Parameters.Remove(record.ServiceParameterConfig);
+				serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(
+					instanceService.ServiceID,
+					"Edit",
+					$"Deleted standalone parameter '{(String.IsNullOrWhiteSpace(record.ConfigurationParamValue.Label) ? record.ConfigurationParamValue.Label : record.ConfigurationParam?.Name)}'"));
 				BuildUI(showDetails);
 			};
 		}
@@ -745,6 +805,10 @@
 			{
 				parameterRecord.State = State.Delete;
 				configuration.ServiceConfigurationVersion.Profiles.Find(p => p.ID == profileDataRecord.ServiceProfileConfig.ID).Profile.ConfigurationParameterValues.Remove(parameterRecord.ConfigurationParamValue);
+				serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(
+					instanceService.ServiceID,
+					"Edit",
+					$"Deleted profile parameter '{(String.IsNullOrWhiteSpace(parameterRecord.ConfigurationParamValue.Label) ? parameterRecord.ConfigurationParamValue.Label : parameterRecord.ConfigurationParam?.Name)}' from profile '{profileDataRecord.Profile.Name}'"));
 				BuildUI(showDetails);
 			};
 		}
@@ -755,11 +819,15 @@
 			{
 				record.State = State.Delete;
 				configuration.ServiceConfigurationVersion.Profiles.Remove(record.ServiceProfileConfig);
+				serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(
+					instanceService.ServiceID,
+					"Edit",
+					$"Deleted profile '{record.Profile.Name}'"));
 				BuildUI(showDetails);
 			};
 		}
 
-		private TextBox AddTextWidgets(IParameterDataRecord record, int row, bool isVisible = true, bool isValueFixed = false)
+		private TextBox AddTextWidgets(IParameterDataRecord record, int row, bool isVisible = true, bool isValueFixed = false, string collapseButtonTitle = null)
 		{
 			var value = new TextBox(record.ConfigurationParamValue.StringValue ?? record.ConfigurationParamValue.TextOptions?.Default ?? String.Empty)
 			{
@@ -780,13 +848,23 @@
 				value.ValidationState = UIValidationState.Valid;
 				value.ValidationText = record.ConfigurationParamValue.TextOptions?.UserMessage;
 				record.ConfigurationParamValue.StringValue = args.Value;
+				serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(
+					instanceService.ServiceID,
+					"Edit",
+					$"Changed {(collapseButtonTitle == ServiceConfigurationView.StandaloneCollapseButtonTitle ? "standalone" : $"profile '{collapseButtonTitle}'")} parameter value from '{args.Previous}' to '{args.Value}'"));
 			};
 			view.AddWidget(value, row, parameterValueColumnIndex);
 			return value;
 		}
 
-		private DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.DiscreteValue> AddDiscreteWidgets(IParameterDataRecord record, int row, bool isVisible = true, bool isValueFixed = false)
+		private DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.DiscreteValue> AddDiscreteWidgets(IParameterDataRecord record, int row, Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter parameter, bool isVisible = true, bool isValueFixed = false, string collapseButtonTitle = null)
 		{
+			if (record.ConfigurationParamValue.DiscreteOptions == null)
+			{
+				record.ConfigurationParamValue.DiscreteOptions = parameter?.DiscreteOptions ?? throw new InvalidOperationException($"DiscreteOptions is null for parameter: {record.ConfigurationParam?.Name ?? "Unknown"}");
+				record.ConfigurationParamValue.DiscreteOptions.ID = Guid.NewGuid();
+			}
+
 			var discretes = record.ConfigurationParamValue.DiscreteOptions.DiscreteValues
 											.Select(x => new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.DiscreteValue>(x.Value, x))
 											.OrderBy(x => x.DisplayValue)
@@ -808,7 +886,14 @@
 				record.ConfigurationParamValue.StringValue = value.Selected?.Value;
 			}
 
-			value.Changed += (sender, args) => { record.ConfigurationParamValue.StringValue = args.SelectedOption.DisplayValue; };
+			value.Changed += (sender, args) =>
+			{
+				record.ConfigurationParamValue.StringValue = args.SelectedOption.DisplayValue;
+				serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(
+					instanceService.ServiceID,
+					"Edit",
+					$"Changed {(collapseButtonTitle == ServiceConfigurationView.StandaloneCollapseButtonTitle ? "standalone" : $"profile '{collapseButtonTitle}'")} parameter value from '{args.PreviousOption?.DisplayValue}' to '{args.SelectedOption.DisplayValue}'"));
+			};
 			view.AddWidget(value, row, parameterValueColumnIndex);
 			return value;
 		}
@@ -816,15 +901,23 @@
 		private Numeric AddNumericWidgets(
 			IParameterDataRecord record,
 			int row,
-			DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter> parameter,
+			Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter parameter,
 			DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationUnit> unit,
 			Numeric start,
 			Numeric end,
 			Numeric step,
 			Numeric decimals,
 			bool isVisible = true,
-			bool isValueFixed = false)
+			bool isValueFixed = false,
+			string collapseButtonTitle = null)
 		{
+
+			if (record.ConfigurationParamValue.NumberOptions == null)
+			{
+				record.ConfigurationParamValue.NumberOptions = parameter?.NumberOptions ?? throw new InvalidOperationException($"NumberOptions is null for parameter: {record.ConfigurationParam?.Name ?? "Unknown"}");
+				record.ConfigurationParamValue.NumberOptions.ID = Guid.NewGuid();
+			}
+
 			double minimum = record.ConfigurationParamValue.NumberOptions.MinRange ?? -10_000;
 			double maximum = record.ConfigurationParamValue.NumberOptions.MaxRange ?? 10_000;
 			int decimalVal = Convert.ToInt32(record.ConfigurationParamValue.NumberOptions.Decimals);
@@ -838,8 +931,8 @@
 				IsVisible = isVisible,
 				IsEnabled = !isValueFixed,
 			};
-			unit.SetOptions(GetUnits(record.ConfigurationParamValue.NumberOptions, parameter.Selected));
-			unit.Selected = GetDefaultUnit(record.ConfigurationParamValue.NumberOptions, parameter.Selected);
+			unit.SetOptions(GetUnits(record.ConfigurationParamValue.NumberOptions, parameter));
+			unit.Selected = GetDefaultUnit(record.ConfigurationParamValue.NumberOptions, parameter);
 			unit.IsEnabled = true;
 			start.Value = minimum;
 			start.IsEnabled = true;
@@ -856,11 +949,19 @@
 			{
 				value.Minimum = args.Value;
 				record.ConfigurationParamValue.NumberOptions.MinRange = args.Value;
+				serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(
+					instanceService.ServiceID,
+					"Edit",
+					$"Changed {(collapseButtonTitle == ServiceConfigurationView.StandaloneCollapseButtonTitle ? "standalone" : $"profile '{collapseButtonTitle}'")} parameter minimum from '{args.Previous}' to '{args.Value}'"));
 			};
 			end.Changed += (sender, args) =>
 			{
 				value.Maximum = args.Value;
 				record.ConfigurationParamValue.NumberOptions.MaxRange = args.Value;
+				serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(
+					instanceService.ServiceID,
+					"Edit",
+					$"Changed {(collapseButtonTitle == ServiceConfigurationView.StandaloneCollapseButtonTitle ? "standalone" : $"profile '{collapseButtonTitle}'")} parameter maximum from '{args.Previous}' to '{args.Value}'"));
 			};
 			decimals.Changed += (sender, args) =>
 			{
@@ -870,14 +971,40 @@
 				value.StepSize = newStepsize;
 				step.StepSize = newStepsize;
 				record.ConfigurationParamValue.NumberOptions.Decimals = Convert.ToInt32(args.Value);
+				serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(
+					instanceService.ServiceID,
+					"Edit",
+					$"Changed {(collapseButtonTitle == ServiceConfigurationView.StandaloneCollapseButtonTitle ? "standalone" : $"profile '{collapseButtonTitle}'")} parameter decimals from '{args.Previous}' to '{args.Value}'"));
+				serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(
+					instanceService.ServiceID,
+					"Edit",
+					$"Changed {(collapseButtonTitle == ServiceConfigurationView.StandaloneCollapseButtonTitle ? "standalone" : $"profile '{collapseButtonTitle}'")} parameter step size from '{step.StepSize}' to '{newStepsize}' due to decimals change"));
 			};
 			step.Changed += (sender, args) =>
 			{
 				value.StepSize = args.Value;
 				record.ConfigurationParamValue.NumberOptions.StepSize = args.Value;
+				serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(
+					instanceService.ServiceID,
+					"Edit",
+					$"Changed {(collapseButtonTitle == ServiceConfigurationView.StandaloneCollapseButtonTitle ? "standalone" : $"profile '{collapseButtonTitle}'")} parameter step size from '{args.Previous}' to '{args.Value}'"));
 			};
-			unit.Changed += (sender, args) => record.ConfigurationParamValue.NumberOptions.DefaultUnit = args.Selected;
-			value.Changed += (sender, args) => { record.ConfigurationParamValue.DoubleValue = args.Value; };
+			unit.Changed += (sender, args) =>
+			{
+				record.ConfigurationParamValue.NumberOptions.DefaultUnit = args.Selected;
+				serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(
+					instanceService.ServiceID,
+					"Edit",
+					$"Changed {(collapseButtonTitle == ServiceConfigurationView.StandaloneCollapseButtonTitle ? "standalone" : $"profile '{collapseButtonTitle}'")} parameter unit from '{args.PreviousOption?.DisplayValue}' to '{args.SelectedOption.DisplayValue}'"));
+			};
+			value.Changed += (sender, args) =>
+			{
+				record.ConfigurationParamValue.DoubleValue = args.Value;
+				serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(
+					instanceService.ServiceID,
+					"Edit",
+					$"Changed {(collapseButtonTitle == ServiceConfigurationView.StandaloneCollapseButtonTitle ? "standalone" : $"profile '{collapseButtonTitle}'")} parameter value from '{args.Previous}' to '{args.Value}'"));
+			};
 			view.AddWidget(value, row, parameterValueColumnIndex);
 			return value;
 		}
