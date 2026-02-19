@@ -209,6 +209,13 @@
 				return;
 
 			record.ConfigurationParameter.NumberOptions.DefaultUnit = unit;
+			if (record.ConfigurationParameter.NumberOptions.Units == null)
+			{
+				record.ConfigurationParameter.NumberOptions.Units = new System.Collections.Generic.List<Models.ConfigurationUnit>();
+			}
+
+			record.ConfigurationParameter.NumberOptions.Units.Add(unit);
+			record.ConfigurationParameter.NumberOptions.Units =	record.ConfigurationParameter.NumberOptions.Units.Distinct().ToList();
 			record.State = State.Updated;
 		}
 

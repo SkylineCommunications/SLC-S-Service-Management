@@ -11,7 +11,7 @@
 
 		public DataRecord Record { get; set; }
 
-		public IEnumerable<Option<Models.ConfigurationUnit>> CachedUnits { get; set; }
+		public IList<Option<Models.ConfigurationUnit>> CachedUnits { get; set; }
 
 		public EventHandlers Callbacks { get; set; }
 
@@ -28,7 +28,7 @@
 			set => base.Record = value;
 		}
 
-		public IEnumerable<Models.ProfileDefinition> ReferenceOptions { get; set; }
+		public IList<Models.ProfileDefinition> ReferenceOptions { get; set; }
 	}
 
 	public class ConfigurationRowData : RowData
@@ -39,6 +39,6 @@
 			set => base.Record = value;
 		}
 
-		public IEnumerable<Models.ConfigurationParameter> ReferenceOptions { get; set;  }
+		public IList<Models.ConfigurationParameter> ReferenceOptions { get; set;  }
 	}
 }

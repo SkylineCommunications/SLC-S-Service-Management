@@ -3,6 +3,7 @@ namespace SLCSMCreateJobForServiceItem
 	using System;
 	using System.Linq;
 	using DomHelpers.SlcWorkflow;
+	using Library.Dom;
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Net.Apps.DataMinerObjectModel;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
@@ -13,14 +14,13 @@ namespace SLCSMCreateJobForServiceItem
 	using Skyline.DataMiner.Utils.MediaOps.Helpers.Workflows;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.IAS;
-	using static DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Service_Behavior;
 
 	/// <summary>
 	///     Represents a DataMiner Automation script.
 	/// </summary>
 	public class Script
 	{
-		private const string ReferenceUnknown = "Reference Unknown";
+		private IEngine engine;
 
 		/// <summary>
 		///     The script entry point.
@@ -35,9 +35,11 @@ namespace SLCSMCreateJobForServiceItem
             *
             * engine.ShowUI();
             */
+
 			try
 			{
-				RunSafe(engine);
+				this.engine = engine;
+				RunSafe();
 			}
 			catch (ScriptAbortException)
 			{
@@ -63,30 +65,6 @@ namespace SLCSMCreateJobForServiceItem
 			}
 		}
 
-		private static void UpdateState(DataHelperService srvHelper, Models.Service service)
-		{
-			// If all items are in progress -> move to In Progress
-			if (!service.ServiceItems.All(x => !String.IsNullOrEmpty(x.ImplementationReference) && x.ImplementationReference != ReferenceUnknown))
-			{
-				return;
-			}
-
-			if (service.Status == StatusesEnum.New)
-			{
-				service = srvHelper.UpdateState(service, TransitionsEnum.New_To_Designed);
-			}
-
-			if (service.Status == StatusesEnum.Designed)
-			{
-				service = srvHelper.UpdateState(service, TransitionsEnum.Designed_To_Reserved);
-			}
-
-			if (service.Status == StatusesEnum.Reserved)
-			{
-				service = srvHelper.UpdateState(service, TransitionsEnum.Reserved_To_Active);
-			}
-		}
-
 		private void AddOrUpdateServiceItemToInstance(DataHelperService helper, Models.Service instance, Models.ServiceItem newSection, string oldLabel)
 		{
 			var oldItem = instance.ServiceItems.FirstOrDefault(x => x.Label == oldLabel);
@@ -103,7 +81,7 @@ namespace SLCSMCreateJobForServiceItem
 			instance.ServiceItems.Add(newSection);
 			helper.CreateOrUpdate(instance);
 
-			UpdateState(helper, instance);
+			instance.UpdateStatusOnServiceItem(engine.GetUserConnection());
 		}
 
 		private CreateJobAction CreateJobConfiguration(Models.Service instance, Models.ServiceItem serviceItemsSection, Workflow workflow)
@@ -180,7 +158,7 @@ namespace SLCSMCreateJobForServiceItem
 			return objectType.Id;
 		}
 
-		private void RunSafe(IEngine engine)
+		private void RunSafe()
 		{
 			Guid domId = engine.ReadScriptParamFromApp<Guid>("DOM ID");
 			if (domId == Guid.Empty)
