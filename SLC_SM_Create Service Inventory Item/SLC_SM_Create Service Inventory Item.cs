@@ -494,7 +494,10 @@ namespace SLC_SM_Create_Service_Inventory_Item
 			}
 
 			string domIdRaw = _engine.ReadScriptParamFromApp("DOM ID");
-			Guid.TryParse(domIdRaw, out Guid domId);
+			if (!Guid.TryParse(domIdRaw, out Guid domId) && action != Defaults.ScriptAction_CreateServiceInventoryItem.Add)
+			{
+				throw new InvalidOperationException($"Please select an entry in the Service Order Items table first.{Environment.NewLine}Details: the app passed the following, unexpected UUID to the action: {domIdRaw}.");
+			}
 
 			var repo = new DataHelpersServiceManagement(_engine.GetUserConnection());
 
@@ -554,7 +557,7 @@ namespace SLC_SM_Create_Service_Inventory_Item
 			var serviceOrderItem = repo.ServiceOrderItems.Read(ServiceOrderItemExposers.Guid.Equal(domId)).FirstOrDefault();
 			if (domId == Guid.Empty || serviceOrderItem == null)
 			{
-				throw new InvalidOperationException($"No Service Order Item with ID '{domId}' found on the system!");
+				throw new InvalidOperationException($"Please select an entry in the service order items table first.{Environment.NewLine}Details: No Service Order Item with ID '{domId}' found on the system!");
 			}
 
 			_engine.PerformanceLogger("Create New Service Inventory Item + Link to Order", () => CreateNewServiceAndLinkItToServiceOrder(repo, serviceOrderItem));

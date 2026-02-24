@@ -94,13 +94,13 @@
 			{
 				case TransitionsEnum.New_To_Acknowledged:
 					// Transition parent order to ACK as well
-					orderItem.StatusUpdateToAcknowledged(engine.GetUserConnection());
+					orderItem.TryUpdateStatusToAcknowledged(engine.GetUserConnection());
 					break;
 
 				case TransitionsEnum.Pending_To_Inprogress:
 				case TransitionsEnum.Acknowledged_To_Inprogress:
 					// Transition parent order to In Progress as well
-					orderItem.StatusUpdateToInProgress(engine.GetUserConnection());
+					orderItem.TryStatusUpdateToInProgress(engine.GetUserConnection());
 					break;
 
 				case TransitionsEnum.Inprogress_To_Completed:

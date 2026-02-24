@@ -167,6 +167,11 @@
 				service = srvHelper.UpdateState(service, TransitionsEnum.New_To_Designed);
 			}
 
+			if (service.Status == StatusesEnum.Designed)
+			{
+				service = srvHelper.UpdateState(service, TransitionsEnum.Designed_To_Reserved);
+			}
+
 			return service;
 		}
 
@@ -179,7 +184,7 @@
 		/// <returns>true if the linked reference is still active; otherwise, false.</returns>
 		public static bool LinkedReferenceStillActive(this Models.ServiceItem serviceItem, IEngine engine)
 		{
-			if (!Guid.TryParse(serviceItem.ImplementationReference, out Guid refId))
+			if (!Guid.TryParse(serviceItem.ImplementationReference, out Guid refId) || refId == Guid.Empty)
 			{
 				return false;
 			}
@@ -209,6 +214,11 @@
 		{
 			var rm = new ResourceManagerHelper(engine.SendSLNetSingleResponseMessage);
 			var reservation = rm.GetReservationInstance(refId);
+			if (reservation == null)
+			{
+				return false;
+			}
+
 			if (reservation.StartTimeUTC > DateTime.UtcNow
 				&& (reservation.Status == ReservationStatus.Pending || reservation.Status == ReservationStatus.Confirmed))
 			{

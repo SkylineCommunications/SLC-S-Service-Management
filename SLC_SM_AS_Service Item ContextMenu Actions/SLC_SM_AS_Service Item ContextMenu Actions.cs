@@ -64,7 +64,7 @@ namespace SLCSMASServiceItemContextMenuActions
 			Guid domId = _engine.ReadScriptParamFromApp<Guid>("DOM ID");
 			if (domId == Guid.Empty)
 			{
-				throw new InvalidOperationException("No DOM ID provided as input to the script");
+				throw new InvalidOperationException($"Please select an entry in the Service Items table first, no selection was passed to run the action on.");
 			}
 
 			string label = _engine.ReadScriptParamFromApp("Service Item Label");
@@ -91,20 +91,20 @@ namespace SLCSMASServiceItemContextMenuActions
 			string bookingManager = serviceItem.DefinitionReference;
 			string reservationId = serviceItem.ImplementationReference;
 
-			if (String.IsNullOrEmpty(bookingManager) || String.IsNullOrEmpty(reservationId) || reservationId == Guid.Empty.ToString())
+			if (String.IsNullOrEmpty(bookingManager) || !Guid.TryParse(reservationId, out Guid rid))
 			{
 				throw new InvalidOperationException($"Service item with label '{serviceItem.Label}' does not have a valid booking manager or reservation ID configured");
 			}
 
-			if (!_engine.ShowConfirmDialog($"Are you sure you wish to {contextMenuAction} the booking?"))
+			if (!_engine.ShowConfirmDialog($"Are you sure you wish to run the action {contextMenuAction} for the booking?"))
 			{
 				return;
 			}
 
 			var script = _engine.PrepareSubScript("SRM_ReservationAction");
-			script.SelectScriptParam("Booking Manager Info", $"{{\"Element\":\"{bookingManager}\",\"TableIndex\":\"{reservationId}\"}}");
+			script.SelectScriptParam("Booking Manager Info", $"{{\"Element\":\"{bookingManager}\",\"TableIndex\":\"{rid}\"}}");
 			script.SelectScriptParam("Action", contextMenuAction);
-			script.SelectScriptParam("Is Silent", "false");
+			script.SelectScriptParam("Is Silent", "{\"IsSilent\":false}");
 			script.Synchronous = true;
 			script.StartScript();
 
