@@ -24,7 +24,11 @@
 				AddConfigurationParameterReference(currentProfilePage.ProfileDefinitionRecord, newConfigurationParameter.ID);
 			}
 
-			navigator.AddRecordToCurrentSliceEnd(DataRecordFactory.CreateDataRecord(newConfigurationParameter, State.Updated, RecordType.New));
+			var slicingEnabled = presenter.Data.Mode == Data.Mode.Configuration;
+			if (slicingEnabled)
+				navigator.AddRecordToCurrentSliceEnd(DataRecordFactory.CreateDataRecord(newConfigurationParameter, State.Updated, RecordType.New));
+			else
+				navigator.AddRecordToCurrentPage(DataRecordFactory.CreateDataRecord(newConfigurationParameter, State.Updated, RecordType.New));
 
 			presenter.BuildUI();
 		}
