@@ -131,16 +131,6 @@ namespace SLCSMDSGetServiceDetails
 
 		public GQIPage GetNextPage(GetNextPageInputArgs args)
 		{
-			// Define data source rows
-			// See: https://aka.dataminer.services/igqidatasource-getnextpage
-			//var domservice = _domHelper.DomInstances.Read(DomInstanceExposers.Id.Equal(_arguments.DomId)).SingleOrDefault();
-			//if (domservice == null)
-			//{
-			//    return new GQIPage(Array.Empty<GQIRow>());
-			//}
-
-			//var service = new ServicesInstance(domservice);
-
 			var serviceDataHelper = new DataHelperService(_gqiDms.GetConnection());
 			var service = serviceDataHelper.Read(ServiceExposers.Guid.Equal(_arguments.DomId)).SingleOrDefault();
 			if (service == null)
@@ -169,35 +159,10 @@ namespace SLCSMDSGetServiceDetails
 
 		private string GetServiceSpecification(Guid? serviceSpecificationId)
 		{
-			//if (!serviceSpecificationId.HasValue)
-			//	return string.Empty;
-
-			//var domSpecification = _domHelper.DomInstances
-			//	.Read(DomInstanceExposers.Id.Equal(serviceSpecificationId.Value))
-			//	.SingleOrDefault();
-
-			//return domSpecification != null
-			//	? new ServiceSpecificationsInstance(domSpecification).ServiceSpecificationInfo.SpecificationName
-			//: string.Empty;
-
 			var helper = new DataHelperServiceSpecification(_gqiDms.GetConnection());
 			var specification = helper.Read(ServiceSpecificationExposers.Guid.Equal(serviceSpecificationId.HasValue ? serviceSpecificationId.Value : Guid.Empty)).SingleOrDefault();
 			return specification != null ?
 				specification.Name
-				: string.Empty;
-		}
-
-		private string GetServiceCategory(Guid? categoryId)
-		{
-			if (!categoryId.HasValue)
-				return string.Empty;
-
-			var domCategory = _domHelper.DomInstances
-				.Read(DomInstanceExposers.Id.Equal(categoryId.Value))
-				.SingleOrDefault();
-
-			return domCategory != null
-				? new ServiceCategoryInstance(domCategory).ServiceCategoryInfo.Name
 				: string.Empty;
 		}
 
