@@ -165,7 +165,7 @@ namespace SLC_SM_Delete_Service_Item
 			Guid domId = _engine.ReadScriptParamFromApp<Guid>("DOM ID");
 
 			// confirmation if the user wants to delete the services
-			if (!_engine.ShowConfirmDialog($"Are you sure to you want to delete the selected service item(s)?"))
+			if (!_engine.ShowConfirmDialog($"Are you sure to you want to delete the selected service item(s)?{Environment.NewLine}Note: this will try to remove the linked item(s) (Jobs, Bookings, ...)"))
 			{
 				return;
 			}

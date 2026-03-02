@@ -276,7 +276,7 @@
 				return false; // If job doesn't exist, then it can't be active.
 			}
 
-			if (job.End < DateTime.UtcNow || job.Start > DateTime.UtcNow)
+			if (job.Start < DateTime.UtcNow || job.End > DateTime.UtcNow)
 			{
 				var cancelJobInputData = new ExecuteJobAction
 				{
