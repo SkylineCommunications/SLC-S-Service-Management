@@ -1,6 +1,3 @@
-//---------------------------------
-// SLC_SM_DS_GetServiceDetails.cs
-//---------------------------------
 /*
 ****************************************************************************
 *  Copyright (c) 2025,  Skyline Communications NV  All Rights Reserved.    *
@@ -76,7 +73,6 @@ namespace SLCSMDSGetServiceDetails
 	{
 		private Arguments _arguments = new Arguments();
 		private GQIDMS _gqiDms;
-		private DomHelper _domHelper;
 		private IDms _dms;
 		private IDma _agent;
 
@@ -84,9 +80,7 @@ namespace SLCSMDSGetServiceDetails
 		{
 			// Initialize the data source
 			// See: https://aka.dataminer.services/igqioninit-oninit
-
 			_gqiDms = args.DMS;
-			_domHelper = new DomHelper(_gqiDms.SendMessages, SlcServicemanagementIds.ModuleId);
 			_dms = _gqiDms.GetConnection().GetDms();
 			_agent = _dms.GetAgents().SingleOrDefault();
 			if (_agent == null)
@@ -151,7 +145,7 @@ namespace SLCSMDSGetServiceDetails
 				new GQICell { Value = service.GenerateMonitoringService ?? false },
 				new GQICell { Value = service.StartTime?.ToUniversalTime() },
 				new GQICell { Value = service.EndTime?.ToUniversalTime() },
-				new GQICell { Value = service.Category.Name },
+				new GQICell { Value = service?.Category?.Name ?? string.Empty },
 				new GQICell { Value = GetServiceSpecification(service.ServiceSpecificationId) },
 				new GQICell { Value = (int) TryGetAlarmLevel(service) },
 			});
