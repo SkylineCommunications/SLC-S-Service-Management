@@ -178,7 +178,7 @@ namespace SLCSMDSGetNodeEdgeServices
 				new[]
 				{
 					new GQICell { Value = service.ID.Id.ToString() },
-					new GQICell { Value = service.Name },
+					new GQICell { Value = service.ServiceInfo.ServiceName },
 					new GQICell { Value = service.ID.Id == _arguments.DomId },
 					new GQICell { Value = isSelected ? _serviceType : oppositeServiceType },
 				});
