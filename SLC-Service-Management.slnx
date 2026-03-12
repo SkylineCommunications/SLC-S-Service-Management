@@ -1,0 +1,71 @@
+<Solution>
+  <Folder Name="/AS/">
+    <Project Path="ServiceOrderItem_StateTranstitions/ServiceOrderItem_StateTranstitions.csproj" />
+    <Project Path="ServiceOrder_StateTranstitions/ServiceOrder_StateTranstitions.csproj" />
+    <Project Path="Service_StateTransitions/Service_StateTransitions.csproj" />
+    <Project Path="SLC_SM_AS_AddRelationship/SLC_SM_AS_AddRelationship.csproj" />
+    <Project Path="SLC_SM_AS_AddServiceItem/SLC_SM_AS_AddServiceItem.csproj" />
+    <Project Path="SLC_SM_AS_DeleteServiceCategory/SLC_SM_AS_DeleteServiceCategory.csproj" />
+    <Project Path="SLC_SM_AS_DynamicDelete/SLC_SM_AS_DynamicDelete.csproj" />
+    <Project Path="SLC_SM_AS_Service Item ContextMenu Actions/SLC_SM_AS_Service Item ContextMenu Actions.csproj" />
+    <Project Path="SLC_SM_AS_SetIcon/SLC_SM_AS_SetIcon.csproj" />
+    <Project Path="SLC_SM_Create Job For Service Item/SLC_SM_Create Job For Service Item.csproj" />
+    <Project Path="SLC_SM_Create Service Inventory Item/SLC_SM_Create Service Inventory Item.csproj" />
+    <Project Path="SLC_SM_Delete Service Item/SLC_SM_Delete Service Item.csproj" />
+    <Project Path="SLC_SM_Delete Service Order Item/SLC_SM_Delete Service Order Item.csproj" />
+    <Project Path="SLC_SM_Delete Service Order/SLC_SM_Delete Service Order.csproj" />
+    <Project Path="SLC_SM_Delete Service Specification/SLC_SM_Delete Service Specification.csproj" />
+    <Project Path="SLC_SM_Delete_Service/SLC_SM_Delete_Service.csproj" />
+    <Project Path="SLC_SM_Demo/SLC_SM_Demo.csproj" />
+    <Project Path="SLC_SM_Take_Ownership/SLC_SM_Take_Ownership.csproj" />
+  </Folder>
+  <Folder Name="/Common/">
+    <Project Path="SLC_SM_Common/SLC_SM_Common.csproj" />
+  </Folder>
+  <Folder Name="/DS/">
+    <Project Path="Get Service Item Relationship Multisection/Get Service Item Relationship Multisection.csproj" />
+    <Project Path="Get Service Items Multisection/SLC_SM_GQIDS_Get Service Items.csproj" />
+    <Project Path="SLC-SM-DS-Get Service Buttons/SLC-SM-DS-Get Service Buttons.csproj" />
+    <Project Path="SLC-SM-DS-Get Service Order Buttons/SLC-SM-DS-Get Service Order Buttons.csproj" />
+    <Project Path="SLC-SM-DS-Get Service Order Item Buttons/SLC-SM-DS-Get Service Order Item Buttons.csproj" />
+    <Project Path="SLC_SM_DS_GetNodeEdgeServices/SLC_SM_DS_GetNodeEdgeServices.csproj" />
+    <Project Path="SLC_SM_DS_GetServiceByServiceType/SLC_SM_DS_GetServiceByServiceType.csproj" />
+    <Project Path="SLC_SM_DS_GetServiceDetails/SLC_SM_DS_GetServiceDetails.csproj" />
+    <Project Path="SLC_SM_DS_GetServicesByCharacteristic/SLC_SM_DS_GetServicesByCharacteristic.csproj" />
+    <Project Path="SLC_SM_DS_GetTopologyNodes/SLC_SM_DS_GetTopologyNodes.csproj" />
+    <Project Path="SLC_SM_DS_GetWorkflows/SLC_SM_DS_GetWorkflows.csproj" />
+    <Project Path="SLC_SM_DS_TopologySelectedItems/SLC_SM_DS_TopologySelectedItems.csproj" />
+    <Project Path="SLC_SM_GQIDS_Get Service Item Infos/SLC_SM_GQIDS_Get Service Item Infos.csproj" />
+    <Project Path="SLC_SM_GQIDS_Get Service Order Items/SLC_SM_GQIDS_Get Service Order Items.csproj" />
+    <Project Path="SLC_SM_GQIDS_Get Service Orders/SLC_SM_GQIDS_Get Service Orders.csproj" />
+  </Folder>
+  <Folder Name="/IAS/">
+    <Project Path="Launch Interactive Subscript/Launch Interactive Subscript.csproj" />
+    <Project Path="SLC_SM_IAS_Add Service Item/SLC_SM_IAS_Add Service Item.csproj" />
+    <Project Path="SLC_SM_IAS_Add Service Order Item/SLC_SM_IAS_Add Service Order Item.csproj" />
+    <Project Path="SLC_SM_IAS_Add Service Order/SLC_SM_IAS_Add Service Order.csproj" />
+    <Project Path="SLC_SM_IAS_Add Service Specification/SLC_SM_IAS_Add Service Specification.csproj" />
+    <Project Path="SLC_SM_IAS_Configurations/SLC_SM_IAS_Configurations.csproj" />
+    <Project Path="SLC_SM_IAS_ManageRelationships/SLC_SM_IAS_ManageRelationships.csproj" />
+    <Project Path="SLC_SM_IAS_Profiles/SLC_SM_IAS_Profiles.csproj" />
+    <Project Path="SLC_SM_IAS_Service_Configuration/SLC_SM_IAS_Service_Configuration.csproj" />
+    <Project Path="SLC_SM_IAS_Service_Order_Configuration/SLC_SM_IAS_Service_Order_Configuration.csproj" />
+    <Project Path="SLC_SM_IAS_Service_Spec_Configuration/SLC_SM_IAS_Service_Spec_Configuration.csproj" />
+  </Folder>
+  <Folder Name="/Internal/" />
+  <Folder Name="/Internal/Code Analysis/">
+    <File Path="Internal/Code Analysis/qaction-debug.ruleset" />
+    <File Path="Internal/Code Analysis/qaction-release.ruleset" />
+    <File Path="Internal/Code Analysis/stylecop.json" />
+  </Folder>
+  <Folder Name="/Operators/">
+    <Project Path="Service-Management-GQI-CustomOperator-HasValue/Service-Management-GQI-CustomOperator-HasValue.csproj" />
+    <Project Path="SLC_SM_CO_GetCharacteristics/SLC_SM_CO_GetCharacteristics.csproj" />
+    <Project Path="SLC_SM_CO_GetWorkflowIcon/SLC_SM_CO_GetWorkflowIcon.csproj" />
+  </Folder>
+  <Folder Name="/Tests/">
+    <Project Path="SLC_SM_CommonTests/SLC_SM_CommonTests.csproj" />
+    <Project Path="SLC_SM_IAS_Service_Spec_ConfigurationTests/SLC_SM_IAS_Service_Spec_ConfigurationTests.csproj" />
+  </Folder>
+  <Project Path="SLC-Service-Management/SLC-Service-Management.csproj" />
+</Solution>
