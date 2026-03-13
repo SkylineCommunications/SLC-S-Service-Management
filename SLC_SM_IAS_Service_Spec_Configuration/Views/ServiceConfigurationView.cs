@@ -38,7 +38,7 @@
 
 		public DropDown<Models.ProfileDefinition> AddProfile { get; } = new DropDown<Models.ProfileDefinition> { IsDisplayFilterShown = true};
 
-		public CollapseButton StandaloneParameters { get; } = new CollapseButton(true) { ExpandText = "+", CollapseText = "-", Tooltip = _standaloneParameterCollapseButtonTitle };
+		public CollapseButton StandaloneParameters { get; } = new CollapseButton(true) { ExpandText = Defaults.SymbolPlus, CollapseText = Defaults.SymbolMin, Tooltip = _standaloneParameterCollapseButtonTitle };
 
 		public Dictionary<string, CollapseButton> ProfileCollapseButtons { get; } = new Dictionary<string, CollapseButton>();
 	}

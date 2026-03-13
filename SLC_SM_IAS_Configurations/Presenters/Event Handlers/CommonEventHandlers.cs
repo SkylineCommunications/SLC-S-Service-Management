@@ -2,6 +2,7 @@
 {
 	using System.Collections.Generic;
 	using System.Linq;
+	using Newtonsoft.Json;
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
 
@@ -55,6 +56,9 @@
 				return;
 
 			if (record.RecordType == RecordType.Reference)
+				return;
+
+			if (previous == value)
 				return;
 
 			if (string.IsNullOrEmpty(value))

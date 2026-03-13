@@ -9,14 +9,12 @@
 	{
 		public ConfigurationDataRecord(Models.ConfigurationParameter configParam, State initialState, RecordType type)
 		{
-			State state = initialState;
 			switch (configParam.Type)
 			{
 				case SlcConfigurationsIds.Enums.Type.Number:
 					if (configParam.NumberOptions == null)
 					{
 						configParam.NumberOptions = new Models.NumberParameterOptions();
-						state = State.Updated;
 					}
 
 					break;
@@ -25,7 +23,6 @@
 					if (configParam.DiscreteOptions == null)
 					{
 						configParam.DiscreteOptions = new Models.DiscreteParameterOptions();
-						state = State.Updated;
 					}
 
 					break;
@@ -34,17 +31,15 @@
 					if (configParam.TextOptions == null)
 					{
 						configParam.TextOptions = new Models.TextParameterOptions();
-						state = State.Updated;
 					}
 
 					break;
 
 				default:
-
 					break;
 			}
 
-			State = state;
+			State = initialState;
 			RecordType = type;
 			ConfigurationParameter = configParam;
 		}

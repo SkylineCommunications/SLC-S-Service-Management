@@ -53,6 +53,9 @@
 			if (record.State == State.Removed)
 				return;
 
+			if (previous == value)
+				return;
+
 			if (string.IsNullOrEmpty(value))
 			{
 				label.ValidationState = UIValidationState.Invalid;

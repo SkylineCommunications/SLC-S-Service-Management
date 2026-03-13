@@ -3,6 +3,7 @@
 	using System;
 	using System.Collections.Generic;
 	using System.Linq;
+	using Newtonsoft.Json;
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
@@ -148,7 +149,6 @@
 					.Concat(profileDefinitions
 						.OrderBy(pd => pd.Name, StringComparer.OrdinalIgnoreCase)
 						.Select(pd => DataRecordFactory.CreateDataRecord(pd, State.Equal, RecordType.Reference)))
-					.Cast<DataRecord>()
 					.ToList();
 
 			return records;

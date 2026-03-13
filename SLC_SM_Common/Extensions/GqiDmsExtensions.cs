@@ -3,6 +3,7 @@
 	using System;
 	using System.Diagnostics;
 	using Skyline.DataMiner.Analytics.GenericInterface;
+	using Skyline.DataMiner.Net;
 	using Skyline.DataMiner.Net.Messages;
 
 	public static class GqiDmsExtensions
@@ -10,6 +11,11 @@
 		public static void GenerateInformationMessage(this GQIDMS dms, string text)
 		{
 			dms.SendMessage(new GenerateAlarmMessage(GenerateAlarmMessage.AlarmSeverity.Information, text) { Status = GenerateAlarmMessage.AlarmStatus.Cleared });
+		}
+
+		public static void GenerateInformationMessage(this IConnection connection, string text)
+		{
+			connection.HandleMessage(new GenerateAlarmMessage(GenerateAlarmMessage.AlarmSeverity.Information, text) { Status = GenerateAlarmMessage.AlarmStatus.Cleared });
 		}
 
 		public static T PerformanceLogger<T>(this IGQILogger logger, string methodName, Func<T> func)
