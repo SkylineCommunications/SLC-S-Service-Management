@@ -2,6 +2,7 @@
 {
 	using System;
 	using System.Linq;
+	using Library;
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
@@ -76,7 +77,7 @@
 			int d = 0;
 			foreach (Models.DiscreteValue discrete in options.DiscreteValues.OrderBy(x => x.Value))
 			{
-				var btnRemove = new Button("🗙") { Width = 60 };
+				var btnRemove = new Button(Defaults.SymbolCross) { Width = 60 };
 				btnRemove.Pressed += (s, e) =>
 				{
 					options.DiscreteValues.Remove(discrete);

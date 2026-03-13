@@ -30,9 +30,9 @@
 
 		public Button BtnCopyConfiguration { get; } = new Button("Copy") { IsVisible = true, MaxWidth = 100 };
 
-		public CollapseButton StandaloneParameters { get; } = new CollapseButton(true) { ExpandText = "+", CollapseText = "-", Tooltip = _standaloneParameterCollapseButtonTitle };
+		public CollapseButton StandaloneParameters { get; } = new CollapseButton(true) { ExpandText = Defaults.SymbolPlus, CollapseText = Defaults.SymbolMin, Tooltip = _standaloneParameterCollapseButtonTitle };
 
-		public CollapseButton GeneralSettings { get; } = new CollapseButton(true) { ExpandText = "+", CollapseText = "-", Tooltip = _generalSettingsCollapseButtonTitle };
+		public CollapseButton GeneralSettings { get; } = new CollapseButton(true) { ExpandText = Defaults.SymbolPlus, CollapseText = Defaults.SymbolMin, Tooltip = _generalSettingsCollapseButtonTitle };
 
 		public Dictionary<string, CollapseButton> ProfileCollapseButtons { get; } = new Dictionary<string, CollapseButton>();
 

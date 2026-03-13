@@ -5,6 +5,7 @@
 	using System.Linq;
 	using System.Text.RegularExpressions;
 	using DomHelpers.SlcConfigurations;
+	using Library;
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
@@ -237,7 +238,7 @@
 			var decimals = new Numeric { StepSize = 1, Minimum = 0, Maximum = 6, IsEnabled = false, MaxWidth = 80 };
 			var values = new Button("...") { IsEnabled = false };
 			var mandatoryAtService = new CheckBox { IsChecked = record.ServiceConfig.Mandatory, IsEnabled = false };
-			var delete = new Button("🚫") { IsEnabled = !record.ServiceConfig.Mandatory };
+			var delete = new Button(Defaults.SymbolCross) { IsEnabled = !record.ServiceConfig.Mandatory };
 
 			label.Changed += (sender, args) => record.ConfigurationParamValue.Label = args.Value;
 			delete.Pressed += (sender, args) =>

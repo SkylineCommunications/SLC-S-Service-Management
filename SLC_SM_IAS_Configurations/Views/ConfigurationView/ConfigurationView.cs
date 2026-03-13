@@ -190,7 +190,7 @@
 
 		protected int AddConfigurationParameterButton(int row)
 		{
-			var btnAddConfiguration = new Button("➕ Parameter");
+			var btnAddConfiguration = new Button($"{Defaults.SymbolPlus} Parameter");
 			btnAddConfiguration.Pressed += (sender, args) => Callbacks.Common.Handle_Add_Configuration_Pressed();
 			AddWidget(btnAddConfiguration, row, 0);
 			return row;

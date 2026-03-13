@@ -6,7 +6,7 @@
 	using System.Text.RegularExpressions;
 
 	using DomHelpers.SlcConfigurations;
-
+	using Library;
 	using Newtonsoft.Json;
 
 	using Skyline.DataMiner.Automation;
@@ -443,8 +443,8 @@
 				{
 					collapseButton = new CollapseButton(true)
 					{
-						ExpandText = "+",
-						CollapseText = "-",
+						ExpandText = Defaults.SymbolPlus,
+						CollapseText = Defaults.SymbolMin,
 						MaxWidth = collapseButtonWidth,
 					};
 				}
@@ -466,7 +466,7 @@
 				};
 				view.AddWidget(profileLabel, ++row, 1);
 				view.AddWidget(collapseButton, row, 0, HorizontalAlignment.Center);
-				var delete = new Button("🚫") { MaxWidth = deleteProfileButtonWidth };
+				var delete = new Button(Defaults.SymbolCross) { MaxWidth = deleteProfileButtonWidth };
 				view.AddWidget(delete, row, 2);
 				delete.Pressed += DeleteProfile(profile);
 
@@ -600,7 +600,7 @@
 			var step = new Numeric { IsEnabled = false, Minimum = 0, Maximum = 1, MaxWidth = 100, IsVisible = !collapseButton.IsCollapsed };
 			var decimals = new Numeric { StepSize = 1, Minimum = 0, Maximum = 6, IsEnabled = false, MaxWidth = 80, IsVisible = !collapseButton.IsCollapsed };
 			var values = new Button("...") { IsEnabled = false, IsVisible = !collapseButton.IsCollapsed };
-			var delete = new Button("🚫") { IsVisible = !collapseButton.IsCollapsed, IsEnabled = !mandatory };
+			var delete = new Button(Defaults.SymbolCross) { IsVisible = !collapseButton.IsCollapsed, IsEnabled = !mandatory };
 
 			if (record is StandaloneParameterDataRecord standalone)
 			{

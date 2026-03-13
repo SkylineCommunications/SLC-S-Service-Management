@@ -43,7 +43,7 @@
 			}
 
 			Value = value;
-			value.Changed += (sender, args) => Data.Callbacks.ConfigurationParameter.Handle_Discrete_Value_Change(Data.Record, value.Selected);
+			value.Changed += (sender, args) => Data.Callbacks.ConfigurationParameter.Handle_Discrete_Value_Change(Data.Record, args.Selected);
 		}
 
 		private void ConfigureButtonValues()

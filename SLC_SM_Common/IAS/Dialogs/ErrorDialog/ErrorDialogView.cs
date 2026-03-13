@@ -1,6 +1,7 @@
 ﻿namespace Skyline.DataMiner.Utils.ServiceManagement.Common.IAS.Dialogs
 {
 	using System;
+	using Library;
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
@@ -20,7 +21,7 @@
 
 		internal TextBox DetailsBox { get; } = new TextBox { MinWidth = 800, IsMultiline = true, Height = 300 };
 
-		internal CollapseButton DetailsButton { get; } = new CollapseButton { Height = ButtonHeight, Width = DetailsButtonWidth, CollapseText = "➖", ExpandText = "➕" };
+		internal CollapseButton DetailsButton { get; } = new CollapseButton { Height = ButtonHeight, Width = DetailsButtonWidth, CollapseText = Defaults.SymbolMin, ExpandText = Defaults.SymbolPlus };
 
 		internal Label MessageLabel { get; } = new Label { MaxWidth = 850 };
 

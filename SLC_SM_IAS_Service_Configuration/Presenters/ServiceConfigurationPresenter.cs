@@ -6,7 +6,7 @@
 	using System.Text.RegularExpressions;
 
 	using DomHelpers.SlcConfigurations;
-
+	using Library;
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API;
@@ -530,8 +530,8 @@
 			{
 				collapseButton = new CollapseButton(true)
 				{
-					ExpandText = "+",
-					CollapseText = "-",
+					ExpandText = Defaults.SymbolPlus,
+					CollapseText = Defaults.SymbolMin,
 					Tooltip = profile.Profile.Name,
 					MaxWidth = collapeButtonWidth,
 				};
@@ -569,7 +569,7 @@
 			}
 
 			view.AddWidget(collapseButton, row, 0, HorizontalAlignment.Center);
-			var delete = new Button("🚫") { IsEnabled = !profile.ServiceProfileConfig.Mandatory, MaxWidth = deleteProfileButtonWidth };
+			var delete = new Button(Defaults.SymbolCross) { IsEnabled = !profile.ServiceProfileConfig.Mandatory, MaxWidth = deleteProfileButtonWidth };
 			view.AddWidget(delete, row, 2);
 			delete.Pressed += DeleteProfile(profile);
 
@@ -720,7 +720,7 @@
 			var step = new Numeric { IsEnabled = false, Minimum = 0, Maximum = 1, MaxWidth = 100, IsVisible = !collapseButtom.IsCollapsed };
 			var decimals = new Numeric { StepSize = 1, Minimum = 0, Maximum = 6, IsEnabled = false, MaxWidth = 80, IsVisible = !collapseButtom.IsCollapsed };
 			var values = new Button("...") { IsEnabled = false, IsVisible = !collapseButtom.IsCollapsed };
-			var delete = new Button("🚫") { IsEnabled = !mandatory, IsVisible = !collapseButtom.IsCollapsed };
+			var delete = new Button(Defaults.SymbolCross) { IsEnabled = !mandatory, IsVisible = !collapseButtom.IsCollapsed };
 			bool isValueFixed = record.ConfigurationParamValue.ValueFixed;
 
 			label.Changed += (sender, args) =>

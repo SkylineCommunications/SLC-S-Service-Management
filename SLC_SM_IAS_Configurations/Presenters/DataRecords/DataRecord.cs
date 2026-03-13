@@ -36,7 +36,7 @@
 
 	public abstract class DataRecord
 	{
-		public State State { get; set; }
+		public State State { get; set; } = State.Equal;
 
 		public RecordType RecordType { get; set; }
 
