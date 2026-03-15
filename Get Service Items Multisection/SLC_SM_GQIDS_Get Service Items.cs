@@ -4,6 +4,7 @@ namespace SLC_SM_GQIDS_Get_Service_Items
 	using System;
 	using System.Collections.Generic;
 	using System.Linq;
+	using System.Security.Policy;
 	using DomHelpers.SlcServicemanagement;
 	using DomHelpers.SlcWorkflow;
 	using Skyline.DataMiner.Analytics.GenericInterface;
@@ -219,7 +220,9 @@ namespace SLC_SM_GQIDS_Get_Service_Items
 			if (!String.IsNullOrEmpty(definitionReference))
 			{
 				var liteElementInfoEvent = _dms.SendMessage(new GetElementByNameMessage(definitionReference)) as ElementInfoEventMessage;
-				customReference = liteElementInfoEvent?.GetPropertyValue("App Link");
+				string appLink = liteElementInfoEvent?.GetPropertyValue("App Link");
+				customReference = !String.IsNullOrWhiteSpace(appLink) ? appLink : null;
+
 				logLocation = liteElementInfoEvent?.GetPropertyValue("Booking Log Location");
 				if (!String.IsNullOrEmpty(logLocation))
 				{

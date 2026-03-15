@@ -656,7 +656,7 @@
 
 			int originalSectionRow = row;
 			int sectionRow = 0;
-			foreach (var standaloneParameter in configuration.ServiceParameterConfigs.Where(x => x.State != State.Delete))
+			foreach (var standaloneParameter in configuration.ServiceParameterConfigs.Where(x => x.State != State.Delete).OrderBy(x => x.ConfigurationParam?.Name))
 			{
 				BuildParameterUIRow(view.StandaloneParameters, standaloneParameter, ++row, ++sectionRow, DeleteStandaloneParameter(standaloneParameter), standaloneParameter.ServiceParameterConfig.Mandatory);
 			}

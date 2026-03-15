@@ -7,7 +7,6 @@
 
 	using DomHelpers.SlcConfigurations;
 	using Library;
-	using Newtonsoft.Json;
 
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API;
@@ -388,7 +387,7 @@
 
 			int originalSectionRow = row;
 			int sectionRow = 0;
-			foreach (var standaloneParameter in standaloneConfigurations.Where(x => x.State != State.Delete))
+			foreach (var standaloneParameter in standaloneConfigurations.Where(x => x.State != State.Delete).OrderBy(x => x.ConfigurationParam?.Name))
 			{
 				BuildParameterUIRow(view.StandaloneParameters, standaloneParameter, ++row, ++sectionRow, DeleteStandaloneParameter(standaloneParameter));
 			}
