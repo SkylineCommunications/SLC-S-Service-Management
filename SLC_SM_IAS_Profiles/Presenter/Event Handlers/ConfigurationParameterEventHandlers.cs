@@ -92,6 +92,9 @@
 			if (record.State == State.Removed)
 				return;
 
+			if (record.ConfigurationParameterValue.TextOptions.Default == strValue)
+				return;
+
 			if (!textValidator(record, value, strValue))
 			{
 				return;
@@ -106,6 +109,9 @@
 			if (record.State == State.Removed)
 				return;
 
+			if (record.ConfigurationParameterValue.DiscreteOptions.Default == value)
+				return;
+
 			record.ConfigurationParameterValue.DiscreteOptions.Default = value;
 			record.State = State.Updated;
 		}
@@ -113,6 +119,9 @@
 		public void Handle_Number_Value_Changed(ConfigurationDataRecord record, double value)
 		{
 			if (record.State == State.Removed)
+				return;
+
+			if (record.ConfigurationParameterValue.NumberOptions.DefaultValue.Equals(value))
 				return;
 
 			record.ConfigurationParameterValue.NumberOptions.DefaultValue = value;
@@ -124,13 +133,26 @@
 			if (record.State == State.Removed)
 				return;
 
+			if (record.ConfigurationParameterValue.NumberOptions.DefaultUnit == unit)
+				return;
+
 			record.ConfigurationParameterValue.NumberOptions.DefaultUnit = unit;
+			record.ConfigurationParameterValue.NumberOptions.Units = new System.Collections.Generic.List<Models.ConfigurationUnit>();
+
+			if (unit != null)
+			{
+				record.ConfigurationParameterValue.NumberOptions.Units.Add(unit);
+			}
+
 			record.State = State.Updated;
 		}
 
 		public void Handle_Number_Step_Changed(ConfigurationDataRecord record, Numeric value, double step)
 		{
 			if (record.State == State.Removed)
+				return;
+
+			if (value.StepSize.Equals(step))
 				return;
 
 			value.StepSize = step;
@@ -143,19 +165,26 @@
 			if (record.State == State.Removed)
 				return;
 
-			value.Decimals = Convert.ToInt32(stepSize);
-			step.Decimals = Convert.ToInt32(stepSize);
+			int newValue = Convert.ToInt32(stepSize);
+			if (value.Decimals.Equals(newValue))
+				return;
+
+			value.Decimals = newValue;
+			step.Decimals = newValue;
 			double newStepsize = 1 / Math.Pow(10, stepSize);
 			value.StepSize = newStepsize;
 			step.StepSize = newStepsize;
 
-			record.ConfigurationParameterValue.NumberOptions.Decimals = Convert.ToInt32(stepSize);
+			record.ConfigurationParameterValue.NumberOptions.Decimals = newValue;
 			record.State = State.Updated;
 		}
 
 		public void Handle_Number_End_Changed(ConfigurationDataRecord record, Numeric step, Numeric value, double end)
 		{
 			if (record.State == State.Removed)
+				return;
+
+			if (value.Maximum.Equals(end))
 				return;
 
 			value.Maximum = end;
@@ -167,6 +196,9 @@
 		public void Handle_Number_Start_Changed(ConfigurationDataRecord record, Numeric step, Numeric value, double start)
 		{
 			if (record.State == State.Removed)
+				return;
+
+			if (value.Minimum.Equals(start))
 				return;
 
 			value.Minimum = start;

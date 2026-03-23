@@ -1,46 +1,8 @@
 /*
 ****************************************************************************
-*  Copyright (c) 2025,  Skyline Communications NV  All Rights Reserved.    *
+*  Copyright (c),  Skyline Communications NV  All Rights Reserved.    *
 ****************************************************************************
 
-By using this script, you expressly agree with the usage terms and
-conditions set out below.
-This script and all related materials are protected by copyrights and
-other intellectual property rights that exclusively belong
-to Skyline Communications.
-
-A user license granted for this script is strictly for personal use only.
-This script may not be used in any way by anyone without the prior
-written consent of Skyline Communications. Any sublicensing of this
-script is forbidden.
-
-Any modifications to this script by the user are only allowed for
-personal use and within the intended purpose of the script,
-and will remain the sole responsibility of the user.
-Skyline Communications will not be responsible for any damages or
-malfunctions whatsoever of the script resulting from a modification
-or adaptation by the user.
-
-The content of this script is confidential information.
-The user hereby agrees to keep this confidential information strictly
-secret and confidential and not to disclose or reveal it, in whole
-or in part, directly or indirectly to any person, entity, organization
-or administration without the prior written consent of
-Skyline Communications.
-
-Any inquiries can be addressed to:
-
-    Skyline Communications NV
-    Ambachtenstraat 33
-    B-8870 Izegem
-    Belgium
-    Tel.    : +32 51 31 35 69
-    Fax.    : +32 51 31 01 29
-    E-mail    : info@skyline.be
-    Web        : www.skyline.be
-    Contact    : Ben Vandenberghe
-
-****************************************************************************
 Revision History:
 
 DATE        VERSION        AUTHOR            COMMENTS
@@ -56,6 +18,7 @@ namespace SLC_SM_Create_Service_Inventory_Item
 	using System.Linq;
 	using System.Threading;
 	using DomHelpers.SlcServicemanagement;
+	using Library;
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Core.DataMinerSystem.Automation;
 	using Skyline.DataMiner.Core.DataMinerSystem.Common;
@@ -78,14 +41,6 @@ namespace SLC_SM_Create_Service_Inventory_Item
 	{
 		private InteractiveController _controller;
 		private IEngine _engine;
-
-		public enum Action
-		{
-			Add,
-			AddItem,
-			AddItemSilent,
-			Edit,
-		}
 
 		/// <summary>
 		///     The script entry point.
@@ -495,13 +450,16 @@ namespace SLC_SM_Create_Service_Inventory_Item
 		private void RunSafe()
 		{
 			string actionRaw = _engine.ReadScriptParamFromApp("Action");
-			if (!Enum.TryParse(actionRaw, true, out Action action))
+			if (!Enum.TryParse(actionRaw, true, out Defaults.ScriptAction_CreateServiceInventoryItem action))
 			{
-				action = Action.AddItem;
+				action = Defaults.ScriptAction_CreateServiceInventoryItem.AddItem;
 			}
 
 			string domIdRaw = _engine.ReadScriptParamFromApp("DOM ID");
-			Guid.TryParse(domIdRaw, out Guid domId);
+			if (!Guid.TryParse(domIdRaw, out Guid domId) && action != Defaults.ScriptAction_CreateServiceInventoryItem.Add)
+			{
+				throw new InvalidOperationException($"Please select an entry in the Service Order Items table first.{Environment.NewLine}Details: the app passed the following, unexpected UUID to the action: {domIdRaw}.");
+			}
 
 			var repo = new DataHelpersServiceManagement(_engine.GetUserConnection());
 
@@ -509,7 +467,7 @@ namespace SLC_SM_Create_Service_Inventory_Item
 			var view = new ServiceView(_engine, action);
 			var presenter = new ServicePresenter(_engine, repo, view);
 
-			if (action == Action.AddItem)
+			if (action == Defaults.ScriptAction_CreateServiceInventoryItem.AddItem)
 			{
 				var d = new MessageDialog(_engine, "Create Service Inventory Item from the selected service order item?") { Title = "Create Service Inventory Item From Order Item" };
 				d.OkButton.Pressed += (sender, args) =>
@@ -518,11 +476,11 @@ namespace SLC_SM_Create_Service_Inventory_Item
 				};
 				_controller.ShowDialog(d);
 			}
-			else if (action == Action.AddItemSilent)
+			else if (action == Defaults.ScriptAction_CreateServiceInventoryItem.AddItemSilent)
 			{
 				AddServiceItemForOrder(domId, repo);
 			}
-			else if (action == Action.Add)
+			else if (action == Defaults.ScriptAction_CreateServiceInventoryItem.Add)
 			{
 				presenter.LoadFromModel();
 				view.BtnAdd.Pressed += (sender, args) =>
@@ -561,7 +519,7 @@ namespace SLC_SM_Create_Service_Inventory_Item
 			var serviceOrderItem = repo.ServiceOrderItems.Read(ServiceOrderItemExposers.Guid.Equal(domId)).FirstOrDefault();
 			if (domId == Guid.Empty || serviceOrderItem == null)
 			{
-				throw new InvalidOperationException($"No Service Order Item with ID '{domId}' found on the system!");
+				throw new InvalidOperationException($"Please select an entry in the service order items table first.{Environment.NewLine}Details: No Service Order Item with ID '{domId}' found on the system!");
 			}
 
 			_engine.PerformanceLogger("Create New Service Inventory Item + Link to Order", () => CreateNewServiceAndLinkItToServiceOrder(repo, serviceOrderItem));

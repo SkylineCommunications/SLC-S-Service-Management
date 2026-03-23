@@ -1,6 +1,7 @@
 ﻿namespace SLC_SM_IAS_Profiles.Views
 {
 	using System.Linq;
+	using Library;
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
@@ -15,7 +16,7 @@
 
 			BuildButtonOpen();
 
-			Delete = new Button("❌") { Width = 100, IsEnabled = data.CanDelete };
+			Delete = new Button(Defaults.SymbolCross) { Width = 100, IsEnabled = data.CanDelete };
 		}
 
 		public new ProfileRowData Data => base.Data as ProfileRowData;

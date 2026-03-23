@@ -3,6 +3,7 @@
 	using System;
 	using System.Collections.Generic;
 	using System.Linq;
+	using Library;
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Net.Helper;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations;
@@ -89,7 +90,7 @@
 
 		private void AddProfileDefinitionButton(int row)
 		{
-			var btnAddProfileDefinition = new Button("➕ Profile Definition");
+			var btnAddProfileDefinition = new Button($"{Defaults.SymbolPlus} Profile Definition");
 			btnAddProfileDefinition.Pressed += (sender, args) => Callbacks.Common.Handle_Add_ProfileDefinition_Pressed();
 			AddWidget(btnAddProfileDefinition, row, 0);
 		}
@@ -100,7 +101,7 @@
 			IReadOnlyList<Models.ProfileDefinition> allProfileDefinitions,
 			int row)
 		{
-			IEnumerable<Models.ProfileDefinition> options = allProfileDefinitions;
+			var options = allProfileDefinitions.ToArray();
 			if (context.GetCurrentPage() is ProfilePage profilePage)
 			{
 				var parentProfileDefinition = profilePage.ProfileDefinitionRecord.ProfileDefinition;
@@ -116,7 +117,8 @@
 					.Except(new[] { parentProfileDefinition }, ProfileDefinitionIdComparer.Instance)
 					.Except(ancestors, ProfileDefinitionIdComparer.Instance)
 					.Except(siblings, ProfileDefinitionIdComparer.Instance)
-					.DistinctBy(p => p.ID);
+					.DistinctBy(p => p.ID)
+					.ToArray();
 			}
 
 			return new ProfileDefinitionRowData
