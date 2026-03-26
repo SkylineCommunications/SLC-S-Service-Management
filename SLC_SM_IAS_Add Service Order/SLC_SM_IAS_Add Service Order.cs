@@ -55,7 +55,9 @@ namespace SLC_SM_IAS_Add_Service_Order_1
 	using System.Linq;
 	using Library.Ownership;
 	using Skyline.DataMiner.Automation;
+	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.IAS;
@@ -132,7 +134,7 @@ namespace SLC_SM_IAS_Add_Service_Order_1
 			}
 
 			var dataHelperOrders = new DataHelperServiceOrder(_engine.GetUserConnection());
-			List<Models.ServiceOrder> serviceOrders = dataHelperOrders.Read();
+			List<Models.ServiceOrder> serviceOrders = dataHelperOrders.ReadBasicInformation();
 
 			var usedOrderItemLabels = serviceOrders.Select(o => o.Name).ToList();
 			var usedOrderIds = serviceOrders.Select(o => o.OrderId).ToList();
@@ -169,7 +171,8 @@ namespace SLC_SM_IAS_Add_Service_Order_1
 				Guid domId = _engine.ReadScriptParamFromApp<Guid>("DOM ID");
 				var ordersInstance = serviceOrders.Find(x => x.ID == domId)
 				                     ?? throw new InvalidOperationException($"No Service Order with ID '{domId}' found on the system!");
-				presenter.LoadFromModel(ordersInstance);
+				var ordersToEdit = dataHelperOrders.Read(ServiceOrderExposers.Guid.Equal(ordersInstance.ID)).FirstOrDefault();
+				presenter.LoadFromModel(ordersToEdit);
 			}
 
 			// Run interactive

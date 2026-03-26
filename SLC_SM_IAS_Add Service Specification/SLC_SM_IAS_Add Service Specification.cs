@@ -54,7 +54,9 @@ namespace SLC_SM_IAS_Add_Service_Specification
 	using System.Collections.Generic;
 	using System.Linq;
 	using Skyline.DataMiner.Automation;
+	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.IAS;
@@ -131,7 +133,7 @@ namespace SLC_SM_IAS_Add_Service_Specification
 			}
 
 			var dataHelperServiceSpec = new DataHelperServiceSpecification(_engine.GetUserConnection());
-			List<Models.ServiceSpecification> serviceSpecifications = dataHelperServiceSpec.Read();
+			List<Models.ServiceSpecification> serviceSpecifications = dataHelperServiceSpec.ReadBasicInformation();
 
 			var usedOrderItemLabels = serviceSpecifications.Select(x => x.Name).ToList();
 
@@ -159,7 +161,9 @@ namespace SLC_SM_IAS_Add_Service_Specification
 				Guid domId = _engine.ReadScriptParamFromApp<Guid>("DOM ID");
 				var specification = serviceSpecifications.Find(x => x.ID == domId)
 				                     ?? throw new InvalidOperationException($"No Service Specification with ID '{domId}' found on the system!");
-				presenter.LoadFromModel(specification);
+
+				var specificationToEdit = dataHelperServiceSpec.Read(ServiceSpecificationExposers.Guid.Equal(specification.ID)).FirstOrDefault();
+				presenter.LoadFromModel(specificationToEdit);
 			}
 
 			// Run interactive

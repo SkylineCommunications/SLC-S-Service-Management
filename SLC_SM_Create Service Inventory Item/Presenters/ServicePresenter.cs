@@ -27,7 +27,7 @@
 			_engine = engine;
 			this.repo = repo;
 			this.view = view;
-			List<Models.Service> services = repo.Services.Read();
+			List<Models.Service> services = repo.Services.ReadBasicInformation();
 			getServiceLabels = services.Select(x => x.Name).ToList();
 			string defaultServiceId = repo.Services.UniqueServiceId(services);
 			instanceToReturn = new Models.Service
