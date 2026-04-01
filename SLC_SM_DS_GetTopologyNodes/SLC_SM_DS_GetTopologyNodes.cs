@@ -162,14 +162,16 @@ namespace SLCSMDSGetTopologyNodes
 					.Select(item => DomInstanceExposers.Name.Equal(item.DefinitionReference))
 					.Aggregate<FilterElement<DomInstance>, FilterElement<DomInstance>>(null, (acc, next) => acc == null ? next : acc.OR(next));
 
-				var workflows = _logger.PerformanceLogger(
+				var workflows = _dms.DomModelExists(SlcWorkflowIds.ModuleId)
+					? _logger.PerformanceLogger(
 					"Get DOM Workflows",
 					() =>
 						workflowsFilter != null
 							? new DomHelper(_dms.SendMessages, SlcWorkflowIds.ModuleId)
 								.DomInstances
 								.Read(workflowsFilter)
-							: Enumerable.Empty<DomInstance>().ToList());
+							: Enumerable.Empty<DomInstance>().ToList())
+					: Enumerable.Empty<DomInstance>().ToList();
 
 				var messages = serviceItems
 					.Where(item => item.Type == SlcServicemanagementIds.Enums.ServiceitemtypesEnum.SRMBooking)

@@ -2,6 +2,8 @@ namespace SLC_SM_GQIDS_Get_Service_Item_Infos
 {
 	using System;
 	using System.Linq;
+	using DomHelpers.SlcPeople_Organizations;
+
 	using Skyline.DataMiner.Analytics.GenericInterface;
 	using Skyline.DataMiner.Net.Messages;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
@@ -115,7 +117,7 @@ namespace SLC_SM_GQIDS_Get_Service_Item_Infos
 			}
 
 			string org = String.Empty;
-			if (service.OrganizationId.HasValue)
+			if (service.OrganizationId.HasValue && _dms.DomModelExists(SlcPeople_OrganizationsIds.ModuleId))
 			{
 				org = new DataHelpersPeopleAndOrganizations(_dms.GetConnection()).Organizations.Read(OrganizationExposers.Guid.Equal(service.OrganizationId.Value)).FirstOrDefault()?.Name ?? String.Empty;
 			}

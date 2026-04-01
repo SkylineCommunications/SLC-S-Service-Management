@@ -128,7 +128,7 @@ namespace SLC_SM_GQIDS_Get_Service_Items
 
 		private ImplementationItemInfo GetImplementationRefName(string referenceId, string definitionReference)
 		{
-			if (String.IsNullOrEmpty(referenceId) || !Guid.TryParse(referenceId, out Guid id))
+			if (String.IsNullOrEmpty(referenceId) || !Guid.TryParse(referenceId, out Guid id) || !_dms.DomModelExists(SlcWorkflowIds.ModuleId))
 			{
 				return new ImplementationItemInfo();
 			}

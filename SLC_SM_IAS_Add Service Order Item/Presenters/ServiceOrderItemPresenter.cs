@@ -97,7 +97,7 @@
 			specs.Insert(0, new Option<Models.ServiceSpecification>("-None-", null));
 			view.Specification.SetOptions(specs);
 
-			var serviceOptions = repo.Services.Read().OrderBy(x => x.Name).Select(x => new Option<Models.Service>(x.Name, x)).ToList();
+			var serviceOptions = repo.Services.ReadBasicInformation().OrderBy(x => x.Name).Select(x => new Option<Models.Service>(x.Name, x)).ToList();
 			serviceOptions.Insert(0, new Option<Models.Service>("-None-", null));
 			view.Service.SetOptions(serviceOptions);
 

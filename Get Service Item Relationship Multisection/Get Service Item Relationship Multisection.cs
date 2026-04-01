@@ -239,12 +239,19 @@ namespace GetServiceItemRelationshipMultisection
 
 		private void Init()
 		{
-			_wfDomHelper = new DomHelper(_dms.SendMessages, SlcWorkflowIds.ModuleId);
+			if (_dms.DomModelExists(SlcWorkflowIds.ModuleId))
+			{
+				_wfDomHelper = new DomHelper(_dms.SendMessages, SlcWorkflowIds.ModuleId);
 
-			_workflows = _wfDomHelper.DomInstances
-				.Read(DomInstanceExposers.DomDefinitionId.Equal(SlcWorkflowIds.Definitions.Workflows.Id))
-				.Select(w => new WorkflowsInstance(w))
-				.ToArray();
+				_workflows = _wfDomHelper.DomInstances
+					.Read(DomInstanceExposers.DomDefinitionId.Equal(SlcWorkflowIds.Definitions.Workflows.Id))
+					.Select(w => new WorkflowsInstance(w))
+					.ToArray();
+			}
+			else
+			{
+				_workflows = Array.Empty<WorkflowsInstance>();
+			}
 
 			_serviceInstance = new DataHelperService(_dms.GetConnection()).Read(ServiceExposers.Guid.Equal(_specificationId)).FirstOrDefault();
 			if (_serviceInstance == null)

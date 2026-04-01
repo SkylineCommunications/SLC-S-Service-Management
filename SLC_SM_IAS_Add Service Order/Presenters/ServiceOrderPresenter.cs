@@ -11,6 +11,7 @@
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
+	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
 
 	using SLC_SM_IAS_Add_Service_Order_1.Views;
 
@@ -91,18 +92,25 @@
 						SlcServicemanagementIds.Enums.ServiceorderpriorityEnum.Low),
 				});
 
-			var orgDomHelper = new DomHelper(engine.SendSLNetMessages, SlcPeople_OrganizationsIds.ModuleId);
-			var orgInstances = orgDomHelper.DomInstances.Read(DomInstanceExposers.DomDefinitionId.Equal(SlcPeople_OrganizationsIds.Definitions.Organizations.Id))
-				.Select(x => new OrganizationsInstance(x))
-				.ToArray();
+			var orgOptions = new List<Option<OrganizationsInstance>> { new Option<OrganizationsInstance>("-None-", null) };
 
-			var orgOptions = orgInstances.Select(x => new Option<OrganizationsInstance>(x.Name, x)).ToList();
-			orgOptions.Insert(0, new Option<OrganizationsInstance>("-None-", null));
-			view.Org.SetOptions(orgOptions);
-
-			peopleInstances = orgDomHelper.DomInstances.Read(DomInstanceExposers.DomDefinitionId.Equal(SlcPeople_OrganizationsIds.Definitions.People.Id))
+			if (engine.DomModelExists(SlcPeople_OrganizationsIds.ModuleId, new[] { SlcPeople_OrganizationsIds.Sections.OrganizationInformation.Id.Id, SlcPeople_OrganizationsIds.Sections.Organization.Id.Id, SlcPeople_OrganizationsIds.Sections.PeopleInformation.Id.Id}))
+			{
+				var orgDomHelper = new DomHelper(engine.SendSLNetMessages, SlcPeople_OrganizationsIds.ModuleId);
+				var orgInstances = orgDomHelper.DomInstances.Read(DomInstanceExposers.DomDefinitionId.Equal(SlcPeople_OrganizationsIds.Definitions.Organizations.Id))
+					.Select(x => new OrganizationsInstance(x))
+					.ToArray();
+				orgOptions.AddRange(orgInstances.Select(x => new Option<OrganizationsInstance>(x.Name, x)));
+				peopleInstances = orgDomHelper.DomInstances.Read(DomInstanceExposers.DomDefinitionId.Equal(SlcPeople_OrganizationsIds.Definitions.People.Id))
 				.Select(x => new PeopleInstance(x))
 				.ToArray();
+			}
+			else
+			{
+				peopleInstances = new PeopleInstance[0];
+			}
+
+			view.Org.SetOptions(orgOptions);
 
 			UpdateContactOnSelectedOrganization(view.Org.Selected);
 		}

@@ -247,6 +247,11 @@ namespace SLCSMCreateJobForServiceItem
 			var serviceItemsSection = instance.ServiceItems.SingleOrDefault(s => s.Label == label)
 			                          ?? throw new InvalidOperationException($"Could not find the service item section with label '{label}'");
 
+			if (!engine.DomModelExists(SlcWorkflowIds.ModuleId, new[] {SlcWorkflowIds.Sections.WorkflowInfo.Id.Id}))
+			{
+				throw new InvalidOperationException("The Media Ops solution needs to be installed to use this feature. The '(slc)workflow' DOM model is required but not found on the system.");
+			}
+
 			var workflowHelper = new WorkflowHelper(engine);
 			var workflow = workflowHelper.GetAllWorkflows().FirstOrDefault(x => x.Name == serviceItemsSection.DefinitionReference)
 			               ?? throw new InvalidOperationException($"No Workflow found on the system with name '{serviceItemsSection.DefinitionReference}'");

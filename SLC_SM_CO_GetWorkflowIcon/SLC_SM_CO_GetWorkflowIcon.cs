@@ -96,9 +96,9 @@ namespace SLCSMCOGetWorkflowIcon
 			{
 				var workflowId = Guid.Parse(row.GetValue(_workflowIdColumnName).ToString());
 
-				var workflow = _wfDomHelper.DomInstances
-					.Read(DomInstanceExposers.Id.Equal(workflowId))
-					.FirstOrDefault();
+				var workflow = _wfDomHelper != null
+					? _wfDomHelper.DomInstances.Read(DomInstanceExposers.Id.Equal(workflowId)).FirstOrDefault()
+					: null;
 
 				var icon = workflow != null
 					? FetchWorkflowCategory(new WorkflowsInstance(workflow))
@@ -122,7 +122,9 @@ namespace SLCSMCOGetWorkflowIcon
 		public OnInitOutputArgs OnInit(OnInitInputArgs args)
 		{
 			_dms = args.DMS;
-			_wfDomHelper = new DomHelper(_dms.SendMessages, SlcWorkflowIds.ModuleId);
+			_wfDomHelper = _dms.DomModelExists(SlcWorkflowIds.ModuleId)
+				? new DomHelper(_dms.SendMessages, SlcWorkflowIds.ModuleId)
+				: null;
 
 			_propertyValues = PropertyExtensions.GetIcons(_dms.SendMessages);
 

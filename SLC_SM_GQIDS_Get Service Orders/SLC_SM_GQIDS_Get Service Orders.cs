@@ -3,6 +3,8 @@ namespace SLC_SM_GQIDS_Get_Service_Orders
 	using System;
 	using System.Collections.Generic;
 	using System.Linq;
+	using DomHelpers.SlcPeople_Organizations;
+
 	using Skyline.DataMiner.Analytics.GenericInterface;
 	using Skyline.DataMiner.Net;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.PeopleAndOrganization;
@@ -93,7 +95,9 @@ namespace SLC_SM_GQIDS_Get_Service_Orders
 		private GQIRow[] GetMultiSection()
 		{
 			IConnection connection = _dms.GetConnection();
-			var organizations = _logger.PerformanceLogger("Get Organizations", () => new DataHelperOrganization(connection).Read());
+			var organizations = _dms.DomModelExists(SlcPeople_OrganizationsIds.ModuleId)
+				? _logger.PerformanceLogger("Get Organizations", () => new DataHelperOrganization(connection).Read())
+				: new List<Skyline.DataMiner.ProjectApi.ServiceManagement.API.PeopleAndOrganization.Models.Organization>();
 
 			var instances = _logger.PerformanceLogger("Get Orders", () => new DataHelperServiceOrder(connection).Read());
 			return _logger.PerformanceLogger(

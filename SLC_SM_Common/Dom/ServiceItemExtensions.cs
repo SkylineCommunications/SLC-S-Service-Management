@@ -3,7 +3,11 @@
 	using System;
 	using System.Collections.Generic;
 	using System.Linq;
+
+	using DomHelpers.SlcRelationships;
 	using DomHelpers.SlcServicemanagement;
+	using DomHelpers.SlcWorkflow;
+
 	using Newtonsoft.Json;
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Net.Messages;
@@ -13,6 +17,8 @@
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM;
 	using Skyline.DataMiner.Utils.MediaOps.Common.IOData.Scheduling.Scripts.JobHandler;
 	using Skyline.DataMiner.Utils.MediaOps.Helpers.Scheduling;
+	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
+
 	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement.Models;
 
 	public static class ServiceItemExtensions
@@ -47,6 +53,8 @@
 
 		private static bool LinkedBookingStillActive(IEngine engine, Guid refId)
 		{
+			// TODO: verify if SRM still is installed
+
 			var rm = new ResourceManagerHelper(engine.SendSLNetSingleResponseMessage);
 			var reservation = rm.GetReservationInstance(refId);
 			if (reservation.StartTimeUTC > DateTime.UtcNow
@@ -68,6 +76,11 @@
 
 		private static bool LinksStillExist(IEngine engine, Guid refId)
 		{
+			if (!engine.DomModelExists(SlcRelationshipsIds.Definitions.Links.ModuleId, new[] {SlcRelationshipsIds.Sections.LinkInfo.Id.Id}))
+			{
+				return false;
+			}
+
 			var linkHelper = new DataHelperLink(engine.GetUserConnection());
 			Skyline.DataMiner.ProjectApi.ServiceManagement.API.Relationship.Models.Link link = linkHelper.Read(LinkExposers.Guid.Equal(refId)).FirstOrDefault();
 			if (link == null)
@@ -99,6 +112,11 @@
 
 		private static bool LinkedJobStillActive(IEngine engine, Guid refId)
 		{
+			if (!engine.DomModelExists(SlcWorkflowIds.ModuleId, new[] {SlcWorkflowIds.Sections.JobInfo.Id.Id}))
+			{
+				return false;
+			}
+
 			var schedulingHelper = new SchedulingHelper(engine);
 			var job = schedulingHelper.GetJob(refId);
 			if (job == null)

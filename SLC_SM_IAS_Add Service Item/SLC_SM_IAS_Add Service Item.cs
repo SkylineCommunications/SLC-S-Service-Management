@@ -53,6 +53,8 @@ namespace SLC_SM_IAS_Add_Service_Item
 	using System;
 	using System.Collections.Generic;
 	using System.Linq;
+
+	using DomHelpers.SlcRelationships;
 	using DomHelpers.SlcServicemanagement;
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
@@ -225,7 +227,8 @@ namespace SLC_SM_IAS_Add_Service_Item
 
 		private void AddServiceLink(Guid serviceInstanceId, string serviceInstanceName, Models.ServiceItem newSection)
 		{
-			if (newSection.Type != SlcServicemanagementIds.Enums.ServiceitemtypesEnum.Service)
+			if (newSection.Type != SlcServicemanagementIds.Enums.ServiceitemtypesEnum.Service
+				|| !_engine.DomModelExists(SlcRelationshipsIds.ModuleId, new[] { SlcRelationshipsIds.Sections.LinkInfo.Id.Id }))
 			{
 				return;
 			}

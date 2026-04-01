@@ -144,9 +144,18 @@ namespace SLCSMDSGetWorkflows
 		{
 			try
 			{
-				var workflowsResult = _logger.PerformanceLogger(
+				ICollection<WorkflowsInstance> workflowsResult;
+
+				if (_dms.DomModelExists(SlcWorkflowIds.ModuleId))
+				{
+					workflowsResult = _logger.PerformanceLogger(
 					"Get DOM Workflows",
 					() => WorkflowExtensions.GetWorkflows(_dms.SendMessages));
+				}
+				else
+				{
+					workflowsResult = new List<WorkflowsInstance>();
+				}
 
 				var workflowPropertyValues = _logger.PerformanceLogger(
 					"Get DOM Workflow Properties",

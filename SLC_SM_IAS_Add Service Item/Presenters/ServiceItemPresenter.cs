@@ -39,20 +39,31 @@
 			this.getServiceItemLabels = getServiceItemLabels;
 			this._scriptModel = scriptModel;
 
+			bool workflowTypeAvailable = engine.DomModelExists(SlcWorkflowIds.ModuleId,new[] {SlcWorkflowIds.Sections.WorkflowInfo.Id.Id});
+			bool srmBookingTypeAvailable = engine.IsSrmInstalled();
+
 			// Load correct types
 			view.ServiceItemType.SetOptions(
 				new List<Option<SlcServicemanagementIds.Enums.ServiceitemtypesEnum>>
 				{
 					new Option<SlcServicemanagementIds.Enums.ServiceitemtypesEnum>(
-						SlcServicemanagementIds.Enums.Serviceitemtypes.Workflow,
-						SlcServicemanagementIds.Enums.ServiceitemtypesEnum.Workflow),
-					new Option<SlcServicemanagementIds.Enums.ServiceitemtypesEnum>(
 						SlcServicemanagementIds.Enums.Serviceitemtypes.Service,
 						SlcServicemanagementIds.Enums.ServiceitemtypesEnum.Service),
-					new Option<SlcServicemanagementIds.Enums.ServiceitemtypesEnum>(
-						SlcServicemanagementIds.Enums.Serviceitemtypes.SRMBooking,
-						SlcServicemanagementIds.Enums.ServiceitemtypesEnum.SRMBooking),
 				});
+
+			if (workflowTypeAvailable)
+			{
+				view.ServiceItemType.AddOption(new Option<SlcServicemanagementIds.Enums.ServiceitemtypesEnum>(
+						SlcServicemanagementIds.Enums.Serviceitemtypes.Workflow,
+						SlcServicemanagementIds.Enums.ServiceitemtypesEnum.Workflow));
+			}
+
+			if (srmBookingTypeAvailable)
+			{
+				view.ServiceItemType.AddOption(new Option<SlcServicemanagementIds.Enums.ServiceitemtypesEnum>(
+						SlcServicemanagementIds.Enums.Serviceitemtypes.SRMBooking,
+						SlcServicemanagementIds.Enums.ServiceitemtypesEnum.SRMBooking));
+			}
 
 			view.TboxLabel.Changed += (sender, args) => ValidateLabel(args.Value);
 			view.ServiceItemType.Changed += (sender, args) => OnUpdateServiceItemType(args.Selected);
@@ -326,7 +337,7 @@
 			{
 				if (specifications.Count < 1)
 				{
-					specifications.AddRange(new DataHelperServiceSpecification(engine.GetUserConnection()).Read());
+					specifications.AddRange(new DataHelperServiceSpecification(engine.GetUserConnection()).ReadBasicInformation());
 				}
 
 				List<string> specOptions = specifications.Select(x => x.Name).OrderBy(x => x).ToList();
@@ -360,11 +371,11 @@
 			services.Clear();
 			if (selectedSpec != null)
 			{
-				services.AddRange(new DataHelperService(engine.GetUserConnection()).Read(ServiceExposers.ServiceSpecifcation.Equal(selectedSpec.ID)));
+				services.AddRange(new DataHelperService(engine.GetUserConnection()).ReadBasicInformation(ServiceExposers.ServiceSpecifcation.Equal(selectedSpec.ID)));
 			}
 			else
 			{
-				services.AddRange(new DataHelperService(engine.GetUserConnection()).Read());
+				services.AddRange(new DataHelperService(engine.GetUserConnection()).ReadBasicInformation());
 			}
 
 			DateTime? currentStart = _scriptModel.Start;

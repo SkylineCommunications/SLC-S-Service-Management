@@ -3,10 +3,16 @@
 	using System;
 	using System.Collections.Generic;
 	using System.Diagnostics;
+	using System.IO;
 	using System.Linq;
+
 	using Newtonsoft.Json;
-	using Skyline.DataMiner.Analytics.GenericInterface;
+
 	using Skyline.DataMiner.Automation;
+	using Skyline.DataMiner.Net.Apps.DataMinerObjectModel;
+	using Skyline.DataMiner.Net.Apps.Modules;
+	using Skyline.DataMiner.Net.Messages.SLDataGateway;
+	using Skyline.DataMiner.Net.Sections;
 
 	public static class ScriptExtensions
 	{
@@ -93,6 +99,57 @@
 				stopwatch.Stop();
 				engine.GenerateInformation($"[{methodName}] executed in {stopwatch.ElapsedMilliseconds} ms");
 			}
+		}
+
+		public static bool DomModelExists(this IEngine engine, string moduleId, IEnumerable<Guid> sectionIds, ModuleSettingsHelper moduleSettingsHelper = null)
+		{
+			if (moduleSettingsHelper == null)
+			{
+				moduleSettingsHelper = new ModuleSettingsHelper(engine.SendSLNetMessages);
+			}
+
+			if (String.IsNullOrWhiteSpace(moduleId))
+			{
+				engine.Log("DomModelExists| Module ID is null or empty.");
+				return false;
+			}
+
+			var result = moduleSettingsHelper.ModuleSettings.Read(ModuleSettingsExposers.ModuleId.Equal(moduleId));
+			if (result == null || !result.Any())
+			{
+				engine.Log($"DomModelExists| No module settings found for module '{moduleId}'.");
+				return false;
+			}
+
+			if (sectionIds == null)
+			{
+				return true;
+			}
+
+			var domHelper = new DomHelper(engine.SendSLNetMessages, moduleId);
+
+			FilterElement<SectionDefinition> filter = new ORFilterElement<SectionDefinition>();
+			foreach (var sectionId in sectionIds)
+			{
+				filter = filter.OR(SectionDefinitionExposers.ID.Equal(sectionId));
+			}
+
+			var sections = domHelper.SectionDefinitions.Read(filter);
+
+			if (sections == null || sections.Count != sectionIds.Count())
+			{
+				var foundSectionIds = sections?.Select(s => s.GetID().Id) ?? Enumerable.Empty<Guid>();
+				var missingSectionIds = sectionIds.Except(foundSectionIds);
+				engine.Log($"DomModelExists| Not all section definitions found for module '{moduleId}'. Missing sections: [{string.Join(", ", missingSectionIds)}]");
+				return false;
+			}
+
+			return true;
+		}
+
+		public static bool IsSrmInstalled(this IEngine engine)
+		{
+			return File.Exists("C:\\Skyline DataMiner\\Webpages\\SRM\\SRM_Solution_About.txt");
 		}
 	}
 }

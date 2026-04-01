@@ -2,6 +2,8 @@ namespace SLCSMTakeOwnership
 {
 	using System;
 	using System.Linq;
+	using DomHelpers.SlcPeople_Organizations;
+
 	using Library.Ownership;
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
@@ -70,6 +72,11 @@ namespace SLCSMTakeOwnership
 			if (order == null)
 			{
 				throw new NotSupportedException($"No Order exists on the system for the given ID '{domId}'");
+			}
+
+			if (!_engine.DomModelExists(SlcPeople_OrganizationsIds.ModuleId, new[] {SlcPeople_OrganizationsIds.Sections.PeopleInformation.Id.Id} ))
+			{
+				throw new NotSupportedException($"The Media Ops solution needs to be installed to use this feature. The '{SlcPeople_OrganizationsIds.Definitions.People.ModuleId}' DOM model is required but not found on the system.");
 			}
 
 			string userName = _engine.UserDisplayName;
