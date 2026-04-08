@@ -134,7 +134,7 @@ namespace SLC_SM_IAS_Add_Service_Order_1
 			}
 
 			var dataHelperOrders = new DataHelperServiceOrder(_engine.GetUserConnection());
-			List<Models.ServiceOrder> serviceOrders = dataHelperOrders.ReadBasicInformation();
+			List<Models.ServiceOrder> serviceOrders = dataHelperOrders.ReadBasicDetails();
 
 			var usedOrderItemLabels = serviceOrders.Select(o => o.Name).ToList();
 			var usedOrderIds = serviceOrders.Select(o => o.OrderId).ToList();

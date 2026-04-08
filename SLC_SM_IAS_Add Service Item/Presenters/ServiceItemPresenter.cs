@@ -337,7 +337,7 @@
 			{
 				if (specifications.Count < 1)
 				{
-					specifications.AddRange(new DataHelperServiceSpecification(engine.GetUserConnection()).ReadBasicInformation());
+					specifications.AddRange(new DataHelperServiceSpecification(engine.GetUserConnection()).ReadBasicDetails());
 				}
 
 				List<string> specOptions = specifications.Select(x => x.Name).OrderBy(x => x).ToList();
@@ -371,11 +371,11 @@
 			services.Clear();
 			if (selectedSpec != null)
 			{
-				services.AddRange(new DataHelperService(engine.GetUserConnection()).ReadBasicInformation(ServiceExposers.ServiceSpecifcation.Equal(selectedSpec.ID)));
+				services.AddRange(new DataHelperService(engine.GetUserConnection()).ReadBasicDetails(ServiceExposers.ServiceSpecifcation.Equal(selectedSpec.ID)));
 			}
 			else
 			{
-				services.AddRange(new DataHelperService(engine.GetUserConnection()).ReadBasicInformation());
+				services.AddRange(new DataHelperService(engine.GetUserConnection()).ReadBasicDetails());
 			}
 
 			DateTime? currentStart = _scriptModel.Start;

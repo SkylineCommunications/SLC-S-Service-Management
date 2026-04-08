@@ -29,7 +29,7 @@
 			_engine = engine;
 			this.repo = repo;
 			this.view = view;
-			List<Models.Service> services = repo.Services.ReadBasicInformation();
+			List<Models.Service> services = repo.Services.ReadBasicDetails();
 			getServiceLabels = services.Select(x => x.Name).ToList();
 			string defaultServiceId = repo.Services.UniqueServiceId(services);
 			instanceToReturn = new Models.Service

@@ -133,7 +133,7 @@ namespace SLC_SM_IAS_Add_Service_Specification
 			}
 
 			var dataHelperServiceSpec = new DataHelperServiceSpecification(_engine.GetUserConnection());
-			List<Models.ServiceSpecification> serviceSpecifications = dataHelperServiceSpec.ReadBasicInformation();
+			List<Models.ServiceSpecification> serviceSpecifications = dataHelperServiceSpec.ReadBasicDetails();
 
 			var usedOrderItemLabels = serviceSpecifications.Select(x => x.Name).ToList();
 
