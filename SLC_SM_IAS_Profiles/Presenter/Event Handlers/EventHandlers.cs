@@ -39,10 +39,14 @@
 		protected Models.ConfigurationParameterValue CreateNewConfigurationParameterValue(PageNavigator navigator, Models.ConfigurationParameter configurationParameter)
 		{
 			var records = navigator.CurrentPage.Records;
+			var count = records
+				.OfType<ConfigurationDataRecord>()
+				.Where(r => r.ReferredConfigurationParameter.ID == configurationParameter.ID && r.State != State.Removed)
+				.Count();
 
 			var configurationValue = new Models.ConfigurationParameterValue
 			{
-				Label = $"Parameter #{records.Count(r => r is ConfigurationDataRecord) + 1:000}",
+				Label = count == 0 ? $"{configurationParameter.Name}" : $"{configurationParameter.Name} #{count + 1:000}",
 				Type = configurationParameter.Type,
 				ConfigurationParameterId = configurationParameter.ID,
 				NumberOptions = Clone(configurationParameter.NumberOptions),
@@ -84,12 +88,15 @@
 
 		protected Models.Profile CreateNewProfile(PageNavigator navigator, Models.ProfileDefinition profileDefinition)
 		{
-			var count = navigator.GetAllRecords().Count(r => r is ProfileDataRecord) + 1;
+			var count = navigator.GetCurrentPage().Records
+				.OfType<ProfileDataRecord>()
+				.Where(r => r.ReferredProfileDefinition.ID == profileDefinition.ID && r.State != State.Removed)
+				.Count();
 
 			return new Models.Profile
 			{
 				ID = Guid.NewGuid(),
-				Name = $"Profile #{count:000}",
+				Name = count == 0 ? $"{profileDefinition.Name}" : $"{profileDefinition.Name} #{count + 1:000}",
 				ProfileDefinitionReference = profileDefinition.ID,
 				ConfigurationParameterValues = new List<Models.ConfigurationParameterValue>(),
 				Profiles = new List<Guid>(),
