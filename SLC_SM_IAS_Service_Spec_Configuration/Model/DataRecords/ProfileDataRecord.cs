@@ -42,7 +42,7 @@
 
 					var refConfigParam = currentConfig.ProfileDefinition.ConfigurationParameters.Find(x => x.ConfigurationParameter == currentParameterConfig?.ConfigurationParameterId);
 
-					if (refConfigParam == null)
+					if (refConfigParam == null || !currentConfig.Profile.IsReusable)
 					{
 						continue;
 					}

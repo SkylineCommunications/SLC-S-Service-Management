@@ -56,6 +56,14 @@
 
 			internal List<Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter>> GetAvailableProfileParameters(DataHelpersConfigurations repoConfig)
 			{
+				if (Profile.IsReusable)
+				{
+					return new List<Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter>>
+					{
+						new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter>("- Parameter -", null),
+					};
+				}
+
 				// var refConfigParams = HelperMethods.GetReferencedConfigParameters(repoConfig, ProfileDefinition);
 				var configParams = HelperMethods.GetConfigParameters(repoConfig, ProfileDefinition.ConfigurationParameters);
 

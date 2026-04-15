@@ -153,6 +153,36 @@
 			return configParams;
 		}
 
+		internal static List<ConfigurationModels.ConfigurationParameter> GetConfigParameters(DataHelpersConfigurations dataHelperConfigurations, ConfigurationModels.Profile profile)
+		{
+			if (profile == null)
+			{
+				return new List<ConfigurationModels.ConfigurationParameter>();
+			}
+
+			FilterElement<ConfigurationModels.ConfigurationParameter> configParamFilter = null;
+			List<ConfigurationModels.ConfigurationParameter> configParams = new List<ConfigurationModels.ConfigurationParameter>();
+
+			for (int i = 0; i < profile.ConfigurationParameterValues.Count; i++)
+			{
+				if (i == 0)
+				{
+					configParamFilter = ConfigurationParameterExposers.Guid.Equal(profile.ConfigurationParameterValues[i].ConfigurationParameterId);
+				}
+				else
+				{
+					configParamFilter = configParamFilter.OR(ConfigurationParameterExposers.Guid.Equal(profile.ConfigurationParameterValues[i].ConfigurationParameterId));
+				}
+			}
+
+			if (configParamFilter != null)
+			{
+				configParams = dataHelperConfigurations.ConfigurationParameters.Read(configParamFilter);
+			}
+
+			return configParams;
+		}
+
 		private static void AddServiceSpecProfiles(List<Models.ServiceSpecificationProfile> configurationProfiles, Models.Service instanceService, Models.ServiceConfigurationVersion configurationVersion)
 		{
 			foreach (var configProfile in configurationProfiles)

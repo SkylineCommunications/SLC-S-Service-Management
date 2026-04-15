@@ -8,6 +8,8 @@
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
 
+	using SLC_SM_IAS_Service_Spec_Configuration.Model;
+
 	public class ServiceConfigurationView : Dialog
 	{
 		private const string _standaloneParameterCollapseButtonTitle = "Standalone Parameters";
@@ -36,7 +38,7 @@
 
 		public DropDown<Models.ConfigurationParameter> AddParameter { get; } = new DropDown<Models.ConfigurationParameter> { IsDisplayFilterShown = true};
 
-		public DropDown<Models.ProfileDefinition> AddProfile { get; } = new DropDown<Models.ProfileDefinition> { IsDisplayFilterShown = true};
+		public DropDown<ProfileOption> AddProfile { get; } = new DropDown<ProfileOption> { IsDisplayFilterShown = true};
 
 		public CollapseButton StandaloneParameters { get; } = new CollapseButton(true) { ExpandText = "+", CollapseText = "-", Tooltip = _standaloneParameterCollapseButtonTitle };
 

@@ -11,6 +11,7 @@
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
 
@@ -29,6 +30,8 @@
 		private DataHelpersServiceManagement repoService;
 		private bool showDetails;
 		private Models.ServiceSpecification serviceSpecification;
+		private List<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ProfileDefinition> profileDefinitions;
+		private List<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.Profile> reusableProfiles;
 
 		private int collapeButtonWidth = 85;
 		private int addButtonWidth = 70;
@@ -45,6 +48,8 @@
 			this.view = view;
 			this.instanceService = instance;
 			this.showDetails = false;
+			profileDefinitions = new List<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ProfileDefinition>();
+			reusableProfiles = new List<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.Profile>();
 
 			view.BtnCancel.MaxWidth = buttonWidth;
 			view.BtnCancel.Pressed += (sender, args) => throw new ScriptAbortException("OK");
@@ -169,6 +174,11 @@
 					continue;
 				}
 
+				if (profile.Profile.IsReusable)
+				{
+					continue;
+				}
+
 				foreach (var profileParameter in profile.ProfileParameterConfigs)
 				{
 					if (profileParameter.State == State.Delete)
@@ -205,9 +215,47 @@
 			configuration.ServiceParameterConfigs.Add(StandaloneParameterDataRecord.BuildParameterDataRecord(config, configurationParameterInstance, State.Create));
 		}
 
-		private void AddProfileConfigModel(Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ProfileDefinition profileDefinition)
+		private void AddProfileConfigModel(ProfileOption profileOption)
 		{
-			var profileDefinitionInstance = profileDefinition ?? new Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ProfileDefinition();
+			if (profileOption == null)
+			{
+				return;
+			}
+
+			if (profileOption.IsProfileDefinition)
+			{
+				AddProfileConfigModelFromProfileDefinition(profileOption);
+			}
+			else
+			{
+				AddProfileConfigModelFromReusableProfile(profileOption);
+			}
+		}
+
+		private void AddProfileConfigModelFromReusableProfile(ProfileOption profileOption)
+		{
+			var profileInstance = reusableProfiles.Find(p => p.ID == profileOption.Id);
+
+			var profileDefinitionInstance = repoConfig.ProfileDefinitions.Read(ProfileDefinitionExposers.Guid.Equal(profileInstance.ProfileDefinitionReference))[0];
+
+			var profileConfig = new Models.ServiceProfile
+			{
+				ID = Guid.NewGuid(),
+				Mandatory = false,
+				Profile = profileInstance,
+				ProfileDefinition = profileDefinitionInstance,
+			};
+
+			var configParams = HelperMethods.GetConfigParameters(repoConfig, profileInstance);
+
+			configuration.ServiceConfigurationVersion.Profiles.Add(profileConfig);
+			configuration.ServiceProfileConfigs.Add(ProfileDataRecord.BuildProfileRecord(profileConfig, configParams, State.Create));
+		}
+
+		private void AddProfileConfigModelFromProfileDefinition(ProfileOption profileOption)
+		{
+			var profileDefinitionInstance = profileDefinitions.Find(pd => pd.ID == profileOption.Id);
+
 			var configParams = HelperMethods.GetConfigParameters(repoConfig, profileDefinitionInstance.ConfigurationParameters);
 
 			var parameterValues = new List<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameterValue>();
@@ -230,8 +278,8 @@
 				ProfileDefinition = profileDefinitionInstance,
 				Profile = new Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.Profile
 				{
-					Name = profileDefinition.Name.ReplaceTrailingParentesisContent(instanceService.ServiceID),
-					ProfileDefinitionReference = profileDefinition.ID,
+					Name = profileOption.Name.ReplaceTrailingParentesisContent(instanceService.ServiceID),
+					ProfileDefinitionReference = profileDefinitionInstance.ID,
 					ConfigurationParameterValues = parameterValues,
 				},
 			};
@@ -321,18 +369,19 @@
 
 			int row = 0;
 			view.AddWidget(view.TitleDetails, row, 0, 1, 2);
+			row = BuildConfigurationVersionsSelectionUI(row+1);
+			view.AddWidget(view.BtnShowValueDetails, ++row, 0, HorizontalAlignment.Center);
 			view.AddWidget(new WhiteSpace(), ++row, 0);
-			view.AddWidget(view.BtnShowValueDetails, ++row, 0);
-			row = BuildConfigurationVersionsSelectionUI(row);
-			view.AddWidget(new WhiteSpace(), ++row, 0);
-
-			row = BuildProfileAdditionUI(row);
 
 			row = BuildGeneralSettingsUI(row);
 
 			row = BuildStandaloneParametersUI(showDetails, row);
 
 			row = BuildProfilesUI(showDetails, row);
+
+			view.AddWidget(new WhiteSpace(), ++row, 0);
+
+			row = BuildProfileAdditionUI(row);
 
 			view.AddWidget(new WhiteSpace(), ++row, 0);
 
@@ -364,6 +413,7 @@
 			var lblCreateAt = new Label("Create At") { Style = TextStyle.Heading, MaxWidth = 100 };
 			var createdAt = new TextBox(configuration.ServiceConfigurationVersion?.CreatedAt?.ToString("g") ?? String.Empty) { IsEnabled = false };
 
+			view.AddWidget(new Label("Version:") { Style = TextStyle.Heading, MaxWidth = 150 }, row, 0, HorizontalAlignment.Right);
 			view.AddWidget(view.ConfigurationVersions, row, 1);
 			view.AddWidget(view.BtnCopyConfiguration, row, 2);
 
@@ -439,9 +489,21 @@
 		{
 			view.AddWidget(new Label("Add Profile:") { Style = TextStyle.Heading, MaxWidth = 100 }, ++row, 0, HorizontalAlignment.Right);
 
-			var profileDefinitionOptions = repoConfig.ProfileDefinitions.Read().Select(x => new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ProfileDefinition>(x.Name, x)).OrderBy(x => x.DisplayValue).ToList();
-			profileDefinitionOptions.Insert(0, new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ProfileDefinition>("- Profile Definition -", null));
-			view.ProfileDefinitionToAdd.SetOptions(profileDefinitionOptions);
+			profileDefinitions = repoConfig.ProfileDefinitions.Read();
+			reusableProfiles = repoConfig.Profiles.Read(ProfileExposers.IsReusable.Equal(true));
+
+			var profileDefinitionsOptions = profileDefinitions.Select(p => new Option<ProfileOption>(p.Name, new ProfileOption(p.ID, p.Name, true))).OrderBy(x => x.DisplayValue).ToList();
+			profileDefinitionsOptions.Insert(0, new Option<ProfileOption>("- Profile Definition -", null));
+
+			var profileOptions = reusableProfiles.Where(p =>
+			{
+				var result = !configuration.ServiceConfigurationVersion.Profiles.Any(sp => sp.Profile.ID == p.ID);
+				return result;
+			}).Select(p => new Option<ProfileOption>(p.Name, new ProfileOption(p.ID, p.Name, false))).OrderBy(x => x.DisplayValue).ToList();
+			profileOptions.Insert(0, new Option<ProfileOption>("- Reusable Profile -", null));
+			profileDefinitionsOptions.AddRange(profileOptions);
+
+			view.ProfileDefinitionToAdd.SetOptions(profileDefinitionsOptions);
 			view.AddWidget(view.ProfileDefinitionToAdd, row, 1);
 
 			var addProfileButton = new Button("Add") { Width = addButtonWidth };
@@ -490,7 +552,7 @@
 			view.Details[profile.Profile.Name] = new Section();
 
 			// Comes from Service Specification
-			if (profile.ServiceProfileConfig.Mandatory || profile.State != State.Create)
+			if (profile.ServiceProfileConfig.Mandatory || profile.State != State.Create || profile.Profile.IsReusable)
 			{
 				view.AddWidget(new Label(profile.Profile.Name) { Style = TextStyle.Bold, MaxWidth = 200 }, ++row, 1);
 			}
@@ -526,7 +588,7 @@
 
 			foreach (var profileParameter in profile.ProfileParameterConfigs.Where(x => x.State != State.Delete).OrderBy(x => x.ConfigurationParam?.Name))
 			{
-				BuildParameterUIRow(collapseButton, profileParameter, ++row, ++sectionRow, DeleteProfileParameter(profile, profileParameter), profile.ServiceProfileConfig.Mandatory || profileParameter.Mandatory);
+				BuildParameterUIRow(collapseButton, profileParameter, ++row, ++sectionRow, DeleteProfileParameter(profile, profileParameter), profile.ServiceProfileConfig.Mandatory || profileParameter.Mandatory || profile.Profile.IsReusable, profile.Profile.IsReusable);
 			}
 
 			view.AddSection(view.Details[profile.Profile.Name], originalSectionRow, 5);
@@ -549,7 +611,7 @@
 			collapseButton.LinkedWidgets.Add(whiteSpaceAfterParameters);
 
 			// Does not come from Service Specification
-			if (!profile.ServiceProfileConfig.Mandatory)
+			if (!profile.ServiceProfileConfig.Mandatory && !profile.Profile.IsReusable)
 			{
 				row = BuildAddProfileParameterUI(showDetails, row, profile, collapseButton);
 			}
@@ -559,7 +621,7 @@
 
 		private int BuildAddProfileParameterUI(bool showDetails, int row, ProfileDataRecord profile, CollapseButton collapseButton)
 		{
-			var parameterToAddLabel = new Label("Add Parameter:") { Style = TextStyle.Heading, IsVisible = !collapseButton.IsCollapsed, MaxWidth = 100 };
+			var parameterToAddLabel = new Label("Add Parameter:") { Style = TextStyle.Heading, IsVisible = !collapseButton.IsCollapsed, MaxWidth = 150 };
 			view.AddWidget(parameterToAddLabel, ++row, 0, HorizontalAlignment.Right);
 			collapseButton.LinkedWidgets.Add(parameterToAddLabel);
 
@@ -596,7 +658,7 @@
 			view.StandaloneParameters.MaxWidth = collapeButtonWidth;
 			view.StandaloneParameters.LinkedWidgets.Clear();
 			view.Details[StandaloneCollapseButtonTitle] = new Section();
-			view.AddWidget(new Label(ServiceConfigurationView.StandaloneCollapseButtonTitle) { Style = TextStyle.Bold, MaxWidth = 250 }, ++row, 1, 1, 5);
+			view.AddWidget(new Label(ServiceConfigurationView.StandaloneCollapseButtonTitle) { Style = TextStyle.Bold, MaxWidth = 300 }, ++row, 1, 1, 5);
 			view.AddWidget(view.StandaloneParameters, row, 0, HorizontalAlignment.Center);
 			BuildHeaderRow(++row, view.StandaloneParameters);
 
@@ -615,7 +677,7 @@
 			view.AddWidget(whiteSpaceAfterParameters, ++row, 0);
 			view.StandaloneParameters.LinkedWidgets.Add(whiteSpaceAfterParameters);
 
-			var parameterToAddLabel = new Label("Add Parameter:") { Style = TextStyle.Heading, IsVisible = !view.StandaloneParameters.IsCollapsed, MaxWidth = 100 };
+			var parameterToAddLabel = new Label("Add Parameter:") { Style = TextStyle.Heading, IsVisible = !view.StandaloneParameters.IsCollapsed, MaxWidth = 150 };
 			view.AddWidget(parameterToAddLabel, ++row, 0, HorizontalAlignment.Right);
 			view.StandaloneParameters.LinkedWidgets.Add(parameterToAddLabel);
 
@@ -647,17 +709,17 @@
 			return row;
 		}
 
-		private void BuildParameterUIRow(CollapseButton collapseButtom, IParameterDataRecord record, int row, int sectionRow, EventHandler<EventArgs> deleteEventHandler, bool mandatory = true)
+		private void BuildParameterUIRow(CollapseButton collapseButtom, IParameterDataRecord record, int row, int sectionRow, EventHandler<EventArgs> deleteEventHandler, bool mandatory = true, bool isReusable = false)
 		{
 			// Init
-			var label = new TextBox(record.ConfigurationParamValue.Label) { IsVisible = !collapseButtom.IsCollapsed };
+			var label = new TextBox(record.ConfigurationParamValue.Label) { IsVisible = !collapseButtom.IsCollapsed, IsEnabled = !isReusable };
 			var parameter = new DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter>(
 				new[] { new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter>(record.ConfigurationParam.Name, record.ConfigurationParam) })
 			{
 				IsEnabled = false,
 				IsVisible = !collapseButtom.IsCollapsed,
 			};
-			var link = new CheckBox { IsChecked = record.ConfigurationParamValue.LinkedConfigurationReference != null, IsVisible = !collapseButtom.IsCollapsed };
+			var link = new CheckBox { IsChecked = record.ConfigurationParamValue.LinkedConfigurationReference != null, IsVisible = !collapseButtom.IsCollapsed, IsEnabled = !isReusable };
 			var unit = new DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationUnit>(
 				new[] { new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationUnit>("-", null) })
 			{ IsEnabled = false, MaxWidth = 80, IsVisible = !collapseButtom.IsCollapsed };
@@ -693,17 +755,17 @@
 				switch (parameter.Selected.Type)
 				{
 					case SlcConfigurationsIds.Enums.Type.Number:
-						collapseButtom.LinkedWidgets.Add(AddNumericWidgets(record, row, parameter, unit, start, end, step, decimals, !collapseButtom.IsCollapsed, isValueFixed));
+						collapseButtom.LinkedWidgets.Add(AddNumericWidgets(record, row, parameter, unit, start, end, step, decimals, !collapseButtom.IsCollapsed, isValueFixed || isReusable, isReusable));
 
 						break;
 
 					case SlcConfigurationsIds.Enums.Type.Discrete:
-						collapseButtom.LinkedWidgets.Add(AddDiscreteWidgets(record, row, !collapseButtom.IsCollapsed, isValueFixed));
+						collapseButtom.LinkedWidgets.Add(AddDiscreteWidgets(record, row, !collapseButtom.IsCollapsed, isValueFixed || isReusable));
 
 						break;
 
 					default:
-						collapseButtom.LinkedWidgets.Add(AddTextWidgets(record, row, !collapseButtom.IsCollapsed, isValueFixed));
+						collapseButtom.LinkedWidgets.Add(AddTextWidgets(record, row, !collapseButtom.IsCollapsed, isValueFixed || isReusable));
 
 						break;
 				}
@@ -823,7 +885,8 @@
 			Numeric step,
 			Numeric decimals,
 			bool isVisible = true,
-			bool isValueFixed = false)
+			bool isValueFixed = false,
+			bool isReusable = false)
 		{
 			double minimum = record.ConfigurationParamValue.NumberOptions.MinRange ?? -10_000;
 			double maximum = record.ConfigurationParamValue.NumberOptions.MaxRange ?? 10_000;
@@ -840,17 +903,29 @@
 			};
 			unit.SetOptions(GetUnits(record.ConfigurationParamValue.NumberOptions, parameter.Selected));
 			unit.Selected = GetDefaultUnit(record.ConfigurationParamValue.NumberOptions, parameter.Selected);
-			unit.IsEnabled = true;
 			start.Value = minimum;
-			start.IsEnabled = true;
 			end.Value = maximum;
-			end.IsEnabled = true;
 			decimals.Value = decimalVal;
-			decimals.IsEnabled = true;
 			step.Value = stepSize;
 			step.StepSize = 1 / Math.Pow(10, decimalVal);
 			step.Decimals = decimalVal;
-			step.IsEnabled = true;
+
+			if (isReusable)
+			{
+				unit.IsEnabled = false;
+				start.IsEnabled = false;
+				end.IsEnabled = false;
+				decimals.IsEnabled = false;
+				step.IsEnabled = false;
+			}
+			else
+			{
+				unit.IsEnabled = true;
+				start.IsEnabled = true;
+				end.IsEnabled = true;
+				decimals.IsEnabled = true;
+				step.IsEnabled = true;
+			}
 
 			start.Changed += (sender, args) =>
 			{
