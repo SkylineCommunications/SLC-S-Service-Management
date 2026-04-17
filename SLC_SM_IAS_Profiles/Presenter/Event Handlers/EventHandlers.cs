@@ -101,6 +101,7 @@
 				ConfigurationParameterValues = new List<Models.ConfigurationParameterValue>(),
 				Profiles = new List<Guid>(),
 				TestedProtocols = new List<Models.ProtocolTest>(),
+				IsReusable = true,
 			};
 		}
 
