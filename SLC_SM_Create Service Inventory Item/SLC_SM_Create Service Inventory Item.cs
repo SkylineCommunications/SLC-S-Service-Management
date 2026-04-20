@@ -138,6 +138,12 @@ namespace SLC_SM_Create_Service_Inventory_Item
 
 		private static Guid CreateServiceItemFromOrderItem(DataHelpersServiceManagement repo, Models.ServiceOrderItem serviceOrderItem)
 		{
+			var category = serviceOrderItem.ServiceCategoryId.HasValue ?
+				repo.ServiceCategories
+					.Read(ServiceCategoryExposers.Guid.Equal(serviceOrderItem.ServiceCategoryId.Value))
+					.FirstOrDefault()
+				: null;
+
 			Models.Service newService = new Models.Service
 			{
 				ServiceID = repo.Services.UniqueServiceId(),
@@ -145,9 +151,9 @@ namespace SLC_SM_Create_Service_Inventory_Item
 				Description = serviceOrderItem.Name,
 				StartTime = serviceOrderItem.StartTime,
 				EndTime = serviceOrderItem.EndTime,
-				Icon = String.Empty,
 				ServiceSpecificationId = serviceOrderItem.SpecificationId,
-				Category = serviceOrderItem.ServiceCategoryId.HasValue ? repo.ServiceCategories.Read(ServiceCategoryExposers.Guid.Equal(serviceOrderItem.ServiceCategoryId.Value)).FirstOrDefault() : null,
+				Category = category,
+				Icon = category?.Icon ?? string.Empty,
 				ServiceItems = new List<Models.ServiceItem>(),
 				ServiceItemsRelationships = new List<Models.ServiceItemRelationShip>(),
 				ServiceConfiguration = new Models.ServiceConfigurationVersion
@@ -183,7 +189,6 @@ namespace SLC_SM_Create_Service_Inventory_Item
 			var spec = serviceOrderItem.SpecificationId.HasValue ? repo.ServiceSpecifications.Read(ServiceSpecificationExposers.Guid.Equal(serviceOrderItem.SpecificationId.Value)).FirstOrDefault() : null;
 			if (spec != null)
 			{
-				newService.Icon = spec.Icon;
 				if (spec.ServiceItemsRelationships != null)
 				{
 					foreach (var relationship in spec.ServiceItemsRelationships)
