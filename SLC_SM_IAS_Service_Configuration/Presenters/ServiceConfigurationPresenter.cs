@@ -89,6 +89,7 @@
 			{
 				var newConfigurationVersion = HelperMethods.CreateNewServiceConfigurationVersionFromExisting(configuration.ServiceConfigurationVersion);
 				configuration = ConfigurationDataRecord.BuildConfigurationDataRecordRecord(
+					engine,
 					newConfigurationVersion,
 					repoConfig.ConfigurationParameters.Read(),
 					State.Create);
@@ -103,6 +104,7 @@
 					view.StandaloneParameters.IsCollapsed = true;
 					view.Details.Clear();
 					configuration = ConfigurationDataRecord.BuildConfigurationDataRecordRecord(
+						engine,
 						HelperMethods.CreateNewServiceConfigurationVersion(serviceSpecification, instanceService),
 						repoConfig.ConfigurationParameters.Read(),
 						State.Create);
@@ -110,6 +112,7 @@
 				else
 				{
 					configuration = ConfigurationDataRecord.BuildConfigurationDataRecordRecord(
+						engine,
 						args.Selected,
 						repoConfig.ConfigurationParameters.Read());
 				}
@@ -138,6 +141,7 @@
 			{
 				// Create a new version
 				configuration = ConfigurationDataRecord.BuildConfigurationDataRecordRecord(
+					engine,
 					HelperMethods.CreateNewServiceConfigurationVersion(serviceSpecification, instanceService),
 					repoConfig.ConfigurationParameters.Read(),
 					State.Create);
@@ -145,7 +149,7 @@
 			}
 			else
 			{
-				configuration = ConfigurationDataRecord.BuildConfigurationDataRecordRecord(instanceService.ServiceConfiguration, configParams);
+				configuration = ConfigurationDataRecord.BuildConfigurationDataRecordRecord(engine, instanceService.ServiceConfiguration, configParams);
 			}
 
 			BuildUI(false);
@@ -249,7 +253,7 @@
 			var configParams = HelperMethods.GetConfigParameters(repoConfig, profileInstance);
 
 			configuration.ServiceConfigurationVersion.Profiles.Add(profileConfig);
-			configuration.ServiceProfileConfigs.Add(ProfileDataRecord.BuildProfileRecord(profileConfig, configParams, State.Create));
+			configuration.ServiceProfileConfigs.Add(ProfileDataRecord.BuildProfileRecord(engine, profileConfig, configParams, State.Create));
 		}
 
 		private void AddProfileConfigModelFromProfileDefinition(ProfileOption profileOption)
@@ -290,7 +294,7 @@
 			}
 
 			configuration.ServiceConfigurationVersion.Profiles.Add(profileConfig);
-			configuration.ServiceProfileConfigs.Add(ProfileDataRecord.BuildProfileRecord(profileConfig, configParams, State.Create));
+			configuration.ServiceProfileConfigs.Add(ProfileDataRecord.BuildProfileRecord(engine, profileConfig, configParams, State.Create));
 		}
 
 		private void AddProfileParameterConfigModel(ProfileDataRecord profile, Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter selected)

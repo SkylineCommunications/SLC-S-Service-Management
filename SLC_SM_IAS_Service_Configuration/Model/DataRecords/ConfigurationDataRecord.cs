@@ -2,6 +2,8 @@
 {
 	using System.Collections.Generic;
 	using System.Linq;
+
+	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
 
 	public partial class ServiceConfigurationPresenter
@@ -17,6 +19,7 @@
 			public List<ProfileDataRecord> ServiceProfileConfigs { get; private set; } = new List<ProfileDataRecord>();
 
 			internal static ConfigurationDataRecord BuildConfigurationDataRecordRecord(
+				IEngine engine,
 				Models.ServiceConfigurationVersion currentConfig,
 				List<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter> configParams,
 				State state = State.Update)
@@ -26,7 +29,11 @@
 					State = state,
 					ServiceConfigurationVersion = currentConfig,
 					ServiceParameterConfigs = new List<StandaloneParameterDataRecord>(),
-					ServiceProfileConfigs = currentConfig.Profiles.Select(profile => ProfileDataRecord.BuildProfileRecord(profile, configParams, state)).ToList(),
+					ServiceProfileConfigs = currentConfig.Profiles.Select(profile =>
+					{
+						engine.Log($"Building profile data record for profile with ID {profile.ID} and name {profile.Profile?.Name} is null {profile.Profile == null}");
+						return ProfileDataRecord.BuildProfileRecord(engine, profile, configParams, state);
+					}).ToList(),
 				};
 
 				foreach (var currentParameterConfig in currentConfig.Parameters)
