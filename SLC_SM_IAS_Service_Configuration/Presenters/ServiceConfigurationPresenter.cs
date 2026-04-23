@@ -132,9 +132,11 @@
 			repoConfig = new DataHelpersConfigurations(engine.GetUserConnection());
 
 			var configParams = repoConfig.ConfigurationParameters.Read();
-			////var refConfigParams = repoConfig.ReferencedConfigurationParameters.Read();
+
+			// var refConfigParams = repoConfig.ReferencedConfigurationParameters.Read();
+			// .FirstOrDefault() as the specification could have been deleted but the reference still exists on the service configuration version
 			serviceSpecification = instanceService.ServiceSpecificationId.HasValue
-					? repoService.ServiceSpecifications.Read(Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceSpecificationExposers.Guid.Equal(instanceService.ServiceSpecificationId.Value))[0]
+					? repoService.ServiceSpecifications.Read(Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceSpecificationExposers.Guid.Equal(instanceService.ServiceSpecificationId.Value)).FirstOrDefault()
 					: null;
 
 			if (instanceService.ServiceConfiguration == null)
@@ -373,7 +375,7 @@
 
 			int row = 0;
 			view.AddWidget(view.TitleDetails, row, 0, 1, 2);
-			row = BuildConfigurationVersionsSelectionUI(row+1);
+			row = BuildConfigurationVersionsSelectionUI(row + 1);
 			view.AddWidget(view.BtnShowValueDetails, ++row, 0, HorizontalAlignment.Center);
 			view.AddWidget(new WhiteSpace(), ++row, 0);
 
