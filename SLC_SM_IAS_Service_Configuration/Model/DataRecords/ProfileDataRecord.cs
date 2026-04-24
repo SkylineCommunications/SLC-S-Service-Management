@@ -53,7 +53,7 @@
 						}
 
 						engine.Log($"{currentParameterConfig.Label} Found config param: {configParam.Name}");
-						var referencedParam = currentConfig.ProfileDefinition.ConfigurationParameters.Find(x => x.ConfigurationParameter == configParam.ID);
+						var referencedParam = currentConfig.ProfileDefinition?.ConfigurationParameters.Find(x => x.ConfigurationParameter == configParam.ID);
 						engine.Log($"{currentParameterConfig.Label} Looking for referenced param with config param ID {configParam.ID}. Found: {referencedParam != null}");
 
 						ProfileParameterDataRecord dataParameterRecord = ProfileParameterDataRecord.BuildParameterDataRecord(currentParameterConfig, configParam, referencedParam, state);
@@ -66,7 +66,7 @@
 
 			internal List<Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter>> GetAvailableProfileParameters(DataHelpersConfigurations repoConfig)
 			{
-				if (Profile.IsReusable)
+				if (Profile.IsReusable || ProfileDefinition == null)
 				{
 					return new List<Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter>>
 					{
