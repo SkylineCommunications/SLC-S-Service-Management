@@ -37,6 +37,11 @@
 
 		private int detailsColumnIndex = 5;
 		private int parameterValueColumnIndex = 3;
+		private Guid? _editingConsumerId;
+
+		// TODO: remove once LinkedScript and LinkedConsumers are added to DOM
+		private readonly Dictionary<Guid, string> _mockLinkedScript = new Dictionary<Guid, string>();
+		private readonly Dictionary<Guid, List<string>> _mockLinkedConsumers = new Dictionary<Guid, List<string>>();
 
 		public ServiceConfigurationPresenter(IEngine engine, InteractiveController controller, ServiceConfigurationView view, Models.Service instance)
 		{
@@ -265,13 +270,15 @@
 			configuration.ServiceConfigurationVersion.Profiles.Find(p => p.ID == profile.ServiceProfileConfig.ID).Profile.ConfigurationParameterValues.Add(configParamValue);
 		}
 
-		private void BuildHeaderRow(int row, CollapseButton collapseButton)
+		private void BuildHeaderRow(int row, CollapseButton collapseButton, bool hasConsumers = false, bool anyEditing = false)
 		{
 			var lblLabel = new Label("Label") { Style = TextStyle.Heading, IsVisible = !collapseButton.IsCollapsed, MaxWidth = 100 };
 			var lblParameter = new Label("Parameter") { Style = TextStyle.Heading, IsVisible = !collapseButton.IsCollapsed, MaxWidth = 100 };
 			var lblLink = new Label("Link") { Style = TextStyle.Heading, IsVisible = !collapseButton.IsCollapsed, MaxWidth = 100 };
 			var lblValue = new Label("Value") { Style = TextStyle.Heading, IsVisible = !collapseButton.IsCollapsed, MaxWidth = 100 };
 			var lblUnit = new Label("Unit") { Style = TextStyle.Heading, IsVisible = !collapseButton.IsCollapsed, MaxWidth = 100 };
+			var lblScript = new Label("Script") { Style = TextStyle.Heading, IsVisible = !collapseButton.IsCollapsed && hasConsumers, MaxWidth = 200 };
+			var lblProducer = new Label("Producer") { Style = TextStyle.Heading, IsVisible = !collapseButton.IsCollapsed && anyEditing, MaxWidth = 100 };
 			var lblStart = new Label("Start") { Style = TextStyle.Heading, IsVisible = !collapseButton.IsCollapsed, MaxWidth = 100 };
 			var lblEnd = new Label("End") { Style = TextStyle.Heading, IsVisible = !collapseButton.IsCollapsed, MaxWidth = 100 };
 			var lblStop = new Label("Step Size") { Style = TextStyle.Heading, IsVisible = !collapseButton.IsCollapsed, MaxWidth = 100 };
@@ -288,6 +295,17 @@
 			collapseButton.LinkedWidgets.Add(lblValue);
 			view.AddWidget(lblUnit, row, 4);
 			collapseButton.LinkedWidgets.Add(lblUnit);
+			if (hasConsumers)
+			{
+				view.AddWidget(lblScript, row, 5);
+				collapseButton.LinkedWidgets.Add(lblScript);
+			}
+
+			if (anyEditing)
+			{
+				view.AddWidget(lblProducer, row, 7);
+				collapseButton.LinkedWidgets.Add(lblProducer);
+			}
 
 			view.Details[collapseButton.Tooltip].AddWidget(lblStart, 0, 0, HorizontalAlignment.Left);
 			view.Details[collapseButton.Tooltip].AddWidget(lblEnd, 0, 1);
@@ -519,14 +537,15 @@
 			view.AddWidget(delete, row, 2);
 			delete.Pressed += DeleteProfile(profile);
 
-			BuildHeaderRow(++row, collapseButton);
+			var profileParameterList = profile.ProfileParameterConfigs.Where(x => x.State != State.Delete).OrderBy(x => x.ConfigurationParam?.Name).ToList();
+			BuildHeaderRow(++row, collapseButton, profileParameterList.Any(p => p.ConfigurationParamValue.LinkedConfigurationReference != null), _editingConsumerId.HasValue);
 
 			int originalSectionRow = row;
 			int sectionRow = 0;
 
-			foreach (var profileParameter in profile.ProfileParameterConfigs.Where(x => x.State != State.Delete).OrderBy(x => x.ConfigurationParam?.Name))
+			foreach (var profileParameter in profileParameterList)
 			{
-				BuildParameterUIRow(collapseButton, profileParameter, ++row, ++sectionRow, DeleteProfileParameter(profile, profileParameter), profile.ServiceProfileConfig.Mandatory || profileParameter.Mandatory);
+				BuildParameterUIRow(collapseButton, profileParameter, ++row, ++sectionRow, DeleteProfileParameter(profile, profileParameter), profile.ServiceProfileConfig.Mandatory || profileParameter.Mandatory, profileParameterList);
 			}
 
 			view.AddSection(view.Details[profile.Profile.Name], originalSectionRow, 5);
@@ -598,13 +617,14 @@
 			view.Details[StandaloneCollapseButtonTitle] = new Section();
 			view.AddWidget(new Label(ServiceConfigurationView.StandaloneCollapseButtonTitle) { Style = TextStyle.Bold, MaxWidth = 250 }, ++row, 1, 1, 5);
 			view.AddWidget(view.StandaloneParameters, row, 0, HorizontalAlignment.Center);
-			BuildHeaderRow(++row, view.StandaloneParameters);
+			var standaloneParameterList = configuration.ServiceParameterConfigs.Where(x => x.State != State.Delete).ToList();
+			BuildHeaderRow(++row, view.StandaloneParameters, standaloneParameterList.Any(p => p.ConfigurationParamValue.LinkedConfigurationReference != null), _editingConsumerId.HasValue);
 
 			int originalSectionRow = row;
 			int sectionRow = 0;
-			foreach (var standaloneParameter in configuration.ServiceParameterConfigs.Where(x => x.State != State.Delete))
+			foreach (var standaloneParameter in standaloneParameterList)
 			{
-				BuildParameterUIRow(view.StandaloneParameters, standaloneParameter, ++row, ++sectionRow, DeleteStandaloneParameter(standaloneParameter), standaloneParameter.ServiceParameterConfig.Mandatory);
+				BuildParameterUIRow(view.StandaloneParameters, standaloneParameter, ++row, ++sectionRow, DeleteStandaloneParameter(standaloneParameter), standaloneParameter.ServiceParameterConfig.Mandatory, standaloneParameterList);
 			}
 
 			view.AddSection(view.Details[StandaloneCollapseButtonTitle], originalSectionRow, detailsColumnIndex);
@@ -647,86 +667,182 @@
 			return row;
 		}
 
-		private void BuildParameterUIRow(CollapseButton collapseButtom, IParameterDataRecord record, int row, int sectionRow, EventHandler<EventArgs> deleteEventHandler, bool mandatory = true)
+		private void BuildParameterUIRow(CollapseButton collapseButton, IParameterDataRecord record, int row, int sectionRow, EventHandler<EventArgs> deleteEventHandler, bool mandatory = true, IEnumerable<IParameterDataRecord> siblingRecords = null)
 		{
-			// Init
-			var label = new TextBox(record.ConfigurationParamValue.Label) { IsVisible = !collapseButtom.IsCollapsed };
+			bool isVisible = !collapseButton.IsCollapsed;
+			bool isValueFixed = record.ConfigurationParamValue.ValueFixed;
+			bool isLinked = record.ConfigurationParamValue.LinkedConfigurationReference != null;
+			bool isEditingThis = _editingConsumerId == record.ConfigurationParam.ID;
+			bool anyEditing = _editingConsumerId.HasValue;
+
+			// Label
+			var label = new TextBox(record.ConfigurationParamValue.Label) { IsVisible = isVisible };
+			label.Changed += (sender, args) => record.ConfigurationParamValue.Label = args.Value;
+
+			// Parameter (read-only dropdown)
 			var parameter = new DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter>(
 				new[] { new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter>(record.ConfigurationParam.Name, record.ConfigurationParam) })
 			{
 				IsEnabled = false,
-				IsVisible = !collapseButtom.IsCollapsed,
+				IsVisible = isVisible,
 			};
-			var link = new CheckBox { IsChecked = record.ConfigurationParamValue.LinkedConfigurationReference != null, IsVisible = !collapseButtom.IsCollapsed };
+
+			// Link checkbox
+			var link = new CheckBox
+			{
+				IsChecked = isLinked,
+				IsVisible = isVisible,
+				IsEnabled = !anyEditing,
+			};
+			link.Changed += (sender, args) =>
+			{
+				record.ConfigurationParamValue.LinkedConfigurationReference = args.IsChecked ? "Dummy Link" : null;
+				// TODO: store IsLinked to DOM field (configuration parameter value)
+				ClearParamValue(record);
+				if (!args.IsChecked)
+				{
+					_editingConsumerId = null;
+				}
+
+				BuildUI(view.Details[collapseButton.Tooltip].IsVisible);
+			};
+
+			// Unit
 			var unit = new DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationUnit>(
 				new[] { new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationUnit>("-", null) })
-			{ IsEnabled = false, MaxWidth = 80, IsVisible = !collapseButtom.IsCollapsed };
-			var start = new Numeric { IsEnabled = false, MaxWidth = 100, IsVisible = !collapseButtom.IsCollapsed };
-			var end = new Numeric { IsEnabled = false, MaxWidth = 100, IsVisible = !collapseButtom.IsCollapsed };
-			var step = new Numeric { IsEnabled = false, Minimum = 0, Maximum = 1, MaxWidth = 100, IsVisible = !collapseButtom.IsCollapsed };
-			var decimals = new Numeric { StepSize = 1, Minimum = 0, Maximum = 6, IsEnabled = false, MaxWidth = 80, IsVisible = !collapseButtom.IsCollapsed };
-			var values = new Button("...") { IsEnabled = false, IsVisible = !collapseButtom.IsCollapsed };
-			var delete = new Button("🚫") { IsEnabled = !mandatory, IsVisible = !collapseButtom.IsCollapsed };
-			bool isValueFixed = record.ConfigurationParamValue.ValueFixed;
+			{ IsEnabled = false, MaxWidth = 80, IsVisible = isVisible };
 
-			label.Changed += (sender, args) => record.ConfigurationParamValue.Label = args.Value;
+			// Details section widgets
+			var start = new Numeric { IsEnabled = false, MaxWidth = 100, IsVisible = isVisible };
+			var end = new Numeric { IsEnabled = false, MaxWidth = 100, IsVisible = isVisible };
+			var step = new Numeric { IsEnabled = false, Minimum = 0, Maximum = 1, MaxWidth = 100, IsVisible = isVisible };
+			var decimals = new Numeric { StepSize = 1, Minimum = 0, Maximum = 6, IsEnabled = false, MaxWidth = 80, IsVisible = isVisible };
+			var values = new Button("...") { IsEnabled = false, IsVisible = isVisible };
 
+			// Delete
+			var delete = new Button("🚫") { IsEnabled = !mandatory && !anyEditing, IsVisible = isVisible };
 			if (deleteEventHandler != null)
 			{
 				delete.Pressed += deleteEventHandler;
 			}
 
-			link.Changed += (sender, args) =>
+			// Value widget — disabled if linked or if another consumer is being edited
+			bool valueDisabled = isValueFixed || isLinked || (anyEditing && !isEditingThis);
+			switch (parameter.Selected.Type)
 			{
-				record.ConfigurationParamValue.LinkedConfigurationReference = args.IsChecked ? "Dummy Link" : null;
-				BuildUI(view.Details[collapseButtom.Tooltip].IsVisible);
-			};
+				case SlcConfigurationsIds.Enums.Type.Number:
+					collapseButton.LinkedWidgets.Add(AddNumericWidgets(record, row, parameter, unit, start, end, step, decimals, isVisible, valueDisabled, isLinked));
+					break;
 
-			if (record.ConfigurationParamValue.LinkedConfigurationReference != null)
-			{
-				var referenceDropdown = new DropDown { IsVisible = !collapseButtom.IsCollapsed };
-				view.AddWidget(referenceDropdown, row, parameterValueColumnIndex);
-				collapseButtom.LinkedWidgets.Add(referenceDropdown);
+				case SlcConfigurationsIds.Enums.Type.Discrete:
+					collapseButton.LinkedWidgets.Add(AddDiscreteWidgets(record, row, isVisible, valueDisabled));
+					break;
+
+				default:
+					collapseButton.LinkedWidgets.Add(AddTextWidgets(record, row, isVisible, valueDisabled, isLinked));
+					break;
 			}
-			else
+
+			// Consumer-only widgets: script name field + pencil/end-edit button
+			if (isLinked)
 			{
-				switch (parameter.Selected.Type)
+				_mockLinkedScript.TryGetValue(record.ConfigurationParam.ID, out var currentScript);
+				var scriptName = new TextBox(currentScript ?? String.Empty)
 				{
-					case SlcConfigurationsIds.Enums.Type.Number:
-						collapseButtom.LinkedWidgets.Add(AddNumericWidgets(record, row, parameter, unit, start, end, step, decimals, !collapseButtom.IsCollapsed, isValueFixed));
+					PlaceHolder = "Script name...",
+					IsVisible = isVisible,
+					IsEnabled = !anyEditing || isEditingThis,
+					MaxWidth = 300,
+				};
+				scriptName.Changed += (sender, args) =>
+				{
+					// TODO: store LinkedScript to DOM field (configuration parameter value)
+					_mockLinkedScript[record.ConfigurationParam.ID] = args.Value;
+				};
+				view.AddWidget(scriptName, row, 5, 1, 2);
+				collapseButton.LinkedWidgets.Add(scriptName);
 
-						break;
+				var pencilButton = new Button(isEditingThis ? "💾" : "✏️")
+				{
+					IsVisible = isVisible,
+					MaxWidth = addButtonWidth,
+				};
+				pencilButton.Pressed += (sender, args) =>
+				{
+					_editingConsumerId = isEditingThis ? (Guid?)null : record.ConfigurationParam.ID;
+					BuildUI(view.Details[collapseButton.Tooltip].IsVisible);
+				};
+				view.AddWidget(pencilButton, row, 8);
+				collapseButton.LinkedWidgets.Add(pencilButton);
+			}
 
-					case SlcConfigurationsIds.Enums.Type.Discrete:
-						collapseButtom.LinkedWidgets.Add(AddDiscreteWidgets(record, row, !collapseButtom.IsCollapsed, isValueFixed));
+			// Producer checkbox — visible only when this parameter is a non-consumer and another consumer is being edited
+			if (!isLinked && anyEditing && siblingRecords != null)
+			{
+				var editingConsumer = siblingRecords.FirstOrDefault(s => s.ConfigurationParam.ID == _editingConsumerId);
+				if (editingConsumer != null)
+				{
+					// TODO: read LinkedConsumers from DOM field (configuration parameter value)
+					_mockLinkedConsumers.TryGetValue(editingConsumer.ConfigurationParam.ID, out var linkedConsumers);
+					bool isProducerForConsumer = linkedConsumers?.Contains(record.ConfigurationParam.ID.ToString()) == true;
+					var producerCheckBox = new CheckBox
+					{
+						IsChecked = isProducerForConsumer,
+						IsVisible = isVisible,
+						Tooltip = "Producer for " + editingConsumer.ConfigurationParam.Name,
+					};
+					producerCheckBox.Changed += (sender, args) =>
+					{
+						// TODO: store LinkedConsumers to DOM field (configuration parameter value)
+						if (!_mockLinkedConsumers.ContainsKey(editingConsumer.ConfigurationParam.ID))
+						{
+							_mockLinkedConsumers[editingConsumer.ConfigurationParam.ID] = new List<string>();
+						}
 
-						break;
-
-					default:
-						collapseButtom.LinkedWidgets.Add(AddTextWidgets(record, row, !collapseButtom.IsCollapsed, isValueFixed));
-
-						break;
+						if (args.IsChecked)
+						{
+							if (!_mockLinkedConsumers[editingConsumer.ConfigurationParam.ID].Contains(record.ConfigurationParam.ID.ToString()))
+							{
+								_mockLinkedConsumers[editingConsumer.ConfigurationParam.ID].Add(record.ConfigurationParam.ID.ToString());
+							}
+						}
+						else
+						{
+							_mockLinkedConsumers[editingConsumer.ConfigurationParam.ID].Remove(record.ConfigurationParam.ID.ToString());
+						}
+					};
+					view.AddWidget(producerCheckBox, row, 7);
+					collapseButton.LinkedWidgets.Add(producerCheckBox);
 				}
 			}
 
 			// Populate row
 			view.AddWidget(label, row, 0);
-			collapseButtom.LinkedWidgets.Add(label);
+			collapseButton.LinkedWidgets.Add(label);
 			view.AddWidget(parameter, row, 1);
-			collapseButtom.LinkedWidgets.Add(parameter);
+			collapseButton.LinkedWidgets.Add(parameter);
 			view.AddWidget(link, row, 2);
-			collapseButtom.LinkedWidgets.Add(link);
-			view.AddWidget(unit, row, 4);
-			collapseButtom.LinkedWidgets.Add(unit);
+			collapseButton.LinkedWidgets.Add(link);
+			if (parameter.Selected.Type == SlcConfigurationsIds.Enums.Type.Number)
+			{
+				view.AddWidget(unit, row, 4);
+				collapseButton.LinkedWidgets.Add(unit);
+			}
 
-			view.Details[collapseButtom.Tooltip].AddWidget(start, sectionRow, 0, HorizontalAlignment.Left);
-			view.Details[collapseButtom.Tooltip].AddWidget(end, sectionRow, 1);
-			view.Details[collapseButtom.Tooltip].AddWidget(step, sectionRow, 2);
-			view.Details[collapseButtom.Tooltip].AddWidget(decimals, sectionRow, 3);
-			view.Details[collapseButtom.Tooltip].AddWidget(values, sectionRow, 4);
+			view.Details[collapseButton.Tooltip].AddWidget(start, sectionRow, 0, HorizontalAlignment.Left);
+			view.Details[collapseButton.Tooltip].AddWidget(end, sectionRow, 1);
+			view.Details[collapseButton.Tooltip].AddWidget(step, sectionRow, 2);
+			view.Details[collapseButton.Tooltip].AddWidget(decimals, sectionRow, 3);
+			view.Details[collapseButton.Tooltip].AddWidget(values, sectionRow, 4);
 
-			view.AddWidget(delete, row, 10);
-			collapseButtom.LinkedWidgets.Add(delete);
+			view.AddWidget(delete, row, 9);
+			collapseButton.LinkedWidgets.Add(delete);
+		}
+
+		private void ClearParamValue(IParameterDataRecord record)
+		{
+			record.ConfigurationParamValue.StringValue = null;
+			record.ConfigurationParamValue.DoubleValue = null;
 		}
 
 		private EventHandler<EventArgs> DeleteStandaloneParameter(StandaloneParameterDataRecord record)
@@ -759,13 +875,13 @@
 			};
 		}
 
-		private TextBox AddTextWidgets(IParameterDataRecord record, int row, bool isVisible = true, bool isValueFixed = false)
+		private TextBox AddTextWidgets(IParameterDataRecord record, int row, bool isVisible = true, bool isValueFixed = false, bool isLinked = false)
 		{
-			var value = new TextBox(record.ConfigurationParamValue.StringValue ?? record.ConfigurationParamValue.TextOptions?.Default ?? String.Empty)
+			var value = new TextBox(isLinked && record.ConfigurationParamValue.StringValue == null ? String.Empty : record.ConfigurationParamValue.StringValue ?? record.ConfigurationParamValue.TextOptions?.Default ?? String.Empty)
 			{
 				Tooltip = record.ConfigurationParamValue.TextOptions?.UserMessage ?? String.Empty,
 				IsVisible = isVisible,
-				IsEnabled = !isValueFixed,
+				IsEnabled = !isValueFixed && !isLinked,
 			};
 			value.Changed += (sender, args) =>
 			{
@@ -823,20 +939,21 @@
 			Numeric step,
 			Numeric decimals,
 			bool isVisible = true,
-			bool isValueFixed = false)
+			bool isValueFixed = false,
+			bool isLinked = false)
 		{
 			double minimum = record.ConfigurationParamValue.NumberOptions.MinRange ?? -10_000;
 			double maximum = record.ConfigurationParamValue.NumberOptions.MaxRange ?? 10_000;
 			int decimalVal = Convert.ToInt32(record.ConfigurationParamValue.NumberOptions.Decimals);
 			double stepSize = record.ConfigurationParamValue.NumberOptions.StepSize ?? 1;
-			Numeric value = new Numeric(record.ConfigurationParamValue.DoubleValue ?? record.ConfigurationParamValue.NumberOptions.DefaultValue ?? 0)
+			Numeric value = new Numeric(isLinked && record.ConfigurationParamValue.DoubleValue == null ? 0 : record.ConfigurationParamValue.DoubleValue ?? record.ConfigurationParamValue.NumberOptions.DefaultValue ?? 0)
 			{
 				Minimum = minimum,
 				Maximum = maximum,
 				StepSize = stepSize,
 				Decimals = decimalVal,
 				IsVisible = isVisible,
-				IsEnabled = !isValueFixed,
+				IsEnabled = !isValueFixed && !isLinked,
 			};
 			unit.SetOptions(GetUnits(record.ConfigurationParamValue.NumberOptions, parameter.Selected));
 			unit.Selected = GetDefaultUnit(record.ConfigurationParamValue.NumberOptions, parameter.Selected);

@@ -18,7 +18,7 @@
     <PackageReference Include="Skyline.DataMiner.ProjectApi.ServiceManagement" Version="1.0.1-alpha.19" />
     <PackageReference Include="Skyline.DataMiner.Utils.InteractiveAutomationScriptToolkit" Version="10.5.5.1" />
     <PackageReference Include="Skyline.DataMiner.Utils.MediaOps.Temp.Helpers" Version="1.4.1-alpha19" />
-    <PackageReference Include="Skyline.DataMiner.Utils.SecureCoding.Analyzers" Version="2.2.1">
+    <PackageReference Include="Skyline.DataMiner.Utils.SecureCoding.Analyzers" Version="2.2.3">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
