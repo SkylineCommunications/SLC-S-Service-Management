@@ -223,8 +223,7 @@
 
 			var target = targetProfile.ProfileParameterConfigs
 				.Where(x => x.State != State.Delete)
-				.FirstOrDefault(p => p.ConfigurationParamValue.Label == update.ParamLabel ||
-					p.ConfigurationParam.Name == update.ParamLabel);
+				.FirstOrDefault(p => p.ConfigurationParamValue.Label == update.ParamLabel || p.ConfigurationParam.Name == update.ParamLabel);
 
 			if (target == null)
 			{
@@ -271,11 +270,13 @@
 			foreach (var consumer in consumers)
 			{
 				context.ParamIdToProfileName.TryGetValue(consumer.ConfigurationParamValue.ID, out var profileName);
+
 				var results = RunLinkedScript(
 					consumer.ConfigurationParamValue.LinkedScript,
 					profileName,
 					consumer.ConfigurationParamValue.Label ?? consumer.ConfigurationParam.Name,
 					context.ServiceConfigJson);
+
 				ApplyScriptResults(results, context.ProfileByName, updatedValues);
 			}
 
@@ -309,6 +310,7 @@
 					producerProfileName,
 					producer.ConfigurationParamValue.Label ?? producer.ConfigurationParam.Name,
 					context.ServiceConfigJson);
+
 				ApplyScriptResults(results, context.ProfileByName, null);
 			}
 
@@ -1014,6 +1016,7 @@
 				IsVisible = isVisible,
 				Tooltip = $"Producer for {editingConsumer.ConfigurationParam.Name}",
 			};
+
 			producerCheckBox.Changed += (sender, args) =>
 			{
 				if (editingConsumer.ConfigurationParamValue.LinkedConsumers == null)
@@ -1029,6 +1032,7 @@
 					editingConsumer.ConfigurationParamValue.LinkedConsumers.Remove(record.ConfigurationParamValue.ID);
 				}
 			};
+
 			view.AddWidget(producerCheckBox, row, 7);
 			collapseButton.LinkedWidgets.Add(producerCheckBox);
 		}
