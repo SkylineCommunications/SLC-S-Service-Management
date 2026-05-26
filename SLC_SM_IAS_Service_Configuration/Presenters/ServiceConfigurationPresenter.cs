@@ -7,15 +7,20 @@
 
 	using DomHelpers.SlcConfigurations;
 
+	using Newtonsoft.Json;
+
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
+	using Skyline.DataMiner.Utils.SecureCoding.SecureSerialization.Json.Newtonsoft;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
 
 	using SLC_SM_IAS_Service_Configuration.Model;
+	using SLC_SM_IAS_Service_Configuration.Model.DataRecords;
 	using SLC_SM_IAS_Service_Configuration.Views;
+	using static Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models;
 
 	public partial class ServiceConfigurationPresenter
 	{
@@ -38,10 +43,6 @@
 		private int detailsColumnIndex = 5;
 		private int parameterValueColumnIndex = 3;
 		private Guid? _editingConsumerId;
-
-		// TODO: remove once LinkedScript and LinkedConsumers are added to DOM
-		private readonly Dictionary<Guid, string> _mockLinkedScript = new Dictionary<Guid, string>();
-		private readonly Dictionary<Guid, List<string>> _mockLinkedConsumers = new Dictionary<Guid, List<string>>();
 
 		public ServiceConfigurationPresenter(IEngine engine, InteractiveController controller, ServiceConfigurationView view, Models.Service instance)
 		{
@@ -129,7 +130,6 @@
 			repoConfig = new DataHelpersConfigurations(engine.GetUserConnection());
 
 			var configParams = repoConfig.ConfigurationParameters.Read();
-			////var refConfigParams = repoConfig.ReferencedConfigurationParameters.Read();
 			serviceSpecification = instanceService.ServiceSpecificationId.HasValue
 					? repoService.ServiceSpecifications.Read(Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceSpecificationExposers.Guid.Equal(instanceService.ServiceSpecificationId.Value))[0]
 					: null;
@@ -192,6 +192,208 @@
 			else
 			{
 				repoService.ServiceConfigurationVersions.CreateOrUpdate(configuration.ServiceConfigurationVersion);
+			}
+
+			RunConsumerScripts();
+		}
+
+		private static void ApplyScriptResults(List<ScriptParameters.ScriptParameterUpdate> updates, Dictionary<string, ProfileDataRecord> profileByName, List<IParameterDataRecord> updatedValues)
+		{
+			if (updates == null)
+			{
+				return;
+			}
+
+			foreach (var update in updates)
+			{
+				ApplySingleUpdate(update, profileByName, updatedValues);
+			}
+		}
+
+		private static void ApplySingleUpdate(ScriptParameters.ScriptParameterUpdate update, Dictionary<string, ProfileDataRecord> profileByName, List<IParameterDataRecord> updatedValues)
+		{
+			var targetProfile = profileByName.TryGetValue(update.ProfileName, out var exactMatch)
+				? exactMatch
+				: profileByName.Values.FirstOrDefault(p => p.Profile.Name.StartsWith(update.ProfileName, StringComparison.OrdinalIgnoreCase));
+
+			if (targetProfile == null)
+			{
+				return;
+			}
+
+			var target = targetProfile.ProfileParameterConfigs
+				.Where(x => x.State != State.Delete)
+				.FirstOrDefault(p => p.ConfigurationParamValue.Label == update.ParamLabel ||
+					p.ConfigurationParam.Name == update.ParamLabel);
+
+			if (target == null)
+			{
+				return;
+			}
+
+			if (target.ConfigurationParam.Type == SlcConfigurationsIds.Enums.Type.Number)
+			{
+				if (Double.TryParse(update.Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double numericValue))
+				{
+					target.ConfigurationParamValue.DoubleValue = numericValue;
+				}
+			}
+			else
+			{
+				target.ConfigurationParamValue.StringValue = update.Value;
+			}
+
+			if (updatedValues != null && !updatedValues.Contains(target))
+			{
+				updatedValues.Add(target);
+			}
+		}
+
+		private static void ClearParamValue(IParameterDataRecord record)
+		{
+			record.ConfigurationParamValue.StringValue = null;
+			record.ConfigurationParamValue.DoubleValue = null;
+		}
+
+		private void RunConsumerScripts()
+		{
+			var context = BuildScriptContext();
+
+			var consumers = context.AllParameters
+				.Where(p =>
+					p.ConfigurationParamValue.IsLinked &&
+					!String.IsNullOrWhiteSpace(p.ConfigurationParamValue.LinkedScript) &&
+					String.IsNullOrEmpty(p.ConfigurationParamValue.StringValue) &&
+					p.ConfigurationParamValue.DoubleValue == null)
+				.ToList();
+
+			var updatedValues = new List<IParameterDataRecord>();
+			foreach (var consumer in consumers)
+			{
+				context.ParamIdToProfileName.TryGetValue(consumer.ConfigurationParamValue.ID, out var profileName);
+				var results = RunLinkedScript(
+					consumer.ConfigurationParamValue.LinkedScript,
+					profileName,
+					consumer.ConfigurationParamValue.Label ?? consumer.ConfigurationParam.Name,
+					context.ServiceConfigJson);
+				ApplyScriptResults(results, context.ProfileByName, updatedValues);
+			}
+
+			foreach (var updated in updatedValues)
+			{
+				repoConfig.ConfigurationParameterValues.CreateOrUpdate(updated.ConfigurationParamValue);
+			}
+		}
+
+		private void PopulateLinkedConsumers(IParameterDataRecord producer, IEnumerable<IParameterDataRecord> allParameters)
+		{
+			var consumers = allParameters
+				.Where(p =>
+					p.ConfigurationParamValue.IsLinked &&
+					p.ConfigurationParamValue.LinkedConsumers != null &&
+					p.ConfigurationParamValue.LinkedConsumers.Any(id => id == producer.ConfigurationParamValue.ID))
+				.ToList();
+
+			if (!consumers.Any())
+			{
+				return;
+			}
+
+			var context = BuildScriptContext();
+			context.ParamIdToProfileName.TryGetValue(producer.ConfigurationParamValue.ID, out var producerProfileName);
+
+			foreach (var consumer in consumers.Where(c => !String.IsNullOrWhiteSpace(c.ConfigurationParamValue.LinkedScript)))
+			{
+				var results = RunLinkedScript(
+					consumer.ConfigurationParamValue.LinkedScript,
+					producerProfileName,
+					producer.ConfigurationParamValue.Label ?? producer.ConfigurationParam.Name,
+					context.ServiceConfigJson);
+				ApplyScriptResults(results, context.ProfileByName, null);
+			}
+
+			BuildUI(this.showDetails);
+		}
+
+		private ScriptContext BuildScriptContext()
+		{
+			var activeProfiles = configuration.ServiceProfileConfigs
+				.Where(x => x.State != State.Delete)
+				.ToList();
+
+			var allParameters = configuration.ServiceParameterConfigs
+				.Where(x => x.State != State.Delete)
+				.Cast<IParameterDataRecord>()
+				.Concat(activeProfiles.SelectMany(p => p.ProfileParameterConfigs.Where(x => x.State != State.Delete)))
+				.ToList();
+
+			var paramIdToProfileName = new Dictionary<Guid, string>();
+			foreach (var profile in activeProfiles)
+			{
+				foreach (var param in profile.ProfileParameterConfigs.Where(x => x.State != State.Delete))
+				{
+					paramIdToProfileName[param.ConfigurationParamValue.ID] = profile.Profile.Name;
+				}
+			}
+
+			var serviceConfigJson = allParameters.Select(p => new
+			{
+				profile = paramIdToProfileName.TryGetValue(p.ConfigurationParamValue.ID, out var pName) ? pName : String.Empty,
+				parameter = p.ConfigurationParam.Name,
+				label = p.ConfigurationParamValue.Label,
+				value = p.ConfigurationParam.Type == SlcConfigurationsIds.Enums.Type.Number
+					? p.ConfigurationParamValue.DoubleValue?.ToString(System.Globalization.CultureInfo.InvariantCulture)
+					: p.ConfigurationParamValue.StringValue,
+				isLinked = p.ConfigurationParamValue.IsLinked,
+			}).ToList();
+
+			return new ScriptContext
+			{
+				AllParameters = allParameters,
+				ParamIdToProfileName = paramIdToProfileName,
+				ProfileByName = activeProfiles.ToDictionary(p => p.Profile.Name),
+				ServiceConfigJson = serviceConfigJson,
+			};
+		}
+
+		private List<ScriptParameters.ScriptParameterUpdate> RunLinkedScript(string scriptName, string triggerProfile, string triggerParameter, object serviceConfigJson)
+		{
+			try
+			{
+				var inputJson = JsonConvert.SerializeObject(new
+				{
+					trigger = new
+					{
+						profile = triggerProfile ?? String.Empty,
+						parameter = triggerParameter,
+					},
+					serviceConfiguration = serviceConfigJson,
+				});
+
+				var subScript = engine.PrepareSubScript(scriptName);
+				subScript.Synchronous = true;
+				subScript.InheritScriptOutput = true;
+				subScript.SelectScriptParam("Input", inputJson);
+				subScript.StartScript();
+
+				var scriptResult = subScript.GetScriptResult();
+				if (scriptResult == null || !scriptResult.ContainsKey("Result"))
+				{
+					return new List<ScriptParameters.ScriptParameterUpdate>();
+				}
+
+				var jsonResult = scriptResult["Result"];
+				if (String.IsNullOrWhiteSpace(jsonResult))
+				{
+					return new List<ScriptParameters.ScriptParameterUpdate>();
+				}
+
+				return SecureNewtonsoftDeserialization.DeserializeObject<List<ScriptParameters.ScriptParameterUpdate>>(jsonResult);
+			}
+			catch (Exception ex)
+			{
+				engine.Log($"RunLinkedScript|Failed to run script '{scriptName}': {ex.Message}");
+				return new List<ScriptParameters.ScriptParameterUpdate>();
 			}
 		}
 
@@ -295,14 +497,10 @@
 			collapseButton.LinkedWidgets.Add(lblValue);
 			view.AddWidget(lblUnit, row, 4);
 			collapseButton.LinkedWidgets.Add(lblUnit);
-			if (hasConsumers)
+			if (hasConsumers && anyEditing)
 			{
 				view.AddWidget(lblScript, row, 5);
 				collapseButton.LinkedWidgets.Add(lblScript);
-			}
-
-			if (anyEditing)
-			{
 				view.AddWidget(lblProducer, row, 7);
 				collapseButton.LinkedWidgets.Add(lblProducer);
 			}
@@ -337,6 +535,14 @@
 			view.Clear();
 			view.Details.Clear();
 
+			var allParameters = configuration.ServiceParameterConfigs
+				.Where(x => x.State != State.Delete)
+				.Cast<IParameterDataRecord>()
+				.Concat(configuration.ServiceProfileConfigs
+					.Where(x => x.State != State.Delete)
+					.SelectMany(p => p.ProfileParameterConfigs.Where(x => x.State != State.Delete)))
+				.ToList();
+
 			int row = 0;
 			view.AddWidget(view.TitleDetails, row, 0, 1, 2);
 			view.AddWidget(new WhiteSpace(), ++row, 0);
@@ -348,9 +554,9 @@
 
 			row = BuildGeneralSettingsUI(row);
 
-			row = BuildStandaloneParametersUI(showDetails, row);
+			row = BuildStandaloneParametersUI(showDetails, row, allParameters);
 
-			row = BuildProfilesUI(showDetails, row);
+			row = BuildProfilesUI(showDetails, row, allParameters);
 
 			view.AddWidget(new WhiteSpace(), ++row, 0);
 
@@ -479,17 +685,17 @@
 			return row;
 		}
 
-		private int BuildProfilesUI(bool showDetails, int row)
+		private int BuildProfilesUI(bool showDetails, int row, List<IParameterDataRecord> allParameters)
 		{
 			foreach (var profile in configuration.ServiceProfileConfigs.Where(x => x.State != State.Delete))
 			{
-				row = BuildProfileUI(showDetails, row, profile);
+				row = BuildProfileUI(showDetails, row, profile, allParameters);
 			}
 
 			return row;
 		}
 
-		private int BuildProfileUI(bool showDetails, int row, ProfileDataRecord profile)
+		private int BuildProfileUI(bool showDetails, int row, ProfileDataRecord profile, List<IParameterDataRecord> allParameters)
 		{
 			if (!view.ProfileCollapseButtons.TryGetValue(profile.Profile.Name, out var collapseButton))
 			{
@@ -538,14 +744,14 @@
 			delete.Pressed += DeleteProfile(profile);
 
 			var profileParameterList = profile.ProfileParameterConfigs.Where(x => x.State != State.Delete).OrderBy(x => x.ConfigurationParam?.Name).ToList();
-			BuildHeaderRow(++row, collapseButton, profileParameterList.Any(p => p.ConfigurationParamValue.LinkedConfigurationReference != null), _editingConsumerId.HasValue);
+			BuildHeaderRow(++row, collapseButton, allParameters.Any(p => p.ConfigurationParamValue.IsLinked), _editingConsumerId.HasValue);
 
 			int originalSectionRow = row;
 			int sectionRow = 0;
 
 			foreach (var profileParameter in profileParameterList)
 			{
-				BuildParameterUIRow(collapseButton, profileParameter, ++row, ++sectionRow, DeleteProfileParameter(profile, profileParameter), profile.ServiceProfileConfig.Mandatory || profileParameter.Mandatory, profileParameterList);
+				BuildParameterUIRow(collapseButton, profileParameter, ++row, ++sectionRow, DeleteProfileParameter(profile, profileParameter), profile.ServiceProfileConfig.Mandatory || profileParameter.Mandatory, allParameters);
 			}
 
 			view.AddSection(view.Details[profile.Profile.Name], originalSectionRow, 5);
@@ -610,7 +816,7 @@
 			return row;
 		}
 
-		private int BuildStandaloneParametersUI(bool showDetails, int row)
+		private int BuildStandaloneParametersUI(bool showDetails, int row, List<IParameterDataRecord> allParameters)
 		{
 			view.StandaloneParameters.MaxWidth = collapeButtonWidth;
 			view.StandaloneParameters.LinkedWidgets.Clear();
@@ -618,13 +824,13 @@
 			view.AddWidget(new Label(ServiceConfigurationView.StandaloneCollapseButtonTitle) { Style = TextStyle.Bold, MaxWidth = 250 }, ++row, 1, 1, 5);
 			view.AddWidget(view.StandaloneParameters, row, 0, HorizontalAlignment.Center);
 			var standaloneParameterList = configuration.ServiceParameterConfigs.Where(x => x.State != State.Delete).ToList();
-			BuildHeaderRow(++row, view.StandaloneParameters, standaloneParameterList.Any(p => p.ConfigurationParamValue.LinkedConfigurationReference != null), _editingConsumerId.HasValue);
+			BuildHeaderRow(++row, view.StandaloneParameters, allParameters.Any(p => p.ConfigurationParamValue.IsLinked), _editingConsumerId.HasValue);
 
 			int originalSectionRow = row;
 			int sectionRow = 0;
 			foreach (var standaloneParameter in standaloneParameterList)
 			{
-				BuildParameterUIRow(view.StandaloneParameters, standaloneParameter, ++row, ++sectionRow, DeleteStandaloneParameter(standaloneParameter), standaloneParameter.ServiceParameterConfig.Mandatory, standaloneParameterList);
+				BuildParameterUIRow(view.StandaloneParameters, standaloneParameter, ++row, ++sectionRow, DeleteStandaloneParameter(standaloneParameter), standaloneParameter.ServiceParameterConfig.Mandatory, allParameters);
 			}
 
 			view.AddSection(view.Details[StandaloneCollapseButtonTitle], originalSectionRow, detailsColumnIndex);
@@ -671,150 +877,65 @@
 		{
 			bool isVisible = !collapseButton.IsCollapsed;
 			bool isValueFixed = record.ConfigurationParamValue.ValueFixed;
-			bool isLinked = record.ConfigurationParamValue.LinkedConfigurationReference != null;
+			bool isLinked = record.ConfigurationParamValue.IsLinked;
 			bool isEditingThis = _editingConsumerId == record.ConfigurationParam.ID;
 			bool anyEditing = _editingConsumerId.HasValue;
 
-			// Label
 			var label = new TextBox(record.ConfigurationParamValue.Label) { IsVisible = isVisible };
 			label.Changed += (sender, args) => record.ConfigurationParamValue.Label = args.Value;
 
-			// Parameter (read-only dropdown)
-			var parameter = new DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter>(
-				new[] { new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter>(record.ConfigurationParam.Name, record.ConfigurationParam) })
+			var parameter = new DropDown<ConfigurationParameter>(
+				new[] { new Option<ConfigurationParameter>(record.ConfigurationParam.Name, record.ConfigurationParam) })
 			{
 				IsEnabled = false,
 				IsVisible = isVisible,
 			};
 
-			// Link checkbox
-			var link = new CheckBox
-			{
-				IsChecked = isLinked,
-				IsVisible = isVisible,
-				IsEnabled = !anyEditing,
-			};
+			var link = new CheckBox { IsChecked = isLinked, IsVisible = isVisible, IsEnabled = !anyEditing };
 			link.Changed += (sender, args) =>
 			{
-				record.ConfigurationParamValue.LinkedConfigurationReference = args.IsChecked ? "Dummy Link" : null;
-				// TODO: store IsLinked to DOM field (configuration parameter value)
+				record.ConfigurationParamValue.IsLinked = args.IsChecked;
 				ClearParamValue(record);
 				if (!args.IsChecked)
 				{
+					record.ConfigurationParamValue.LinkedScript = null;
+					record.ConfigurationParamValue.LinkedConsumers = null;
 					_editingConsumerId = null;
 				}
 
 				BuildUI(view.Details[collapseButton.Tooltip].IsVisible);
 			};
 
-			// Unit
-			var unit = new DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationUnit>(
-				new[] { new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationUnit>("-", null) })
-			{ IsEnabled = false, MaxWidth = 80, IsVisible = isVisible };
-
-			// Details section widgets
+			var unit = new DropDown<ConfigurationUnit>(new[] { new Option<ConfigurationUnit>("-", null) }) { IsEnabled = false, MaxWidth = 80, IsVisible = isVisible };
 			var start = new Numeric { IsEnabled = false, MaxWidth = 100, IsVisible = isVisible };
 			var end = new Numeric { IsEnabled = false, MaxWidth = 100, IsVisible = isVisible };
 			var step = new Numeric { IsEnabled = false, Minimum = 0, Maximum = 1, MaxWidth = 100, IsVisible = isVisible };
 			var decimals = new Numeric { StepSize = 1, Minimum = 0, Maximum = 6, IsEnabled = false, MaxWidth = 80, IsVisible = isVisible };
 			var values = new Button("...") { IsEnabled = false, IsVisible = isVisible };
 
-			// Delete
 			var delete = new Button("🚫") { IsEnabled = !mandatory && !anyEditing, IsVisible = isVisible };
 			if (deleteEventHandler != null)
-			{
 				delete.Pressed += deleteEventHandler;
-			}
 
-			// Value widget — disabled if linked or if another consumer is being edited
 			bool valueDisabled = isValueFixed || isLinked || (anyEditing && !isEditingThis);
+			Action onProducerValueChanged = (!isLinked && siblingRecords != null)
+				? () => PopulateLinkedConsumers(record, siblingRecords)
+				: (Action)null;
+
 			switch (parameter.Selected.Type)
 			{
 				case SlcConfigurationsIds.Enums.Type.Number:
-					collapseButton.LinkedWidgets.Add(AddNumericWidgets(record, row, parameter, unit, start, end, step, decimals, isVisible, valueDisabled, isLinked));
+					collapseButton.LinkedWidgets.Add(AddNumericWidgets(record, row, parameter, unit, start, end, step, decimals, isVisible, valueDisabled, isLinked, onProducerValueChanged));
 					break;
-
 				case SlcConfigurationsIds.Enums.Type.Discrete:
-					collapseButton.LinkedWidgets.Add(AddDiscreteWidgets(record, row, isVisible, valueDisabled));
+					collapseButton.LinkedWidgets.Add(AddDiscreteWidgets(record, row, isVisible, valueDisabled, onProducerValueChanged));
 					break;
-
 				default:
-					collapseButton.LinkedWidgets.Add(AddTextWidgets(record, row, isVisible, valueDisabled, isLinked));
+					collapseButton.LinkedWidgets.Add(AddTextWidgets(record, row, isVisible, valueDisabled, isLinked, onProducerValueChanged));
 					break;
 			}
 
-			// Consumer-only widgets: script name field + pencil/end-edit button
-			if (isLinked)
-			{
-				_mockLinkedScript.TryGetValue(record.ConfigurationParam.ID, out var currentScript);
-				var scriptName = new TextBox(currentScript ?? String.Empty)
-				{
-					PlaceHolder = "Script name...",
-					IsVisible = isVisible,
-					IsEnabled = !anyEditing || isEditingThis,
-					MaxWidth = 300,
-				};
-				scriptName.Changed += (sender, args) =>
-				{
-					// TODO: store LinkedScript to DOM field (configuration parameter value)
-					_mockLinkedScript[record.ConfigurationParam.ID] = args.Value;
-				};
-				view.AddWidget(scriptName, row, 5, 1, 2);
-				collapseButton.LinkedWidgets.Add(scriptName);
-
-				var pencilButton = new Button(isEditingThis ? "💾" : "✏️")
-				{
-					IsVisible = isVisible,
-					MaxWidth = addButtonWidth,
-				};
-				pencilButton.Pressed += (sender, args) =>
-				{
-					_editingConsumerId = isEditingThis ? (Guid?)null : record.ConfigurationParam.ID;
-					BuildUI(view.Details[collapseButton.Tooltip].IsVisible);
-				};
-				view.AddWidget(pencilButton, row, 8);
-				collapseButton.LinkedWidgets.Add(pencilButton);
-			}
-
-			// Producer checkbox — visible only when this parameter is a non-consumer and another consumer is being edited
-			if (!isLinked && anyEditing && siblingRecords != null)
-			{
-				var editingConsumer = siblingRecords.FirstOrDefault(s => s.ConfigurationParam.ID == _editingConsumerId);
-				if (editingConsumer != null)
-				{
-					// TODO: read LinkedConsumers from DOM field (configuration parameter value)
-					_mockLinkedConsumers.TryGetValue(editingConsumer.ConfigurationParam.ID, out var linkedConsumers);
-					bool isProducerForConsumer = linkedConsumers?.Contains(record.ConfigurationParam.ID.ToString()) == true;
-					var producerCheckBox = new CheckBox
-					{
-						IsChecked = isProducerForConsumer,
-						IsVisible = isVisible,
-						Tooltip = "Producer for " + editingConsumer.ConfigurationParam.Name,
-					};
-					producerCheckBox.Changed += (sender, args) =>
-					{
-						// TODO: store LinkedConsumers to DOM field (configuration parameter value)
-						if (!_mockLinkedConsumers.ContainsKey(editingConsumer.ConfigurationParam.ID))
-						{
-							_mockLinkedConsumers[editingConsumer.ConfigurationParam.ID] = new List<string>();
-						}
-
-						if (args.IsChecked)
-						{
-							if (!_mockLinkedConsumers[editingConsumer.ConfigurationParam.ID].Contains(record.ConfigurationParam.ID.ToString()))
-							{
-								_mockLinkedConsumers[editingConsumer.ConfigurationParam.ID].Add(record.ConfigurationParam.ID.ToString());
-							}
-						}
-						else
-						{
-							_mockLinkedConsumers[editingConsumer.ConfigurationParam.ID].Remove(record.ConfigurationParam.ID.ToString());
-						}
-					};
-					view.AddWidget(producerCheckBox, row, 7);
-					collapseButton.LinkedWidgets.Add(producerCheckBox);
-				}
-			}
+			AddLinkWidgets(collapseButton, record, row, isVisible, isLinked, isEditingThis, anyEditing, siblingRecords);
 
 			// Populate row
 			view.AddWidget(label, row, 0);
@@ -839,10 +960,77 @@
 			collapseButton.LinkedWidgets.Add(delete);
 		}
 
-		private void ClearParamValue(IParameterDataRecord record)
+		private void AddLinkWidgets(CollapseButton collapseButton, IParameterDataRecord record, int row,bool isVisible, bool isLinked, bool isEditingThis, bool anyEditing, IEnumerable<IParameterDataRecord> siblingRecords)
 		{
-			record.ConfigurationParamValue.StringValue = null;
-			record.ConfigurationParamValue.DoubleValue = null;
+			if (isLinked)
+			{
+				if (isEditingThis)
+				{
+					var scriptName = new TextBox(record.ConfigurationParamValue.LinkedScript ?? String.Empty)
+					{
+						PlaceHolder = "Script name...",
+						IsVisible = isVisible,
+						MaxWidth = 300,
+					};
+					scriptName.Changed += (sender, args) => record.ConfigurationParamValue.LinkedScript = args.Value;
+					view.AddWidget(scriptName, row, 5, 1, 2);
+					collapseButton.LinkedWidgets.Add(scriptName);
+				}
+
+				var pencilButton = new Button(isEditingThis ? "💾" : "✏️")
+				{
+					IsVisible = isVisible,
+					IsEnabled = !anyEditing || isEditingThis,
+					MaxWidth = addButtonWidth,
+				};
+				pencilButton.Pressed += (sender, args) =>
+				{
+					_editingConsumerId = isEditingThis ? (Guid?)null : record.ConfigurationParam.ID;
+					BuildUI(view.Details[collapseButton.Tooltip].IsVisible);
+				};
+				view.AddWidget(pencilButton, row, 8);
+				collapseButton.LinkedWidgets.Add(pencilButton);
+				return;
+			}
+
+			var placeholder = new Label(String.Empty) { IsVisible = isVisible, MaxWidth = 0 };
+			view.AddWidget(placeholder, row, 5);
+			collapseButton.LinkedWidgets.Add(placeholder);
+
+			if (anyEditing && siblingRecords != null)
+				AddProducerCheckBox(collapseButton, record, row, isVisible, siblingRecords);
+		}
+
+		private void AddProducerCheckBox(CollapseButton collapseButton, IParameterDataRecord record, int row, bool isVisible, IEnumerable<IParameterDataRecord> siblingRecords)
+		{
+			var editingConsumer = siblingRecords.FirstOrDefault(s => s.ConfigurationParam.ID == _editingConsumerId);
+			if (editingConsumer == null)
+				return;
+
+			bool isProducerForConsumer = editingConsumer.ConfigurationParamValue.LinkedConsumers?.Contains(record.ConfigurationParamValue.ID) == true;
+			var producerCheckBox = new CheckBox
+			{
+				IsChecked = isProducerForConsumer,
+				IsVisible = isVisible,
+				Tooltip = $"Producer for {editingConsumer.ConfigurationParam.Name}",
+			};
+			producerCheckBox.Changed += (sender, args) =>
+			{
+				if (editingConsumer.ConfigurationParamValue.LinkedConsumers == null)
+					editingConsumer.ConfigurationParamValue.LinkedConsumers = new List<Guid>();
+
+				if (args.IsChecked)
+				{
+					if (!editingConsumer.ConfigurationParamValue.LinkedConsumers.Contains(record.ConfigurationParamValue.ID))
+						editingConsumer.ConfigurationParamValue.LinkedConsumers.Add(record.ConfigurationParamValue.ID);
+				}
+				else
+				{
+					editingConsumer.ConfigurationParamValue.LinkedConsumers.Remove(record.ConfigurationParamValue.ID);
+				}
+			};
+			view.AddWidget(producerCheckBox, row, 7);
+			collapseButton.LinkedWidgets.Add(producerCheckBox);
 		}
 
 		private EventHandler<EventArgs> DeleteStandaloneParameter(StandaloneParameterDataRecord record)
@@ -875,7 +1063,7 @@
 			};
 		}
 
-		private TextBox AddTextWidgets(IParameterDataRecord record, int row, bool isVisible = true, bool isValueFixed = false, bool isLinked = false)
+		private TextBox AddTextWidgets(IParameterDataRecord record, int row, bool isVisible = true, bool isValueFixed = false, bool isLinked = false, Action onProducerValueChanged = null)
 		{
 			var value = new TextBox(isLinked && record.ConfigurationParamValue.StringValue == null ? String.Empty : record.ConfigurationParamValue.StringValue ?? record.ConfigurationParamValue.TextOptions?.Default ?? String.Empty)
 			{
@@ -883,6 +1071,8 @@
 				IsVisible = isVisible,
 				IsEnabled = !isValueFixed && !isLinked,
 			};
+
+			string lastValue = record.ConfigurationParamValue.StringValue;
 			value.Changed += (sender, args) =>
 			{
 				if (record.ConfigurationParamValue.TextOptions?.Regex != null && !Regex.IsMatch(args.Value, record.ConfigurationParamValue.TextOptions.Regex))
@@ -896,12 +1086,17 @@
 				value.ValidationState = UIValidationState.Valid;
 				value.ValidationText = record.ConfigurationParamValue.TextOptions?.UserMessage;
 				record.ConfigurationParamValue.StringValue = args.Value;
+				if (onProducerValueChanged != null && args.Value != lastValue)
+				{
+					lastValue = args.Value;
+					onProducerValueChanged();
+				}
 			};
 			view.AddWidget(value, row, parameterValueColumnIndex);
 			return value;
 		}
 
-		private DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.DiscreteValue> AddDiscreteWidgets(IParameterDataRecord record, int row, bool isVisible = true, bool isValueFixed = false)
+		private DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.DiscreteValue> AddDiscreteWidgets(IParameterDataRecord record, int row, bool isVisible = true, bool isValueFixed = false, Action onProducerValueChanged = null)
 		{
 			var discretes = record.ConfigurationParamValue.DiscreteOptions.DiscreteValues
 											.Select(x => new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.DiscreteValue>(x.Value, x))
@@ -924,7 +1119,16 @@
 				record.ConfigurationParamValue.StringValue = value.Selected?.Value;
 			}
 
-			value.Changed += (sender, args) => { record.ConfigurationParamValue.StringValue = args.SelectedOption.DisplayValue; };
+			string lastValue = record.ConfigurationParamValue.StringValue;
+			value.Changed += (sender, args) =>
+			{
+				record.ConfigurationParamValue.StringValue = args.SelectedOption.DisplayValue;
+				if (onProducerValueChanged != null && args.SelectedOption.DisplayValue != lastValue)
+				{
+					lastValue = args.SelectedOption.DisplayValue;
+					onProducerValueChanged();
+				}
+			};
 			view.AddWidget(value, row, parameterValueColumnIndex);
 			return value;
 		}
@@ -940,7 +1144,8 @@
 			Numeric decimals,
 			bool isVisible = true,
 			bool isValueFixed = false,
-			bool isLinked = false)
+			bool isLinked = false,
+			Action onProducerValueChanged = null)
 		{
 			double minimum = record.ConfigurationParamValue.NumberOptions.MinRange ?? -10_000;
 			double maximum = record.ConfigurationParamValue.NumberOptions.MaxRange ?? 10_000;
@@ -994,7 +1199,17 @@
 				record.ConfigurationParamValue.NumberOptions.StepSize = args.Value;
 			};
 			unit.Changed += (sender, args) => record.ConfigurationParamValue.NumberOptions.DefaultUnit = args.Selected;
-			value.Changed += (sender, args) => { record.ConfigurationParamValue.DoubleValue = args.Value; };
+
+			double? lastNumericValue = record.ConfigurationParamValue.DoubleValue;
+			value.Changed += (sender, args) =>
+			{
+				record.ConfigurationParamValue.DoubleValue = args.Value;
+				if (onProducerValueChanged != null && args.Value != lastNumericValue)
+				{
+					lastNumericValue = args.Value;
+					onProducerValueChanged();
+				}
+			};
 			view.AddWidget(value, row, parameterValueColumnIndex);
 			return value;
 		}
@@ -1044,6 +1259,17 @@
 		private void ShowHideStandaloneParametersDetails(bool showDetails, Section section)
 		{
 			section.IsVisible = showDetails && !view.StandaloneParameters.IsCollapsed;
+		}
+
+		private sealed class ScriptContext
+		{
+			public List<IParameterDataRecord> AllParameters { get; set; }
+
+			public Dictionary<Guid, string> ParamIdToProfileName { get; set; }
+
+			public Dictionary<string, ProfileDataRecord> ProfileByName { get; set; }
+
+			public object ServiceConfigJson { get; set; }
 		}
 	}
 }
