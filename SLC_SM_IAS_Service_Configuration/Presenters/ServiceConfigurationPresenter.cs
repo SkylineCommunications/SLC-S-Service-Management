@@ -40,7 +40,7 @@
 		private int deleteProfileButtonWidth = 55;
 		private int buttonWidth = 200;
 
-		private int detailsColumnIndex = 5;
+		private int detailsColumnIndex = 10;
 		private int parameterValueColumnIndex = 3;
 		private Guid? _editingConsumerId;
 
@@ -756,7 +756,7 @@
 				BuildParameterUIRow(collapseButton, profileParameter, ++row, ++sectionRow, DeleteProfileParameter(profile, profileParameter), profile.ServiceProfileConfig.Mandatory || profileParameter.Mandatory, allParameters);
 			}
 
-			view.AddSection(view.Details[profile.Profile.Name], originalSectionRow, 5);
+			view.AddSection(view.Details[profile.Profile.Name], originalSectionRow, 10);
 			collapseButton.LinkedWidgets.AddRange(view.Details[profile.Profile.Name].Widgets);
 			view.Details[profile.Profile.Name].IsVisible = showDetails;
 
