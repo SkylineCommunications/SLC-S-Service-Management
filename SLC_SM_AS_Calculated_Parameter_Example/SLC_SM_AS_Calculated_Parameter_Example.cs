@@ -1,4 +1,4 @@
-namespace SLCSMASExampleRetrieveLinkedServiceConfigurationParameterValue
+namespace SLCSMASCalculatedParameterExample
 {
 	using System;
 
