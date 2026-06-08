@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 18
-VisualStudioVersion = 18.2.11408.102 d18.0
+VisualStudioVersion = 18.2.11408.102
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "SLC-Service-Management", "SLC-Service-Management\SLC-Service-Management.csproj", "{C7BDFA2E-C681-4423-A739-68B7D4C96510}"
 EndProject
@@ -125,6 +125,10 @@ EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SLC_SM_Take_Ownership", "SLC_SM_Take_Ownership\SLC_SM_Take_Ownership.csproj", "{A2DCDF6C-78E1-42BA-86AE-E57FC7394BC7}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SLC_SM_DS_GetServiceDetails", "SLC_SM_DS_GetServiceDetails\SLC_SM_DS_GetServiceDetails.csproj", "{95AEAFA8-2230-4202-C803-FA46CEE86999}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Examples", "Examples", "{9A96E65D-62A6-4747-B7F0-19D670A7DA4C}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SLC_SM_AS_Example Retrieve Linked Service Configuration Parameter Value", "SLC_SM_AS_Example Retrieve Linked Service Configuration Parameter Value\SLC_SM_AS_Example Retrieve Linked Service Configuration Parameter Value.csproj", "{BE29C76E-CD22-48E1-A30C-5E84C2BBAB6E}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -336,6 +340,10 @@ Global
 		{95AEAFA8-2230-4202-C803-FA46CEE86999}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{95AEAFA8-2230-4202-C803-FA46CEE86999}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{95AEAFA8-2230-4202-C803-FA46CEE86999}.Release|Any CPU.Build.0 = Release|Any CPU
+		{BE29C76E-CD22-48E1-A30C-5E84C2BBAB6E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{BE29C76E-CD22-48E1-A30C-5E84C2BBAB6E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{BE29C76E-CD22-48E1-A30C-5E84C2BBAB6E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{BE29C76E-CD22-48E1-A30C-5E84C2BBAB6E}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -392,6 +400,7 @@ Global
 		{3EBA069E-70A2-409F-8638-6BA259689406} = {7B54F701-23CF-40FB-B16E-65F702079BF6}
 		{A2DCDF6C-78E1-42BA-86AE-E57FC7394BC7} = {5B35FE04-DC17-46DA-A887-CFCFF55E5058}
 		{95AEAFA8-2230-4202-C803-FA46CEE86999} = {D44EC38B-25B7-4DDE-AB69-528AE471A88F}
+		{BE29C76E-CD22-48E1-A30C-5E84C2BBAB6E} = {9A96E65D-62A6-4747-B7F0-19D670A7DA4C}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {38C318B5-7814-41CC-9BA6-DC5069897881}
