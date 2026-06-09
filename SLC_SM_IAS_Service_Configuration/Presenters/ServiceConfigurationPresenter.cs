@@ -193,8 +193,6 @@
 			{
 				repoService.ServiceConfigurationVersions.CreateOrUpdate(configuration.ServiceConfigurationVersion);
 			}
-
-			RunConsumerScripts();
 		}
 
 		private static void ApplyScriptResults(List<ScriptParameters.ScriptParameterUpdate> updates, Dictionary<string, ProfileDataRecord> profileByName, List<IParameterDataRecord> updatedValues)
@@ -252,38 +250,6 @@
 		{
 			record.ConfigurationParamValue.StringValue = null;
 			record.ConfigurationParamValue.DoubleValue = null;
-		}
-
-		private void RunConsumerScripts()
-		{
-			var context = BuildScriptContext();
-
-			var consumers = context.AllParameters
-				.Where(p =>
-					p.ConfigurationParamValue.IsLinked &&
-					!String.IsNullOrWhiteSpace(p.ConfigurationParamValue.LinkedScript) &&
-					String.IsNullOrEmpty(p.ConfigurationParamValue.StringValue) &&
-					p.ConfigurationParamValue.DoubleValue == null)
-				.ToList();
-
-			var updatedValues = new List<IParameterDataRecord>();
-			foreach (var consumer in consumers)
-			{
-				context.ParamIdToProfileName.TryGetValue(consumer.ConfigurationParamValue.ID, out var profileName);
-
-				var results = RunLinkedScript(
-					consumer.ConfigurationParamValue.LinkedScript,
-					profileName,
-					consumer.ConfigurationParamValue.Label ?? consumer.ConfigurationParam.Name,
-					context.ServiceConfigJson);
-
-				ApplyScriptResults(results, context.ProfileByName, updatedValues);
-			}
-
-			foreach (var updated in updatedValues)
-			{
-				repoConfig.ConfigurationParameterValues.CreateOrUpdate(updated.ConfigurationParamValue);
-			}
 		}
 
 		private void PopulateLinkedConsumers(IParameterDataRecord producer, IEnumerable<IParameterDataRecord> allParameters)
