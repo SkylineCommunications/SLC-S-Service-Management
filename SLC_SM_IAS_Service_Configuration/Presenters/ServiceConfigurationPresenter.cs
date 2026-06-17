@@ -991,7 +991,6 @@
 			bool isReusable = false,
 			string collapseButtonTitle = null)
 		{
-
 			if (record.ConfigurationParamValue.NumberOptions == null)
 			{
 				record.ConfigurationParamValue.NumberOptions = parameter?.NumberOptions ?? throw new InvalidOperationException($"NumberOptions is null for parameter: {record.ConfigurationParam?.Name ?? "Unknown"}");

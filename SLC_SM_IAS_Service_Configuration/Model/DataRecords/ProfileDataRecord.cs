@@ -64,7 +64,7 @@
 
 			internal List<Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter>> GetAvailableProfileParameters(DataHelpersConfigurations repoConfig)
 			{
-				if (Profile.IsReusable || ProfileDefinition == null)
+				if (Profile == null || Profile.IsReusable || ProfileDefinition == null)
 				{
 					return new List<Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter>>
 					{
