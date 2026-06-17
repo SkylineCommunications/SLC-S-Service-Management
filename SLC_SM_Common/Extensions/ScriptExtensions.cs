@@ -7,7 +7,6 @@
 	using System.Linq;
 
 	using Newtonsoft.Json;
-
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Net.Apps.DataMinerObjectModel;
 	using Skyline.DataMiner.Net.Apps.Modules;

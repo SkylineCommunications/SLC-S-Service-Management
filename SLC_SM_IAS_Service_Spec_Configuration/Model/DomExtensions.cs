@@ -1,7 +1,6 @@
-﻿namespace SLC_SM_IAS_Service_Spec_Configuration.Model
+namespace SLC_SM_IAS_Service_Spec_Configuration.Model
 {
 	using System.Collections.Generic;
-
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations;
@@ -16,27 +15,14 @@
 				return new List<Models.ConfigurationParameter>();
 			}
 
-			FilterElement<Models.ConfigurationParameter> configParamFilter = null;
-			List<Models.ConfigurationParameter> configParams = new List<Models.ConfigurationParameter>();
+			FilterElement<Models.ConfigurationParameter> configParamFilter = new ORFilterElement<Models.ConfigurationParameter>();
 
-			for (int i = 0; i < referencedConfigurationParameters.Count; i++)
+			foreach (var refParam in referencedConfigurationParameters)
 			{
-				if (i == 0)
-				{
-					configParamFilter = ConfigurationParameterExposers.Guid.Equal(referencedConfigurationParameters[i].ConfigurationParameter);
-				}
-				else
-				{
-					configParamFilter = configParamFilter.OR(ConfigurationParameterExposers.Guid.Equal(referencedConfigurationParameters[i].ConfigurationParameter));
-				}
+				configParamFilter = configParamFilter.OR(ConfigurationParameterExposers.Guid.Equal(refParam.ConfigurationParameter));
 			}
 
-			if (configParamFilter != null)
-			{
-				configParams = dataHelperConfigurations.ConfigurationParameters.Read(configParamFilter);
-			}
-
-			return configParams;
+			return !configParamFilter.isEmpty() ? dataHelperConfigurations.ConfigurationParameters.Read(configParamFilter) : new List<Models.ConfigurationParameter>();
 		}
 
 		internal static List<Models.ConfigurationParameter> GetConfigParameters(DataHelpersConfigurations dataHelperConfigurations, Models.Profile profile)

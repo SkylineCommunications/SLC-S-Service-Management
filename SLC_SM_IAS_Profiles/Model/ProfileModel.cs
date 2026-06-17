@@ -26,7 +26,7 @@
 
 		public List<Models.Profile> ReadProfiles()
 		{
-			return _model.Profiles.Read();
+			return _model.Profiles.Read(ProfileExposers.IsReusable.Equal(true));
 		}
 
 		public Guid CreateOrUpdateProfile(Models.Profile profile)

@@ -52,9 +52,7 @@
 							continue;
 						}
 
-						engine.Log($"{currentParameterConfig.Label} Found config param: {configParam.Name}");
-						var referencedParam = currentConfig.ProfileDefinition?.ConfigurationParameters.Find(x => x.ConfigurationParameter == configParam.ID);
-						engine.Log($"{currentParameterConfig.Label} Looking for referenced param with config param ID {configParam.ID}. Found: {referencedParam != null}");
+						var referencedParam = currentConfig.ProfileDefinition?.ConfigurationParameters?.Find(x => x.ConfigurationParameter == configParam.ID);
 
 						ProfileParameterDataRecord dataParameterRecord = ProfileParameterDataRecord.BuildParameterDataRecord(currentParameterConfig, configParam, referencedParam, state);
 						dataRecord.ProfileParameterConfigs.Add(dataParameterRecord);
@@ -74,7 +72,6 @@
 					};
 				}
 
-				// var refConfigParams = HelperMethods.GetReferencedConfigParameters(repoConfig, ProfileDefinition);
 				var configParams = HelperMethods.GetConfigParameters(repoConfig, ProfileDefinition.ConfigurationParameters);
 
 				var parameterOptions = ProfileDefinition.ConfigurationParameters

@@ -6,8 +6,7 @@
 	using System.Text.RegularExpressions;
 
 	using DomHelpers.SlcConfigurations;
-
-	using Newtonsoft.Json;
+	using Library;
 
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
@@ -209,7 +208,7 @@
 			throw new ScriptAbortException("OK");
 		}
 
-		internal void AddStandaloneParameterConfigModel(Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter selectedParameter)
+		public void AddStandaloneParameterConfigModel(Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter selectedParameter)
 		{
 			var configurationParameterInstance = selectedParameter ?? new Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter();
 			var config = new Models.ServiceSpecificationConfigurationValue
@@ -454,7 +453,7 @@
 
 			int originalSectionRow = row;
 			int sectionRow = 0;
-			foreach (var standaloneParameter in standaloneConfigurations.Where(x => x.State != State.Delete))
+			foreach (var standaloneParameter in standaloneConfigurations.Where(x => x.State != State.Delete).OrderBy(x => x.ConfigurationParam?.Name))
 			{
 				BuildParameterUIRow(view.StandaloneParameters, standaloneParameter, ++row, ++sectionRow, DeleteStandaloneParameter(standaloneParameter));
 			}
@@ -509,8 +508,8 @@
 				{
 					collapseButton = new CollapseButton(true)
 					{
-						ExpandText = "+",
-						CollapseText = "-",
+						ExpandText = Defaults.SymbolPlus,
+						CollapseText = Defaults.SymbolMin,
 						MaxWidth = collapseButtonWidth,
 					};
 				}
@@ -540,7 +539,7 @@
 				}
 
 				view.AddWidget(collapseButton, row, 0, HorizontalAlignment.Center);
-				var delete = new Button("🚫") { MaxWidth = deleteProfileButtonWidth };
+				var delete = new Button(Defaults.SymbolCross) { MaxWidth = deleteProfileButtonWidth };
 				view.AddWidget(delete, row, 2);
 				delete.Pressed += DeleteProfile(profile);
 
@@ -686,7 +685,7 @@
 			var step = new Numeric { IsEnabled = false, Minimum = 0, Maximum = 1, MaxWidth = 100, IsVisible = !collapseButton.IsCollapsed };
 			var decimals = new Numeric { StepSize = 1, Minimum = 0, Maximum = 6, IsEnabled = false, MaxWidth = 80, IsVisible = !collapseButton.IsCollapsed };
 			var values = new Button("...") { IsEnabled = false, IsVisible = !collapseButton.IsCollapsed };
-			var delete = new Button("🚫") { IsVisible = !collapseButton.IsCollapsed, IsEnabled = !mandatory };
+			var delete = new Button(Defaults.SymbolCross) { IsVisible = !collapseButton.IsCollapsed, IsEnabled = !mandatory };
 
 			if (record is StandaloneParameterDataRecord standalone)
 			{
@@ -802,7 +801,13 @@
 
 		private DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.DiscreteValue> AddDisceteWidget(IParameterDataRecord record, int row, CheckBox na, Button values, bool isVisible, bool isReusable)
 		{
-			var allDiscretes = record.ConfigurationParam.DiscreteOptions == null || record.ConfigurationParam.DiscreteOptions.DiscreteValues == null
+			if (record.ConfigurationParamValue.DiscreteOptions == null)
+			{
+				record.ConfigurationParamValue.DiscreteOptions = record.ConfigurationParam?.DiscreteOptions ?? throw new InvalidOperationException($"DiscreteOptions is null for parameter: {record.ConfigurationParam?.Name ?? "Unknown"}");
+				record.ConfigurationParamValue.DiscreteOptions.ID = Guid.NewGuid();
+			}
+
+			var allDiscretes = record.ConfigurationParam?.DiscreteOptions?.DiscreteValues == null
 				? new List<Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.DiscreteValue>>()
 				: record.ConfigurationParam.DiscreteOptions.DiscreteValues
 											.Select(x => new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.DiscreteValue>(x.Value, x))
@@ -871,11 +876,17 @@
 
 		private Numeric AddNumericWidget(IParameterDataRecord record, int row, DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter> parameter, CheckBox na, DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationUnit> unit, Numeric start, Numeric end, Numeric step, Numeric decimals, bool isVisible, bool isReusable)
 		{
-			double minimum = record.ConfigurationParamValue.NumberOptions?.MinRange ?? -10_000;
-			double maximum = record.ConfigurationParamValue.NumberOptions?.MaxRange ?? 10_000;
-			int decimalVal = Convert.ToInt32(record.ConfigurationParamValue.NumberOptions?.Decimals);
-			double stepSize = record.ConfigurationParamValue.NumberOptions?.StepSize ?? 1;
-			Numeric value = new Numeric(record.ConfigurationParamValue.DoubleValue ?? record.ConfigurationParamValue.NumberOptions?.DefaultValue ?? minimum)
+			if (record.ConfigurationParamValue.NumberOptions == null)
+			{
+				record.ConfigurationParamValue.NumberOptions = parameter?.Selected?.NumberOptions ?? record.ConfigurationParam?.NumberOptions ?? throw new InvalidOperationException($"NumberOptions is null for parameter: {record.ConfigurationParam?.Name ?? "Unknown"}");
+				record.ConfigurationParamValue.NumberOptions.ID = Guid.NewGuid();
+			}
+
+			double minimum = record.ConfigurationParamValue.NumberOptions.MinRange ?? -10_000;
+			double maximum = record.ConfigurationParamValue.NumberOptions.MaxRange ?? 10_000;
+			int decimalVal = Convert.ToInt32(record.ConfigurationParamValue.NumberOptions.Decimals);
+			double stepSize = record.ConfigurationParamValue.NumberOptions.StepSize ?? 1;
+			Numeric value = new Numeric(record.ConfigurationParamValue.DoubleValue ?? record.ConfigurationParamValue.NumberOptions.DefaultValue ?? minimum)
 			{
 				Minimum = minimum,
 				Maximum = maximum,
