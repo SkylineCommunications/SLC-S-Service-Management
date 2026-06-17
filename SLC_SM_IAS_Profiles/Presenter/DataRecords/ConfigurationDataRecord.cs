@@ -13,14 +13,12 @@
 			State initialState,
 			RecordType type)
 		{
-			State state = initialState;
 			switch (paramValue.Type)
 			{
 				case SlcConfigurationsIds.Enums.Type.Number:
 					if (paramValue.NumberOptions == null)
 					{
 						paramValue.NumberOptions = new Models.NumberParameterOptions();
-						state = State.Updated;
 					}
 
 					break;
@@ -29,7 +27,6 @@
 					if (paramValue.DiscreteOptions == null)
 					{
 						paramValue.DiscreteOptions = new Models.DiscreteParameterOptions();
-						state = State.Updated;
 					}
 
 					break;
@@ -38,17 +35,15 @@
 					if (paramValue.TextOptions == null)
 					{
 						paramValue.TextOptions = new Models.TextParameterOptions();
-						state = State.Updated;
 					}
 
 					break;
 
 				default:
-
 					break;
 			}
 
-			State = state;
+			State = initialState;
 			RecordType = type;
 			ReferredConfigurationParameter = configParameter;
 			ConfigurationParameterValue = paramValue;

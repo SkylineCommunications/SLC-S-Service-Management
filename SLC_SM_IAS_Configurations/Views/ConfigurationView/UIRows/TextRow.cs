@@ -1,9 +1,7 @@
 ﻿namespace SLC_SM_IAS_Profiles.Views
 {
-	using System.Collections.Generic;
 	using System.Text.RegularExpressions;
 	using Skyline.DataMiner.Automation;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
 	using SLC_SM_IAS_Profiles.Presenters;
 

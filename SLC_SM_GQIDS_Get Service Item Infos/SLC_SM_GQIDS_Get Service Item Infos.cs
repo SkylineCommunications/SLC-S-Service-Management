@@ -2,7 +2,9 @@ namespace SLC_SM_GQIDS_Get_Service_Item_Infos
 {
 	using System;
 	using System.Linq;
+	using DomHelpers.SlcServicemanagement;
 	using Skyline.DataMiner.Analytics.GenericInterface;
+	using Skyline.DataMiner.Net.Apps.DataMinerObjectModel;
 	using Skyline.DataMiner.Net.Messages;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API;
@@ -147,7 +149,7 @@ namespace SLC_SM_GQIDS_Get_Service_Item_Infos
 						new GQICell { Value = service.EndTime?.ToUniversalTime() },
 						new GQICell { Value = alarmLevel },
 						new GQICell { Value = service.ServiceConfiguration?.VersionName ?? String.Empty },
-					}),
+					}) { Metadata = new GenIfRowMetadata(new[] { new ObjectRefMetadata { Object = new DomInstanceId(service.ID) { ModuleId = SlcServicemanagementIds.ModuleId } } }) },
 			};
 		}
 	}

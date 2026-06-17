@@ -1,53 +1,16 @@
 /*
 ****************************************************************************
-*  Copyright (c) 2025,  Skyline Communications NV  All Rights Reserved.    *
+*  Copyright (c),  Skyline Communications NV  All Rights Reserved.    *
 ****************************************************************************
 
-By using this script, you expressly agree with the usage terms and
-conditions set out below.
-This script and all related materials are protected by copyrights and
-other intellectual property rights that exclusively belong
-to Skyline Communications.
-
-A user license granted for this script is strictly for personal use only.
-This script may not be used in any way by anyone without the prior
-written consent of Skyline Communications. Any sublicensing of this
-script is forbidden.
-
-Any modifications to this script by the user are only allowed for
-personal use and within the intended purpose of the script,
-and will remain the sole responsibility of the user.
-Skyline Communications will not be responsible for any damages or
-malfunctions whatsoever of the script resulting from a modification
-or adaptation by the user.
-
-The content of this script is confidential information.
-The user hereby agrees to keep this confidential information strictly
-secret and confidential and not to disclose or reveal it, in whole
-or in part, directly or indirectly to any person, entity, organization
-or administration without the prior written consent of
-Skyline Communications.
-
-Any inquiries can be addressed to:
-
-    Skyline Communications NV
-    Ambachtenstraat 33
-    B-8870 Izegem
-    Belgium
-    Tel.    : +32 51 31 35 69
-    Fax.    : +32 51 31 01 29
-    E-mail    : info@skyline.be
-    Web        : www.skyline.be
-    Contact    : Ben Vandenberghe
-
-****************************************************************************
 Revision History:
 
-DATE        VERSION        AUTHOR            COMMENTS
+DATE        VERSION        AUTHOR           COMMENTS
 
-dd/mm/2025    1.0.0.1        XXX, Skyline    Initial version
+dd/mm/2025    1.0.0.1      RME, Skyline		Initial version
 ****************************************************************************
 */
+
 namespace Launch_Interactive_Subscript
 {
 	using System;
@@ -55,6 +18,8 @@ namespace Launch_Interactive_Subscript
 	using System.IO;
 	using System.Linq;
 	using DomHelpers.SlcConfigurations;
+	using Library;
+	using Library.Dom;
 	using Newtonsoft.Json;
 	using Newtonsoft.Json.Converters;
 	using Skyline.DataMiner.Automation;
@@ -64,7 +29,6 @@ namespace Launch_Interactive_Subscript
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.IAS;
-	using static DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Service_Behavior;
 	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement.Models;
 
 	/// <summary>
@@ -72,7 +36,7 @@ namespace Launch_Interactive_Subscript
 	/// </summary>
 	public class Script
 	{
-		private const string ReferenceUnknown = "Reference Unknown";
+		private IEngine engine;
 
 		/// <summary>
 		///     The script entry point.
@@ -90,65 +54,8 @@ namespace Launch_Interactive_Subscript
 
 			try
 			{
-				Guid domId = engine.ReadScriptParamFromApp<Guid>("DOM ID");
-
-				var srvHelper = new DataHelpersServiceManagement(engine.GetUserConnection());
-				Models.Service service = srvHelper.Services.Read(ServiceExposers.Guid.Equal(domId)).FirstOrDefault()
-										 ?? throw new InvalidOperationException($"No Service exists on the system with ID '{domId}'");
-
-				string itemLabel = engine.ReadScriptParamFromApp("Item Label");
-				var serviceItem = service.ServiceItems.Find(s => s.Label == itemLabel);
-				if (serviceItem == null)
-				{
-					return;
-				}
-
-				var configurationParameters = GetFilteredConfigurationParameters(engine, service);
-
-				List<ServiceCharacteristic> serviceCharacteristics = service.ServiceConfiguration?.Parameters.Select(
-						x => new ServiceCharacteristic
-						{
-							Id = x.ConfigurationParameter.ConfigurationParameterId,
-							Name = configurationParameters.FirstOrDefault(c => c.ID == x.ConfigurationParameter.ConfigurationParameterId)?.Name ?? String.Empty,
-							Label = x.ConfigurationParameter.Label,
-							Type = x.ConfigurationParameter.Type,
-							StringValue = x.ConfigurationParameter.StringValue,
-							DoubleValue = x.ConfigurationParameter.DoubleValue,
-						})
-					.ToList()
-					?? new List<ServiceCharacteristic>();
-
-				List<ServiceCharacteristic> serviceItemCharacteristics = new List<ServiceCharacteristic>();
-
-				// Add references from other bookings under the service
-				serviceItemCharacteristics.AddRange(service.ServiceItems.Select(s => new ServiceCharacteristic
-				{
-					////Id = ,
-					Name = "Service Item Implementation Reference",
-					Label = s.DefinitionReference,
-					Type = SlcConfigurationsIds.Enums.Type.Text,
-					StringValue = s.ImplementationReference,
-				}));
-
-				var serviceItemDetails = new ServiceItemDetails
-				{
-					Name = service.Name.Split(Path.GetInvalidFileNameChars())[0],
-					Start = service.StartTime.HasValue ? new DateTimeOffset(service.StartTime.Value).ToUnixTimeMilliseconds() : new DateTimeOffset(DateTime.UtcNow + TimeSpan.FromHours(1)).ToUnixTimeMilliseconds(),
-					End = service.EndTime.HasValue ? new DateTimeOffset(service.EndTime.Value).ToUnixTimeMilliseconds() : default(long?),
-					ServiceCharacteristics = serviceCharacteristics,
-					ServiceItemCharacteristics = serviceItemCharacteristics,
-				};
-
-				string scriptOutput = RunScript(engine, serviceItem.Script, serviceItem.DefinitionReference, serviceItemDetails);
-
-				serviceItem.ImplementationReference = !String.IsNullOrEmpty(scriptOutput) ? scriptOutput : ReferenceUnknown;
-				srvHelper.Services.CreateOrUpdate(service);
-
-				// Update Service Item to active (if applicable)
-				if (!String.IsNullOrEmpty(scriptOutput))
-				{
-					UpdateState(srvHelper, service);
-				}
+				this.engine = engine;
+				RunSafe();
 			}
 			catch (Exception e)
 			{
@@ -156,29 +63,34 @@ namespace Launch_Interactive_Subscript
 			}
 		}
 
-		private static void UpdateState(DataHelpersServiceManagement srvHelper, Models.Service service)
+		private static List<ServiceCharacteristic> GetServiceItemCharacteristics(Models.Service service)
 		{
-			// If all items are in progress -> move to In Progress
-			if (!service.ServiceItems.All(x => !String.IsNullOrEmpty(x.ImplementationReference) && x.ImplementationReference != ReferenceUnknown))
-			{
-				return;
-			}
+			List<ServiceCharacteristic> serviceItemCharacteristics = new List<ServiceCharacteristic>();
 
-			if (service.Status == StatusesEnum.New)
+			// Add references from other bookings under the service
+			serviceItemCharacteristics.AddRange(service.ServiceItems.Select(s => new ServiceCharacteristic
 			{
-				service = srvHelper.Services.UpdateState(service, TransitionsEnum.New_To_Designed);
-			}
-
-			if (service.Status == StatusesEnum.Designed)
-			{
-				service = srvHelper.Services.UpdateState(service, TransitionsEnum.Designed_To_Reserved);
-			}
-
-			if (service.Status == StatusesEnum.Reserved)
-			{
-				service = srvHelper.Services.UpdateState(service, TransitionsEnum.Reserved_To_Active);
-			}
+				////Id = ,
+				Name = "Service Item Implementation Reference",
+				Label = s.DefinitionReference,
+				Type = SlcConfigurationsIds.Enums.Type.Text,
+				StringValue = s.ImplementationReference,
+			}));
+			return serviceItemCharacteristics;
 		}
+
+		private static List<ServiceCharacteristic> GetServiceCharacteristics(Models.Service service, List<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter> configurationParameters) => service.ServiceConfiguration?.Parameters.Select(
+							x => new ServiceCharacteristic
+							{
+								Id = x.ConfigurationParameter.ConfigurationParameterId,
+								Name = configurationParameters.FirstOrDefault(c => c.ID == x.ConfigurationParameter.ConfigurationParameterId)?.Name ?? String.Empty,
+								Label = x.ConfigurationParameter.Label,
+								Type = x.ConfigurationParameter.Type,
+								StringValue = x.ConfigurationParameter.StringValue,
+								DoubleValue = x.ConfigurationParameter.DoubleValue,
+							})
+						.ToList()
+						?? new List<ServiceCharacteristic>();
 
 		private static List<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter> GetFilteredConfigurationParameters(IEngine engine, Models.Service service)
 		{
@@ -217,6 +129,44 @@ namespace Launch_Interactive_Subscript
 			}
 
 			return subScript.GetScriptResult().FirstOrDefault(x => x.Key == "ReservationID").Value;
+		}
+
+		private void RunSafe()
+		{
+			Guid domId = engine.ReadScriptParamFromApp<Guid>("DOM ID");
+
+			var srvHelper = new DataHelpersServiceManagement(engine.GetUserConnection());
+			Models.Service service = srvHelper.Services.Read(ServiceExposers.Guid.Equal(domId)).FirstOrDefault()
+									 ?? throw new InvalidOperationException($"No Service exists on the system with ID '{domId}'");
+
+			string itemLabel = engine.ReadScriptParamFromApp("Item Label");
+			var serviceItem = service.ServiceItems.Find(s => s.Label == itemLabel);
+			if (serviceItem == null)
+			{
+				throw new NotSupportedException($"No service item with label '{itemLabel}' exists under service '{service.Name}', please reload the page or revise the setup.");
+			}
+
+			var configurationParameters = GetFilteredConfigurationParameters(engine, service);
+
+			var serviceItemDetails = new ServiceItemDetails
+			{
+				Name = service.Name.Split(Path.GetInvalidFileNameChars())[0],
+				Start = service.StartTime.HasValue ? new DateTimeOffset(service.StartTime.Value).ToUnixTimeMilliseconds() : new DateTimeOffset(DateTime.UtcNow + TimeSpan.FromHours(1)).ToUnixTimeMilliseconds(),
+				End = service.EndTime.HasValue ? new DateTimeOffset(service.EndTime.Value).ToUnixTimeMilliseconds() : default(long?),
+				ServiceCharacteristics = GetServiceCharacteristics(service, configurationParameters),
+				ServiceItemCharacteristics = GetServiceItemCharacteristics(service),
+			};
+
+			string scriptOutput = RunScript(engine, serviceItem.Script, serviceItem.DefinitionReference, serviceItemDetails);
+
+			serviceItem.ImplementationReference = !String.IsNullOrEmpty(scriptOutput) ? scriptOutput : Defaults.ReferenceUnknown;
+			srvHelper.Services.CreateOrUpdate(service);
+
+			// Update Service Item to active (if applicable)
+			if (!String.IsNullOrEmpty(scriptOutput))
+			{
+				service.UpdateStatusOnServiceItem(engine.GetUserConnection());
+			}
 		}
 	}
 

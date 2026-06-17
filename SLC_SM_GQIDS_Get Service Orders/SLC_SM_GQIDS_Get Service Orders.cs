@@ -3,8 +3,10 @@ namespace SLC_SM_GQIDS_Get_Service_Orders
 	using System;
 	using System.Collections.Generic;
 	using System.Linq;
+	using DomHelpers.SlcServicemanagement;
 	using Skyline.DataMiner.Analytics.GenericInterface;
 	using Skyline.DataMiner.Net;
+	using Skyline.DataMiner.Net.Apps.DataMinerObjectModel;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.PeopleAndOrganization;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
@@ -70,7 +72,7 @@ namespace SLC_SM_GQIDS_Get_Service_Orders
 					new GQICell { Value = item.OrganizationId.HasValue ? organizations.Find(x => x.ID == item.OrganizationId)?.Name ?? String.Empty : String.Empty },
 					new GQICell { Value = item.Status.GetDescription() },
 				};
-			return new GQIRow(item.ID.ToString(), columns);
+			return new GQIRow(item.ID.ToString(), columns) { Metadata = new GenIfRowMetadata(new[] { new ObjectRefMetadata { Object = new DomInstanceId(item.ID) { ModuleId = SlcServicemanagementIds.ModuleId } } }) };
 		}
 
 		private GQIPage BuildupRows()

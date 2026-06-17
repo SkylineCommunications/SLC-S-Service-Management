@@ -5,7 +5,6 @@
 	using System.Diagnostics;
 	using System.Linq;
 	using Newtonsoft.Json;
-	using Skyline.DataMiner.Analytics.GenericInterface;
 	using Skyline.DataMiner.Automation;
 
 	public static class ScriptExtensions
