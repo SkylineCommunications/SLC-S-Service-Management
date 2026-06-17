@@ -3,6 +3,7 @@
 	using System;
 	using System.Collections.Generic;
 	using System.Linq;
+	using Newtonsoft.Json;
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
@@ -14,7 +15,6 @@
 	{
 		#region Globals
 		private readonly IEngine engine;
-		private readonly ScriptData scriptData;
 		private List<Option<Models.ConfigurationUnit>> cachedUnits;
 		private IReadOnlyList<Models.ProfileDefinition> _cachedProfileDefinitions;
 		private IReadOnlyList<Models.ConfigurationParameter> _cachedConfigurationParameters;
@@ -24,7 +24,7 @@
 		public ConfigurationPresenter(IEngine engine, ScriptData data)
 		{
 			this.engine = engine;
-			scriptData = data;
+			Data = data;
 
 			Model = new ConfigurationModel(engine);
 			Controller = new InteractiveController(engine) { ScriptAbortPopupBehavior = ScriptAbortPopupBehavior.HideAlways };
@@ -37,7 +37,7 @@
 
 			Navigator = new PageNavigator();
 
-			View = new ViewFactory(scriptData.Mode)
+			View = new ViewFactory(Data.Mode)
 				.Create(engine, cachedUnits, new EventHandlers(engine, this));
 		}
 		#endregion
@@ -50,6 +50,8 @@
 		public ConfigurationView View { get; set; }
 
 		public ConfigurationModel Model { get; set; }
+
+		public ScriptData Data { get; set; }
 		#endregion
 
 		#region Public Methods
@@ -68,7 +70,7 @@
 		public List<DataRecord> LoadInitialRecords()
 		{
 			List<DataRecord> records;
-			switch (scriptData.Mode)
+			switch (Data.Mode)
 			{
 				case Mode.Configuration:
 					{
@@ -83,7 +85,7 @@
 
 					break;
 				default:
-					throw new NotSupportedException($"Script data mode {scriptData.Mode} not supported");
+					throw new NotSupportedException($"Script data mode {Data.Mode} not supported");
 			}
 
 			return records;
@@ -108,7 +110,7 @@
 
 					if (record is ConfigurationDataRecord
 						&& record.RecordType != RecordType.New
-						&& scriptData.Mode == Mode.Profile)
+						&& Data.Mode == Mode.Profile)
 					{
 						continue;
 					}
@@ -147,7 +149,6 @@
 					.Concat(profileDefinitions
 						.OrderBy(pd => pd.Name, StringComparer.OrdinalIgnoreCase)
 						.Select(pd => DataRecordFactory.CreateDataRecord(pd, State.Equal, RecordType.Reference)))
-					.Cast<DataRecord>()
 					.ToList();
 
 			return records;

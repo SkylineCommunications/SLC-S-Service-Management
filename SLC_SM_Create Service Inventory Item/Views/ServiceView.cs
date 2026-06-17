@@ -12,7 +12,7 @@
 
 	public class ServiceView : Dialog
 	{
-		public ServiceView(IEngine engine, Script.Action action) : base(engine)
+		public ServiceView(IEngine engine, Defaults.ScriptAction_CreateServiceInventoryItem action) : base(engine)
 		{
 			Title = "Manage Service";
 
@@ -29,7 +29,7 @@
 			AddWidget(LblSpecification, ++row, 0);
 			AddWidget(Specs, row, 1, 1, 2);
 
-			if (action == Script.Action.Edit)
+			if (action == Defaults.ScriptAction_CreateServiceInventoryItem.Edit)
 			{
 				AddWidget(LblServiceConfigurationVersion, ++row, 0);
 				AddWidget(ConfigurationVersions, row, 1, 1, 2);

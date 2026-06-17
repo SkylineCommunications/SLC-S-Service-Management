@@ -2,6 +2,7 @@
 {
 	using System.Collections.Generic;
 	using System.Linq;
+	using Newtonsoft.Json;
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
 
@@ -24,7 +25,11 @@
 				AddConfigurationParameterReference(currentProfilePage.ProfileDefinitionRecord, newConfigurationParameter.ID);
 			}
 
-			navigator.AddRecordToCurrentSliceEnd(DataRecordFactory.CreateDataRecord(newConfigurationParameter, State.Updated, RecordType.New));
+			var slicingEnabled = presenter.Data.Mode == Data.Mode.Configuration;
+			if (slicingEnabled)
+				navigator.AddRecordToCurrentSliceEnd(DataRecordFactory.CreateDataRecord(newConfigurationParameter, State.Updated, RecordType.New));
+			else
+				navigator.AddRecordToCurrentPage(DataRecordFactory.CreateDataRecord(newConfigurationParameter, State.Updated, RecordType.New));
 
 			presenter.BuildUI();
 		}
@@ -51,6 +56,9 @@
 				return;
 
 			if (record.RecordType == RecordType.Reference)
+				return;
+
+			if (previous == value)
 				return;
 
 			if (string.IsNullOrEmpty(value))

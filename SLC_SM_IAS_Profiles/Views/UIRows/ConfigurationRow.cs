@@ -2,6 +2,7 @@
 {
 	using System.Linq;
 	using DomHelpers.SlcConfigurations;
+	using Library;
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
@@ -20,7 +21,7 @@
 			Step = new Numeric { IsEnabled = false, Minimum = 0, Maximum = 1, MaxWidth = 100 };
 			Decimals = new Numeric { StepSize = 1, Minimum = 0, Maximum = 6, IsEnabled = false, MaxWidth = 80 };
 			BtnSettings = new Button("...") { Width = 100, IsEnabled = false };
-			Delete = new Button("❌") { Width = 100, IsEnabled = data.CanDelete };
+			Delete = new Button(Defaults.SymbolCross) { Width = 100, IsEnabled = data.CanDelete };
 
 			BuildReference();
 		}

@@ -3,6 +3,7 @@
 	using Library;
 
 	using Skyline.DataMiner.Automation;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
 
 	public class ServiceConfigurationView : Dialog
@@ -13,18 +14,18 @@
 			MinWidth = Defaults.DialogMinWidth;
 		}
 
-		public Label TitleDetails { get; } = new Label("Service Configuration Details") { Style = TextStyle.Heading };
+		public Label TitleDetails { get; } = new Label("Service Configuration Details") { Style = TextStyle.Bold };
 
 		public Button BtnUpdate { get; } = new Button("Update") { Style = ButtonStyle.CallToAction };
 
 		public Button BtnCancel { get; } = new Button("Cancel");
 
-		public Button BtnShowValueDetails { get; } = new Button("Show Value Details");
+		public CollapseButton BtnShowValueDetails { get; } = new CollapseButton { IsCollapsed = false, ExpandText = "Show Value Details", CollapseText = "Hide Value Details" };
 
-		public Button BtnShowLifeCycleDetails { get; } = new Button("Show Lifecycle Details");
+		public CollapseButton BtnShowLifeCycleDetails { get; } = new CollapseButton { IsCollapsed = false, ExpandText = "Show Lifecycle Details", CollapseText = "Hide Lifecycle Details" };
 
-		public Section Details { get; } = new Section();
+		public DropDown<Models.ConfigurationParameter> AddParameter { get; } = new DropDown<Models.ConfigurationParameter> { IsDisplayFilterShown = true };
 
-		public Section LifeCycleDetails { get; } = new Section();
+		public Button BtnAddParameter { get; } = new Button("Add") { MaxWidth = 70 };
 	}
 }
