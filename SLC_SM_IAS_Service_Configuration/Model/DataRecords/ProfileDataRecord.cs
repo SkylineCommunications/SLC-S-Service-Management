@@ -3,6 +3,7 @@
 	using System.Collections.Generic;
 	using System.Linq;
 
+	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
@@ -23,7 +24,7 @@
 
 			public Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ProfileDefinition ProfileDefinition { get; set; }
 
-			internal static ProfileDataRecord BuildProfileRecord(Models.ServiceProfile currentConfig, List<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter> configParams, State state = State.Update)
+			internal static ProfileDataRecord BuildProfileRecord(IEngine engine, Models.ServiceProfile currentConfig, List<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter> configParams, State state = State.Update)
 			{
 				var dataRecord = new ProfileDataRecord
 				{
@@ -34,11 +35,18 @@
 					ProfileDefinition = currentConfig.ProfileDefinition,
 				};
 
+				if (currentConfig.Profile == null)
+				{
+					dataRecord.State = State.Delete;
+					return dataRecord;
+				}
+
 				if (configParams != null)
 				{
 					foreach (var currentParameterConfig in currentConfig.Profile.ConfigurationParameterValues)
 					{
 						var configParam = configParams.Find(x => x.ID == currentParameterConfig?.ConfigurationParameterId);
+						engine.Log($"{currentParameterConfig.Label} Looking for config param with ID {currentParameterConfig?.ConfigurationParameterId}. Found: {configParam != null}");
 						if (configParam == null)
 						{
 							continue;
@@ -56,7 +64,7 @@
 
 			internal List<Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter>> GetAvailableProfileParameters(DataHelpersConfigurations repoConfig)
 			{
-				if (ProfileDefinition == null)
+				if (Profile.IsReusable || ProfileDefinition == null)
 				{
 					return new List<Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter>>
 					{

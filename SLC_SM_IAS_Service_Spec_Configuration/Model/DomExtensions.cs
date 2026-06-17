@@ -1,4 +1,4 @@
-﻿namespace SLC_SM_IAS_Service_Spec_Configuration.Model
+namespace SLC_SM_IAS_Service_Spec_Configuration.Model
 {
 	using System.Collections.Generic;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
@@ -23,6 +23,36 @@
 			}
 
 			return !configParamFilter.isEmpty() ? dataHelperConfigurations.ConfigurationParameters.Read(configParamFilter) : new List<Models.ConfigurationParameter>();
+		}
+
+		internal static List<Models.ConfigurationParameter> GetConfigParameters(DataHelpersConfigurations dataHelperConfigurations, Models.Profile profile)
+		{
+			if (profile == null)
+			{
+				return new List<Models.ConfigurationParameter>();
+			}
+
+			FilterElement<Models.ConfigurationParameter> configParamFilter = null;
+			List<Models.ConfigurationParameter> configParams = new List<Models.ConfigurationParameter>();
+
+			for (int i = 0; i < profile.ConfigurationParameterValues.Count; i++)
+			{
+				if (i == 0)
+				{
+					configParamFilter = ConfigurationParameterExposers.Guid.Equal(profile.ConfigurationParameterValues[i].ConfigurationParameterId);
+				}
+				else
+				{
+					configParamFilter = configParamFilter.OR(ConfigurationParameterExposers.Guid.Equal(profile.ConfigurationParameterValues[i].ConfigurationParameterId));
+				}
+			}
+
+			if (configParamFilter != null)
+			{
+				configParams = dataHelperConfigurations.ConfigurationParameters.Read(configParamFilter);
+			}
+
+			return configParams;
 		}
 	}
 }

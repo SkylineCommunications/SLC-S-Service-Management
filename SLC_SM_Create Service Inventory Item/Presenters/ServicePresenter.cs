@@ -3,11 +3,13 @@
 	using System;
 	using System.Collections.Generic;
 	using System.Linq;
+	using DomHelpers.SlcPeople_Organizations;
 
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.PeopleAndOrganization;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
+	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
 
 	using SLC_SM_Create_Service_Inventory_Item.Views;
 
@@ -27,7 +29,7 @@
 			_engine = engine;
 			this.repo = repo;
 			this.view = view;
-			List<Models.Service> services = repo.Services.Read();
+			List<Models.Service> services = repo.Services.ReadBasicDetails();
 			getServiceLabels = services.Select(x => x.Name).ToList();
 			string defaultServiceId = repo.Services.UniqueServiceId(services);
 			instanceToReturn = new Models.Service
@@ -80,10 +82,15 @@
 			specs.Insert(0, new Option<Models.ServiceSpecification>("-None-", null));
 			view.Specs.SetOptions(specs);
 
-			var orgs = new DataHelperOrganization(_engine.GetUserConnection()).Read()
+			var orgs = new List<Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.PeopleAndOrganization.Models.Organization>>();
+			if (this._engine.DomModelExists(SlcPeople_OrganizationsIds.ModuleId, new[] {SlcPeople_OrganizationsIds.Sections.OrganizationInformation.Id.Id}))
+			{
+				orgs = new DataHelperOrganization(_engine.GetUserConnection()).Read()
 				.OrderBy(x => x.Name)
 				.Select(x => new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.PeopleAndOrganization.Models.Organization>(x.Name, x))
 				.ToList();
+			}
+
 			orgs.Insert(0, new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.PeopleAndOrganization.Models.Organization>("-None-", null));
 			view.Organizations.SetOptions(orgs);
 
