@@ -3,7 +3,10 @@
 	using System.Collections.Generic;
 	using Library;
 	using Skyline.DataMiner.Automation;
+	using Skyline.DataMiner.Net.Profiles;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
+
+	using SLC_SM_IAS_Service_Configuration.Model;
 
 	public class ServiceConfigurationView : Dialog
 	{
@@ -41,11 +44,14 @@
 		public DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter> StandaloneParametersToAdd { get; set; }
 			= new DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter>();
 
-		public DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ProfileDefinition> ProfileDefinitionToAdd { get; set; }
-			= new DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ProfileDefinition>
+		public DropDown<ProfileOption> ProfileDefinitionToAdd { get; set; }
+			= new DropDown<ProfileOption>
 			{
 				IsDisplayFilterShown = true,
 			};
+
+		public DropDown<ProfileOption> ReusableProfileToAdd { get; set; }
+			= new DropDown<ProfileOption> { IsDisplayFilterShown = false, };
 
 		public DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement.Models.ServiceConfigurationVersion> ConfigurationVersions { get; } =
 			new DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement.Models.ServiceConfigurationVersion>();

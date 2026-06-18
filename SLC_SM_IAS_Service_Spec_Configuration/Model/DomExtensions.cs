@@ -1,11 +1,6 @@
-﻿namespace SLC_SM_IAS_Service_Spec_Configuration.Model
+namespace SLC_SM_IAS_Service_Spec_Configuration.Model
 {
-	using System;
 	using System.Collections.Generic;
-	using System.Linq;
-	using System.Text;
-	using System.Threading.Tasks;
-
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations;
@@ -20,18 +15,35 @@
 				return new List<Models.ConfigurationParameter>();
 			}
 
+			FilterElement<Models.ConfigurationParameter> configParamFilter = new ORFilterElement<Models.ConfigurationParameter>();
+
+			foreach (var refParam in referencedConfigurationParameters)
+			{
+				configParamFilter = configParamFilter.OR(ConfigurationParameterExposers.Guid.Equal(refParam.ConfigurationParameter));
+			}
+
+			return !configParamFilter.isEmpty() ? dataHelperConfigurations.ConfigurationParameters.Read(configParamFilter) : new List<Models.ConfigurationParameter>();
+		}
+
+		internal static List<Models.ConfigurationParameter> GetConfigParameters(DataHelpersConfigurations dataHelperConfigurations, Models.Profile profile)
+		{
+			if (profile == null)
+			{
+				return new List<Models.ConfigurationParameter>();
+			}
+
 			FilterElement<Models.ConfigurationParameter> configParamFilter = null;
 			List<Models.ConfigurationParameter> configParams = new List<Models.ConfigurationParameter>();
 
-			for (int i = 0; i < referencedConfigurationParameters.Count; i++)
+			for (int i = 0; i < profile.ConfigurationParameterValues.Count; i++)
 			{
 				if (i == 0)
 				{
-					configParamFilter = ConfigurationParameterExposers.Guid.Equal(referencedConfigurationParameters[i].ConfigurationParameter);
+					configParamFilter = ConfigurationParameterExposers.Guid.Equal(profile.ConfigurationParameterValues[i].ConfigurationParameterId);
 				}
 				else
 				{
-					configParamFilter = configParamFilter.OR(ConfigurationParameterExposers.Guid.Equal(referencedConfigurationParameters[i].ConfigurationParameter));
+					configParamFilter = configParamFilter.OR(ConfigurationParameterExposers.Guid.Equal(profile.ConfigurationParameterValues[i].ConfigurationParameterId));
 				}
 			}
 

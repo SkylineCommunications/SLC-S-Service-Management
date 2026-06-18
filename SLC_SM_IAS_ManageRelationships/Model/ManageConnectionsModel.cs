@@ -10,6 +10,8 @@
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM;
+	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
+
 	using SLC_SM_IAS_ManageRelationships.Controller;
 	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement.Models;
 
@@ -17,15 +19,27 @@
 	{
 		private readonly IEngine _engine;
 		private readonly DomHelper _wfDomHelper;
+		private bool _workflowAvailable;
 
 		public ManageConnectionsModel(IEngine engine)
 		{
 			_engine = engine;
-			_wfDomHelper = new DomHelper(_engine.SendSLNetMessages, SlcWorkflowIds.ModuleId);
+
+			_workflowAvailable = _engine.DomModelExists(SlcWorkflowIds.ModuleId, null);
+
+			if (_workflowAvailable)
+			{
+				_wfDomHelper = new DomHelper(_engine.SendSLNetMessages, SlcWorkflowIds.ModuleId);
+			}
 		}
 
 		public WorkflowsInstance GetWorkflowbyId(Guid workflowId)
 		{
+			if (!_workflowAvailable)
+			{
+				throw new InvalidOperationException("The Media Ops solution needs to be installed to use this feature. The '(slc)workflow' DOM model is required but not found on the system.");
+			}
+
 			var domInstance = _wfDomHelper.DomInstances.Read(DomInstanceExposers.Id.Equal(workflowId)).FirstOrDefault();
 			if (domInstance == null)
 				throw new InvalidOperationException($"Could not find workflow with id {workflowId}");
@@ -35,6 +49,11 @@
 
 		public WorkflowsInstance GetWorkflowbyName(string workflowName)
 		{
+			if (!_workflowAvailable)
+			{
+				throw new InvalidOperationException("The Media Ops solution needs to be installed to use this feature. The '(slc)workflow' DOM model is required but not found on the system.");
+			}
+
 			var domInstance = _wfDomHelper.DomInstances.Read(DomInstanceExposers.Name.Equal(workflowName)).FirstOrDefault();
 			if (domInstance == null)
 				throw new InvalidOperationException($"Could not find workflow with id {workflowName}");

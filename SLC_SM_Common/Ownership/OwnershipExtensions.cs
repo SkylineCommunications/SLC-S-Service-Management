@@ -2,11 +2,16 @@
 {
 	using System;
 	using System.Linq;
+
+	using DomHelpers.SlcPeople_Organizations;
+
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Net.Messages;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM;
+	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
+
 	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement.Models;
 
 	public static class OwnershipExtensions
@@ -27,7 +32,8 @@
 		private static Skyline.DataMiner.ProjectApi.ServiceManagement.API.PeopleAndOrganization.Models.People InitializeCurrentPerson(IEngine engine)
 		{
 			string userName = engine.UserDisplayName;
-			if (String.IsNullOrEmpty(userName))
+			if (String.IsNullOrEmpty(userName)
+				|| !engine.DomModelExists(SlcPeople_OrganizationsIds.ModuleId, new[] {SlcPeople_OrganizationsIds.Sections.PeopleInformation.Id.Id, SlcPeople_OrganizationsIds.Sections.ExperienceInformation.Id.Id}))
 			{
 				return null;
 			}
