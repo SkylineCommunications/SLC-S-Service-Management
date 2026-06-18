@@ -10,6 +10,7 @@
 	using Newtonsoft.Json;
 
 	using Skyline.DataMiner.Automation;
+	using Skyline.DataMiner.Net.Messages;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
@@ -444,11 +445,11 @@
 		{
 			var lblLabel = new Label("Label") { Style = TextStyle.Heading, IsVisible = !collapseButton.IsCollapsed, MaxWidth = 100 };
 			var lblParameter = new Label("Parameter") { Style = TextStyle.Heading, IsVisible = !collapseButton.IsCollapsed, MaxWidth = 100 };
-			var lblLink = new Label("Link") { Style = TextStyle.Heading, IsVisible = !collapseButton.IsCollapsed, MaxWidth = 100 };
+			var lblLink = new Label("Link") { Style = TextStyle.Heading, IsVisible = !collapseButton.IsCollapsed && !anyEditing, MaxWidth = 100 };
+			var lblProducer = new Label("Producer") { Style = TextStyle.Heading, IsVisible = !collapseButton.IsCollapsed && anyEditing, MaxWidth = 100 };
 			var lblValue = new Label("Value") { Style = TextStyle.Heading, IsVisible = !collapseButton.IsCollapsed, MaxWidth = 100 };
 			var lblUnit = new Label("Unit") { Style = TextStyle.Heading, IsVisible = !collapseButton.IsCollapsed, MaxWidth = 100 };
-			var lblScript = new Label("Script") { Style = TextStyle.Heading, IsVisible = !collapseButton.IsCollapsed && hasConsumers, MaxWidth = 200 };
-			var lblProducer = new Label("Producer") { Style = TextStyle.Heading, IsVisible = !collapseButton.IsCollapsed && anyEditing, MaxWidth = 100 };
+			var lblScript = new Label("Script") { Style = TextStyle.Heading, IsVisible = !collapseButton.IsCollapsed && hasConsumers && anyEditing, MaxWidth = 200 };
 			var lblStart = new Label("Start") { Style = TextStyle.Heading, IsVisible = !collapseButton.IsCollapsed, MaxWidth = 100 };
 			var lblEnd = new Label("End") { Style = TextStyle.Heading, IsVisible = !collapseButton.IsCollapsed, MaxWidth = 100 };
 			var lblStop = new Label("Step Size") { Style = TextStyle.Heading, IsVisible = !collapseButton.IsCollapsed, MaxWidth = 100 };
@@ -459,8 +460,17 @@
 			collapseButton.LinkedWidgets.Add(lblLabel);
 			view.AddWidget(lblParameter, row, 1);
 			collapseButton.LinkedWidgets.Add(lblParameter);
-			view.AddWidget(lblLink, row, 2);
-			collapseButton.LinkedWidgets.Add(lblLink);
+			if (anyEditing)
+			{
+				view.AddWidget(lblProducer, row, 2);
+				collapseButton.LinkedWidgets.Add(lblProducer);
+			}
+			else
+			{
+				view.AddWidget(lblLink, row, 2);
+				collapseButton.LinkedWidgets.Add(lblLink);
+			}
+
 			view.AddWidget(lblValue, row, 3);
 			collapseButton.LinkedWidgets.Add(lblValue);
 			view.AddWidget(lblUnit, row, 4);
@@ -469,8 +479,6 @@
 			{
 				view.AddWidget(lblScript, row, 5);
 				collapseButton.LinkedWidgets.Add(lblScript);
-				view.AddWidget(lblProducer, row, 7);
-				collapseButton.LinkedWidgets.Add(lblProducer);
 			}
 
 			view.Details[collapseButton.Tooltip].AddWidget(lblStart, 0, 0, HorizontalAlignment.Left);
@@ -518,15 +526,23 @@
 			row = BuildConfigurationVersionsSelectionUI(row);
 			view.AddWidget(new WhiteSpace(), ++row, 0);
 
-			row = BuildProfileAdditionUI(row);
-
 			row = BuildGeneralSettingsUI(row);
-
 			row = BuildStandaloneParametersUI(showDetails, row, allParameters);
+
+			var btnCollapseAll = new Button("Collapse All Profiles") { MaxWidth = buttonWidth };
+			btnCollapseAll.Pressed += (sender, args) =>
+			{
+				foreach (var cb in view.ProfileCollapseButtons.Values)
+					cb.IsCollapsed = true;
+				BuildUI(this.showDetails);
+			};
+			view.AddWidget(btnCollapseAll, ++row, 0);
 
 			row = BuildProfilesUI(showDetails, row, allParameters);
 
 			view.AddWidget(new WhiteSpace(), ++row, 0);
+
+			row = BuildProfileAdditionUI(row);
 
 			// Only 2 versions allowed per service
 			if (configuration.State == State.Create && view.ConfigurationVersions.Options.Count() > 3)
@@ -590,17 +606,17 @@
 
 		private int BuildGeneralSettingsUI(int row)
 		{
-			view.GeneralSettings.MaxWidth = collapeButtonWidth;
+			view.GeneralSettings.Width = collapeButtonWidth;
 			view.GeneralSettings.LinkedWidgets.Clear();
 			view.GeneralSettings.IsCollapsed = configuration.State != State.Create;
-			view.AddWidget(new Label(ServiceConfigurationView.GeneralSettingsCollapseButtonTitle) { Style = TextStyle.Bold, MaxWidth = 250 }, ++row, 1, 1, 5);
-			view.AddWidget(view.GeneralSettings, row, 0, HorizontalAlignment.Center);
+			view.AddWidget(new Label(ServiceConfigurationView.GeneralSettingsCollapseButtonTitle) { Style = TextStyle.Bold }, ++row, 1, 1, 5);
+			view.AddWidget(view.GeneralSettings, row, 0, HorizontalAlignment.Right);
 			BuildGeneralSettingsHeaderRow(++row, view.GeneralSettings);
 
 			var versionName = new TextBox(configuration.ServiceConfigurationVersion.VersionName ?? String.Empty) { IsVisible = !view.GeneralSettings.IsCollapsed };
 			var description = new TextBox(configuration.ServiceConfigurationVersion.Description ?? String.Empty) { IsVisible = !view.GeneralSettings.IsCollapsed };
-			var startDate = new DateTimePicker(configuration.ServiceConfigurationVersion.StartDate ?? DateTime.MinValue) { IsVisible = !view.GeneralSettings.IsCollapsed };
-			var endDate = new DateTimePicker(configuration.ServiceConfigurationVersion.EndDate ?? DateTime.MinValue) { IsVisible = !view.GeneralSettings.IsCollapsed };
+			var startDate = new DateTimePicker(configuration.ServiceConfigurationVersion.StartDate ?? DateTime.Today) { IsVisible = !view.GeneralSettings.IsCollapsed };
+			var endDate = new DateTimePicker(configuration.ServiceConfigurationVersion.EndDate ?? DateTime.Today.AddMonths(1)) { IsVisible = !view.GeneralSettings.IsCollapsed };
 
 			versionName.Changed += (sender, args) =>
 			{
@@ -655,7 +671,9 @@
 
 		private int BuildProfilesUI(bool showDetails, int row, List<IParameterDataRecord> allParameters)
 		{
-			foreach (var profile in configuration.ServiceProfileConfigs.Where(x => x.State != State.Delete))
+			foreach (var profile in configuration.ServiceProfileConfigs
+				.Where(x => x.State != State.Delete)
+				.OrderBy(x => x.Profile.Name))
 			{
 				row = BuildProfileUI(showDetails, row, profile, allParameters);
 			}
@@ -672,7 +690,7 @@
 					ExpandText = "+",
 					CollapseText = "-",
 					Tooltip = profile.Profile.Name,
-					MaxWidth = collapeButtonWidth,
+					Width = collapeButtonWidth,
 				};
 			}
 
@@ -681,32 +699,34 @@
 
 			view.Details[profile.Profile.Name] = new Section();
 
-			// Comes from Service Specification
-			if (profile.ServiceProfileConfig.Mandatory || profile.State != State.Create)
+			var profileLabel = new TextBox { Text = profile.Profile.Name };
+			profileLabel.Changed += (sender, args) =>
 			{
-				view.AddWidget(new Label(profile.Profile.Name) { Style = TextStyle.Bold, MaxWidth = 200 }, ++row, 1);
-			}
-			else
-			{
-				var profileLabel = new TextBox { Text = profile.Profile.Name };
-				profileLabel.Changed += (sender, args) =>
+				if (String.IsNullOrEmpty(args.Value))
 				{
-					if (String.IsNullOrEmpty(args.Value))
-					{
-						((TextBox)sender).Text = args.Previous;
-						return;
-					}
+					((TextBox)sender).Text = args.Previous;
+					return;
+				}
 
-					profile.Profile.Name = args.Value.ReplaceTrailingParentesisContent(instanceService.ServiceID);
-					view.ProfileCollapseButtons[profile.Profile.Name] = view.ProfileCollapseButtons[collapseButton.Tooltip];
-					view.ProfileCollapseButtons.Remove(collapseButton.Tooltip);
-					view.Details.Remove(collapseButton.Tooltip);
-					BuildUI(this.showDetails);
-				};
-				view.AddWidget(profileLabel, ++row, 1);
-			}
+				var oldName = collapseButton.Tooltip;
+				profile.Profile.Name = args.Value.ReplaceTrailingParentesisContent(instanceService.ServiceID);
+				collapseButton.Tooltip = profile.Profile.Name;
 
-			view.AddWidget(collapseButton, row, 0, HorizontalAlignment.Center);
+				if (view.ProfileCollapseButtons.ContainsKey(oldName))
+				{
+					view.ProfileCollapseButtons[profile.Profile.Name] = view.ProfileCollapseButtons[oldName];
+					view.ProfileCollapseButtons.Remove(oldName);
+				}
+
+				if (view.Details.ContainsKey(oldName))
+				{
+					view.Details[profile.Profile.Name] = view.Details[oldName];
+					view.Details.Remove(oldName);
+				}
+			};
+			view.AddWidget(profileLabel, ++row, 1);
+
+			view.AddWidget(collapseButton, row, 0, HorizontalAlignment.Right);
 			var delete = new Button("🚫") { IsEnabled = !profile.ServiceProfileConfig.Mandatory, MaxWidth = deleteProfileButtonWidth };
 			view.AddWidget(delete, row, 2);
 			delete.Pressed += DeleteProfile(profile);
@@ -786,11 +806,11 @@
 
 		private int BuildStandaloneParametersUI(bool showDetails, int row, List<IParameterDataRecord> allParameters)
 		{
-			view.StandaloneParameters.MaxWidth = collapeButtonWidth;
+			view.StandaloneParameters.Width = collapeButtonWidth;
 			view.StandaloneParameters.LinkedWidgets.Clear();
 			view.Details[StandaloneCollapseButtonTitle] = new Section();
-			view.AddWidget(new Label(ServiceConfigurationView.StandaloneCollapseButtonTitle) { Style = TextStyle.Bold, MaxWidth = 250 }, ++row, 1, 1, 5);
-			view.AddWidget(view.StandaloneParameters, row, 0, HorizontalAlignment.Center);
+			view.AddWidget(new Label(ServiceConfigurationView.StandaloneCollapseButtonTitle) { Style = TextStyle.Bold }, ++row, 1, 1, 5);
+			view.AddWidget(view.StandaloneParameters, row, 0, HorizontalAlignment.Right);
 			var standaloneParameterList = configuration.ServiceParameterConfigs.Where(x => x.State != State.Delete).ToList();
 			BuildHeaderRow(++row, view.StandaloneParameters, allParameters.Any(p => p.ConfigurationParamValue.IsLinked), _editingConsumerId.HasValue);
 
@@ -910,8 +930,13 @@
 			collapseButton.LinkedWidgets.Add(label);
 			view.AddWidget(parameter, row, 1);
 			collapseButton.LinkedWidgets.Add(parameter);
-			view.AddWidget(link, row, 2);
-			collapseButton.LinkedWidgets.Add(link);
+
+			if (!anyEditing)
+			{
+				view.AddWidget(link, row, 2);
+				collapseButton.LinkedWidgets.Add(link);
+			}
+
 			if (parameter.Selected.Type == SlcConfigurationsIds.Enums.Type.Number)
 			{
 				view.AddWidget(unit, row, 4);
@@ -934,13 +959,32 @@
 			{
 				if (isEditingThis)
 				{
-					var scriptName = new TextBox(record.ConfigurationParamValue.LinkedScript ?? String.Empty)
+					var infoMessage = new GetInfoMessage { Type = InfoType.Scripts };
+					var responses = engine.SendSLNetMessage(infoMessage);
+
+					var scriptResponse = responses.OfType<GetScriptsResponseMessage>().FirstOrDefault();
+
+					var scripts = scriptResponse?.Scripts
+						.Where(s => s.StartsWith("SMG_Link_", StringComparison.OrdinalIgnoreCase))
+						.OrderBy(s => s)
+						.Select(s => new Option<string>(s, s))
+						.ToList() ?? new List<Option<string>>();
+
+					scripts.Insert(0, new Option<string>("- Select Script -", null));
+
+					var scriptName = new DropDown<string>(scripts)
 					{
-						PlaceHolder = "Script name...",
 						IsVisible = isVisible,
 						MaxWidth = 300,
 					};
-					scriptName.Changed += (sender, args) => record.ConfigurationParamValue.LinkedScript = args.Value;
+
+					if (!String.IsNullOrEmpty(record.ConfigurationParamValue.LinkedScript)
+						&& scripts.Any(o => o.Value == record.ConfigurationParamValue.LinkedScript))
+					{
+						scriptName.Selected = record.ConfigurationParamValue.LinkedScript;
+					}
+
+					scriptName.Changed += (sender, args) => record.ConfigurationParamValue.LinkedScript = args.Selected;
 					view.AddWidget(scriptName, row, 5, 1, 2);
 					collapseButton.LinkedWidgets.Add(scriptName);
 				}
@@ -999,7 +1043,7 @@
 				}
 			};
 
-			view.AddWidget(producerCheckBox, row, 7);
+			view.AddWidget(producerCheckBox, row, 2);
 			collapseButton.LinkedWidgets.Add(producerCheckBox);
 		}
 

@@ -8,7 +8,7 @@
 	public class ServiceConfigurationView : Dialog
 	{
 		private const string _standaloneParameterCollapseButtonTitle = "Standalone Parameters";
-		private const string _generalSettingsCollapseButtonTitle = "General Settings";
+		private const string _generalSettingsCollapseButtonTitle = "Version Details";
 
 		public ServiceConfigurationView(IEngine engine) : base(engine)
 		{
