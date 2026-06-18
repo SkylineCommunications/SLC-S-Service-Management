@@ -6,7 +6,6 @@
 	using System.Text.RegularExpressions;
 
 	using DomHelpers.SlcConfigurations;
-	using Library;
 
 	using Newtonsoft.Json;
 
@@ -594,7 +593,7 @@
 
 		private void BuildGeneralSettingsHeaderRow(int row, CollapseButton collapseButton)
 		{
-			var lblVersionName = new Label("Version Name") { Style = TextStyle.Heading, IsVisible = !collapseButton.IsCollapsed, MaxWidth = 100 };
+			var lblVersionName = new Label("Version Name") { Style = TextStyle.Heading, IsVisible = !collapseButton.IsCollapsed, MaxWidth = 150 };
 			var lblDescription = new Label("Description") { Style = TextStyle.Heading, IsVisible = !collapseButton.IsCollapsed, MaxWidth = 100 };
 			var lblStartDate = new Label("Start Date") { Style = TextStyle.Heading, IsVisible = !collapseButton.IsCollapsed, MaxWidth = 100 };
 			var lblEndDate = new Label("End Date") { Style = TextStyle.Heading, IsVisible = !collapseButton.IsCollapsed, MaxWidth = 100 };
@@ -763,23 +762,14 @@
 
 		private int BuildProfileAdditionUI(int row)
 		{
-			view.AddWidget(new Label("Add Profile:") { Style = TextStyle.Heading, MaxWidth = 100 }, ++row, 0, HorizontalAlignment.Right);
-
 			profileDefinitions = repoConfig.ProfileDefinitions.Read();
 			reusableProfiles = repoConfig.Profiles.Read(ProfileExposers.IsReusable.Equal(true));
 
+			view.AddWidget(new Label("Add Profile:") { Style = TextStyle.Heading, MaxWidth = 100 }, ++row, 0, HorizontalAlignment.Right);
 			var profileDefinitionsOptions = profileDefinitions == null
 				? new List<Option<ProfileOption>>()
 				: profileDefinitions.Select(p => new Option<ProfileOption>(p.Name, new ProfileOption(p.ID, p.Name, true))).OrderBy(x => x.DisplayValue).ToList();
 			profileDefinitionsOptions.Insert(0, new Option<ProfileOption>("- Profile Definition -", null));
-
-			var profileOptions = (reusableProfiles ?? new List<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.Profile>())
-				.Where(p => !configuration.ServiceConfigurationVersion.Profiles.Any(sp => sp.Profile.ID == p.ID))
-				.Select(p => new Option<ProfileOption>(p.Name, new ProfileOption(p.ID, p.Name, false)))
-				.OrderBy(x => x.DisplayValue)
-				.ToList();
-			profileOptions.Insert(0, new Option<ProfileOption>("- Reusable Profile -", null));
-			profileDefinitionsOptions.AddRange(profileOptions);
 
 			view.ProfileDefinitionToAdd.SetOptions(profileDefinitionsOptions);
 			view.AddWidget(view.ProfileDefinitionToAdd, row, 1);
@@ -797,109 +787,63 @@
 				BuildUI(showDetails);
 			};
 
+			++row;
+			var reusableLabel = new Label("Add Reusable Profile:") { Style = TextStyle.Heading, MaxWidth = 200, IsVisible = false };
+			view.AddWidget(reusableLabel, row, 0, HorizontalAlignment.Right);
+
+			var reusableProfileOptions = new List<Option<ProfileOption>> { new Option<ProfileOption>("- Reusable Profile -", null) };
+			var reusableProfileDropDown = new DropDown<ProfileOption>(reusableProfileOptions) { IsVisible = false };
+			view.AddWidget(reusableProfileDropDown, row, 1);
+
+			var addReusableProfileButton = new Button("Add") { Width = addButtonWidth, IsVisible = false };
+			view.AddWidget(addReusableProfileButton, row, 2);
+
+			view.ProfileDefinitionToAdd.Changed += (sender, args) =>
+			{
+				if (args.Selected == null)
+				{
+					reusableLabel.IsVisible = false;
+					reusableProfileDropDown.IsVisible = false;
+					addReusableProfileButton.IsVisible = false;
+					return;
+				}
+
+				var matchingReusable = (reusableProfiles ?? new List<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.Profile>())
+					.Where(p => p.ProfileDefinitionReference == args.Selected.Id
+						&& !configuration.ServiceConfigurationVersion.Profiles.Any(sp => sp.Profile.ID == p.ID))
+					.Select(p => new Option<ProfileOption>(p.Name, new ProfileOption(p.ID, p.Name, false)))
+					.OrderBy(x => x.DisplayValue)
+					.ToList();
+
+				if (matchingReusable.Count == 0)
+				{
+					reusableLabel.IsVisible = false;
+					reusableProfileDropDown.IsVisible = false;
+					addReusableProfileButton.IsVisible = false;
+					return;
+				}
+
+				matchingReusable.Insert(0, new Option<ProfileOption>("- Reusable Profile -", null));
+				reusableProfileDropDown.SetOptions(matchingReusable);
+				reusableLabel.IsVisible = true;
+				reusableProfileDropDown.IsVisible = true;
+				addReusableProfileButton.IsVisible = true;
+			};
+
+			addReusableProfileButton.Pressed += (sender, args) =>
+			{
+				if (reusableProfileDropDown?.Selected == null)
+				{
+					return;
+				}
+
+				AddProfileConfigModel(reusableProfileDropDown.Selected);
+				BuildUI(showDetails);
+			};
+
 			view.AddWidget(new WhiteSpace(), ++row, 0);
 			return row;
 		}
-
-		//private int BuildProfileAdditionUI(int row)
-		//{
-		//	view.AddWidget(new Label("Add Profile:")
-		//	{
-		//		Style = TextStyle.Heading,
-		//		MaxWidth = 100,
-		//	}, ++row, 0, HorizontalAlignment.Right);
-
-		//	profileDefinitions = repoConfig.ProfileDefinitions.Read();
-		//	reusableProfiles = repoConfig.Profiles.Read(ProfileExposers.IsReusable.Equal(true));
-
-		//	var profileDefinitionOptions = profileDefinitions == null
-		//		? new List<Option<ProfileOption>>()
-		//		: profileDefinitions
-		//			.Select(p => new Option<ProfileOption>(
-		//				p.Name,
-		//				new ProfileOption(p.ID, p.Name, true)))
-		//			.OrderBy(x => x.DisplayValue)
-		//			.ToList();
-
-		//	profileDefinitionOptions.Insert(0,
-		//		new Option<ProfileOption>("- Profile Definition -", null));
-
-		//	view.ProfileDefinitionToAdd.SetOptions(profileDefinitionOptions);
-
-		//	view.AddWidget(view.ProfileDefinitionToAdd, row, 1);
-
-		//	// Second dropdown (initially empty)
-		//	view.ReusableProfileToAdd.SetOptions(
-		//		new List<Option<ProfileOption>>
-		//		{
-		//			new Option<ProfileOption>("- Reusable Profile -", null),
-		//		});
-
-		//	// Update reusable profiles when definition changes
-		//	view.ProfileDefinitionToAdd.Changed += (sender, args) =>
-		//	{
-		//		var selected = view.ProfileDefinitionToAdd.Selected;
-
-		//		if (selected == null)
-		//		{
-		//			return;
-		//		}
-
-		//		var matchingProfiles = reusableProfiles?
-		//			.Where(p => p.ProfileDefinitionReference == selected.Id)
-		//			.Where(p => !configuration.ServiceConfigurationVersion.Profiles
-		//				.Any(sp => sp.Profile.ID == p.ID))
-		//			.Select(p => new Option<ProfileOption>(
-		//				p.Name,
-		//				new ProfileOption(p.ID, p.Name, false)))
-		//			.OrderBy(x => x.DisplayValue)
-		//			.ToList();
-
-		//		if (matchingProfiles?.Any() == true)
-		//		{
-		//			matchingProfiles.Insert(0,
-		//				new Option<ProfileOption>("- Reusable Profile -", null));
-
-		//			view.ReusableProfileToAdd.SetOptions(matchingProfiles);
-
-		//			view.AddWidget(view.ReusableProfileToAdd, row + 1, 1);
-		//		}
-		//	};
-
-		//	var addProfileButton = new Button("Add")
-		//	{
-		//		Width = addButtonWidth,
-		//	};
-
-		//	view.AddWidget(addProfileButton, row, 2);
-
-		//	addProfileButton.Pressed += (sender, args) =>
-		//	{
-		//		var selectedDefinition = view.ProfileDefinitionToAdd?.Selected;
-
-		//		if (selectedDefinition == null)
-		//		{
-		//			return;
-		//		}
-
-		//		var selectedReusable = view.ReusableProfileToAdd?.Selected;
-
-		//		if (selectedReusable != null)
-		//		{
-		//			AddProfileConfigModel(selectedReusable);
-		//		}
-		//		else
-		//		{
-		//			AddProfileConfigModel(selectedDefinition);
-		//		}
-
-		//		BuildUI(showDetails);
-		//	};
-
-		//	view.AddWidget(new WhiteSpace(), ++row, 0);
-
-		//	return row;
-		//}
 
 		private int BuildProfilesUI(bool showDetails, int row, List<IParameterDataRecord> allParameters)
 		{
@@ -1014,6 +958,7 @@
 
 		private int BuildAddProfileParameterUI(bool showDetails, int row, ProfileDataRecord profile, CollapseButton collapseButton)
 		{
+			// --- Regular parameters ---
 			var parameterToAddLabel = new Label("Add Parameter:") { Style = TextStyle.Heading, IsVisible = !collapseButton.IsCollapsed, MaxWidth = 100 };
 			view.AddWidget(parameterToAddLabel, ++row, 0, HorizontalAlignment.Right);
 			collapseButton.LinkedWidgets.Add(parameterToAddLabel);
