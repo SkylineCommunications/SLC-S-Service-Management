@@ -37,8 +37,8 @@
 		private DataHelpersServiceManagement repoService;
 		private bool showDetails;
 		private Models.ServiceSpecification serviceSpecification;
-		private List<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ProfileDefinition> profileDefinitions;
-		private List<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.Profile> reusableProfiles;
+		private List<ProfileDefinition> profileDefinitions;
+		private List<Profile> reusableProfiles;
 		private List<string> serviceEditLogs;
 		private ServiceManagementLogHelper serviceManagementLogHelper;
 
@@ -58,8 +58,8 @@
 			this.view = view;
 			this.instanceService = instance;
 			this.showDetails = false;
-			this.profileDefinitions = new List<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ProfileDefinition>();
-			this.reusableProfiles = new List<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.Profile>();
+			this.profileDefinitions = new List<ProfileDefinition>();
+			this.reusableProfiles = new List<Profile>();
 			this.serviceEditLogs = new List<string>();
 			this.serviceManagementLogHelper = new ServiceManagementLogHelper(engine.GetUserConnection(), "Inventory");
 
@@ -404,9 +404,9 @@
 			}
 		}
 
-		private void AddStandaloneConfigModel(Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter selectedParameter)
+		private void AddStandaloneConfigModel(ConfigurationParameter selectedParameter)
 		{
-			var configurationParameterInstance = selectedParameter ?? new Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter();
+			var configurationParameterInstance = selectedParameter ?? new ConfigurationParameter();
 			var config = new Models.ServiceConfigurationValue
 			{
 				ID = Guid.NewGuid(),
@@ -480,7 +480,7 @@
 			string profileName = profileOption.Name.ReplaceTrailingParentesisContent(instanceService.ServiceID);
 			var configParams = HelperMethods.GetConfigParameters(repoConfig, profileDefinitionInstance.ConfigurationParameters);
 
-			var parameterValues = new List<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameterValue>();
+			var parameterValues = new List<ConfigurationParameterValue>();
 
 			foreach (var refConfigParam in profileDefinitionInstance.ConfigurationParameters)
 			{
@@ -502,7 +502,7 @@
 				ID = Guid.NewGuid(),
 				Mandatory = false,
 				ProfileDefinition = profileDefinitionInstance,
-				Profile = new Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.Profile
+				Profile = new Profile
 				{
 					Name = profileName,
 					ProfileDefinitionReference = profileDefinitionInstance.ID,
@@ -523,14 +523,14 @@
 				$"Added profile '{profileConfig.Profile.Name}'"));
 		}
 
-		private void AddProfileParameterConfigModel(ProfileDataRecord profile, Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter selected)
+		private void AddProfileParameterConfigModel(ProfileDataRecord profile, ConfigurationParameter selected)
 		{
 			if (profile == null)
 			{
 				return;
 			}
 
-			var configurationParameterInstance = selected ?? new Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter();
+			var configurationParameterInstance = selected ?? new ConfigurationParameter();
 
 			var configParamValue = HelperMethods.BuildConfigurationParameter(configurationParameterInstance);
 
@@ -808,7 +808,7 @@
 					return;
 				}
 
-				var matchingReusable = (reusableProfiles ?? new List<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.Profile>())
+				var matchingReusable = (reusableProfiles ?? new List<Profile>())
 					.Where(p => p.ProfileDefinitionReference == args.Selected.Id
 						&& !configuration.ServiceConfigurationVersion.Profiles.Any(sp => sp.Profile.ID == p.ID))
 					.Select(p => new Option<ProfileOption>(p.Name, new ProfileOption(p.ID, p.Name, false)))
@@ -963,7 +963,7 @@
 			view.AddWidget(parameterToAddLabel, ++row, 0, HorizontalAlignment.Right);
 			collapseButton.LinkedWidgets.Add(parameterToAddLabel);
 
-			var parameterDropDown = new DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter>(profile.GetAvailableProfileParameters(repoConfig))
+			var parameterDropDown = new DropDown<ConfigurationParameter>(profile.GetAvailableProfileParameters(repoConfig))
 			{
 				IsVisible = !collapseButton.IsCollapsed,
 			};
@@ -1020,8 +1020,8 @@
 			view.AddWidget(parameterToAddLabel, ++row, 0, HorizontalAlignment.Right);
 			view.StandaloneParameters.LinkedWidgets.Add(parameterToAddLabel);
 
-			var parameterOptions = repoConfig.ConfigurationParameters.Read().Select(x => new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter>(x.Name, x)).OrderBy(x => x.DisplayValue).ToList();
-			parameterOptions.Insert(0, new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter>("- Add -", null));
+			var parameterOptions = repoConfig.ConfigurationParameters.Read().Select(x => new Option<ConfigurationParameter>(x.Name, x)).OrderBy(x => x.DisplayValue).ToList();
+			parameterOptions.Insert(0, new Option<ConfigurationParameter>("- Add -", null));
 			view.StandaloneParametersToAdd.SetOptions(parameterOptions);
 			view.StandaloneParametersToAdd.IsVisible = !view.StandaloneParameters.IsCollapsed;
 			view.AddWidget(view.StandaloneParametersToAdd, row, 1);
@@ -1336,7 +1336,7 @@
 			return value;
 		}
 
-		private DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.DiscreteValue> AddDiscreteWidgets(IParameterDataRecord record, int row, Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter parameter, bool isVisible = true, bool isValueFixed = false, string collapseButtonTitle = null, Action onProducerValueChanged = null)
+		private DropDown<DiscreteValue> AddDiscreteWidgets(IParameterDataRecord record, int row, ConfigurationParameter parameter, bool isVisible = true, bool isValueFixed = false, string collapseButtonTitle = null, Action onProducerValueChanged = null)
 		{
 			if (record.ConfigurationParamValue.DiscreteOptions == null)
 			{
@@ -1345,11 +1345,11 @@
 			}
 
 			var discretes = record.ConfigurationParamValue.DiscreteOptions.DiscreteValues
-											.Select(x => new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.DiscreteValue>(x.Value, x))
+											.Select(x => new Option<DiscreteValue>(x.Value, x))
 											.OrderBy(x => x.DisplayValue)
 											.ToList();
 
-			var value = new DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.DiscreteValue>(discretes)
+			var value = new DropDown<DiscreteValue>(discretes)
 			{
 				IsVisible = isVisible,
 				IsEnabled = !isValueFixed,
@@ -1388,8 +1388,8 @@
 		private Numeric AddNumericWidgets(
 			IParameterDataRecord record,
 			int row,
-			DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter> parameter,
-			DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationUnit> unit,
+			DropDown<ConfigurationParameter> parameter,
+			DropDown<ConfigurationUnit> unit,
 			Numeric start,
 			Numeric end,
 			Numeric step,
@@ -1514,9 +1514,9 @@
 			return value;
 		}
 
-		private Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationUnit GetDefaultUnit(
-			Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.NumberParameterOptions numberValueOptions,
-			Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter parameter)
+		private ConfigurationUnit GetDefaultUnit(
+			NumberParameterOptions numberValueOptions,
+			ConfigurationParameter parameter)
 		{
 			if (numberValueOptions != null)
 			{
@@ -1531,23 +1531,23 @@
 			return null;
 		}
 
-		private List<Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationUnit>> GetUnits(
-			Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.NumberParameterOptions numberValueOptions,
-			Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter parameter)
+		private List<Option<ConfigurationUnit>> GetUnits(
+			NumberParameterOptions numberValueOptions,
+			ConfigurationParameter parameter)
 		{
-			var units = new List<Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationUnit>>();
+			var units = new List<Option<ConfigurationUnit>>();
 			if (numberValueOptions?.DefaultUnit != null)
 			{
-				units.AddRange(numberValueOptions.Units.Select(x => new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationUnit>(x.Name, x)));
+				units.AddRange(numberValueOptions.Units.Select(x => new Option<ConfigurationUnit>(x.Name, x)));
 			}
 			else if (parameter.NumberOptions?.DefaultUnit != null)
 			{
-				units.AddRange(parameter.NumberOptions.Units.Select(x => new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationUnit>(x.Name, x)));
+				units.AddRange(parameter.NumberOptions.Units.Select(x => new Option<ConfigurationUnit>(x.Name, x)));
 			}
 
 			units = units.OrderBy(x => x.DisplayValue).ToList();
 
-			units.Insert(0, new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationUnit>("-", null));
+			units.Insert(0, new Option<ConfigurationUnit>("-", null));
 			return units;
 		}
 
