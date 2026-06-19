@@ -29,6 +29,7 @@
 				Decimals = decimalVal,
 				IsEnabled = true,
 			};
+
 			Unit.Selected = Unit.Options.FirstOrDefault(x => x?.DisplayValue == Data.Record.ConfigurationParameterValue.NumberOptions.DefaultUnit?.Name)?.Value;
 			Unit.IsEnabled = true;
 			Start.Value = minimum;
@@ -41,6 +42,7 @@
 			Step.StepSize = 1 / Math.Pow(10, decimalVal);
 			Step.Decimals = decimalVal;
 			Step.IsEnabled = true;
+			value.Value = Data.Record.ConfigurationParameterValue.DoubleValue ?? 0;
 
 			Start.Changed += (sender, args) => Data.Callbacks.ConfigurationParameter.Handle_Number_Start_Changed(Data.Record, Step, value, args.Value);
 			End.Changed += (sender, args) => Data.Callbacks.ConfigurationParameter.Handle_Number_End_Changed(Data.Record, Step, value, args.Value);
@@ -48,7 +50,6 @@
 			Step.Changed += (sender, args) => Data.Callbacks.ConfigurationParameter.Handle_Number_Step_Changed(Data.Record, value, args.Value);
 			Unit.Changed += (sender, args) => Data.Callbacks.ConfigurationParameter.Handle_Number_Unit_Changed(Data.Record, args.Selected);
 			value.Changed += (sender, args) => Data.Callbacks.ConfigurationParameter.Handle_Number_Value_Changed(Data.Record, args.Value);
-
 			Value = value;
 			return this;
 		}

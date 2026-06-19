@@ -92,7 +92,7 @@
 			if (record.State == State.Removed)
 				return;
 
-			if (record.ConfigurationParameterValue.TextOptions.Default == strValue)
+			if (record.ConfigurationParameterValue.StringValue.Equals(strValue))
 				return;
 
 			if (!textValidator(record, value, strValue))
@@ -100,7 +100,7 @@
 				return;
 			}
 
-			record.ConfigurationParameterValue.TextOptions.Default = strValue;
+			record.ConfigurationParameterValue.StringValue = strValue;
 			record.State = State.Updated;
 		}
 
@@ -109,10 +109,10 @@
 			if (record.State == State.Removed)
 				return;
 
-			if (record.ConfigurationParameterValue.DiscreteOptions.Default == value)
+			if (record.ConfigurationParameterValue.StringValue == value.Value)
 				return;
 
-			record.ConfigurationParameterValue.DiscreteOptions.Default = value;
+			record.ConfigurationParameterValue.StringValue = value.Value;
 			record.State = State.Updated;
 		}
 
@@ -121,10 +121,10 @@
 			if (record.State == State.Removed)
 				return;
 
-			if (record.ConfigurationParameterValue.NumberOptions.DefaultValue.Equals(value))
+			if (record.ConfigurationParameterValue.DoubleValue.Equals(value))
 				return;
 
-			record.ConfigurationParameterValue.NumberOptions.DefaultValue = value;
+			record.ConfigurationParameterValue.DoubleValue = value;
 			record.State = State.Updated;
 		}
 

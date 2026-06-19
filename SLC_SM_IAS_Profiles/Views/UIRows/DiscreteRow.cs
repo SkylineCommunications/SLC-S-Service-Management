@@ -35,12 +35,7 @@
 			var value = new DropDown<Models.DiscreteValue>(discretes);
 			value.IsEnabled = true;
 
-			if (Data.Record.ConfigurationParameterValue.DiscreteOptions.Default != null
-				&& value.Options.Any(x => x.DisplayValue == Data.Record.ConfigurationParameterValue.DiscreteOptions.Default.Value))
-			{
-				value.Selected = value.Options.First(x => x.DisplayValue == Data.Record.ConfigurationParameterValue.DiscreteOptions.Default.Value).Value;
-			}
-
+			value.Selected = value.Options.First(x => x.DisplayValue == Data.Record.ConfigurationParameterValue.StringValue).Value;
 			Value = value;
 			value.Changed += (sender, args) => Data.Callbacks.ConfigurationParameter.Handle_Discrete_Value_Change(Data.Record, value.Selected);
 		}

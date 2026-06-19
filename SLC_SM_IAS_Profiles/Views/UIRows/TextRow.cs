@@ -18,7 +18,7 @@
 		{
 			base.Configure();
 
-			var value = new TextBox(Data.Record.ConfigurationParameterValue.TextOptions.Default ?? string.Empty)
+			var value = new TextBox(Data.Record.ConfigurationParameterValue.StringValue ?? string.Empty)
 			{
 				Tooltip = Data.Record.ConfigurationParameterValue.TextOptions.UserMessage ?? string.Empty,
 				IsEnabled = true,

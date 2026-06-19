@@ -58,7 +58,8 @@
 
 				var configurationRecords = page.Records
 					.Where(x => x.State != State.Removed && x is ConfigurationDataRecord)
-					.Cast<ConfigurationDataRecord>();
+					.Cast<ConfigurationDataRecord>()
+					.OrderBy(r => r.ConfigurationParameterValue.Label);
 
 				foreach (var record in configurationRecords)
 				{
@@ -73,7 +74,8 @@
 
 			var profileRecords = page.Records
 				.Where(x => x.State != State.Removed && x is ProfileDataRecord)
-				.Cast<ProfileDataRecord>();
+				.Cast<ProfileDataRecord>()
+				.OrderBy(r => r.Profile.Name);
 
 			foreach (var record in profileRecords)
 			{
