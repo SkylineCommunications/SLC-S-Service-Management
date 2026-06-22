@@ -876,6 +876,11 @@
 			view.Details[profile.Profile.Name] = new Section();
 
 			var profileLabel = new TextBox { Text = profile.Profile.Name };
+			if (profile.Profile.IsReusable)
+			{
+				profileLabel.IsReadOnly = true;
+			}
+
 			profileLabel.Changed += (sender, args) =>
 			{
 				if (String.IsNullOrEmpty(args.Value))
@@ -1123,9 +1128,11 @@
 				case SlcConfigurationsIds.Enums.Type.Number:
 					collapseButton.LinkedWidgets.Add(AddNumericWidgets(record, row, parameter, unit, start, end, step, decimals, isVisible, valueDisabled, isLinked, isReusable, collapseButtonTitle, onProducerValueChanged));
 					break;
+
 				case SlcConfigurationsIds.Enums.Type.Discrete:
 					collapseButton.LinkedWidgets.Add(AddDiscreteWidgets(record, row, parameter.Selected, isVisible, valueDisabled, collapseButtonTitle, onProducerValueChanged));
 					break;
+
 				default:
 					collapseButton.LinkedWidgets.Add(AddTextWidgets(record, row, isVisible, valueDisabled, isLinked, collapseButtonTitle, onProducerValueChanged));
 					break;

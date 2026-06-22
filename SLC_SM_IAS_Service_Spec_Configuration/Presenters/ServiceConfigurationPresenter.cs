@@ -552,88 +552,96 @@
 
 		private int BuildProfilesUI(bool showDetails, bool showLifeCycleDetails, int row)
 		{
-			foreach (var profile in profileConfigurations.Where(x => x.State != State.Delete).OrderBy(x => x.Profile.Name))
+			foreach (var profile in profileConfigurations
+				.Where(x => x.State != State.Delete)
+				.OrderBy(x => x.Profile.Name))
 			{
-				if (!view.ProfileCollapseButtons.TryGetValue(profile.Profile.Name, out var collapseButton))
-				{
-					collapseButton = new CollapseButton(true)
-					{
-						ExpandText = Defaults.SymbolPlus,
-						CollapseText = Defaults.SymbolMin,
-						MaxWidth = collapseButtonWidth,
-					};
-				}
-
-				collapseButton.Tooltip = profile.Profile.Name;
-				collapseButton.LinkedWidgets.Clear();
-				view.Details[profile.Profile.Name] = new Section();
-				view.LifeCycleDetails[profile.Profile.Name] = new Section();
-
-				if (profile.Profile.IsReusable)
-				{
-					view.AddWidget(new Label(profile.Profile.Name) { Style = TextStyle.Bold, MaxWidth = 200 }, ++row, 1);
-				}
-				else
-				{
-					var profileLabel = new TextBox { Text = profile.Profile.Name };
-					profileLabel.Changed += (sender, args) =>
-					{
-						view.ProfileCollapseButtons[args.Value] = view.ProfileCollapseButtons[profile.Profile.Name];
-						view.ProfileCollapseButtons.Remove(profile.Profile.Name);
-						view.Details.Remove(profile.Profile.Name);
-						view.LifeCycleDetails.Remove(profile.Profile.Name);
-						profile.Profile.Name = args.Value;
-						BuildUI(this.showDetails, this.showLifeCycleDetails);
-					};
-					view.AddWidget(profileLabel, ++row, 1);
-				}
-
-				view.AddWidget(collapseButton, row, 0, HorizontalAlignment.Center);
-				var delete = new Button(Defaults.SymbolCross) { MaxWidth = deleteProfileButtonWidth };
-				view.AddWidget(delete, row, 2);
-				delete.Pressed += DeleteProfile(profile);
-
-				BuildProfileLifeCycleDetails(profile, collapseButton);
-				int lifeCycleOriginalSectionRow = ++row;
-
-				BuildHeaderRow(++row, collapseButton, false);
-
-				int originalSectionRow = row;
-				int sectionRow = 0;
-
-				foreach (var profileParameter in profile.ProfileParameterConfigs.Where(x => x.State != State.Delete).OrderBy(x => x.ConfigurationParam?.Name))
-				{
-					BuildParameterUIRow(collapseButton, profileParameter, ++row, ++sectionRow, DeleteProfileParameter(profile, profileParameter), profileParameter.ReferencedConfiguration?.Mandatory == true || profile.Profile.IsReusable, profile.Profile.IsReusable);
-				}
-
-				view.AddSection(view.Details[profile.Profile.Name], originalSectionRow, detailsColumnIndex);
-				collapseButton.LinkedWidgets.AddRange(view.Details[profile.Profile.Name].Widgets);
-				view.Details[profile.Profile.Name].IsVisible = showDetails;
-
-				view.AddSection(view.LifeCycleDetails[profile.Profile.Name], lifeCycleOriginalSectionRow, lifeCycleDetailsColumnIndex);
-				collapseButton.LinkedWidgets.AddRange(view.LifeCycleDetails[profile.Profile.Name].Widgets);
-				view.LifeCycleDetails[profile.Profile.Name].IsVisible = showLifeCycleDetails;
-
-				var whiteSpaceAfterParameters = new WhiteSpace { IsVisible = !collapseButton.IsCollapsed, MaxWidth = 20 };
-				view.AddWidget(whiteSpaceAfterParameters, ++row, 0);
-				collapseButton.LinkedWidgets.Add(whiteSpaceAfterParameters);
-
-				row = BuildAddProfileParameterUI(showDetails, showLifeCycleDetails, row, profile, collapseButton);
-
-				view.ProfileCollapseButtons[profile.Profile.Name] = collapseButton;
-				collapseButton.Pressed += (sender, args) =>
-				{
-					if (sender is CollapseButton cb)
-					{
-						ShowHideProfileParametersSection(this.showDetails, cb.Tooltip, view.Details[cb.Tooltip]);
-						ShowHideProfileParametersSection(this.showLifeCycleDetails, cb.Tooltip, view.LifeCycleDetails[cb.Tooltip]);
-					}
-				};
-
-				ShowHideProfileParametersSection(showDetails, collapseButton.Tooltip, view.Details[collapseButton.Tooltip]);
-				ShowHideProfileParametersSection(showLifeCycleDetails, collapseButton.Tooltip, view.LifeCycleDetails[collapseButton.Tooltip]);
+				row = BuildProfileUI(showDetails, showLifeCycleDetails, row, profile);
 			}
 
+			return row;
+		}
+
+		private int BuildProfileUI(bool showDetails, bool showLifeCycleDetails, int row, ProfileDataRecord profile)
+		{
+			if (!view.ProfileCollapseButtons.TryGetValue(profile.Profile.Name, out var collapseButton))
+			{
+				collapseButton = new CollapseButton(true)
+				{
+					ExpandText = Defaults.SymbolPlus,
+					CollapseText = Defaults.SymbolMin,
+					MaxWidth = collapseButtonWidth,
+				};
+			}
+
+			collapseButton.Tooltip = profile.Profile.Name;
+			collapseButton.LinkedWidgets.Clear();
+
+			view.Details[profile.Profile.Name] = new Section();
+			view.LifeCycleDetails[profile.Profile.Name] = new Section();
+
+			var profileLabel = new TextBox { Text = profile.Profile.Name };
+
+			if (profile.Profile.IsReusable)
+			{
+				profileLabel.IsReadOnly = true;
+			}
+
+			profileLabel.Changed += (sender, args) =>
+			{
+				view.ProfileCollapseButtons[args.Value] = view.ProfileCollapseButtons[profile.Profile.Name];
+				view.ProfileCollapseButtons.Remove(profile.Profile.Name);
+				view.Details.Remove(profile.Profile.Name);
+				view.LifeCycleDetails.Remove(profile.Profile.Name);
+				profile.Profile.Name = args.Value;
+				BuildUI(this.showDetails, this.showLifeCycleDetails);
+			};
+			view.AddWidget(profileLabel, ++row, 1);
+
+			view.AddWidget(collapseButton, row, 0, HorizontalAlignment.Center);
+			var delete = new Button(Defaults.SymbolCross) { MaxWidth = deleteProfileButtonWidth };
+			view.AddWidget(delete, row, 2);
+			delete.Pressed += DeleteProfile(profile);
+
+			BuildProfileLifeCycleDetails(profile, collapseButton);
+			int lifeCycleOriginalSectionRow = ++row;
+
+			BuildHeaderRow(++row, collapseButton, false);
+
+			int originalSectionRow = row;
+			int sectionRow = 0;
+
+			foreach (var profileParameter in profile.ProfileParameterConfigs.Where(x => x.State != State.Delete).OrderBy(x => x.ConfigurationParam?.Name))
+			{
+				BuildParameterUIRow(collapseButton, profileParameter, ++row, ++sectionRow, DeleteProfileParameter(profile, profileParameter), profileParameter.ReferencedConfiguration?.Mandatory == true || profile.Profile.IsReusable, profile.Profile.IsReusable);
+			}
+
+			view.AddSection(view.Details[profile.Profile.Name], originalSectionRow, detailsColumnIndex);
+			collapseButton.LinkedWidgets.AddRange(view.Details[profile.Profile.Name].Widgets);
+			view.Details[profile.Profile.Name].IsVisible = showDetails;
+
+			view.AddSection(view.LifeCycleDetails[profile.Profile.Name], lifeCycleOriginalSectionRow, lifeCycleDetailsColumnIndex);
+			collapseButton.LinkedWidgets.AddRange(view.LifeCycleDetails[profile.Profile.Name].Widgets);
+			view.LifeCycleDetails[profile.Profile.Name].IsVisible = showLifeCycleDetails;
+
+			var whiteSpaceAfterParameters = new WhiteSpace { IsVisible = !collapseButton.IsCollapsed, MaxWidth = 20 };
+			view.AddWidget(whiteSpaceAfterParameters, ++row, 0);
+			collapseButton.LinkedWidgets.Add(whiteSpaceAfterParameters);
+
+			row = BuildAddProfileParameterUI(showDetails, showLifeCycleDetails, row, profile, collapseButton);
+
+			view.ProfileCollapseButtons[profile.Profile.Name] = collapseButton;
+			collapseButton.Pressed += (sender, args) =>
+			{
+				if (sender is CollapseButton cb)
+				{
+					ShowHideProfileParametersSection(this.showDetails, cb.Tooltip, view.Details[cb.Tooltip]);
+					ShowHideProfileParametersSection(this.showLifeCycleDetails, cb.Tooltip, view.LifeCycleDetails[cb.Tooltip]);
+				}
+			};
+
+			ShowHideProfileParametersSection(showDetails, collapseButton.Tooltip, view.Details[collapseButton.Tooltip]);
+			ShowHideProfileParametersSection(showLifeCycleDetails, collapseButton.Tooltip, view.LifeCycleDetails[collapseButton.Tooltip]);
 			return row;
 		}
 
