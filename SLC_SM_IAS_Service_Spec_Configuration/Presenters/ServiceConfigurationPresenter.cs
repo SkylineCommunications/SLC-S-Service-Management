@@ -409,12 +409,6 @@
 			var profileDefinitionsOptions = profileDefinitions.Select(p => new Option<ProfileOption>(p.Name, new ProfileOption(p.ID, p.Name, true))).OrderBy(x => x.DisplayValue).ToList();
 			profileDefinitionsOptions.Insert(0, new Option<ProfileOption>("- Profile Definition -", null));
 
-			var profileOptions = reusableProfiles.Where(p =>
-			{
-				var result = !instance.ConfigurationProfiles.Any(sp => sp.Profile.ID == p.ID);
-				return result;
-			}).Select(p => new Option<ProfileOption>(p.Name, new ProfileOption(p.ID, p.Name, false))).OrderBy(x => x.DisplayValue).ToList();
-
 			view.AddProfile.SetOptions(profileDefinitionsOptions);
 			view.AddWidget(view.AddProfile, row, 1);
 
