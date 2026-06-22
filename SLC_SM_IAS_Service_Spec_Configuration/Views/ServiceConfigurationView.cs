@@ -36,9 +36,9 @@
 
 		public Dictionary<string, Section> LifeCycleDetails { get; } = new Dictionary<string, Section>();
 
-		public DropDown<Models.ConfigurationParameter> AddParameter { get; } = new DropDown<Models.ConfigurationParameter> { IsDisplayFilterShown = true};
+		public DropDown<Models.ConfigurationParameter> AddParameter { get; } = new DropDown<Models.ConfigurationParameter> { IsDisplayFilterShown = true };
 
-		public DropDown<ProfileOption> AddProfile { get; } = new DropDown<ProfileOption> { IsDisplayFilterShown = true};
+		public DropDown<ProfileOption> AddProfile { get; } = new DropDown<ProfileOption> { IsDisplayFilterShown = true };
 
 		public CollapseButton StandaloneParameters { get; } = new CollapseButton(true) { ExpandText = Defaults.SymbolPlus, CollapseText = Defaults.SymbolMin, Tooltip = _standaloneParameterCollapseButtonTitle };
 
