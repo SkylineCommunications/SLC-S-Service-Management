@@ -43,7 +43,7 @@
 				Name = defaultServiceId,
 				ServiceID = defaultServiceId,
 				Description = defaultServiceId,
-				MonitoringService = default,
+				MonitoringServiceId = default,
 				ServiceItems = new List<Models.ServiceItem>(),
 				ServiceItemsRelationships = new List<Models.ServiceItemRelationShip>(),
 			};
@@ -71,7 +71,7 @@
 				instanceToReturn.Category = view.ServiceCategory.Selected;
 				instanceToReturn.ServiceSpecificationId = view.Specs.Selected?.ID;
 				instanceToReturn.OrganizationId = view.Organizations.Selected?.ID;
-				instanceToReturn.MonitoringService = view.MonitoringServices.Selected?.DmsServiceId.Value;
+				instanceToReturn.MonitoringServiceId = view.MonitoringServices.Selected?.DmsServiceId.Value;
 				instanceToReturn.Icon = view.ServiceCategory?.Selected?.Icon ?? String.Empty;
 				instanceToReturn.ServiceConfiguration = view.ConfigurationVersions.Selected;
 
@@ -187,10 +187,10 @@
 			view.MonitoringServices.SetOptions(serviceList);
 
 			//TODO: Check if the linked service is still available in the list of services, if not, set the RemoveService checkbox to true and disable the Services dropdown.
-			if (instance.MonitoringService.HasValue && view.MonitoringServices.Options.Any(s=>s.Value?.DmsServiceId.Value == instance.MonitoringService))
+			if (instance.MonitoringServiceId.HasValue && view.MonitoringServices.Options.Any(s=>s.Value?.DmsServiceId.Value == instance.MonitoringServiceId))
 			{
 				view.RemoveLinkedService.IsChecked = false;
-				view.MonitoringServices.Selected = view.MonitoringServices.Options.FirstOrDefault(x => x.Value?.DmsServiceId.Value == instance.MonitoringService);
+				view.MonitoringServices.Selected = view.MonitoringServices.Options.FirstOrDefault(x => x.Value?.DmsServiceId.Value == instance.MonitoringServiceId);
 				view.MonitoringServices.IsEnabled = true;
 			}
 			else
