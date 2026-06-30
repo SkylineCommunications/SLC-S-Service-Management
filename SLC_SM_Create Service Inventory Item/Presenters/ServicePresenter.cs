@@ -8,7 +8,7 @@
 
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Core.DataMinerSystem.Common;
-	using Skyline.DataMiner.Net.ReportsAndDashboards;
+	using Skyline.DataMiner.Net.Helper;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.PeopleAndOrganization;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
@@ -24,11 +24,11 @@
 		private readonly IEngine _engine;
 		private readonly DataHelpersServiceManagement repo;
 		private readonly ServiceView view;
+		private readonly IEnumerable<IDmsService> serviceList;
 		private Models.Service instanceToReturn;
 		private bool isEdit = false;
-		private ICollection<IDmsService> serviceList;
 
-		public ServicePresenter(IEngine engine, DataHelpersServiceManagement repo, ServiceView view, ICollection<IDmsService> serviceList)
+		public ServicePresenter(IEngine engine, DataHelpersServiceManagement repo, ServiceView view, IEnumerable<IDmsService> serviceList)
 		{
 			_engine = engine;
 			this.repo = repo;
@@ -43,7 +43,7 @@
 				Name = defaultServiceId,
 				ServiceID = defaultServiceId,
 				Description = defaultServiceId,
-				MonitoringServiceId = default,
+				MonitoringService = string.Empty,
 				ServiceItems = new List<Models.ServiceItem>(),
 				ServiceItemsRelationships = new List<Models.ServiceItemRelationShip>(),
 			};
@@ -52,7 +52,7 @@
 
 			view.IndefiniteRuntime.Changed += (sender, args) => view.End.IsEnabled = !args.IsChecked;
 			view.TboxName.Changed += (sender, args) => ValidateLabel(args.Value);
-			view.RemoveLinkedService.Changed += (sender, args) =>view.MonitoringServices.IsEnabled = !args.IsChecked;
+			view.RemoveLinkedService.Changed += (sender, args) => view.MonitoringServices.IsEnabled = !args.IsChecked;
 		}
 
 		public string Name => String.IsNullOrWhiteSpace(view.TboxName.Text) ? view.TboxName.PlaceHolder : view.TboxName.Text;
@@ -71,10 +71,9 @@
 				instanceToReturn.Category = view.ServiceCategory.Selected;
 				instanceToReturn.ServiceSpecificationId = view.Specs.Selected?.ID;
 				instanceToReturn.OrganizationId = view.Organizations.Selected?.ID;
-				instanceToReturn.MonitoringServiceId = view.MonitoringServices.Selected?.DmsServiceId.Value;
+				instanceToReturn.MonitoringService = view.RemoveLinkedService.IsChecked ? string.Empty : view.MonitoringServices.Selected?.DmsServiceId.Value;
 				instanceToReturn.Icon = view.ServiceCategory?.Selected?.Icon ?? String.Empty;
 				instanceToReturn.ServiceConfiguration = view.ConfigurationVersions.Selected;
-
 				return instanceToReturn;
 			}
 		}
@@ -92,7 +91,6 @@
 
 			// TODO: verify Services
 			var services = serviceList.OrderBy(x => x.Name).Select(x => new Option<IDmsService>(x.Name, x)).ToList();
-			services.Insert(0, new Option<IDmsService>("-None-", null));
 			view.MonitoringServices.SetOptions(services);
 
 			var orgs = new List<Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.PeopleAndOrganization.Models.Organization>>();
@@ -184,20 +182,16 @@
 			view.GenerateMonitoringService.IsChecked = instance.GenerateMonitoringService.GetValueOrDefault();
 			view.GenerateMonitoringService.IsVisible = false;
 
-			view.MonitoringServices.SetOptions(serviceList);
-
-			//TODO: Check if the linked service is still available in the list of services, if not, set the RemoveService checkbox to true and disable the Services dropdown.
-			if (instance.MonitoringServiceId.HasValue && view.MonitoringServices.Options.Any(s=>s.Value?.DmsServiceId.Value == instance.MonitoringServiceId))
+			if (!instance.MonitoringService.IsNullOrEmpty() && view.MonitoringServices.Options.Any(s=>s.Value?.DmsServiceId.Value == instance.MonitoringService))
 			{
 				view.RemoveLinkedService.IsChecked = false;
-				view.MonitoringServices.Selected = view.MonitoringServices.Options.FirstOrDefault(x => x.Value?.DmsServiceId.Value == instance.MonitoringServiceId);
+				view.MonitoringServices.Selected = view.MonitoringServices.Options.FirstOrDefault(x => x.Value?.DmsServiceId.Value == instance.MonitoringService).Value;
 				view.MonitoringServices.IsEnabled = true;
 			}
 			else
 			{
 				view.RemoveLinkedService.IsChecked = true;
 				view.MonitoringServices.IsEnabled = false;
-				view.MonitoringServices.Selected = view.MonitoringServices.Options.FirstOrDefault(x=> x.DisplayValue == "-None-").Value;
 			}
 		}
 
@@ -246,7 +240,6 @@
 
 		private void ServiceLink_Changed(object sender, DropDown<IDmsService>.DropDownChangedEventArgs e)
 		{
-			//TODO: Implement the logic for handling changes in the service link dropdown.
 			view.RemoveLinkedService.IsEnabled = e.SelectedOption?.Value == null;
 			if (e.SelectedOption?.Value == null)
 			{

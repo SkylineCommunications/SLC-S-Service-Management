@@ -235,7 +235,6 @@ namespace SLC_SM_Create_Service_Inventory_Item
 			}
 		}
 
-		//TODO: add service logic
 		private void AddOrUpdateService(DataHelpersServiceManagement repo, Models.Service instance)
 		{
 			if (!instance.ServiceSpecificationId.HasValue || instance.ServiceSpecificationId == Guid.Empty)

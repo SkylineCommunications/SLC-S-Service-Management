@@ -6,6 +6,7 @@ namespace SLC_SM_GQIDS_Get_Service_Item_Infos
 	using DomHelpers.SlcServicemanagement;
 	using Skyline.DataMiner.Analytics.GenericInterface;
 	using Skyline.DataMiner.Net.Apps.DataMinerObjectModel;
+	using Skyline.DataMiner.Net.Helper;
 	using Skyline.DataMiner.Net.Messages;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API;
@@ -45,6 +46,7 @@ namespace SLC_SM_GQIDS_Get_Service_Item_Infos
 				new GQIDateTimeColumn("End Time"),
 				new GQIIntColumn("Alarm Level"),
 				new GQIStringColumn("Configuration Version"),
+				new GQIStringColumn("Monitoring Service"),
 			};
 		}
 
@@ -133,6 +135,19 @@ namespace SLC_SM_GQIDS_Get_Service_Item_Infos
 				}
 			}
 
+			string serviceName = String.Empty;
+			if (!service.MonitoringService.IsNullOrEmpty())
+			{
+				var ids = service.MonitoringService.Split('/');
+				int dmaId = int.Parse(ids[0]);
+				int serviceId = int.Parse(ids[1]);
+				var liteServiceInfoEvent = _dms.SendMessage(new GetLiteServiceInfo { ServiceID = serviceId, DataMinerID = dmaId }) as LiteServiceInfoEvent;
+				if (liteServiceInfoEvent != null)
+				{
+					serviceName = liteServiceInfoEvent.Name;
+				}
+			}
+
 			return new GQIRow[]
 			{
 				new GQIRow(
@@ -150,6 +165,7 @@ namespace SLC_SM_GQIDS_Get_Service_Item_Infos
 						new GQICell { Value = service.EndTime?.ToUniversalTime() },
 						new GQICell { Value = alarmLevel },
 						new GQICell { Value = service.ServiceConfiguration?.VersionName ?? String.Empty },
+						new GQICell { Value = service.MonitoringService?? String.Empty, DisplayValue = serviceName },
 					}) { Metadata = new GenIfRowMetadata(new[] { new ObjectRefMetadata { Object = new DomInstanceId(service.ID) { ModuleId = SlcServicemanagementIds.ModuleId } } }) },
 			};
 		}

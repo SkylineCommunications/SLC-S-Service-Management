@@ -6,11 +6,8 @@
 
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Core.DataMinerSystem.Common;
-	using Skyline.DataMiner.Core.DataMinerSystem.Common.Properties;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
-
-	using SLC_SM_Create_Service_Inventory_Item;
 
 	public class ServiceView : Dialog
 	{
@@ -113,8 +110,7 @@
 
 		public Label LblLinkedDataMinerServices { get; } = new Label("Linked Service");
 
-		//TODO: change type to services/strings
-		public DropDown<IDmsService> MonitoringServices { get; } = new DropDown<IDmsService> { Width = Defaults.WidgetWidth };
+		public DropDown<IDmsService> MonitoringServices { get; } = new DropDown<IDmsService> { Width = Defaults.WidgetWidth};
 
 		public CheckBox RemoveLinkedService { get; } = new CheckBox("Remove Linked Service") { IsChecked = false };
 
