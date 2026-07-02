@@ -46,6 +46,7 @@
     <Project Path="SLC_SM_IAS_Add Service Order/SLC_SM_IAS_Add Service Order.csproj" />
     <Project Path="SLC_SM_IAS_Add Service Specification/SLC_SM_IAS_Add Service Specification.csproj" />
     <Project Path="SLC_SM_IAS_Configurations/SLC_SM_IAS_Configurations.csproj" />
+    <Project Path="SLC_SM_IAS_Manage Service Scripts/SLC_SM_IAS_Manage Service Scripts.csproj" Id="d628e821-9493-4ece-97c4-9572249f47ca" />
     <Project Path="SLC_SM_IAS_ManageRelationships/SLC_SM_IAS_ManageRelationships.csproj" />
     <Project Path="SLC_SM_IAS_Profiles/SLC_SM_IAS_Profiles.csproj" />
     <Project Path="SLC_SM_IAS_Service_Configuration/SLC_SM_IAS_Service_Configuration.csproj" />
