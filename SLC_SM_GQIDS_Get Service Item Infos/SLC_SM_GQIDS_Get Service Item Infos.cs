@@ -47,6 +47,7 @@ namespace SLC_SM_GQIDS_Get_Service_Item_Infos
 				new GQIIntColumn("Alarm Level"),
 				new GQIStringColumn("Configuration Version"),
 				new GQIStringColumn("Monitoring Service"),
+				new GQIStringColumn("Monitoring Service Name"),
 			};
 		}
 
@@ -166,6 +167,7 @@ namespace SLC_SM_GQIDS_Get_Service_Item_Infos
 						new GQICell { Value = alarmLevel },
 						new GQICell { Value = service.ServiceConfiguration?.VersionName ?? String.Empty },
 						new GQICell { Value = service.MonitoringService?? String.Empty, DisplayValue = serviceName },
+						new GQICell { Value = serviceName, DisplayValue = serviceName },
 					}) { Metadata = new GenIfRowMetadata(new[] { new ObjectRefMetadata { Object = new DomInstanceId(service.ID) { ModuleId = SlcServicemanagementIds.ModuleId } } }) },
 			};
 		}

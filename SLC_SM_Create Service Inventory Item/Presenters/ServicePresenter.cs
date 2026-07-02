@@ -66,7 +66,7 @@
 				instanceToReturn.Description = instanceToReturn.Description ?? String.Empty;
 				instanceToReturn.StartTime = view.Start.DateTime.ToUniversalTime();
 				instanceToReturn.EndTime = view.IndefiniteRuntime.IsChecked ? default(DateTime?) : view.End.DateTime.ToUniversalTime();
-				instanceToReturn.GenerateMonitoringService = view.GenerateMonitoringService.IsChecked;
+				instanceToReturn.GenerateMonitoringService = view.GenerateMonitoringService.IsChecked || !view.RemoveLinkedService.IsChecked;
 				instanceToReturn.Description = instanceToReturn.Description ?? String.Empty;
 				instanceToReturn.Category = view.ServiceCategory.Selected;
 				instanceToReturn.ServiceSpecificationId = view.Specs.Selected?.ID;
@@ -240,7 +240,6 @@
 
 		private void ServiceLink_Changed(object sender, DropDown<IDmsService>.DropDownChangedEventArgs e)
 		{
-			view.RemoveLinkedService.IsEnabled = e.SelectedOption?.Value == null;
 			if (e.SelectedOption?.Value == null)
 			{
 				view.RemoveLinkedService.IsChecked = true;
