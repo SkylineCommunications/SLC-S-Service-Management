@@ -38,6 +38,7 @@
     <Project Path="SLC_SM_GQIDS_Get Service Item Infos/SLC_SM_GQIDS_Get Service Item Infos.csproj" />
     <Project Path="SLC_SM_GQIDS_Get Service Order Items/SLC_SM_GQIDS_Get Service Order Items.csproj" />
     <Project Path="SLC_SM_GQIDS_Get Service Orders/SLC_SM_GQIDS_Get Service Orders.csproj" />
+    <Project Path="SLC_SM_GQIDS_Get Service Scripts/SLC_SM_GQIDS_Get Service Scripts.csproj" Id="6588f8c7-899f-4ed6-aed0-7b0f11f56b45" />
   </Folder>
   <Folder Name="/IAS/">
     <Project Path="Launch Interactive Subscript/Launch Interactive Subscript.csproj" />
