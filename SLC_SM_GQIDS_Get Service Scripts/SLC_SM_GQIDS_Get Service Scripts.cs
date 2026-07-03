@@ -79,7 +79,7 @@ namespace SLCSMGQIDSGetServiceScripts
 
 			var helpers = new DataHelpersServiceManagement(_dms.GetConnection());
 			Models.Service service = helpers.Services.ReadBasicDetails()
-				.FirstOrDefault(s => String.Equals(s.Name, _serviceName, StringComparison.OrdinalIgnoreCase));
+				.FirstOrDefault(s => String.Equals(Convert.ToString(s.ID), _serviceName, StringComparison.OrdinalIgnoreCase));
 
 			if (service == null)
 			{

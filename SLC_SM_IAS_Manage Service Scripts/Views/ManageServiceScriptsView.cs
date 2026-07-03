@@ -32,23 +32,6 @@ namespace SLC_SM_IAS_Manage_Service_Scripts.Views
 			return dialog.IsConfirmed ? dialog.ScriptName.Text?.Trim() : String.Empty;
 		}
 
-		public void ShowSuccess(string serviceName, string action, IEnumerable<string> scripts)
-		{
-			var scriptList = scripts
-				.Where(script => !String.IsNullOrWhiteSpace(script))
-				.OrderBy(script => script, StringComparer.OrdinalIgnoreCase)
-				.ToList();
-
-			var scriptsText = scriptList.Count == 0
-				? "- none -"
-				: String.Join(Environment.NewLine, scriptList.Select(script => $"- {script}"));
-
-			engine.ShowPopupDialog(
-				"Success",
-				$"{action} completed for service '{serviceName}'.{Environment.NewLine}{Environment.NewLine}Resulting scripts:{Environment.NewLine}{scriptsText}",
-				"OK");
-		}
-
 		private sealed class ScriptNameDialog : ScriptDialog
 		{
 			public ScriptNameDialog(IEngine engine) : base(engine)

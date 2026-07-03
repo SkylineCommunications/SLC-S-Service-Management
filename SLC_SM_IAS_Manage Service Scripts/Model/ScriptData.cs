@@ -22,21 +22,21 @@ namespace SLC_SM_IAS_Manage_Service_Scripts.Model
 			}
 
 			Action = action;
-			ServiceName = engine.ReadScriptParamFromApp("Service Name")?.Trim();
+			ServiceId = engine.ReadScriptParamFromApp("Service Id")?.Trim();
 			ScriptName = engine.ReadScriptParamFromApp("Script Name")?.Trim();
 		}
 
 		public ScriptAction Action { get; }
 
-		public string ServiceName { get; }
+		public string ServiceId { get; }
 
 		public string ScriptName { get; }
 
 		public void Validate()
 		{
-			if (String.IsNullOrWhiteSpace(ServiceName))
+			if (String.IsNullOrWhiteSpace(ServiceId))
 			{
-				throw new InvalidOperationException("No service name was provided.");
+				throw new InvalidOperationException("No service Id was provided.");
 			}
 
 			if ((Action == ScriptAction.Remove || Action == ScriptAction.Update) && String.IsNullOrWhiteSpace(ScriptName))

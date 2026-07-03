@@ -25,11 +25,11 @@ namespace SLC_SM_IAS_Manage_Service_Scripts.Presenters
 		{
 			var helper = new DataHelperService(engine.GetUserConnection());
 			var service = helper.ReadBasicDetails()
-				.FirstOrDefault(existingService => String.Equals(existingService.Name, data.ServiceName, StringComparison.OrdinalIgnoreCase));
+				.FirstOrDefault(existingService => String.Equals(Convert.ToString(existingService.ID), data.ServiceId, StringComparison.OrdinalIgnoreCase));
 
 			if (service == null)
 			{
-				throw new InvalidOperationException($"No service found with name '{data.ServiceName}'.");
+				throw new InvalidOperationException($"No service found with Id '{data.ServiceId}'.");
 			}
 
 			var serviceModel = service;
@@ -37,13 +37,11 @@ namespace SLC_SM_IAS_Manage_Service_Scripts.Presenters
 			var changed = ApplyAction(scripts);
 			if (!changed)
 			{
-				throw new InvalidOperationException($"No changes were applied for service '{data.ServiceName}'.");
+				throw new InvalidOperationException($"No changes were applied for service '{data.ServiceId}'.");
 			}
 
 			WriteScripts(serviceModel, scripts);
 			helper.CreateOrUpdate(service);
-
-			view.ShowSuccess(data.ServiceName, data.Action.ToString(), scripts);
 		}
 
 		private List<string> ReadScripts(Models.Service serviceModel)

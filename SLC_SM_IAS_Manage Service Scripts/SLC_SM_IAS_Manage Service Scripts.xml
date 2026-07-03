@@ -19,7 +19,7 @@
 			<Description>Action</Description>
 		</ScriptParameter>
 		<ScriptParameter id="3" type="string" values="">
-			<Description>Service Name</Description>
+			<Description>Service Id</Description>
 		</ScriptParameter>
 		<ScriptParameter id="4" type="string" values="">
 			<Description>Script Name</Description>
