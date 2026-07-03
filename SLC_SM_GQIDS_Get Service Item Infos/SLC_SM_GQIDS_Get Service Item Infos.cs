@@ -2,8 +2,10 @@ namespace SLC_SM_GQIDS_Get_Service_Item_Infos
 {
 	using System;
 	using System.Linq;
+
 	using DomHelpers.SlcPeople_Organizations;
 	using DomHelpers.SlcServicemanagement;
+
 	using Skyline.DataMiner.Analytics.GenericInterface;
 	using Skyline.DataMiner.Net.Apps.DataMinerObjectModel;
 	using Skyline.DataMiner.Net.Helper;
@@ -12,6 +14,7 @@ namespace SLC_SM_GQIDS_Get_Service_Item_Infos
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM;
+
 	using SLC_SM_Common.Extensions;
 
 	/// <summary>
@@ -140,12 +143,15 @@ namespace SLC_SM_GQIDS_Get_Service_Item_Infos
 			if (!service.MonitoringService.IsNullOrEmpty())
 			{
 				var ids = service.MonitoringService.Split('/');
-				int dmaId = int.Parse(ids[0]);
-				int serviceId = int.Parse(ids[1]);
-				var liteServiceInfoEvent = _dms.SendMessage(new GetLiteServiceInfo { ServiceID = serviceId, DataMinerID = dmaId }) as LiteServiceInfoEvent;
-				if (liteServiceInfoEvent != null)
+				if (ids.Length >= 2)
 				{
-					serviceName = liteServiceInfoEvent.Name;
+					int dmaId = int.Parse(ids[0]);
+					int serviceId = int.Parse(ids[1]);
+					var liteServiceInfoEvent = _dms.SendMessage(new GetLiteServiceInfo { ServiceID = serviceId, DataMinerID = dmaId }) as LiteServiceInfoEvent;
+					if (liteServiceInfoEvent != null)
+					{
+						serviceName = liteServiceInfoEvent.Name;
+					}
 				}
 			}
 

@@ -89,7 +89,6 @@
 			specs.Insert(0, new Option<Models.ServiceSpecification>("-None-", null));
 			view.Specs.SetOptions(specs);
 
-			// TODO: verify Services
 			var services = serviceList.OrderBy(x => x.Name).Select(x => new Option<IDmsService>(x.Name, x)).ToList();
 			view.MonitoringServices.SetOptions(services);
 
