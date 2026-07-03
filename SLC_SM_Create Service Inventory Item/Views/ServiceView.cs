@@ -5,10 +5,9 @@
 	using Library;
 
 	using Skyline.DataMiner.Automation;
+	using Skyline.DataMiner.Core.DataMinerSystem.Common;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
-
-	using SLC_SM_Create_Service_Inventory_Item;
 
 	public class ServiceView : Dialog
 	{
@@ -45,6 +44,10 @@
 			AddWidget(LblEnd, ++row, 0);
 			AddWidget(End, row, 1, 1, 2);
 			AddWidget(IndefiniteRuntime, row, 3);
+
+			AddWidget(LblLinkedDataMinerServices, ++row,0);
+			AddWidget(MonitoringServices, row, 1, 1, 2);
+			AddWidget(RemoveLinkedService, row, 3);
 
 			AddWidget(GenerateMonitoringService, ++row, 1);
 
@@ -104,6 +107,12 @@
 		};
 
 		public CheckBox IndefiniteRuntime { get; } = new CheckBox("Indefinite (no end time)") { IsChecked = false };
+
+		public Label LblLinkedDataMinerServices { get; } = new Label("Linked Service");
+
+		public DropDown<IDmsService> MonitoringServices { get; } = new DropDown<IDmsService> { Width = Defaults.WidgetWidth};
+
+		public CheckBox RemoveLinkedService { get; } = new CheckBox("Remove Linked Service") { IsChecked = false };
 
 		public CheckBox GenerateMonitoringService { get; set; } = new CheckBox("Generate DataMiner Monitoring Service") { IsChecked = false, IsEnabled = false };
 

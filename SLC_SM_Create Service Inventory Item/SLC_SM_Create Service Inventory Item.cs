@@ -371,6 +371,18 @@ namespace SLC_SM_Create_Service_Inventory_Item
 			SetServiceIcon(dms, serviceId, instance.Icon);
 		}
 
+		private ICollection<IDmsService> GetDmsServices()
+		{
+			var dms = _engine.GetDms();
+			var services = dms.GetServices();
+			if (!services.Any())
+			{
+				return null;
+			}
+
+			return services;
+		}
+
 		private void SetServiceIcon(IDms dms, DmsServiceId serviceId, string icon)
 		{
 			if (!dms.PropertyExists("Logo", PropertyType.Service))
@@ -466,11 +478,13 @@ namespace SLC_SM_Create_Service_Inventory_Item
 				throw new InvalidOperationException($"Please select an entry in the Service Order Items table first.{Environment.NewLine}Details: the app passed the following, unexpected UUID to the action: {domIdRaw}.");
 			}
 
+			var dataMinerServices = GetDmsServices();
+
 			var repo = new DataHelpersServiceManagement(_engine.GetUserConnection());
 
 			// Init views
 			var view = new ServiceView(_engine, action);
-			var presenter = new ServicePresenter(_engine, repo, view);
+			var presenter = new ServicePresenter(_engine, repo, view, dataMinerServices);
 
 			if (action == Defaults.ScriptAction_CreateServiceInventoryItem.AddItem)
 			{

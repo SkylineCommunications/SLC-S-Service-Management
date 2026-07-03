@@ -3,9 +3,12 @@
 	using System;
 	using System.Collections.Generic;
 	using System.Linq;
+
 	using DomHelpers.SlcPeople_Organizations;
 
 	using Skyline.DataMiner.Automation;
+	using Skyline.DataMiner.Core.DataMinerSystem.Common;
+	using Skyline.DataMiner.Net.Helper;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.PeopleAndOrganization;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
@@ -21,14 +24,16 @@
 		private readonly IEngine _engine;
 		private readonly DataHelpersServiceManagement repo;
 		private readonly ServiceView view;
+		private readonly IEnumerable<IDmsService> serviceList;
 		private Models.Service instanceToReturn;
 		private bool isEdit = false;
 
-		public ServicePresenter(IEngine engine, DataHelpersServiceManagement repo, ServiceView view)
+		public ServicePresenter(IEngine engine, DataHelpersServiceManagement repo, ServiceView view, IEnumerable<IDmsService> serviceList)
 		{
 			_engine = engine;
 			this.repo = repo;
 			this.view = view;
+			this.serviceList = serviceList;
 			List<Models.Service> services = repo.Services.ReadBasicDetails();
 			getServiceLabels = services.Select(x => x.Name).ToList();
 			string defaultServiceId = repo.Services.UniqueServiceId(services);
@@ -38,6 +43,7 @@
 				Name = defaultServiceId,
 				ServiceID = defaultServiceId,
 				Description = defaultServiceId,
+				MonitoringService = string.Empty,
 				ServiceItems = new List<Models.ServiceItem>(),
 				ServiceItemsRelationships = new List<Models.ServiceItemRelationShip>(),
 			};
@@ -46,6 +52,7 @@
 
 			view.IndefiniteRuntime.Changed += (sender, args) => view.End.IsEnabled = !args.IsChecked;
 			view.TboxName.Changed += (sender, args) => ValidateLabel(args.Value);
+			view.RemoveLinkedService.Changed += (sender, args) => view.MonitoringServices.IsEnabled = !args.IsChecked;
 		}
 
 		public string Name => String.IsNullOrWhiteSpace(view.TboxName.Text) ? view.TboxName.PlaceHolder : view.TboxName.Text;
@@ -59,14 +66,14 @@
 				instanceToReturn.Description = instanceToReturn.Description ?? String.Empty;
 				instanceToReturn.StartTime = view.Start.DateTime.ToUniversalTime();
 				instanceToReturn.EndTime = view.IndefiniteRuntime.IsChecked ? default(DateTime?) : view.End.DateTime.ToUniversalTime();
-				instanceToReturn.GenerateMonitoringService = view.GenerateMonitoringService.IsChecked;
+				instanceToReturn.GenerateMonitoringService = view.GenerateMonitoringService.IsChecked || !view.RemoveLinkedService.IsChecked;
 				instanceToReturn.Description = instanceToReturn.Description ?? String.Empty;
 				instanceToReturn.Category = view.ServiceCategory.Selected;
 				instanceToReturn.ServiceSpecificationId = view.Specs.Selected?.ID;
 				instanceToReturn.OrganizationId = view.Organizations.Selected?.ID;
+				instanceToReturn.MonitoringService = view.RemoveLinkedService.IsChecked ? string.Empty : view.MonitoringServices.Selected?.DmsServiceId.Value;
 				instanceToReturn.Icon = view.ServiceCategory?.Selected?.Icon ?? String.Empty;
 				instanceToReturn.ServiceConfiguration = view.ConfigurationVersions.Selected;
-
 				return instanceToReturn;
 			}
 		}
@@ -81,6 +88,9 @@
 			var specs = repo.ServiceSpecifications.Read().OrderBy(x => x.Name).Select(x => new Option<Models.ServiceSpecification>(x.Name, x)).ToList();
 			specs.Insert(0, new Option<Models.ServiceSpecification>("-None-", null));
 			view.Specs.SetOptions(specs);
+
+			var services = serviceList.OrderBy(x => x.Name).Select(x => new Option<IDmsService>(x.Name, x)).ToList();
+			view.MonitoringServices.SetOptions(services);
 
 			var orgs = new List<Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.PeopleAndOrganization.Models.Organization>>();
 			if (this._engine.DomModelExists(SlcPeople_OrganizationsIds.ModuleId, new[] {SlcPeople_OrganizationsIds.Sections.OrganizationInformation.Id.Id}))
@@ -98,6 +108,7 @@
 			view.End.DateTime = view.Start.DateTime + TimeSpan.FromHours(1);
 
 			view.Specs.Changed += Specs_Changed;
+			view.MonitoringServices.Changed += ServiceLink_Changed;
 		}
 
 		public void LoadFromModel(Models.Service instance)
@@ -169,6 +180,18 @@
 
 			view.GenerateMonitoringService.IsChecked = instance.GenerateMonitoringService.GetValueOrDefault();
 			view.GenerateMonitoringService.IsVisible = false;
+
+			if (!instance.MonitoringService.IsNullOrEmpty() && view.MonitoringServices.Options.Any(s=>s.Value?.DmsServiceId.Value == instance.MonitoringService))
+			{
+				view.RemoveLinkedService.IsChecked = false;
+				view.MonitoringServices.Selected = view.MonitoringServices.Options.FirstOrDefault(x => x.Value?.DmsServiceId.Value == instance.MonitoringService).Value;
+				view.MonitoringServices.IsEnabled = true;
+			}
+			else
+			{
+				view.RemoveLinkedService.IsChecked = true;
+				view.MonitoringServices.IsEnabled = false;
+			}
 		}
 
 		public bool Validate()
@@ -211,6 +234,14 @@
 			if (e.SelectedOption?.Value == null)
 			{
 				view.GenerateMonitoringService.IsChecked = false;
+			}
+		}
+
+		private void ServiceLink_Changed(object sender, DropDown<IDmsService>.DropDownChangedEventArgs e)
+		{
+			if (e.SelectedOption?.Value == null)
+			{
+				view.RemoveLinkedService.IsChecked = true;
 			}
 		}
 
