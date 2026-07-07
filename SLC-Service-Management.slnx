@@ -7,7 +7,6 @@
     <Project Path="SLC_SM_AS_AddServiceItem/SLC_SM_AS_AddServiceItem.csproj" />
     <Project Path="SLC_SM_AS_DeleteServiceCategory/SLC_SM_AS_DeleteServiceCategory.csproj" />
     <Project Path="SLC_SM_AS_DynamicDelete/SLC_SM_AS_DynamicDelete.csproj" />
-    <Project Path="SLC_SM_AS_Execute Script/SLC_SM_AS_Execute Script.csproj" Id="6cba0a41-56c5-4100-b31c-f70dfaf72b94" />
     <Project Path="SLC_SM_AS_Service Item ContextMenu Actions/SLC_SM_AS_Service Item ContextMenu Actions.csproj" />
     <Project Path="SLC_SM_AS_SetIcon/SLC_SM_AS_SetIcon.csproj" />
     <Project Path="SLC_SM_Create Job For Service Item/SLC_SM_Create Job For Service Item.csproj" />
