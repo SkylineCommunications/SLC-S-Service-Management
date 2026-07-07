@@ -29,6 +29,9 @@ namespace SLC_SM_IAS_Manage_Service_Scripts.Views
 			private List<string> _scriptInputParameterNames = new List<string>();
 			private bool _showParametersSection;
 
+			private HashSet<string> _existingDescriptions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+			private string _excludedDescription;
+
 			public ServiceScriptsDialog(IEngine engine, IEnumerable<string> scripts, string serviceId) : base(engine)
 			{
 				var options = new[] { DropdownPlaceholder }.Concat(scripts);
@@ -38,6 +41,9 @@ namespace SLC_SM_IAS_Manage_Service_Scripts.Views
 				ConfirmButton.IsEnabled = false;
 				ConfirmButton.Pressed += (sender, args) => { IsConfirmed = true; IsDone = true; };
 				CancelButton.Pressed += (sender, args) => { IsDone = true; };
+
+				ScriptName.Changed += (sender, args) => UpdateConfirmButton();
+				Description.Changed += (sender, args) => { UpdateConfirmButton(); Build(); };
 			}
 
 			public Label Info { get; } = new Label();
@@ -50,7 +56,9 @@ namespace SLC_SM_IAS_Manage_Service_Scripts.Views
 
 			public Label DescriptionLabel { get; } = new Label("Description");
 
-			public TextBox Description { get; } = new TextBox { MinWidth = 350, Height = 60 };
+			public TextBox Description { get; } = new TextBox { MinWidth = 350 };
+
+			public Label DescriptionError { get; } = new Label("A script entry with this description already exists.");
 
 			public Button ConfirmButton { get; } = new Button("Confirm") { Width = 120, Height = 25, Style = ButtonStyle.CallToAction };
 
@@ -59,6 +67,18 @@ namespace SLC_SM_IAS_Manage_Service_Scripts.Views
 			public bool IsConfirmed { get; private set; }
 
 			public bool IsDone { get; private set; }
+
+			public void SetExistingDescriptions(IEnumerable<string> existingDescriptions, string excludedDescription = null)
+			{
+				_existingDescriptions = new HashSet<string>(existingDescriptions ?? Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
+				_excludedDescription = excludedDescription;
+				UpdateConfirmButton();
+			}
+
+			public void RefreshConfirmButton()
+			{
+				UpdateConfirmButton();
+			}
 
 			public void SetInputParameters(List<string> paramNames, Dictionary<string, string> savedValues)
 			{
@@ -94,6 +114,11 @@ namespace SLC_SM_IAS_Manage_Service_Scripts.Views
 				AddWidget(DescriptionLabel, ++Layout.RowPosition, 0, 1, 2);
 				AddWidget(Description, ++Layout.RowPosition, 0, 1, 2);
 
+				if (IsDescriptionDuplicate(Description.Text))
+				{
+					AddWidget(DescriptionError, ++Layout.RowPosition, 0, 1, 2);
+				}
+
 				if (_showParametersSection)
 				{
 					AddWidget(new Label("Input Parameters") { Style = TextStyle.Bold }, ++Layout.RowPosition, 0, 1, 2);
@@ -110,6 +135,30 @@ namespace SLC_SM_IAS_Manage_Service_Scripts.Views
 				AddWidget(new WhiteSpace { Height = 25 }, ++Layout.RowPosition, 0);
 				AddWidget(ConfirmButton, ++Layout.RowPosition, 0);
 				AddWidget(CancelButton, Layout.RowPosition, 1);
+			}
+
+			private bool IsDescriptionDuplicate(string description)
+			{
+				if (String.IsNullOrWhiteSpace(description))
+				{
+					return false;
+				}
+
+				var trimmed = description.Trim();
+
+				if (!String.IsNullOrEmpty(_excludedDescription) && String.Equals(trimmed, _excludedDescription, StringComparison.OrdinalIgnoreCase))
+				{
+					return false;
+				}
+
+				return _existingDescriptions.Contains(trimmed);
+			}
+
+			private void UpdateConfirmButton()
+			{
+				ConfirmButton.IsEnabled = ScriptName.Selected != DropdownPlaceholder
+					&& !String.IsNullOrWhiteSpace(Description.Text)
+					&& !IsDescriptionDuplicate(Description.Text);
 			}
 		}
 	}

@@ -32,14 +32,14 @@ namespace SLC_SM_IAS_Manage_Service_Scripts.Model
 
 			Action = action;
 			ServiceId = engine.ReadScriptParamFromApp("Service Id")?.Trim();
-			ScriptName = engine.ReadScriptParamFromApp("Script Name")?.Trim();
+			ScriptDescription = engine.ReadScriptParamFromApp("Script Description")?.Trim();
 		}
 
 		public ScriptAction Action { get; }
 
 		public string ServiceId { get; }
 
-		public string ScriptName { get; }
+		public string ScriptDescription { get; }
 
 		public List<string> GetScriptNamesWithServiceIdParameter()
 		{
@@ -96,9 +96,9 @@ namespace SLC_SM_IAS_Manage_Service_Scripts.Model
 				throw new InvalidOperationException("No service Id was provided.");
 			}
 
-			if ((Action == ScriptAction.Remove || Action == ScriptAction.Update) && String.IsNullOrWhiteSpace(ScriptName))
+			if ((Action == ScriptAction.Remove || Action == ScriptAction.Update) && String.IsNullOrWhiteSpace(ScriptDescription))
 			{
-				throw new InvalidOperationException("No script name was provided.");
+				throw new InvalidOperationException("No script description was provided.");
 			}
 		}
 

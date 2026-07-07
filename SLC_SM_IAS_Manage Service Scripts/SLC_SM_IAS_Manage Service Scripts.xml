@@ -24,6 +24,9 @@
 		<ScriptParameter id="4" type="string" values="">
 			<Description>Script Name</Description>
 		</ScriptParameter>
+		<ScriptParameter id="5" type="string" values="">
+			<Description>Script Description</Description>
+		</ScriptParameter>
 	</Parameters>
 
 	<Script>

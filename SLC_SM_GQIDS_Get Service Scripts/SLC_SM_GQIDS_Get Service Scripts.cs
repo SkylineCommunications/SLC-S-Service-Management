@@ -32,7 +32,6 @@ namespace SLCSMGQIDSGetServiceScripts
 			{
 				new GQIStringColumn("Script Name"),
 				new GQIStringColumn("Description"),
-				new GQIStringColumn("Input Parameters"),
 			};
 		}
 
@@ -101,7 +100,6 @@ namespace SLCSMGQIDSGetServiceScripts
 					{
 						new GQICell { Value = script.Name ?? String.Empty },
 						new GQICell { Value = script.Description ?? String.Empty },
-						new GQICell { Value = script.InputParameters },
 					})
 				{
 					Metadata = new GenIfRowMetadata(new[] { new ObjectRefMetadata { Object = new DomInstanceId(service.ID) { ModuleId = SlcServicemanagementIds.ModuleId } } }),

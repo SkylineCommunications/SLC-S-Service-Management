@@ -74,73 +74,6 @@ namespace SLC_SM_IAS_Manage_Service_Scripts.Presenters
 			}
 		}
 
-		private static string GetUniqueName(List<ServiceScripts> scripts, string baseName)
-		{
-			if (!scripts.Any(s => String.Equals(s.Name, baseName, StringComparison.OrdinalIgnoreCase)))
-			{
-				return baseName;
-			}
-
-			var counter = 2;
-			string candidate;
-			do
-			{
-				candidate = String.Format("{0} ({1})", baseName, counter);
-				counter++;
-			}
-			while (scripts.Any(s => String.Equals(s.Name, candidate, StringComparison.OrdinalIgnoreCase)));
-
-			return candidate;
-		}
-
-		private static string GetBaseName(string name)
-		{
-			if (String.IsNullOrEmpty(name))
-			{
-				return name;
-			}
-
-			var match = System.Text.RegularExpressions.Regex.Match(name, @"^(.*)\s+\(\d+\)$");
-			return match.Success ? match.Groups[1].Value : name;
-		}
-
-		private static string GetUniqueNameExcluding(List<ServiceScripts> scripts, string baseName, int excludeIndex)
-		{
-			if (!scripts.Where((s, i) => i != excludeIndex).Any(s => String.Equals(s.Name, baseName, StringComparison.OrdinalIgnoreCase)))
-			{
-				return baseName;
-			}
-
-			var counter = 2;
-			string candidate;
-			do
-			{
-				candidate = String.Format("{0} ({1})", baseName, counter);
-				counter++;
-			}
-			while (scripts.Where((s, i) => i != excludeIndex).Any(s => String.Equals(s.Name, candidate, StringComparison.OrdinalIgnoreCase)));
-
-			return candidate;
-		}
-
-		private static bool HasDuplicateScriptName(List<ServiceScripts> scripts, string enteredName, int currentIndex)
-		{
-			for (var i = 0; i < scripts.Count; i++)
-			{
-				if (i == currentIndex)
-				{
-					continue;
-				}
-
-				if (String.Equals(scripts[i].Name, enteredName, StringComparison.OrdinalIgnoreCase))
-				{
-					return true;
-				}
-			}
-
-			return false;
-		}
-
 		private Models.Service GetService(DataHelperService helper)
 		{
 			if (!Guid.TryParse(data.ServiceId, out var serviceGuid))
@@ -174,63 +107,79 @@ namespace SLC_SM_IAS_Manage_Service_Scripts.Presenters
 
 		private bool RemoveScript(List<ServiceScripts> scripts)
 		{
-			return scripts.RemoveAll(existing => String.Equals(existing.Name, data.ScriptName, StringComparison.OrdinalIgnoreCase)) > 0;
+			return scripts.RemoveAll(existing => String.Equals(existing.Description, data.ScriptDescription, StringComparison.OrdinalIgnoreCase)) > 0;
 		}
 
 		private bool AddScript(List<ServiceScripts> scripts, string serviceId)
 		{
+			var existingDescriptions = scripts
+				.Select(s => s.Description)
+				.Where(d => !String.IsNullOrWhiteSpace(d));
+
 			var enteredScript = GetScriptFromDialog(
 				dialogTitle: "Add Script",
 				dialogInfoText: "Select the script to add.",
 				current: null,
-				serviceId: serviceId);
+				serviceId: serviceId,
+				existingDescriptions: existingDescriptions,
+				excludedDescription: null);
 
 			if (enteredScript == null)
 			{
 				return false;
 			}
 
-			enteredScript.Name = GetUniqueName(scripts, enteredScript.Name);
 			scripts.Add(enteredScript);
 			return true;
 		}
 
 		private bool UpdateScript(List<ServiceScripts> scripts, string serviceId)
 		{
-			var existingIndex = scripts.FindIndex(existing => String.Equals(existing.Name, data.ScriptName, StringComparison.OrdinalIgnoreCase));
+			var existingIndex = scripts.FindIndex(existing => String.Equals(existing.Description, data.ScriptDescription, StringComparison.OrdinalIgnoreCase));
 			if (existingIndex < 0)
 			{
 				return false;
 			}
 
+			var existingDescriptions = scripts
+				.Select(s => s.Description)
+				.Where(d => !String.IsNullOrWhiteSpace(d));
+
 			var enteredScript = GetScriptFromDialog(
 				dialogTitle: "Update Script",
 				dialogInfoText: "Select the new script.",
 				current: scripts[existingIndex],
-				serviceId: serviceId);
+				serviceId: serviceId,
+				existingDescriptions: existingDescriptions,
+				excludedDescription: data.ScriptDescription);
 
 			if (enteredScript == null)
 			{
 				return false;
 			}
 
-			var currentBaseName = GetBaseName(data.ScriptName);
-			enteredScript.Name = String.Equals(enteredScript.Name, currentBaseName, StringComparison.OrdinalIgnoreCase)
-				? data.ScriptName
-				: GetUniqueNameExcluding(scripts, enteredScript.Name, existingIndex);
-
 			scripts[existingIndex] = enteredScript;
 			return true;
 		}
 
-		private ServiceScripts GetScriptFromDialog(string dialogTitle, string dialogInfoText, ServiceScripts current, string serviceId)
+		private ServiceScripts GetScriptFromDialog(
+			string dialogTitle,
+			string dialogInfoText,
+			ServiceScripts current,
+			string serviceId,
+			IEnumerable<string> existingDescriptions,
+			string excludedDescription)
 		{
 			var availableScripts = data.GetScriptNamesWithServiceIdParameter();
-			var dialog = CreateScriptNameDialog(dialogTitle, dialogInfoText, availableScripts, serviceId);
+			var dialog = new ServiceScriptsDialog(engine, availableScripts, serviceId);
+			dialog.Title = dialogTitle;
+			dialog.Info.Text = dialogInfoText;
+			dialog.SetExistingDescriptions(existingDescriptions, excludedDescription);
 
 			if (current != null)
 			{
 				InitializeDialogForUpdate(dialog, availableScripts, current);
+				dialog.RefreshConfirmButton();
 			}
 
 			InitializeScriptSelection(dialog);
@@ -252,19 +201,9 @@ namespace SLC_SM_IAS_Manage_Service_Scripts.Presenters
 			};
 		}
 
-		private ServiceScriptsDialog CreateScriptNameDialog(string dialogTitle, string dialogInfoText, IEnumerable<string> availableScripts, string serviceId)
-		{
-			var dialog = new ServiceScriptsDialog(engine, availableScripts, serviceId);
-			dialog.Title = dialogTitle;
-			dialog.Info.Text = dialogInfoText;
-			dialog.ConfirmButton.IsEnabled = false;
-			return dialog;
-		}
-
 		private void InitializeDialogForUpdate(ServiceScriptsDialog dialog, IEnumerable<string> availableScripts, ServiceScripts current)
 		{
-			var baseName = GetBaseName(current.Name);
-			var scriptMatch = availableScripts.FirstOrDefault(script => String.Equals(script, baseName, StringComparison.OrdinalIgnoreCase));
+			var scriptMatch = availableScripts.FirstOrDefault(script => String.Equals(script, current.Name, StringComparison.OrdinalIgnoreCase));
 			dialog.Description.Text = current.Description ?? String.Empty;
 
 			if (scriptMatch == null)
@@ -275,15 +214,12 @@ namespace SLC_SM_IAS_Manage_Service_Scripts.Presenters
 			var savedValues = DeserializeInputParameters(current.InputParameters);
 			dialog.SetInputParameters(data.GetScriptInputParameters(scriptMatch), savedValues);
 			dialog.ScriptName.Selected = scriptMatch;
-			dialog.ConfirmButton.IsEnabled = dialog.ScriptName.Selected != ServiceScriptsDialog.DropdownPlaceholder;
 		}
 
 		private void InitializeScriptSelection(ServiceScriptsDialog dialog)
 		{
 			dialog.ScriptName.Changed += (sender, args) =>
 			{
-				dialog.ConfirmButton.IsEnabled = args.Selected != ServiceScriptsDialog.DropdownPlaceholder;
-
 				var parameterNames = args.Selected == ServiceScriptsDialog.DropdownPlaceholder
 					? new List<string>()
 					: data.GetScriptInputParameters(args.Selected);
