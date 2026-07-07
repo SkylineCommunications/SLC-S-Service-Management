@@ -1,12 +1,9 @@
 namespace SLCSMGQIDSGetServiceScripts
 {
 	using System;
-	using System.Collections.Generic;
 	using System.Linq;
 
 	using DomHelpers.SlcServicemanagement;
-
-	using Newtonsoft.Json;
 
 	using Skyline.DataMiner.Analytics.GenericInterface;
 	using Skyline.DataMiner.Net.Apps.DataMinerObjectModel;
@@ -63,20 +60,6 @@ namespace SLCSMGQIDSGetServiceScripts
 			return _logger.PerformanceLogger(nameof(GetNextPage), BuildupRows);
 		}
 
-		private static string SerializeInputParameters(List<Models.ServiceScriptInputParameters> inputParameters)
-		{
-			if (inputParameters == null || !inputParameters.Any())
-			{
-				return "{}";
-			}
-
-			var parametersDictionary = inputParameters
-				.Where(p => !String.IsNullOrWhiteSpace(p.Name))
-				.ToDictionary(p => p.Name, p => p.Value ?? String.Empty);
-
-			return JsonConvert.SerializeObject(parametersDictionary);
-		}
-
 		private GQIPage BuildupRows()
 		{
 			try
@@ -118,7 +101,7 @@ namespace SLCSMGQIDSGetServiceScripts
 					{
 						new GQICell { Value = script.Name ?? String.Empty },
 						new GQICell { Value = script.Description ?? String.Empty },
-						new GQICell { Value = SerializeInputParameters(script.InputParameters) },
+						new GQICell { Value = script.InputParameters },
 					})
 				{
 					Metadata = new GenIfRowMetadata(new[] { new ObjectRefMetadata { Object = new DomInstanceId(service.ID) { ModuleId = SlcServicemanagementIds.ModuleId } } }),

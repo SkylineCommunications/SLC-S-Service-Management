@@ -5,11 +5,8 @@ namespace SLC_SM_IAS_Manage_Service_Scripts.Views
 	using System.Linq;
 
 	using Skyline.DataMiner.Automation;
-
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.IAS;
-
-	using static Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement.Models;
 
 	public class ServiceScriptDialog
 	{
@@ -63,7 +60,7 @@ namespace SLC_SM_IAS_Manage_Service_Scripts.Views
 
 			public bool IsDone { get; private set; }
 
-			public void SetExtraParameters(List<string> paramNames, List<ServiceScriptInputParameters> savedValues)
+			public void SetInputParameters(List<string> paramNames, Dictionary<string, string> savedValues)
 			{
 				_scriptInputParameterNames = paramNames ?? new List<string>();
 				_showParametersSection = _scriptInputParameterNames.Any();
@@ -71,20 +68,20 @@ namespace SLC_SM_IAS_Manage_Service_Scripts.Views
 
 				foreach (var name in _scriptInputParameterNames)
 				{
-					var savedValue = savedValues?.FirstOrDefault(p => String.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase))?.Value ?? String.Empty;
+					var savedValue = (savedValues != null && savedValues.TryGetValue(name, out var v)) ? v : String.Empty;
 					_scriptInputParameters[name] = new TextBox { MinWidth = 350, Text = savedValue };
 				}
 			}
 
-			public List<ServiceScriptInputParameters> GetInputParameterValues()
+			public Dictionary<string, string> GetInputParameterValues()
 			{
-				return _scriptInputParameterNames
-					.Select(name => new ServiceScriptInputParameters
-					{
-						Name = name,
-						Value = _scriptInputParameters.TryGetValue(name, out var field) ? field.Text?.Trim() ?? String.Empty : String.Empty,
-					})
-					.ToList();
+				var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+				foreach (var name in _scriptInputParameterNames)
+				{
+					result[name] = _scriptInputParameters.TryGetValue(name, out var field) ? field.Text?.Trim() ?? String.Empty : String.Empty;
+				}
+
+				return result;
 			}
 
 			public override void Build()
@@ -94,7 +91,6 @@ namespace SLC_SM_IAS_Manage_Service_Scripts.Views
 
 				AddWidget(Info, Layout.RowPosition, 0, 1, 2);
 				AddWidget(ScriptName, ++Layout.RowPosition, 0, 1, 2);
-
 				AddWidget(DescriptionLabel, ++Layout.RowPosition, 0, 1, 2);
 				AddWidget(Description, ++Layout.RowPosition, 0, 1, 2);
 
