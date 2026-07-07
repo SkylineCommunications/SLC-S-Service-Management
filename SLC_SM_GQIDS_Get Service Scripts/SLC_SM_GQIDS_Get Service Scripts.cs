@@ -1,13 +1,18 @@
 namespace SLCSMGQIDSGetServiceScripts
 {
 	using System;
+	using System.Collections.Generic;
 	using System.Linq;
 
 	using DomHelpers.SlcServicemanagement;
 
+	using Newtonsoft.Json;
+
 	using Skyline.DataMiner.Analytics.GenericInterface;
 	using Skyline.DataMiner.Net.Apps.DataMinerObjectModel;
+	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM;
 
 	using SLC_SM_Common.Extensions;
 
@@ -29,6 +34,8 @@ namespace SLCSMGQIDSGetServiceScripts
 			return new GQIColumn[]
 			{
 				new GQIStringColumn("Script Name"),
+				new GQIStringColumn("Description"),
+				new GQIStringColumn("Input Parameters"),
 			};
 		}
 
@@ -56,6 +63,20 @@ namespace SLCSMGQIDSGetServiceScripts
 			return _logger.PerformanceLogger(nameof(GetNextPage), BuildupRows);
 		}
 
+		private static string SerializeInputParameters(List<Models.ServiceScriptInputParameters> inputParameters)
+		{
+			if (inputParameters == null || !inputParameters.Any())
+			{
+				return "{}";
+			}
+
+			var parametersDictionary = inputParameters
+				.Where(p => !String.IsNullOrWhiteSpace(p.Name))
+				.ToDictionary(p => p.Name, p => p.Value ?? String.Empty);
+
+			return JsonConvert.SerializeObject(parametersDictionary);
+		}
+
 		private GQIPage BuildupRows()
 		{
 			try
@@ -77,39 +98,31 @@ namespace SLCSMGQIDSGetServiceScripts
 				return new GQIRow[0];
 			}
 
-			var helpers = new DataHelpersServiceManagement(_dms.GetConnection());
-			Models.Service service = helpers.Services.ReadBasicDetails()
-				.FirstOrDefault(s => String.Equals(Convert.ToString(s.ID), _serviceName, StringComparison.OrdinalIgnoreCase));
+			if (!Guid.TryParse(_serviceName, out var serviceGuid))
+			{
+				_logger.Error($"GQIDS|{DataSourceName}|Invalid service GUID: '{_serviceName}'");
+				return new GQIRow[0];
+			}
 
-			if (service == null)
+			var helpers = new DataHelpersServiceManagement(_dms.GetConnection());
+			var service = helpers.Services.Read(ServiceExposers.Guid.Equal(serviceGuid)).SingleOrDefault();
+
+			if (service == null || service.ServiceScripts == null || !service.ServiceScripts.Any())
 			{
 				return new GQIRow[0];
 			}
 
-			var scripts = ParseScripts(service.Scripts);
-			return scripts
-				.Select(scriptName => new GQIRow(
+			return service.ServiceScripts
+				.Select(script => new GQIRow(
 					new[]
 					{
-						new GQICell { Value = scriptName },
+						new GQICell { Value = script.Name ?? String.Empty },
+						new GQICell { Value = script.Description ?? String.Empty },
+						new GQICell { Value = SerializeInputParameters(script.InputParameters) },
 					})
 				{
 					Metadata = new GenIfRowMetadata(new[] { new ObjectRefMetadata { Object = new DomInstanceId(service.ID) { ModuleId = SlcServicemanagementIds.ModuleId } } }),
 				})
-				.ToArray();
-		}
-
-		private static string[] ParseScripts(string scripts)
-		{
-			if (String.IsNullOrWhiteSpace(scripts))
-			{
-				return new string[0];
-			}
-
-			return scripts
-				.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries)
-				.Select(s => s.Trim())
-				.Where(s => !String.IsNullOrWhiteSpace(s))
 				.ToArray();
 		}
 	}

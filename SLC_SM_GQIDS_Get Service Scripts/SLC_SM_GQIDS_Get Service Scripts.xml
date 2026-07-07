@@ -1,7 +1,7 @@
 ﻿<?xml version="1.0" encoding="utf-8" ?>
 <DMSScript options="272" xmlns="http://www.skyline.be/automation">
 	<Name>SLC_SM_GQIDS_Get Service Scripts</Name>
-	<Description></Description>
+	<Description>Data source for obtaining service scripts.</Description>
 	<Type>Automation</Type>
 	<Author>SKA</Author>
 	<CheckSets>FALSE</CheckSets>
