@@ -150,29 +150,84 @@
 
 			var configParams = repoConfig.ConfigurationParameters.Read();
 
-			// .FirstOrDefault() as the specification could have been deleted but the reference still exists on the service configuration version
 			serviceSpecification = instanceService.ServiceSpecificationId.HasValue
 					? repoService.ServiceSpecifications.Read(Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceSpecificationExposers.Guid.Equal(instanceService.ServiceSpecificationId.Value)).FirstOrDefault()
 					: null;
 
 			if (instanceService.ServiceConfiguration == null)
 			{
-				// Create a new version
 				configuration = ConfigurationDataRecord.BuildConfigurationDataRecordRecord(
 					engine,
 					HelperMethods.CreateNewServiceConfigurationVersion(serviceSpecification, instanceService),
 					repoConfig.ConfigurationParameters.Read(),
 					State.Create);
-				instanceService.ServiceConfiguration = configuration.ServiceConfigurationVersion; // set as active
+				instanceService.ServiceConfiguration = configuration.ServiceConfigurationVersion;
 				serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(instanceService.ServiceID, "Edit", $"Created new configuration version '{configuration.ServiceConfigurationVersion.VersionName}'"));
 			}
 			else
 			{
 				configuration = ConfigurationDataRecord.BuildConfigurationDataRecordRecord(engine, instanceService.ServiceConfiguration, configParams);
 				serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(instanceService.ServiceID, "Edit", $"Start editing configuration version '{configuration.ServiceConfigurationVersion.VersionName}'"));
+				ReconcileMissingNestedProfiles(configParams);
 			}
 
 			BuildUI(false);
+		}
+
+		private void ReconcileMissingNestedProfiles(List<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter> configParams)
+		{
+			var loadedProfileIds = new HashSet<Guid>(
+				configuration.ServiceProfileConfigs.Select(p => p.Profile.ID));
+
+			var missingIds = new HashSet<Guid>();
+			foreach (var pdr in configuration.ServiceProfileConfigs)
+			{
+				if (pdr.Profile?.Profiles == null) continue;
+				foreach (var childId in pdr.Profile.Profiles)
+				{
+					if (!loadedProfileIds.Contains(childId))
+						missingIds.Add(childId);
+				}
+			}
+
+			if (missingIds.Count == 0) return;
+
+			var filter = missingIds
+				.Select(id => (FilterElement<Profile>)ProfileExposers.Guid.Equal(id))
+				.Aggregate((f1, f2) => f1.OR(f2));
+
+			var fetchedProfiles = repoConfig.Profiles.Read(filter);
+
+			foreach (var fetchedProfile in fetchedProfiles)
+			{
+				var profileDef = fetchedProfile.ProfileDefinitionReference != Guid.Empty
+					? repoConfig.ProfileDefinitions.Read(ProfileDefinitionExposers.Guid.Equal(fetchedProfile.ProfileDefinitionReference)).FirstOrDefault()
+					: null;
+
+				var syntheticServiceProfile = new Models.ServiceProfile
+				{
+					ID = Guid.NewGuid(),
+					Mandatory = false,
+					Profile = fetchedProfile,
+					ProfileDefinition = profileDef,
+				};
+
+				configuration.ServiceConfigurationVersion.Profiles.Add(syntheticServiceProfile);
+
+				var pdr = ProfileDataRecord.BuildProfileRecord(engine, syntheticServiceProfile, configParams, State.Update);
+				configuration.ServiceProfileConfigs.Add(pdr);
+
+				if (fetchedProfile.Profiles != null)
+				{
+					foreach (var grandChildId in fetchedProfile.Profiles)
+					{
+						if (!loadedProfileIds.Contains(grandChildId) && !missingIds.Contains(grandChildId))
+							missingIds.Add(grandChildId);
+					}
+				}
+
+				loadedProfileIds.Add(fetchedProfile.ID);
+			}
 		}
 
 		public void StoreModels()
@@ -202,6 +257,9 @@
 				{
 					continue;
 				}
+
+				// Persist profile entity changes (name edits from main or nested profile view)
+				repoConfig.Profiles.CreateOrUpdate(profile.Profile);
 
 				foreach (var profileParameter in profile.ProfileParameterConfigs)
 				{
@@ -477,7 +535,7 @@
 				return;
 			}
 
-			string profileName = profileOption.Name.ReplaceTrailingParentesisContent(instanceService.ServiceID);
+			string profileName = profileOption.Name;  // removed ReplaceTrailingParentesisContent
 			var configParams = HelperMethods.GetConfigParameters(repoConfig, profileDefinitionInstance.ConfigurationParameters);
 
 			var parameterValues = new List<ConfigurationParameterValue>();
@@ -764,9 +822,6 @@
 
 		private int BuildProfileAdditionUI(int row)
 		{
-			//profileDefinitions = repoConfig.ProfileDefinitions.Read();
-			//reusableProfiles = repoConfig.Profiles.Read(ProfileExposers.IsReusable.Equal(true));
-
 			view.AddWidget(new Label("Add Service Profile:") { Style = TextStyle.Heading }, ++row, 0, HorizontalAlignment.Right);
 			var profileDefinitionsOptions = profileDefinitions == null
 				? new List<Option<ProfileOption>>()
@@ -810,9 +865,11 @@
 					return;
 				}
 
+				var rootReusableIds = GetRootLevelReusableProfileIds();
+
 				var matchingReusable = (reusableProfiles ?? new List<Profile>())
 					.Where(p => p.ProfileDefinitionReference == args.Selected.Id
-						&& !configuration.ServiceConfigurationVersion.Profiles.Any(sp => sp.Profile.ID == p.ID))
+							 && !rootReusableIds.Contains(p.ID))
 					.Select(p => new Option<ProfileOption>(p.Name, new ProfileOption(p.ID, p.Name, false)))
 					.OrderBy(x => x.DisplayValue)
 					.ToList();
@@ -895,7 +952,7 @@
 				}
 
 				var oldName = collapseButton.Tooltip;
-				profile.Profile.Name = args.Value.ReplaceTrailingParentesisContent(instanceService.ServiceID);
+				profile.Profile.Name = args.Value;
 				collapseButton.Tooltip = profile.Profile.Name;
 
 				if (view.ProfileCollapseButtons.ContainsKey(oldName))
@@ -957,19 +1014,18 @@
 			view.AddWidget(whiteSpaceAfterParameters, ++row, 0);
 			collapseButton.LinkedWidgets.Add(whiteSpaceAfterParameters);
 
-			if (!profile.ServiceProfileConfig.Mandatory && !profile.Profile.IsReusable)
-			{
-				row = BuildAddProfileParameterUI(showDetails, row, profile, collapseButton);
-			}
-
-			// Build ancestor set for this level: ancestors so far + this profile's own definition
 			var childAncestors = new HashSet<Guid>(ancestorDefinitionIds);
 			if (profile.ProfileDefinition?.ID != null)
 			{
 				childAncestors.Add(profile.ProfileDefinition.ID);
 			}
 
-			row = BuildNestedProfilesUI(showDetails, row, profile, profileDefinitions.ToList(), collapseButton, allParameters, depth, childAncestors);
+			row = BuildNestedProfilesTableUI(showDetails, row, profile, collapseButton, allParameters, depth, childAncestors);
+
+			if (!profile.ServiceProfileConfig.Mandatory && !profile.Profile.IsReusable)
+			{
+				row = BuildAddProfileParameterUI(showDetails, row, profile, collapseButton);
+			}
 
 			return row;
 		}
@@ -1631,7 +1687,7 @@
 				serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(instanceService.ServiceID, "Edit", $"Added nested profile parameter '{configParam.Name}'"));
 			}
 
-			string profileName = $"{parent.Profile.Name} > {childOption.Name}";
+			string profileName = childOption.Name;
 			var childProfileConfig = new Models.ServiceProfile
 			{
 				ID = Guid.NewGuid(),
@@ -1665,27 +1721,43 @@
 				return;
 			}
 
-			var profileDefinitionInstance = repoConfig.ProfileDefinitions
-				.Read(ProfileDefinitionExposers.Guid.Equal(profileInstance.ProfileDefinitionReference))
-				.FirstOrDefault();
-			if (profileDefinitionInstance == null)
+			if (parent.Profile.Profiles == null)
+			{
+				parent.Profile.Profiles = new List<Guid>();
+			}
+
+			if (parent.Profile.Profiles.Contains(profileInstance.ID))
 			{
 				return;
 			}
 
-			var childProfileConfig = new Models.ServiceProfile
-			{
-				ID = Guid.NewGuid(),
-				Mandatory = false,
-				Profile = profileInstance,
-				ProfileDefinition = profileDefinitionInstance,
-			};
+			bool alreadyInList = configuration.ServiceProfileConfigs
+				.Any(x => x.State != State.Delete && x.Profile?.ID == profileInstance.ID);
 
-			var configParams = HelperMethods.GetConfigParameters(repoConfig, profileInstance);
+			if (!alreadyInList)
+			{
+				var profileDefinitionInstance = repoConfig.ProfileDefinitions
+					.Read(ProfileDefinitionExposers.Guid.Equal(profileInstance.ProfileDefinitionReference))
+					.FirstOrDefault();
+				if (profileDefinitionInstance == null)
+				{
+					return;
+				}
+
+				var childProfileConfig = new Models.ServiceProfile
+				{
+					ID = Guid.NewGuid(),
+					Mandatory = false,
+					Profile = profileInstance,
+					ProfileDefinition = profileDefinitionInstance,
+				};
+
+				var configParams = HelperMethods.GetConfigParameters(repoConfig, profileInstance);
+				configuration.ServiceConfigurationVersion.Profiles.Add(childProfileConfig);
+				configuration.ServiceProfileConfigs.Add(ProfileDataRecord.BuildProfileRecord(engine, childProfileConfig, configParams, State.Create));
+			}
 
 			parent.Profile.Profiles.Add(profileInstance.ID);
-			configuration.ServiceConfigurationVersion.Profiles.Add(childProfileConfig);
-			configuration.ServiceProfileConfigs.Add(ProfileDataRecord.BuildProfileRecord(engine, childProfileConfig, configParams, State.Create));
 			serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(instanceService.ServiceID, "Edit", $"Added reusable nested profile '{profileInstance.Name}' under '{parent.Profile.Name}'"));
 		}
 
@@ -1700,7 +1772,6 @@
 
 		private void DeleteProfileAndDescendants(ProfileDataRecord record, ProfileDataRecord parent)
 		{
-			// Recursively delete all children first
 			foreach (var child in GetChildProfileRecords(record))
 			{
 				DeleteProfileAndDescendants(child, record);
@@ -1714,17 +1785,83 @@
 
 		private const int MaxNestedProfileDepth = 3;
 
-		private int BuildNestedProfilesUI(bool showDetails, int row, ProfileDataRecord parent, List<ProfileDefinition> childDefinitions, CollapseButton parentCollapseButton, List<IParameterDataRecord> allParameters, int depth, HashSet<Guid> ancestorDefinitionIds)
+		private int BuildNestedProfilesTableUI(bool showDetails, int row, ProfileDataRecord parent, CollapseButton parentCollapseButton, List<IParameterDataRecord> allParameters, int depth, HashSet<Guid> ancestorDefinitionIds)
 		{
-			bool canAddDeeper = depth < MaxNestedProfileDepth;
+			var children = GetChildProfileRecords(parent);
+			bool canAddDeeper = depth < MaxNestedProfileDepth
+				&& !parent.ServiceProfileConfig.Mandatory
+				&& !parent.Profile.IsReusable;
+			bool isVisible = !parentCollapseButton.IsCollapsed;
+
+			if (!children.Any() && !canAddDeeper)
+			{
+				return row;
+			}
+
+			var childAncestors = new HashSet<Guid>(ancestorDefinitionIds);
+			if (parent.ProfileDefinition?.ID != null)
+			{
+				childAncestors.Add(parent.ProfileDefinition.ID);
+			}
+
+			if (children.Any())
+			{
+				var hdrName = new Label("Profile Name") { Style = TextStyle.Heading, IsVisible = isVisible, MaxWidth = 200 };
+				var hdrDefinition = new Label("Profile Definition") { Style = TextStyle.Heading, IsVisible = isVisible, MaxWidth = 200 };
+				view.AddWidget(hdrName, ++row, 0);
+				view.AddWidget(hdrDefinition, row, 1);
+				parentCollapseButton.LinkedWidgets.Add(hdrName);
+				parentCollapseButton.LinkedWidgets.Add(hdrDefinition);
+			}
+
+			foreach (var child in children.OrderBy(c => c.Profile.Name))
+			{
+				++row;
+
+				var capturedChild = child;
+				var nameBox = new TextBox(child.Profile.Name) { IsVisible = isVisible, IsEnabled = !child.Profile.IsReusable };
+				nameBox.Changed += (s, a) =>
+				{
+					if (String.IsNullOrWhiteSpace(a.Value))
+					{
+						((TextBox)s).Text = a.Previous;
+						return;
+					}
+
+					capturedChild.Profile.Name = a.Value;
+					serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(instanceService.ServiceID, "Edit", $"Changed nested profile name from '{a.Previous}' to '{capturedChild.Profile.Name}'"));
+				};
+
+				var defBox = new TextBox(child.ProfileDefinition?.Name ?? "-") { IsVisible = isVisible, IsEnabled = false };
+
+				var editBtn = new Button("✏️") { IsVisible = isVisible };
+				var deleteBtn = new Button("🚫") { IsEnabled = !child.ServiceProfileConfig.Mandatory, IsVisible = isVisible };
+
+				editBtn.Pressed += (s, a) => OpenNestedProfileEditPage(capturedChild, allParameters, depth + 1, childAncestors);
+				deleteBtn.Pressed += DeleteProfileRecursive(capturedChild, parent);
+
+				view.AddWidget(nameBox, row, 0);
+				view.AddWidget(defBox, row, 1);
+				view.AddWidget(editBtn, row, 8);
+				view.AddWidget(deleteBtn, row, 9);
+
+				parentCollapseButton.LinkedWidgets.Add(nameBox);
+				parentCollapseButton.LinkedWidgets.Add(defBox);
+				parentCollapseButton.LinkedWidgets.Add(editBtn);
+				parentCollapseButton.LinkedWidgets.Add(deleteBtn);
+			}
 
 			if (canAddDeeper && !parent.ServiceProfileConfig.Mandatory && !parent.Profile.IsReusable)
 			{
-				var allowedDefinitions = childDefinitions
-					.Where(cd => !ancestorDefinitionIds.Contains(cd.ID))
+				var spacer = new WhiteSpace { IsVisible = isVisible};
+				view.AddWidget(spacer, ++row, 0);
+				parentCollapseButton.LinkedWidgets.Add(spacer);
+
+				var allowedDefinitions = profileDefinitions
+					.Where(pd => !ancestorDefinitionIds.Contains(pd.ID))
 					.ToList();
 
-				var nestedLabel = new Label("Add Profile:") { Style = TextStyle.Heading, IsVisible = !parentCollapseButton.IsCollapsed };
+				var nestedLabel = new Label("Add Profile:") { Style = TextStyle.Heading, IsVisible = isVisible };
 				view.AddWidget(nestedLabel, ++row, 0, HorizontalAlignment.Right);
 				parentCollapseButton.LinkedWidgets.Add(nestedLabel);
 
@@ -1734,15 +1871,15 @@
 					.ToList();
 				nestedOptions.Insert(0, new Option<ProfileOption>("- Profile Definition -", null));
 
-				var nestedDropDown = new DropDown<ProfileOption>(nestedOptions) { IsVisible = !parentCollapseButton.IsCollapsed };
+				var nestedDropDown = new DropDown<ProfileOption>(nestedOptions) { IsVisible = isVisible };
 				view.AddWidget(nestedDropDown, row, 1);
 				parentCollapseButton.LinkedWidgets.Add(nestedDropDown);
 
-				var addNestedButton = new Button("Add") { Width = addButtonWidth, IsVisible = !parentCollapseButton.IsCollapsed };
-				view.AddWidget(addNestedButton, row, 2);
-				parentCollapseButton.LinkedWidgets.Add(addNestedButton);
+				var addNestedBtn = new Button("Add") { Width = addButtonWidth, IsVisible = isVisible };
+				view.AddWidget(addNestedBtn, row, 2);
+				parentCollapseButton.LinkedWidgets.Add(addNestedBtn);
 
-				addNestedButton.Pressed += (sender, args) =>
+				addNestedBtn.Pressed += (s, a) =>
 				{
 					if (nestedDropDown.Selected == null)
 					{
@@ -1754,30 +1891,29 @@
 				};
 
 				++row;
-				var reusableLabel = new Label("Add Reusable Profile:") { Style = TextStyle.Heading, MaxWidth = 200, IsVisible = false };
+				var reusableLabel = new Label("Add Reusable Profile:") { Style = TextStyle.Heading, IsVisible = false };
 				view.AddWidget(reusableLabel, row, 0, HorizontalAlignment.Right);
 
 				var reusableOptions = new List<Option<ProfileOption>> { new Option<ProfileOption>("- Reusable Profile -", null) };
 				var reusableDropDown = new DropDown<ProfileOption>(reusableOptions) { IsVisible = false };
 				view.AddWidget(reusableDropDown, row, 1);
 
-				var addReusableButton = new Button("Add") { Width = addButtonWidth, IsVisible = false };
-				view.AddWidget(addReusableButton, row, 2);
+				var addReusableBtn = new Button("Add") { Width = addButtonWidth, IsVisible = false };
+				view.AddWidget(addReusableBtn, row, 2);
 
-				nestedDropDown.Changed += (sender, args) =>
+				nestedDropDown.Changed += (s, a) =>
 				{
-					if (args.Selected == null)
+					if (a.Selected == null)
 					{
 						reusableLabel.IsVisible = false;
 						reusableDropDown.IsVisible = false;
-						addReusableButton.IsVisible = false;
+						addReusableBtn.IsVisible = false;
 						return;
 					}
 
 					var matchingReusable = (reusableProfiles ?? new List<Profile>())
-						.Where(p => p.ProfileDefinitionReference == args.Selected.Id
-							&& !ancestorDefinitionIds.Contains(p.ProfileDefinitionReference)
-							&& !configuration.ServiceConfigurationVersion.Profiles.Any(sp => sp.Profile.ID == p.ID))
+						.Where(p => p.ProfileDefinitionReference == a.Selected.Id
+								 && !ancestorDefinitionIds.Contains(p.ProfileDefinitionReference))
 						.Select(p => new Option<ProfileOption>(p.Name, new ProfileOption(p.ID, p.Name, false)))
 						.OrderBy(x => x.DisplayValue)
 						.ToList();
@@ -1786,7 +1922,7 @@
 					{
 						reusableLabel.IsVisible = false;
 						reusableDropDown.IsVisible = false;
-						addReusableButton.IsVisible = false;
+						addReusableBtn.IsVisible = false;
 						return;
 					}
 
@@ -1794,10 +1930,10 @@
 					reusableDropDown.SetOptions(matchingReusable);
 					reusableLabel.IsVisible = !parentCollapseButton.IsCollapsed;
 					reusableDropDown.IsVisible = !parentCollapseButton.IsCollapsed;
-					addReusableButton.IsVisible = !parentCollapseButton.IsCollapsed;
+					addReusableBtn.IsVisible = !parentCollapseButton.IsCollapsed;
 				};
 
-				addReusableButton.Pressed += (sender, args) =>
+				addReusableBtn.Pressed += (s, a) =>
 				{
 					if (reusableDropDown?.Selected == null)
 					{
@@ -1809,13 +1945,17 @@
 				};
 			}
 
-			// Render existing child profiles, passing depth+1 and the current ancestor set
-			foreach (var child in GetChildProfileRecords(parent).OrderBy(c => c.Profile.Name))
-			{
-				row = BuildProfileUI(showDetails, row, child, allParameters, parent, depth + 1, ancestorDefinitionIds);
-			}
-
 			return row;
+		}
+
+		private HashSet<Guid> GetRootLevelReusableProfileIds()
+		{
+			return new HashSet<Guid>(
+				configuration.ServiceProfileConfigs
+					.Where(p => p.State != State.Delete
+							 && p.Profile.IsReusable
+							 && !IsChildProfile(p))
+					.Select(p => p.Profile.ID));
 		}
 
 		private sealed class ScriptContext
