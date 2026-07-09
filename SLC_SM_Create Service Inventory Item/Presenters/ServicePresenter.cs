@@ -81,21 +81,22 @@
 		public void LoadFromModel()
 		{
 			// Load correct types
-			var categoryOptions = repo.ServiceCategories.Read().OrderBy(x => x.Name).Select(x => new Option<Models.ServiceCategory>(x.Name, x)).ToList();
+			var categoryOptions = repo.ServiceCategories.Read().Where(x => !string.IsNullOrEmpty(x?.Name)).OrderBy(x => x.Name).Select(x => new Option<Models.ServiceCategory>(x.Name, x)).ToList();
 			categoryOptions.Insert(0, new Option<Models.ServiceCategory>("-None-", null));
 			view.ServiceCategory.SetOptions(categoryOptions);
 
-			var specs = repo.ServiceSpecifications.Read().OrderBy(x => x.Name).Select(x => new Option<Models.ServiceSpecification>(x.Name, x)).ToList();
+			var specs = repo.ServiceSpecifications.Read().Where(x => !string.IsNullOrEmpty(x?.Name)).OrderBy(x => x.Name).Select(x => new Option<Models.ServiceSpecification>(x.Name, x)).ToList();
 			specs.Insert(0, new Option<Models.ServiceSpecification>("-None-", null));
 			view.Specs.SetOptions(specs);
 
-			var services = serviceList.OrderBy(x => x.Name).Select(x => new Option<IDmsService>(x.Name, x)).ToList();
+			var services = serviceList.Where(x => !string.IsNullOrEmpty(x?.Name)).OrderBy(x => x.Name).Select(x => new Option<IDmsService>(x.Name, x)).ToList();
 			view.MonitoringServices.SetOptions(services);
 
 			var orgs = new List<Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.PeopleAndOrganization.Models.Organization>>();
-			if (this._engine.DomModelExists(SlcPeople_OrganizationsIds.ModuleId, new[] {SlcPeople_OrganizationsIds.Sections.OrganizationInformation.Id.Id}))
+			if (this._engine.DomModelExists(SlcPeople_OrganizationsIds.ModuleId, new[] { SlcPeople_OrganizationsIds.Sections.OrganizationInformation.Id.Id }))
 			{
 				orgs = new DataHelperOrganization(_engine.GetUserConnection()).Read()
+				.Where(x => !string.IsNullOrEmpty(x?.Name))
 				.OrderBy(x => x.Name)
 				.Select(x => new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.PeopleAndOrganization.Models.Organization>(x.Name, x))
 				.ToList();
@@ -181,7 +182,7 @@
 			view.GenerateMonitoringService.IsChecked = instance.GenerateMonitoringService.GetValueOrDefault();
 			view.GenerateMonitoringService.IsVisible = false;
 
-			if (!instance.MonitoringService.IsNullOrEmpty() && view.MonitoringServices.Options.Any(s=>s.Value?.DmsServiceId.Value == instance.MonitoringService))
+			if (!instance.MonitoringService.IsNullOrEmpty() && view.MonitoringServices.Options.Any(s => s.Value?.DmsServiceId.Value == instance.MonitoringService))
 			{
 				view.RemoveLinkedService.IsChecked = false;
 				view.MonitoringServices.Selected = view.MonitoringServices.Options.FirstOrDefault(x => x.Value?.DmsServiceId.Value == instance.MonitoringService).Value;
