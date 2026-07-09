@@ -7,7 +7,9 @@
     <Project Path="SLC_SM_AS_AddServiceItem/SLC_SM_AS_AddServiceItem.csproj" />
     <Project Path="SLC_SM_AS_DeleteServiceCategory/SLC_SM_AS_DeleteServiceCategory.csproj" />
     <Project Path="SLC_SM_AS_DynamicDelete/SLC_SM_AS_DynamicDelete.csproj" />
-    <Project Path="SLC_SM_AS_Execute Script/SLC_SM_AS_Execute Script.csproj" Id="59f786c4-3e31-4c52-b132-26326baf1c88" />
+    <Project Path="SLC_SM_AS_Execute Script/SLC_SM_AS_Execute Script.csproj" Id="59f786c4-3e31-4c52-b132-26326baf1c88">
+      <Build Solution="Debug|*" Project="false" />
+    </Project>
     <Project Path="SLC_SM_AS_Service Item ContextMenu Actions/SLC_SM_AS_Service Item ContextMenu Actions.csproj" />
     <Project Path="SLC_SM_AS_SetIcon/SLC_SM_AS_SetIcon.csproj" />
     <Project Path="SLC_SM_Create Job For Service Item/SLC_SM_Create Job For Service Item.csproj" />
@@ -39,7 +41,9 @@
     <Project Path="SLC_SM_GQIDS_Get Service Item Infos/SLC_SM_GQIDS_Get Service Item Infos.csproj" />
     <Project Path="SLC_SM_GQIDS_Get Service Order Items/SLC_SM_GQIDS_Get Service Order Items.csproj" />
     <Project Path="SLC_SM_GQIDS_Get Service Orders/SLC_SM_GQIDS_Get Service Orders.csproj" />
-    <Project Path="SLC_SM_GQIDS_Get Service Scripts/SLC_SM_GQIDS_Get Service Scripts.csproj" Id="6588f8c7-899f-4ed6-aed0-7b0f11f56b45" />
+    <Project Path="SLC_SM_GQIDS_Get Service Scripts/SLC_SM_GQIDS_Get Service Scripts.csproj" Id="6588f8c7-899f-4ed6-aed0-7b0f11f56b45">
+      <Build Solution="Debug|*" Project="false" />
+    </Project>
   </Folder>
   <Folder Name="/IAS/">
     <Project Path="Launch Interactive Subscript/Launch Interactive Subscript.csproj" />
@@ -48,7 +52,9 @@
     <Project Path="SLC_SM_IAS_Add Service Order/SLC_SM_IAS_Add Service Order.csproj" />
     <Project Path="SLC_SM_IAS_Add Service Specification/SLC_SM_IAS_Add Service Specification.csproj" />
     <Project Path="SLC_SM_IAS_Configurations/SLC_SM_IAS_Configurations.csproj" />
-    <Project Path="SLC_SM_IAS_Manage Service Scripts/SLC_SM_IAS_Manage Service Scripts.csproj" Id="d628e821-9493-4ece-97c4-9572249f47ca" />
+    <Project Path="SLC_SM_IAS_Manage Service Scripts/SLC_SM_IAS_Manage Service Scripts.csproj" Id="d628e821-9493-4ece-97c4-9572249f47ca">
+      <Build Solution="Debug|*" Project="false" />
+    </Project>
     <Project Path="SLC_SM_IAS_ManageRelationships/SLC_SM_IAS_ManageRelationships.csproj" />
     <Project Path="SLC_SM_IAS_Profiles/SLC_SM_IAS_Profiles.csproj" />
     <Project Path="SLC_SM_IAS_Service_Configuration/SLC_SM_IAS_Service_Configuration.csproj" />
