@@ -1,0 +1,165 @@
+namespace SLC_SM_IAS_Manage_Service_Scripts.Views
+{
+	using System;
+	using System.Collections.Generic;
+	using System.Linq;
+
+	using Skyline.DataMiner.Automation;
+	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
+	using Skyline.DataMiner.Utils.ServiceManagement.Common.IAS;
+
+	public class ServiceScriptDialog
+	{
+		public static void ShowDialog(ServiceScriptsDialog dialog)
+		{
+			dialog.Build();
+
+			while (!dialog.IsDone)
+			{
+				dialog.Show(requireResponse: true);
+			}
+		}
+
+		public class ServiceScriptsDialog : ScriptDialog
+		{
+			public const string DropdownPlaceholder = "- Select -";
+			private const string ServiceIdParameterLabel = "Service ID";
+
+			private readonly Dictionary<string, TextBox> _scriptInputParameters = new Dictionary<string, TextBox>(StringComparer.OrdinalIgnoreCase);
+			private List<string> _scriptInputParameterNames = new List<string>();
+			private bool _showParametersSection;
+
+			private HashSet<string> _existingDescriptions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+			private string _excludedDescription;
+
+			public ServiceScriptsDialog(IEngine engine, IEnumerable<string> scripts, string serviceId) : base(engine)
+			{
+				var options = new[] { DropdownPlaceholder }.Concat(scripts);
+				ScriptName = new DropDown(options) { MinWidth = 350, Selected = DropdownPlaceholder };
+				ServiceIdBox = new TextBox { Text = serviceId ?? String.Empty, IsReadOnly = true, MinWidth = 350 };
+
+				ConfirmButton.IsEnabled = false;
+				ConfirmButton.Pressed += (sender, args) => { IsConfirmed = true; IsDone = true; };
+				CancelButton.Pressed += (sender, args) => { IsDone = true; };
+
+				ScriptName.Changed += (sender, args) => UpdateConfirmButton();
+				Description.Changed += (sender, args) => { UpdateConfirmButton(); Build(); };
+			}
+
+			public Label Info { get; } = new Label();
+
+			public DropDown ScriptName { get; }
+
+			public Label ServiceIdLabel { get; } = new Label(ServiceIdParameterLabel);
+
+			public TextBox ServiceIdBox { get; }
+
+			public Label DescriptionLabel { get; } = new Label("Description");
+
+			public TextBox Description { get; } = new TextBox { MinWidth = 350 };
+
+			public Label DescriptionError { get; } = new Label("A script entry with this description already exists.");
+
+			public Button ConfirmButton { get; } = new Button("Confirm") { Width = 120, Height = 25, Style = ButtonStyle.CallToAction };
+
+			public Button CancelButton { get; } = new Button("Cancel") { Width = 120, Height = 25 };
+
+			public bool IsConfirmed { get; private set; }
+
+			public bool IsDone { get; private set; }
+
+			public void SetExistingDescriptions(IEnumerable<string> existingDescriptions, string excludedDescription = null)
+			{
+				_existingDescriptions = new HashSet<string>(existingDescriptions ?? Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
+				_excludedDescription = excludedDescription;
+				UpdateConfirmButton();
+			}
+
+			public void RefreshConfirmButton()
+			{
+				UpdateConfirmButton();
+			}
+
+			public void SetInputParameters(List<string> paramNames, Dictionary<string, string> savedValues)
+			{
+				_scriptInputParameterNames = paramNames ?? new List<string>();
+				_showParametersSection = _scriptInputParameterNames.Any();
+				_scriptInputParameters.Clear();
+
+				foreach (var name in _scriptInputParameterNames)
+				{
+					var savedValue = (savedValues != null && savedValues.TryGetValue(name, out var v)) ? v : String.Empty;
+					_scriptInputParameters[name] = new TextBox { MinWidth = 350, Text = savedValue };
+				}
+			}
+
+			public Dictionary<string, string> GetInputParameterValues()
+			{
+				var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+				foreach (var name in _scriptInputParameterNames)
+				{
+					result[name] = _scriptInputParameters.TryGetValue(name, out var field) ? field.Text?.Trim() ?? String.Empty : String.Empty;
+				}
+
+				return result;
+			}
+
+			public override void Build()
+			{
+				Clear();
+				Layout.RowPosition = 0;
+
+				AddWidget(Info, Layout.RowPosition, 0, 1, 2);
+				AddWidget(ScriptName, ++Layout.RowPosition, 0, 1, 2);
+				AddWidget(DescriptionLabel, ++Layout.RowPosition, 0, 1, 2);
+				AddWidget(Description, ++Layout.RowPosition, 0, 1, 2);
+
+				if (IsDescriptionDuplicate(Description.Text))
+				{
+					AddWidget(DescriptionError, ++Layout.RowPosition, 0, 1, 2);
+				}
+
+				if (_showParametersSection)
+				{
+					AddWidget(new Label("Input Parameters") { Style = TextStyle.Bold }, ++Layout.RowPosition, 0, 1, 2);
+					AddWidget(ServiceIdLabel, ++Layout.RowPosition, 0);
+					AddWidget(ServiceIdBox, Layout.RowPosition, 1);
+
+					foreach (var paramName in _scriptInputParameterNames)
+					{
+						AddWidget(new Label(paramName), ++Layout.RowPosition, 0);
+						AddWidget(_scriptInputParameters[paramName], Layout.RowPosition, 1);
+					}
+				}
+
+				AddWidget(new WhiteSpace { Height = 25 }, ++Layout.RowPosition, 0);
+				AddWidget(ConfirmButton, ++Layout.RowPosition, 0);
+				AddWidget(CancelButton, Layout.RowPosition, 1);
+			}
+
+			private bool IsDescriptionDuplicate(string description)
+			{
+				if (String.IsNullOrWhiteSpace(description))
+				{
+					return false;
+				}
+
+				var trimmed = description.Trim();
+
+				if (!String.IsNullOrEmpty(_excludedDescription) && String.Equals(trimmed, _excludedDescription, StringComparison.OrdinalIgnoreCase))
+				{
+					return false;
+				}
+
+				return _existingDescriptions.Contains(trimmed);
+			}
+
+			private void UpdateConfirmButton()
+			{
+				ConfirmButton.IsEnabled = ScriptName.Selected != DropdownPlaceholder
+					&& !String.IsNullOrWhiteSpace(Description.Text)
+					&& !IsDescriptionDuplicate(Description.Text);
+			}
+		}
+	}
+}
