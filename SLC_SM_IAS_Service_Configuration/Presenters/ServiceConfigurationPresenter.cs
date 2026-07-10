@@ -176,16 +176,19 @@
 
 		public void StoreModels()
 		{
-			if (configuration.State == State.Delete)
-			{
+			bool isDeletingVersion = configuration.State == State.Delete;
+
+			if (isDeletingVersion)
 				repoService.ServiceConfigurationVersions.TryDelete(configuration.ServiceConfigurationVersion);
-				return;
-			}
 
 			DeleteRemovedStandaloneParameters();
 			SaveProfiles();
-			SaveConfigurationVersion();
-			serviceManagementLogHelper.LogInfo(serviceEditLogs);
+
+			if (!isDeletingVersion)
+			{
+				SaveConfigurationVersion();
+				serviceManagementLogHelper.LogInfo(serviceEditLogs);
+			}
 		}
 
 		private void ObtainMissingNestedProfiles(List<ConfigurationParameter> configParams)
