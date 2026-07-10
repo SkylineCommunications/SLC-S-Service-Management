@@ -88,6 +88,7 @@
 			var configParams = repoConfig.ConfigurationParameters.Read();
 
 			BuildDataRecords(configParams);
+			ObtainMissingNestedProfiles(configParams);
 
 			var parameterOptions = configParams.Select(x => new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter>(x.Name, x)).OrderBy(x => x.DisplayValue).ToList();
 			parameterOptions.Insert(0, new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter>("- Parameter -", null));
@@ -131,6 +132,83 @@
 			}
 
 			repoService.ServiceSpecifications.CreateOrUpdate(instance);
+		}
+
+		private void ObtainMissingNestedProfiles(List<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter> configParams)
+		{
+			var loadedProfileIds = new HashSet<Guid>(
+				profileConfigurations
+					.Where(p => p.Profile != null)
+					.Select(p => p.Profile.ID));
+
+			var missingIds = CollectMissingChildProfileIds(loadedProfileIds);
+
+			if (missingIds.Count == 0)
+			{
+				return;
+			}
+
+			var filter = missingIds
+				.Select(id => (FilterElement<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.Profile>)ProfileExposers.Guid.Equal(id))
+				.Aggregate((f1, f2) => f1.OR(f2));
+
+			foreach (var fetchedProfile in repoConfig.Profiles.Read(filter))
+			{
+				IncludeMissingNestedProfile(fetchedProfile, configParams, loadedProfileIds, missingIds);
+			}
+		}
+
+		private HashSet<Guid> CollectMissingChildProfileIds(HashSet<Guid> loadedProfileIds)
+		{
+			var missingIds = new HashSet<Guid>();
+			foreach (var profileRecord in profileConfigurations.Where(x => x.State != State.Delete))
+			{
+				if (profileRecord.Profile?.Profiles == null)
+				{
+					continue;
+				}
+
+				foreach (var childId in profileRecord.Profile.Profiles.Where(id => !loadedProfileIds.Contains(id)))
+				{
+					missingIds.Add(childId);
+				}
+			}
+
+			return missingIds;
+		}
+
+		private void IncludeMissingNestedProfile(
+			Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.Profile fetchedProfile,
+			List<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter> configParams,
+			HashSet<Guid> loadedProfileIds,
+			HashSet<Guid> missingIds)
+		{
+			var profileDefinition = fetchedProfile.ProfileDefinitionReference != Guid.Empty
+				? repoConfig.ProfileDefinitions.Read(ProfileDefinitionExposers.Guid.Equal(fetchedProfile.ProfileDefinitionReference)).FirstOrDefault()
+				: null;
+
+			var missingServiceProfile = new Models.ServiceSpecificationProfile
+			{
+				ID = Guid.NewGuid(),
+				ExposeAtServiceOrder = true,
+				MandatoryAtServiceOrder = false,
+				MandatoryAtService = false,
+				Profile = fetchedProfile,
+				ProfileDefinition = profileDefinition,
+			};
+
+			instance.ConfigurationProfiles.Add(missingServiceProfile);
+			profileConfigurations.Add(ProfileDataRecord.BuildProfileRecord(missingServiceProfile, configParams));
+
+			if (fetchedProfile.Profiles != null)
+			{
+				foreach (var grandChildId in fetchedProfile.Profiles.Where(id => !loadedProfileIds.Contains(id) && !missingIds.Contains(id)))
+				{
+					missingIds.Add(grandChildId);
+				}
+			}
+
+			loadedProfileIds.Add(fetchedProfile.ID);
 		}
 
 		private static void OnCancelButtonPressed(object sender, EventArgs e)
