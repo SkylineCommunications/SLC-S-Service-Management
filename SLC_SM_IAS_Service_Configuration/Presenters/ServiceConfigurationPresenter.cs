@@ -18,7 +18,6 @@
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
 	using Skyline.DataMiner.Utils.SecureCoding.SecureSerialization.Json.Newtonsoft;
-	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
 
 	using SLC_SM_IAS_Service_Configuration.Model;
 	using SLC_SM_IAS_Service_Configuration.Model.DataRecords;
@@ -1837,7 +1836,9 @@
 				var editBtn = new Button("✏️") { IsVisible = isVisible };
 				var deleteBtn = new Button("🚫") { IsEnabled = !child.ServiceProfileConfig.Mandatory, IsVisible = isVisible };
 
-				editBtn.Pressed += (s, a) => OpenNestedProfileEditPage(capturedChild, allParameters, depth + 1, childAncestors);
+				editBtn.Pressed += (s, a) => OpenNestedProfileEditPage(
+					capturedChild, allParameters, depth + 1, childAncestors,
+					parentBreadcrumb: parent?.ProfileDefinition?.Name ?? parent?.Profile?.Name);
 				deleteBtn.Pressed += DeleteProfileRecursive(capturedChild, parent);
 
 				view.AddWidget(nameBox, row, 0);

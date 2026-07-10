@@ -11,6 +11,8 @@
 			MinWidth = 900;
 		}
 
+		public Button BtnShowValueDetails { get; } = new Button("Show Value Details");
+
 		public Button BtnBack { get; } = new Button("Back");
 
 		public Button BtnSave { get; } = new Button("Save") { Style = ButtonStyle.CallToAction };

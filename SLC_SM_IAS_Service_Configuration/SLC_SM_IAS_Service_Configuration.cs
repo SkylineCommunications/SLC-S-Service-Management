@@ -10,6 +10,7 @@ DATE		VERSION		AUTHOR			COMMENTS
 28/05/2025	1.0.0.1		RME, Skyline	Initial version
 26/01/2026	1.0.0.2		SDT, Skyline	Added Logging.
 26/05/2026	1.0.0.3		SKA, Skyline	Implemented logic for calculated service parameters
+10/07/2026	1.0.0.4		SKA, Skyline	Added support for nested profiles
 ****************************************************************************
 */
 namespace SLC_SM_IAS_Service_Configuration

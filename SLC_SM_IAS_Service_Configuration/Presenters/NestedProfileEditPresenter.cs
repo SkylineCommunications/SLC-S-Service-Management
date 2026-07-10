@@ -21,26 +21,23 @@
 
 	public partial class ServiceConfigurationPresenter
 	{
-		private void OpenNestedProfileEditPage(ProfileDataRecord child, List<IParameterDataRecord> allParameters, int depth, HashSet<Guid> ancestorDefinitionIds)
+		private void OpenNestedProfileEditPage(ProfileDataRecord child, List<IParameterDataRecord> allParameters, int depth, HashSet<Guid> ancestorDefinitionIds, string parentBreadcrumb = null)
 		{
 			var editView = new NestedProfileEditView(engine);
+			string childSegment = child.ProfileDefinition?.Name ?? child.Profile.Name;
+			string path = String.IsNullOrEmpty(parentBreadcrumb)
+				? childSegment
+				: $"{parentBreadcrumb} > {childSegment}";
+
 			var helper = new NestedProfileEditHelper(
-				engine,
-				controller,
-				editView,
+				engine, controller, editView,
 				previousView: view,
 				onBack: null,
-				child,
-				repoConfig,
-				profileDefinitions,
-				reusableProfiles,
-				configuration,
-				allParameters,
-				serviceEditLogs,
-				instanceService.ServiceID,
-				depth,
-				ancestorDefinitionIds,
-				rootLevelReusableIds: GetRootLevelReusableProfileIds(),
+				child, repoConfig, profileDefinitions, reusableProfiles, configuration,
+				allParameters, serviceEditLogs, instanceService.ServiceID,
+				depth, ancestorDefinitionIds,
+				breadcrumbPath: path,
+				initialShowDetails: this.showDetails,
 				onSaved: () => BuildUI(this.showDetails));
 
 			helper.BuildView();
@@ -72,6 +69,8 @@
 			private readonly Action onSaved;
 
 			private TextBox nameField;
+			private bool showDetails;
+			private readonly string breadcrumbPath;
 
 			public NestedProfileEditHelper(
 				IEngine engine,
@@ -89,7 +88,8 @@
 				string serviceId,
 				int depth,
 				HashSet<Guid> ancestorDefinitionIds,
-				HashSet<Guid> rootLevelReusableIds,
+				string breadcrumbPath,
+				bool initialShowDetails = false,
 				Action onSaved = null)
 			{
 				this.engine = engine;
@@ -109,6 +109,16 @@
 				this.ancestorDefinitionIds = ancestorDefinitionIds;
 				this.rootLevelReusableIds = rootLevelReusableIds ?? new HashSet<Guid>();
 				this.onSaved = onSaved;
+				this.showDetails = initialShowDetails;
+				this.breadcrumbPath = breadcrumbPath;
+
+				view.BtnShowValueDetails.Text = showDetails ? "Hide Value Details" : "Show Value Details";
+				view.BtnShowValueDetails.Pressed += (s, a) =>
+				{
+					showDetails = !showDetails;
+					view.BtnShowValueDetails.Text = showDetails ? "Hide Value Details" : "Show Value Details";
+					BuildView();
+				};
 
 				view.BtnBack.MaxWidth = ButtonWidth;
 				view.BtnBack.Pressed += (s, a) =>
@@ -137,27 +147,21 @@
 
 				int row = 0;
 
-				view.AddWidget(new Label($"Nested Profile: {profile.ProfileDefinition?.Name ?? "Unknown"}") { Style = TextStyle.Bold }, row, 0, 1, 6);
-				view.AddWidget(new Label("Profile Name:") { Style = TextStyle.Heading }, ++row, 0, HorizontalAlignment.Right);
-
-				nameField = new TextBox(profile.Profile.Name);
-				nameField.Changed += (s, a) =>
-				{
-					if (String.IsNullOrWhiteSpace(a.Value))
-					{
-						((TextBox)s).Text = a.Previous;
-						return;
-					}
-
-					profile.Profile.Name = a.Value;
-					serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(serviceId, "Edit", $"Changed nested profile name from '{a.Previous}' to '{profile.Profile.Name}'"));
-				};
-				view.AddWidget(nameField, row, 1, 1, 4);
+				view.AddWidget(new Label(breadcrumbPath) { Style = TextStyle.Bold }, row, 0, 1, 9);
+				view.AddWidget(view.BtnShowValueDetails, ++row, 0);
 				view.AddWidget(new WhiteSpace(), ++row, 0);
 
 				view.AddWidget(new Label("Label") { Style = TextStyle.Heading }, ++row, 0);
 				view.AddWidget(new Label("Parameter") { Style = TextStyle.Heading }, row, 1);
 				view.AddWidget(new Label("Value") { Style = TextStyle.Heading }, row, ParamValueColumnIndex);
+				view.AddWidget(new Label("Unit") { Style = TextStyle.Heading, MaxWidth = 80 }, row, 4);
+				if (showDetails)
+				{
+					view.AddWidget(new Label("Start") { Style = TextStyle.Heading, MaxWidth = 100 }, row, 6);
+					view.AddWidget(new Label("End") { Style = TextStyle.Heading, MaxWidth = 100 }, row, 7);
+					view.AddWidget(new Label("Step Size"){ Style = TextStyle.Heading, MaxWidth = 100 }, row, 8);
+					view.AddWidget(new Label("Decimals") { Style = TextStyle.Heading, MaxWidth = 80 }, row, 9);
+				}
 
 				var paramList = profile.ProfileParameterConfigs
 					.Where(x => x.State != State.Delete)
@@ -179,7 +183,7 @@
 					};
 					view.AddWidget(lblBox, row, 0);
 					view.AddWidget(new TextBox(param.ConfigurationParam?.Name ?? "-") { IsEnabled = false }, row, 1);
-					AddParameterValueWidget(capturedParam, row);
+					AddParameterValueWidget(capturedParam, row, isReusable);
 
 					if (!isMandatory)
 					{
@@ -190,7 +194,7 @@
 							serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(serviceId, "Edit", $"Deleted nested parameter '{capturedParam.ConfigurationParam?.Name}'"));
 							BuildView();
 						};
-						view.AddWidget(deleteParam, row, 9);
+						view.AddWidget(deleteParam, row, 5);
 					}
 				}
 
@@ -208,20 +212,14 @@
 					view.AddWidget(addParamBtn, row, 2);
 					addParamBtn.Pressed += (s, a) =>
 					{
-						if (paramDropDown.Selected == null)
-						{
-							return;
-						}
+						if (paramDropDown.Selected == null) return;
 
 						var selected = paramDropDown.Selected;
 						var configParamValue = HelperMethods.BuildConfigurationParameter(selected);
-
 						profile.ProfileParameterConfigs.Add(ProfileParameterDataRecord.BuildParameterDataRecord(
-							configParamValue,
-							selected,
+							configParamValue, selected,
 							profile.ProfileDefinition?.ConfigurationParameters?.FirstOrDefault(p => p.ConfigurationParameter == selected.ID),
 							State.Create));
-
 						profile.Profile.ConfigurationParameterValues.Add(configParamValue);
 						serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(serviceId, "Edit", $"Added nested parameter '{selected.Name}'"));
 						BuildView();
@@ -231,6 +229,95 @@
 				view.AddWidget(new WhiteSpace(), ++row, 0);
 				view.AddWidget(view.BtnBack, ++row, 0);
 				view.AddWidget(view.BtnSave, row, 1);
+			}
+
+			private void AddParameterValueWidget(IParameterDataRecord record, int row, bool isReusable)
+			{
+				bool isDisabled = record.ConfigurationParamValue.ValueFixed || isReusable;
+
+				switch (record.ConfigurationParam?.Type)
+				{
+					case SlcConfigurationsIds.Enums.Type.Discrete:
+						if (record.ConfigurationParamValue.DiscreteOptions != null)
+						{
+							var options = record.ConfigurationParamValue.DiscreteOptions.DiscreteValues
+								.Select(x => new Option<DiscreteValue>(x.Value, x))
+								.OrderBy(x => x.DisplayValue)
+								.ToList();
+							var dd = new DropDown<DiscreteValue>(options) { IsEnabled = !isDisabled };
+							if (record.ConfigurationParamValue.StringValue != null
+								&& options.Any(o => o.DisplayValue == record.ConfigurationParamValue.StringValue))
+							{
+								dd.Selected = options.First(o => o.DisplayValue == record.ConfigurationParamValue.StringValue).Value;
+							}
+							dd.Changed += (s, a) => { record.ConfigurationParamValue.StringValue = a.SelectedOption.DisplayValue; };
+							view.AddWidget(dd, row, ParamValueColumnIndex);
+						}
+						break;
+
+					case SlcConfigurationsIds.Enums.Type.Number:
+						var numOpts = record.ConfigurationParamValue.NumberOptions;
+						double min = numOpts?.MinRange ?? -10_000;
+						double max = numOpts?.MaxRange ?? 10_000;
+						int decimalsVal = Convert.ToInt32(numOpts?.Decimals ?? 0);
+						double stepVal = numOpts?.StepSize ?? 1;
+
+						var numeric = new Numeric(record.ConfigurationParamValue.DoubleValue ?? numOpts?.DefaultValue ?? 0)
+						{
+							Minimum = min, Maximum = max, Decimals = decimalsVal, StepSize = stepVal,
+							IsEnabled = !isDisabled,
+						};
+						numeric.Changed += (s, a) => { record.ConfigurationParamValue.DoubleValue = a.Value; };
+						view.AddWidget(numeric, row, ParamValueColumnIndex);
+
+						var unitOptions = (numOpts?.Units ?? new List<ConfigurationUnit>())
+							.Select(u => new Option<ConfigurationUnit>(u.Name, u)).ToList();
+						unitOptions.Insert(0, new Option<ConfigurationUnit>("-", null));
+						var unit = new DropDown<ConfigurationUnit>(unitOptions) { IsEnabled = !isDisabled, MaxWidth = 80 };
+						if (numOpts?.DefaultUnit != null && unitOptions.Any(o => o.Value?.ID == numOpts.DefaultUnit.ID))
+							unit.Selected = numOpts.DefaultUnit;
+						unit.Changed += (s, a) => { if (numOpts != null) numOpts.DefaultUnit = a.Selected; };
+						view.AddWidget(unit, row, 4);
+
+						if (showDetails)
+						{
+							var start = new Numeric(min) { IsEnabled = !isDisabled, MaxWidth = 100 };
+							start.Changed += (s, a) => { numeric.Minimum = a.Value; if (numOpts != null) numOpts.MinRange = a.Value; };
+							view.AddWidget(start, row, 6);
+
+							var end = new Numeric(max) { IsEnabled = !isDisabled, MaxWidth = 100 };
+							end.Changed += (s, a) => { numeric.Maximum = a.Value; if (numOpts != null) numOpts.MaxRange = a.Value; };
+							view.AddWidget(end, row, 7);
+
+							var step = new Numeric(stepVal)
+							{
+								Minimum = 0, Maximum = 1, StepSize = 1 / Math.Pow(10, decimalsVal),
+								Decimals = decimalsVal, IsEnabled = !isDisabled, MaxWidth = 100,
+							};
+							step.Changed += (s, a) => { numeric.StepSize = a.Value; if (numOpts != null) numOpts.StepSize = a.Value; };
+							view.AddWidget(step, row, 8);
+
+							var dec = new Numeric(decimalsVal)
+							{
+								StepSize = 1, Minimum = 0, Maximum = 6, IsEnabled = !isDisabled, MaxWidth = 80,
+							};
+							dec.Changed += (s, a) =>
+							{
+								int d = Convert.ToInt32(a.Value);
+								numeric.Decimals = d; step.Decimals = d;
+								step.StepSize = 1 / Math.Pow(10, d);
+								if (numOpts != null) numOpts.Decimals = d;
+							};
+							view.AddWidget(dec, row, 9);
+						}
+						break;
+
+					default:
+						var tb = new TextBox(record.ConfigurationParamValue.StringValue ?? String.Empty) { IsEnabled = !isDisabled };
+						tb.Changed += (s, a) => { record.ConfigurationParamValue.StringValue = a.Value; };
+						view.AddWidget(tb, row, ParamValueColumnIndex);
+						break;
+				}
 			}
 
 			private int BuildSubNestedProfilesTable(int row)
@@ -284,6 +371,7 @@
 					editBtn.Pressed += (s, a) =>
 					{
 						var childEditView = new NestedProfileEditView(engine);
+						string childSegment = capturedChild.ProfileDefinition?.Name ?? capturedChild.Profile.Name;
 						var helper = new NestedProfileEditHelper(
 							engine, controller, childEditView,
 							previousView: view,
@@ -291,7 +379,8 @@
 							capturedChild, repoConfig, profileDefinitions, reusableProfiles, configuration,
 							allParameters, serviceEditLogs, serviceId,
 							depth + 1, childAncestors,
-							rootLevelReusableIds: rootLevelReusableIds,
+							breadcrumbPath: $"{breadcrumbPath} > {childSegment}",
+							initialShowDetails: showDetails,
 							onSaved: () => BuildView());
 						helper.BuildView();
 						controller.ShowDialog(childEditView);
@@ -535,53 +624,6 @@
 
 				parent.Profile.Profiles.Add(profileInstance.ID);
 				serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(serviceId, "Edit", $"Added reusable nested profile '{profileInstance.Name}' under '{parent.Profile.Name}'"));
-			}
-
-			private void AddParameterValueWidget(IParameterDataRecord record, int row)
-			{
-				bool isDisabled = record.ConfigurationParamValue.ValueFixed || profile.Profile.IsReusable;
-
-				switch (record.ConfigurationParam?.Type)
-				{
-					case SlcConfigurationsIds.Enums.Type.Discrete:
-						if (record.ConfigurationParamValue.DiscreteOptions != null)
-						{
-							var options = record.ConfigurationParamValue.DiscreteOptions.DiscreteValues
-								.Select(x => new Option<DiscreteValue>(x.Value, x))
-								.OrderBy(x => x.DisplayValue)
-								.ToList();
-							var dd = new DropDown<DiscreteValue>(options) { IsEnabled = !isDisabled };
-							if (record.ConfigurationParamValue.StringValue != null
-								&& options.Any(o => o.DisplayValue == record.ConfigurationParamValue.StringValue))
-							{
-								dd.Selected = options.First(o => o.DisplayValue == record.ConfigurationParamValue.StringValue).Value;
-							}
-
-							dd.Changed += (s, a) => { record.ConfigurationParamValue.StringValue = a.SelectedOption.DisplayValue; };
-							view.AddWidget(dd, row, ParamValueColumnIndex);
-						}
-
-						break;
-
-					case SlcConfigurationsIds.Enums.Type.Number:
-						var numOpts = record.ConfigurationParamValue.NumberOptions;
-						var numeric = new Numeric(record.ConfigurationParamValue.DoubleValue ?? numOpts?.DefaultValue ?? 0)
-						{
-							Minimum = numOpts?.MinRange ?? -10_000,
-							Maximum = numOpts?.MaxRange ?? 10_000,
-							Decimals = Convert.ToInt32(numOpts?.Decimals ?? 0),
-							IsEnabled = !isDisabled,
-						};
-						numeric.Changed += (s, a) => { record.ConfigurationParamValue.DoubleValue = a.Value; };
-						view.AddWidget(numeric, row, ParamValueColumnIndex);
-						break;
-
-					default:
-						var tb = new TextBox(record.ConfigurationParamValue.StringValue ?? String.Empty) { IsEnabled = !isDisabled };
-						tb.Changed += (s, a) => { record.ConfigurationParamValue.StringValue = a.Value; };
-						view.AddWidget(tb, row, ParamValueColumnIndex);
-						break;
-				}
 			}
 		}
 	}
