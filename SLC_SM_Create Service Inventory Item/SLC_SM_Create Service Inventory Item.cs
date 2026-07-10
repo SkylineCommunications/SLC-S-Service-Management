@@ -371,13 +371,13 @@ namespace SLC_SM_Create_Service_Inventory_Item
 			SetServiceIcon(dms, serviceId, instance.Icon);
 		}
 
-		private ICollection<IDmsService> GetDmsServices()
+		private IEnumerable<IDmsService> GetDmsServices()
 		{
 			var dms = _engine.GetDms();
 			var services = dms.GetServices();
 			if (!services.Any())
 			{
-				return null;
+				return Enumerable.Empty<IDmsService>();
 			}
 
 			return services;
