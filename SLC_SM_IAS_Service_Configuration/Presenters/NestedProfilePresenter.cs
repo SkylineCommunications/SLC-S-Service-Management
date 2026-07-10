@@ -23,13 +23,13 @@
 			ProfileDataRecord child,
 			int depth,
 			HashSet<Guid> ancestorDefinitionIds,
-			string parentBreadcrumb = null)
+			string parentName = null)
 		{
 			var editView = new NestedProfileView(engine);
-			string childSegment = child.Profile?.Name ?? child.ProfileDefinition.Name;
-			string breadcrumb = string.IsNullOrEmpty(parentBreadcrumb)
-				? childSegment
-				: $"{parentBreadcrumb} > {childSegment}";
+			string childProfileName = child.Profile?.Name ?? child.ProfileDefinition.Name;
+			string updatedParentName = string.IsNullOrEmpty(parentName)
+				? childProfileName
+				: $"{parentName} > {childProfileName}";
 
 			var helper = new NestedProfileEditHelper(
 				engine,
@@ -46,7 +46,7 @@
 				serviceId: instanceService.ServiceID,
 				depth: depth,
 				ancestorDefinitionIds: ancestorDefinitionIds,
-				breadcrumbPath: breadcrumb,
+				parentName: updatedParentName,
 				initialShowDetails: showDetails,
 				onSaved: () => BuildUI(showDetails));
 
@@ -74,7 +74,7 @@
 			private readonly int depth;
 			private readonly HashSet<Guid> ancestorDefinitionIds;
 			private readonly Action onSaved;
-			private readonly string breadcrumbPath;
+			private readonly string parentName;
 
 			private bool showDetails;
 
@@ -93,7 +93,7 @@
 				string serviceId,
 				int depth,
 				HashSet<Guid> ancestorDefinitionIds,
-				string breadcrumbPath,
+				string parentName,
 				bool initialShowDetails = false,
 				Action onSaved = null)
 			{
@@ -113,9 +113,9 @@
 				this.ancestorDefinitionIds = ancestorDefinitionIds;
 				this.onSaved = onSaved;
 				this.showDetails = initialShowDetails;
-				this.breadcrumbPath = breadcrumbPath;
+				this.parentName = parentName;
 
-				WireButtons();
+				ButtonActions();
 			}
 
 			public void BuildView()
@@ -124,7 +124,7 @@
 
 				int row = 0;
 
-				view.AddWidget(new Label(breadcrumbPath) { Style = TextStyle.Bold }, row, 0, 1, 9);
+				view.AddWidget(new Label(parentName) { Style = TextStyle.Bold }, row, 0, 1, 9);
 				view.AddWidget(view.ShowValueDetails, ++row, 0);
 				view.AddWidget(new WhiteSpace(), ++row, 0);
 				view.RenderParameterHeaders(++row, showDetails);
@@ -148,7 +148,7 @@
 				button.IsVisible = visible;
 			}
 
-			private void WireButtons()
+			private void ButtonActions()
 			{
 				view.ShowValueDetails.Text = showDetails ? "Hide Value Details" : "Show Value Details";
 				view.ShowValueDetails.Pressed += (s, a) =>
@@ -223,8 +223,8 @@
 				var paramDropDown = new DropDown<ConfigurationParameter>(profile.GetAvailableProfileParameters(repoConfig));
 				view.AddWidget(paramDropDown, row, 1);
 
-				var addBtn = new Button("Add") { MaxWidth = AddButtonWidth };
-				addBtn.Pressed += (s, a) =>
+				var addButton = new Button("Add") { MaxWidth = AddButtonWidth };
+				addButton.Pressed += (s, a) =>
 				{
 					if (paramDropDown.Selected == null)
 						return;
@@ -237,7 +237,7 @@
 					serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(serviceId, "Edit", $"Added nested parameter '{selected.Name}'"));
 					BuildView();
 				};
-				view.AddWidget(addBtn, row, 2);
+				view.AddWidget(addButton, row, 2);
 			}
 
 			private int BuildSubNestedProfilesTable(int row)
@@ -300,11 +300,11 @@
 
 			private Button BuildEditButton(ProfileDataRecord child, HashSet<Guid> childAncestors)
 			{
-				var editBtn = new Button("✏️");
-				editBtn.Pressed += (s, a) =>
+				var editButton = new Button("✏️");
+				editButton.Pressed += (s, a) =>
 				{
 					var childEditView = new NestedProfileView(engine);
-					string childSegment = child.Profile?.Name ?? child.ProfileDefinition?.Name;
+					string childProfileName = child.Profile?.Name ?? child.ProfileDefinition?.Name;
 					var helper = new NestedProfileEditHelper(
 						engine,
 						controller,
@@ -320,24 +320,24 @@
 						serviceId: serviceId,
 						depth: depth + 1,
 						ancestorDefinitionIds: childAncestors,
-						breadcrumbPath: $"{breadcrumbPath} > {childSegment}",
+						parentName: $"{parentName} > {childProfileName}",
 						initialShowDetails: showDetails,
 						onSaved: BuildView);
 					helper.BuildView();
 					controller.ShowDialog(childEditView);
 				};
-				return editBtn;
+				return editButton;
 			}
 
 			private Button BuildDeleteButton(ProfileDataRecord child)
 			{
-				var deleteBtn = new Button("🚫") { IsEnabled = !child.ServiceProfileConfig.Mandatory };
-				deleteBtn.Pressed += (s, a) =>
+				var deleteButton = new Button("🚫") { IsEnabled = !child.ServiceProfileConfig.Mandatory };
+				deleteButton.Pressed += (s, a) =>
 				{
 					DeleteProfileAndDescendants(child, profile);
 					BuildView();
 				};
-				return deleteBtn;
+				return deleteButton;
 			}
 
 			private void RenderAddChildProfile(ref int row, HashSet<Guid> childAncestors)
@@ -374,14 +374,14 @@
 				var reusableDropDown = new DropDown<ProfileOption>(reusableOptions) { IsVisible = false };
 				view.AddWidget(reusableDropDown, row, 1);
 
-				var addReusableBtn = new Button("Add") { MaxWidth = AddButtonWidth, IsVisible = false };
-				view.AddWidget(addReusableBtn, row, 2);
+				var addReusableButton = new Button("Add") { MaxWidth = AddButtonWidth, IsVisible = false };
+				view.AddWidget(addReusableButton, row, 2);
 
 				definitionDropDown.Changed += (s, a) =>
 				{
 					if (a.Selected == null)
 					{
-						SetReusableRowVisible(reusableLabel, reusableDropDown, addReusableBtn, false);
+						SetReusableRowVisible(reusableLabel, reusableDropDown, addReusableButton, false);
 						return;
 					}
 
@@ -393,16 +393,16 @@
 
 					if (matchingReusable.Count == 0)
 					{
-						SetReusableRowVisible(reusableLabel, reusableDropDown, addReusableBtn, false);
+						SetReusableRowVisible(reusableLabel, reusableDropDown, addReusableButton, false);
 						return;
 					}
 
 					matchingReusable.Insert(0, new Option<ProfileOption>("- Reusable Profile -", null));
 					reusableDropDown.SetOptions(matchingReusable);
-					SetReusableRowVisible(reusableLabel, reusableDropDown, addReusableBtn, true);
+					SetReusableRowVisible(reusableLabel, reusableDropDown, addReusableButton, true);
 				};
 
-				addReusableBtn.Pressed += (s, a) =>
+				addReusableButton.Pressed += (s, a) =>
 				{
 					if (reusableDropDown.Selected == null)
 						return;

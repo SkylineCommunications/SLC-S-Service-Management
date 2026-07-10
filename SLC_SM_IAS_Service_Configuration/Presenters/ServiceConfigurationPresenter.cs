@@ -191,6 +191,70 @@
 			}
 		}
 
+		private static void ApplyScriptResults(List<ScriptParameters.ScriptParameterUpdate> updates, Dictionary<string, ProfileDataRecord> profileByName, List<IParameterDataRecord> updatedValues)
+		{
+			if (updates == null)
+			{
+				return;
+			}
+
+			foreach (var update in updates)
+			{
+				ApplySingleUpdate(update, profileByName, updatedValues);
+			}
+		}
+
+		private static void SetNestedReusableRowVisible(Label label, DropDown<ProfileOption> dropDown, Button button, bool visible)
+		{
+			label.IsVisible = visible;
+			dropDown.IsVisible = visible;
+			button.IsVisible = visible;
+		}
+
+		private static void ApplySingleUpdate(ScriptParameters.ScriptParameterUpdate update, Dictionary<string, ProfileDataRecord> profileByName, List<IParameterDataRecord> updatedValues)
+		{
+			var targetProfile = profileByName.TryGetValue(update.ProfileName, out var exactMatch)
+				? exactMatch
+				: profileByName.Values.FirstOrDefault(p => p.Profile.Name.StartsWith(update.ProfileName, StringComparison.OrdinalIgnoreCase));
+
+			if (targetProfile == null)
+			{
+				return;
+			}
+
+			var target = targetProfile.ProfileParameterConfigs
+				.Where(x => x.State != State.Delete)
+				.FirstOrDefault(p => p.ConfigurationParamValue.Label == update.ParamLabel || p.ConfigurationParam.Name == update.ParamLabel);
+
+			if (target == null)
+			{
+				return;
+			}
+
+			if (target.ConfigurationParam.Type == SlcConfigurationsIds.Enums.Type.Number)
+			{
+				if (Double.TryParse(update.Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double numericValue))
+				{
+					target.ConfigurationParamValue.DoubleValue = numericValue;
+				}
+			}
+			else
+			{
+				target.ConfigurationParamValue.StringValue = update.Value;
+			}
+
+			if (updatedValues != null && !updatedValues.Contains(target))
+			{
+				updatedValues.Add(target);
+			}
+		}
+
+		private static void ClearParamValue(IParameterDataRecord record)
+		{
+			record.ConfigurationParamValue.StringValue = null;
+			record.ConfigurationParamValue.DoubleValue = null;
+		}
+
 		private void ObtainMissingNestedProfiles(List<ConfigurationParameter> configParams)
 		{
 			var loadedProfileIds = new HashSet<Guid>(configuration.ServiceProfileConfigs.Select(p => p.Profile.ID));
@@ -292,70 +356,6 @@
 			{
 				serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(instanceService.ServiceID, "Edit", $"Updated configuration version '{configuration.ServiceConfigurationVersion.VersionName}'"));
 			}
-		}
-
-		private static void ApplyScriptResults(List<ScriptParameters.ScriptParameterUpdate> updates, Dictionary<string, ProfileDataRecord> profileByName, List<IParameterDataRecord> updatedValues)
-		{
-			if (updates == null)
-			{
-				return;
-			}
-
-			foreach (var update in updates)
-			{
-				ApplySingleUpdate(update, profileByName, updatedValues);
-			}
-		}
-
-		private static void SetNestedReusableRowVisible(Label label, DropDown<ProfileOption> dropDown, Button button, bool visible)
-		{
-			label.IsVisible = visible;
-			dropDown.IsVisible = visible;
-			button.IsVisible = visible;
-		}
-
-		private static void ApplySingleUpdate(ScriptParameters.ScriptParameterUpdate update, Dictionary<string, ProfileDataRecord> profileByName, List<IParameterDataRecord> updatedValues)
-		{
-			var targetProfile = profileByName.TryGetValue(update.ProfileName, out var exactMatch)
-				? exactMatch
-				: profileByName.Values.FirstOrDefault(p => p.Profile.Name.StartsWith(update.ProfileName, StringComparison.OrdinalIgnoreCase));
-
-			if (targetProfile == null)
-			{
-				return;
-			}
-
-			var target = targetProfile.ProfileParameterConfigs
-				.Where(x => x.State != State.Delete)
-				.FirstOrDefault(p => p.ConfigurationParamValue.Label == update.ParamLabel || p.ConfigurationParam.Name == update.ParamLabel);
-
-			if (target == null)
-			{
-				return;
-			}
-
-			if (target.ConfigurationParam.Type == SlcConfigurationsIds.Enums.Type.Number)
-			{
-				if (Double.TryParse(update.Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double numericValue))
-				{
-					target.ConfigurationParamValue.DoubleValue = numericValue;
-				}
-			}
-			else
-			{
-				target.ConfigurationParamValue.StringValue = update.Value;
-			}
-
-			if (updatedValues != null && !updatedValues.Contains(target))
-			{
-				updatedValues.Add(target);
-			}
-		}
-
-		private static void ClearParamValue(IParameterDataRecord record)
-		{
-			record.ConfigurationParamValue.StringValue = null;
-			record.ConfigurationParamValue.DoubleValue = null;
 		}
 
 		private void PopulateLinkedConsumers(IParameterDataRecord producer, IEnumerable<IParameterDataRecord> allParameters)
@@ -1851,7 +1851,7 @@
 				var editButton = new Button("✏️") { IsVisible = isVisible };
 				var deleteButton = new Button("🚫") { IsEnabled = !child.ServiceProfileConfig.Mandatory, IsVisible = isVisible };
 
-				editButton.Pressed += (s, a) => OpenNestedProfileEditPage(captured, depth + 1, childAncestors, parentBreadcrumb: parent.Profile.Name);
+				editButton.Pressed += (s, a) => OpenNestedProfileEditPage(captured, depth + 1, childAncestors, parentName: parent.Profile.Name);
 				deleteButton.Pressed += DeleteProfileRecursive(captured, parent);
 
 				view.AddWidget(nameBox, row, 0);

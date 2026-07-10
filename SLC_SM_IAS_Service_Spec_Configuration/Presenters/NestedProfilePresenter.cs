@@ -23,13 +23,13 @@
 			ProfileDataRecord child,
 			int depth,
 			HashSet<Guid> ancestorDefinitionIds,
-			string parentBreadcrumb = null)
+			string parentName = null)
 		{
 			var editView = new NestedProfileView(engine);
-			string childSegment = child.Profile?.Name ?? child.ProfileDefinition.Name;
-			string breadcrumb = String.IsNullOrEmpty(parentBreadcrumb)
-				? childSegment
-				: $"{parentBreadcrumb} > {childSegment}";
+			string childProfileName = child.Profile?.Name ?? child.ProfileDefinition.Name;
+			string updatedParentName = string.IsNullOrEmpty(parentName)
+				? childProfileName
+				: $"{parentName} > {childProfileName}";
 
 			var helper = new NestedProfileEditHelper(
 				engine,
@@ -44,7 +44,7 @@
 				instance: instance,
 				depth: depth,
 				ancestorDefinitionIds: ancestorDefinitionIds,
-				breadcrumbPath: breadcrumb,
+				parentName: updatedParentName,
 				initialShowDetails: showDetails,
 				onSaved: () => BuildUI(showDetails, showLifeCycleDetails));
 
@@ -70,7 +70,7 @@
 			private readonly int depth;
 			private readonly HashSet<Guid> ancestorDefinitionIds;
 			private readonly Action onSaved;
-			private readonly string breadcrumbPath;
+			private readonly string parentName;
 
 			private bool showDetails;
 
@@ -87,7 +87,7 @@
 				Models.ServiceSpecification instance,
 				int depth,
 				HashSet<Guid> ancestorDefinitionIds,
-				string breadcrumbPath,
+				string parentName,
 				bool initialShowDetails = false,
 				Action onSaved = null)
 			{
@@ -105,7 +105,7 @@
 				this.ancestorDefinitionIds = ancestorDefinitionIds;
 				this.onSaved = onSaved;
 				this.showDetails = initialShowDetails;
-				this.breadcrumbPath = breadcrumbPath;
+				this.parentName = parentName;
 
 				WireButtons();
 			}
@@ -116,7 +116,7 @@
 
 				int row = 0;
 
-				view.AddWidget(new Label(breadcrumbPath) { Style = TextStyle.Bold }, row, 0, 1, 9);
+				view.AddWidget(new Label(parentName) { Style = TextStyle.Bold }, row, 0, 1, 9);
 				view.AddWidget(view.ShowValueDetails, ++row, 0);
 				view.AddWidget(new WhiteSpace(), ++row, 0);
 				view.RenderParameterHeaders(++row, showDetails);
@@ -313,7 +313,7 @@
 						instance: instance,
 						depth: depth + 1,
 						ancestorDefinitionIds: childAncestors,
-						breadcrumbPath: $"{breadcrumbPath} > {childSegment}",
+						parentName: $"{parentName} > {childSegment}",
 						initialShowDetails: showDetails,
 						onSaved: BuildView);
 					helper.BuildView();

@@ -1381,7 +1381,7 @@
 				var editButton = new Button("✏️") { IsVisible = isVisible };
 				var deleteButton = new Button("🚫") { IsVisible = isVisible };
 
-				editButton.Pressed += (s, a) => OpenNestedProfileEditPage(captured, depth + 1, childAncestors, parentBreadcrumb: parent.Profile.Name);
+				editButton.Pressed += (s, a) => OpenNestedProfileEditPage(captured, depth + 1, childAncestors, parentName: parent.Profile.Name);
 				deleteButton.Pressed += DeleteProfileRecursive(captured, parent);
 
 				view.AddWidget(nameBox, row, 0);
