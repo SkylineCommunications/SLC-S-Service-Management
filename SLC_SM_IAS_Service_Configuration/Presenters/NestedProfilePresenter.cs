@@ -25,7 +25,7 @@
 			HashSet<Guid> ancestorDefinitionIds,
 			string parentBreadcrumb = null)
 		{
-			var editView = new NestedProfileEditView(engine);
+			var editView = new NestedProfileView(engine);
 			string childSegment = child.Profile?.Name ?? child.ProfileDefinition.Name;
 			string breadcrumb = string.IsNullOrEmpty(parentBreadcrumb)
 				? childSegment
@@ -61,7 +61,7 @@
 
 			private readonly IEngine engine;
 			private readonly InteractiveController controller;
-			private readonly NestedProfileEditView view;
+			private readonly NestedProfileView view;
 			private readonly Dialog previousView;
 			private readonly Action onBack;
 			private readonly ProfileDataRecord profile;
@@ -81,7 +81,7 @@
 			public NestedProfileEditHelper(
 				IEngine engine,
 				InteractiveController controller,
-				NestedProfileEditView view,
+				NestedProfileView view,
 				Dialog previousView,
 				Action onBack,
 				ProfileDataRecord profile,
@@ -303,7 +303,7 @@
 				var editBtn = new Button("✏️");
 				editBtn.Pressed += (s, a) =>
 				{
-					var childEditView = new NestedProfileEditView(engine);
+					var childEditView = new NestedProfileView(engine);
 					string childSegment = child.Profile?.Name ?? child.ProfileDefinition?.Name;
 					var helper = new NestedProfileEditHelper(
 						engine,

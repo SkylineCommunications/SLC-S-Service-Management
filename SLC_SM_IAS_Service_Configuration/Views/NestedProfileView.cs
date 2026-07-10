@@ -12,11 +12,11 @@
 	using SLC_SM_IAS_Service_Configuration.Presenters;
 	using static Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models;
 
-	public class NestedProfileEditView : Dialog
+	public class NestedProfileView : Dialog
 	{
 		internal const int ValueColumnIndex = 3;
 
-		public NestedProfileEditView(IEngine engine) : base(engine)
+		public NestedProfileView(IEngine engine) : base(engine)
 		{
 			Title = "Edit Nested Profile";
 			MinWidth = 900;
