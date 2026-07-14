@@ -381,8 +381,14 @@
 						return;
 					}
 
+					var existingChildIds = profile.Profile?.Profiles != null
+						? new HashSet<Guid>(profile.Profile.Profiles)
+						: new HashSet<Guid>();
+
 					var matchingReusable = (reusableProfiles ?? new List<Profile>())
-						.Where(p => p.ProfileDefinitionReference == a.Selected.Id && !childAncestors.Contains(p.ProfileDefinitionReference))
+						.Where(p => p.ProfileDefinitionReference == a.Selected.Id
+								 && !childAncestors.Contains(p.ProfileDefinitionReference)
+								 && !existingChildIds.Contains(p.ID))
 						.Select(p => new Option<ProfileOption>(p.Name, new ProfileOption(p.ID, p.Name, false)))
 						.OrderBy(x => x.DisplayValue)
 						.ToList();

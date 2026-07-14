@@ -515,6 +515,12 @@
 				return;
 			}
 
+			bool alreadyAtRootLevel = GetRootLevelReusableProfileIds().Contains(profileInstance.ID);
+			if (alreadyAtRootLevel)
+			{
+				return;
+			}
+
 			var profileDefinitionInstance = repoConfig.ProfileDefinitions.Read(ProfileDefinitionExposers.Guid.Equal(profileInstance.ProfileDefinitionReference)).FirstOrDefault();
 			if (profileDefinitionInstance == null)
 			{
@@ -1917,7 +1923,6 @@
 
 			var addReusableButton = new Button("Add") { Width = addButtonWidth, IsVisible = false };
 			view.AddWidget(addReusableButton, row, 2);
-
 			definitionDropDown.Changed += (s, a) =>
 			{
 				if (a.Selected == null)
@@ -1926,9 +1931,14 @@
 					return;
 				}
 
+				var existingChildIds = parent.Profile?.Profiles != null
+					? new HashSet<Guid>(parent.Profile.Profiles)
+					: new HashSet<Guid>();
+
 				var matchingReusable = (reusableProfiles ?? new List<Profile>())
 					.Where(p => p.ProfileDefinitionReference == a.Selected.Id
-							 && !childAncestors.Contains(p.ProfileDefinitionReference))
+							 && !childAncestors.Contains(p.ProfileDefinitionReference)
+							 && !existingChildIds.Contains(p.ID))
 					.Select(p => new Option<ProfileOption>(p.Name, new ProfileOption(p.ID, p.Name, false)))
 					.OrderBy(x => x.DisplayValue)
 					.ToList();
@@ -1953,9 +1963,11 @@
 				BuildUI(this.showDetails);
 			};
 
-			collapseButton.LinkedWidgets.Add(reusableLabel);
-			collapseButton.LinkedWidgets.Add(reusableDropDown);
-			collapseButton.LinkedWidgets.Add(addReusableButton);
+			collapseButton.Pressed += (s, a) =>
+			{
+				if (collapseButton.IsCollapsed)
+					SetNestedReusableRowVisible(reusableLabel, reusableDropDown, addReusableButton, false);
+			};
 
 			return row;
 		}
