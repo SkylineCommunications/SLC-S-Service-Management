@@ -10,7 +10,7 @@
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
 
-	using ConfigurationModels = Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models;
+	using static Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models;
 
 	public class HelperMethods
 	{
@@ -32,7 +32,7 @@
 			}
 		}
 
-		public static void RemoveParameterOptionsLinks(Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameterValue config)
+		public static void RemoveParameterOptionsLinks(ConfigurationParameterValue config)
 		{
 			if (config.NumberOptions != null)
 			{
@@ -100,15 +100,19 @@
 				Profiles = new List<Models.ServiceProfile>(),
 			};
 
-			AddServiceSpecStandaloneParameters(serviceConfigurationVersion.Parameters, newConfigurationVersion);
-			AddServiceProfiles(serviceConfigurationVersion.Profiles, newConfigurationVersion);
+			var parameterIdMap = new Dictionary<Guid, Guid>();
+
+			AddServiceSpecStandaloneParameters(serviceConfigurationVersion.Parameters, newConfigurationVersion, parameterIdMap);
+			AddServiceProfiles(serviceConfigurationVersion.Profiles, newConfigurationVersion, parameterIdMap);
+
+			RemapLinkedConsumers(newConfigurationVersion, parameterIdMap);
 
 			return newConfigurationVersion;
 		}
 
-		internal static ConfigurationModels.ConfigurationParameterValue BuildConfigurationParameter(ConfigurationModels.ConfigurationParameter configurationParameterInstance)
+		internal static ConfigurationParameterValue BuildConfigurationParameter(ConfigurationParameter configurationParameterInstance)
 		{
-			var configurationParameterValue = new ConfigurationModels.ConfigurationParameterValue
+			var configurationParameterValue = new ConfigurationParameterValue
 			{
 				Label = String.Empty,
 				Type = configurationParameterInstance.Type,
@@ -123,15 +127,15 @@
 			return configurationParameterValue;
 		}
 
-		internal static List<ConfigurationModels.ConfigurationParameter> GetConfigParameters(DataHelpersConfigurations dataHelperConfigurations, List<ConfigurationModels.ReferencedConfigurationParameters> referencedConfigurationParameters)
+		internal static List<ConfigurationParameter> GetConfigParameters(DataHelpersConfigurations dataHelperConfigurations, List<ReferencedConfigurationParameters> referencedConfigurationParameters)
 		{
 			if (referencedConfigurationParameters == null || referencedConfigurationParameters.Count == 0)
 			{
-				return new List<ConfigurationModels.ConfigurationParameter>();
+				return new List<ConfigurationParameter>();
 			}
 
-			FilterElement<ConfigurationModels.ConfigurationParameter> configParamFilter = null;
-			List<ConfigurationModels.ConfigurationParameter> configParams = new List<ConfigurationModels.ConfigurationParameter>();
+			FilterElement<ConfigurationParameter> configParamFilter = null;
+			List<ConfigurationParameter> configParams = new List<ConfigurationParameter>();
 
 			for (int i = 0; i < referencedConfigurationParameters.Count; i++)
 			{
@@ -153,15 +157,15 @@
 			return configParams;
 		}
 
-		internal static List<ConfigurationModels.ConfigurationParameter> GetConfigParameters(DataHelpersConfigurations dataHelperConfigurations, ConfigurationModels.Profile profile)
+		internal static List<ConfigurationParameter> GetConfigParameters(DataHelpersConfigurations dataHelperConfigurations, Profile profile)
 		{
 			if (profile == null)
 			{
-				return new List<ConfigurationModels.ConfigurationParameter>();
+				return new List<ConfigurationParameter>();
 			}
 
-			FilterElement<ConfigurationModels.ConfigurationParameter> configParamFilter = null;
-			List<ConfigurationModels.ConfigurationParameter> configParams = new List<ConfigurationModels.ConfigurationParameter>();
+			FilterElement<ConfigurationParameter> configParamFilter = null;
+			List<ConfigurationParameter> configParams = new List<ConfigurationParameter>();
 
 			for (int i = 0; i < profile.ConfigurationParameterValues.Count; i++)
 			{
@@ -183,6 +187,48 @@
 			return configParams;
 		}
 
+		private static void RemapLinkedConsumers(Models.ServiceConfigurationVersion version, Dictionary<Guid, Guid> parameterIdMap)
+		{
+			if (parameterIdMap.Count == 0)
+			{
+				return;
+			}
+
+			foreach (var serviceConfigValue in version.Parameters)
+			{
+				RemapLinkedConsumers(serviceConfigValue.ConfigurationParameter, parameterIdMap);
+			}
+
+			foreach (var serviceProfile in version.Profiles)
+			{
+				if (serviceProfile?.Profile?.ConfigurationParameterValues == null)
+				{
+					continue;
+				}
+
+				foreach (var paramValue in serviceProfile.Profile.ConfigurationParameterValues)
+				{
+					RemapLinkedConsumers(paramValue, parameterIdMap);
+				}
+			}
+		}
+
+		private static void RemapLinkedConsumers(ConfigurationParameterValue paramValue, Dictionary<Guid, Guid> parameterIdMap)
+		{
+			if (paramValue?.LinkedConsumers == null || paramValue.LinkedConsumers.Count == 0)
+			{
+				return;
+			}
+
+			for (int i = 0; i < paramValue.LinkedConsumers.Count; i++)
+			{
+				if (parameterIdMap.TryGetValue(paramValue.LinkedConsumers[i], out Guid newId))
+				{
+					paramValue.LinkedConsumers[i] = newId;
+				}
+			}
+		}
+
 		private static void AddServiceSpecProfiles(List<Models.ServiceSpecificationProfile> configurationProfiles, Models.Service instanceService, Models.ServiceConfigurationVersion configurationVersion)
 		{
 			foreach (var configProfile in configurationProfiles)
@@ -192,21 +238,16 @@
 					ID = Guid.NewGuid(),
 					Mandatory = configProfile.MandatoryAtService,
 					ProfileDefinition = configProfile.ProfileDefinition,
-					Profile = new Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.Profile
+					Profile = new Profile
 					{
 						ID = Guid.NewGuid(),
 						Name = configProfile.Profile.Name.ReplaceTrailingParentesisContent(instanceService.ServiceID),
 						ProfileDefinitionReference = configProfile.Profile.ProfileDefinitionReference,
 						Profiles = configProfile.Profile.Profiles,
 						TestedProtocols = configProfile.Profile.TestedProtocols,
-						ConfigurationParameterValues = configProfile.Profile.ConfigurationParameterValues
-						.Select(cpv =>
-						{
-							cpv.ID = Guid.NewGuid();
-							RemoveParameterOptionsLinks(cpv);
-							return cpv;
-						})
-						.ToList(),
+						ConfigurationParameterValues = configProfile.Profile.ConfigurationParameterValues != null
+							? configProfile.Profile.ConfigurationParameterValues.Select(DuplicateConfigurationParameterValue).ToList()
+							: new List<ConfigurationParameterValue>(),
 					},
 				};
 
@@ -214,35 +255,93 @@
 			}
 		}
 
-		private static void AddServiceProfiles(List<Models.ServiceProfile> configurationProfiles, Models.ServiceConfigurationVersion configurationVersion)
+		private static void AddServiceProfiles(List<Models.ServiceProfile> configurationProfiles, Models.ServiceConfigurationVersion configurationVersion, Dictionary<Guid, Guid> parameterIdMap)
 		{
+			if (configurationProfiles == null)
+			{
+				return;
+			}
+
+			var profilesMapping = new Dictionary<Guid, Guid>();
+			var duplicatedProfiles = new List<Models.ServiceProfile>();
+
 			foreach (var configProfile in configurationProfiles)
 			{
-				var profileConfig = new Models.ServiceProfile
+				if (configProfile?.Profile == null)
+				{
+					continue;
+				}
+
+				var sourceProfile = configProfile.Profile;
+				var duplicatedProfile = new Profile
+				{
+					ID = Guid.NewGuid(),
+					Name = sourceProfile.Name,
+					ProfileDefinitionReference = sourceProfile.ProfileDefinitionReference,
+					Profiles = sourceProfile.Profiles,
+					TestedProtocols = sourceProfile.TestedProtocols,
+					ConfigurationParameterValues = sourceProfile.ConfigurationParameterValues != null
+						? sourceProfile.ConfigurationParameterValues.Select(p => DuplicateConfigurationParameterValue(p, parameterIdMap)).ToList()
+						: new List<ConfigurationParameterValue>(),
+				};
+
+				profilesMapping[sourceProfile.ID] = duplicatedProfile.ID;
+
+				duplicatedProfiles.Add(new Models.ServiceProfile
 				{
 					ID = Guid.NewGuid(),
 					Mandatory = configProfile.Mandatory,
 					ProfileDefinition = configProfile.ProfileDefinition,
-					Profile = new Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.Profile
-					{
-						ID = Guid.NewGuid(),
-						Name = configProfile.Profile.Name,
-						ProfileDefinitionReference = configProfile.Profile.ProfileDefinitionReference,
-						Profiles = configProfile.Profile.Profiles,
-						TestedProtocols = configProfile.Profile.TestedProtocols,
-						ConfigurationParameterValues = configProfile.Profile.ConfigurationParameterValues
-						.Select(cpv =>
-						{
-							cpv.ID = Guid.NewGuid();
-							RemoveParameterOptionsLinks(cpv);
-							return cpv;
-						})
-						.ToList(),
-					},
-				};
-
-				configurationVersion.Profiles.Add(profileConfig);
+					Profile = duplicatedProfile,
+				});
 			}
+
+			foreach (var serviceProfile in duplicatedProfiles)
+			{
+				var children = serviceProfile.Profile.Profiles;
+				if (children == null || children.Count == 0)
+				{
+					continue;
+				}
+
+				serviceProfile.Profile.Profiles = children
+					.Select(oldId => profilesMapping.TryGetValue(oldId, out var newId) ? newId : oldId)
+					.ToList();
+			}
+
+			configurationVersion.Profiles.AddRange(duplicatedProfiles);
+		}
+
+		private static ConfigurationParameterValue DuplicateConfigurationParameterValue(ConfigurationParameterValue source)
+		{
+			return DuplicateConfigurationParameterValue(source, parameterIdMap: null);
+		}
+
+		private static ConfigurationParameterValue DuplicateConfigurationParameterValue(ConfigurationParameterValue source, Dictionary<Guid, Guid> parameterIdMap)
+		{
+			var newId = Guid.NewGuid();
+
+			if (parameterIdMap != null)
+			{
+				parameterIdMap[source.ID] = newId;
+			}
+
+			var duplicateParameter = new ConfigurationParameterValue
+			{
+				ID = newId,
+				Label = source.Label,
+				Type = source.Type,
+				ConfigurationParameterId = source.ConfigurationParameterId,
+				NumberOptions = source.NumberOptions,
+				DiscreteOptions = source.DiscreteOptions,
+				TextOptions = source.TextOptions,
+				IsLinked = source.IsLinked,
+				LinkedScript = source.LinkedScript,
+				LinkedConsumers = source.LinkedConsumers != null ? new List<Guid>(source.LinkedConsumers) : null,
+			};
+
+			RemoveParameterOptionsLinks(duplicateParameter);
+			return duplicateParameter;
 		}
 
 		private static void AddServiceSpecStandaloneParameters(List<Models.ServiceSpecificationConfigurationValue> configurationParameters, Models.ServiceConfigurationVersion configurationVersion)
@@ -253,7 +352,7 @@
 				{
 					ID = Guid.NewGuid(),
 					Mandatory = standaloneParameter.MandatoryAtService,
-					ConfigurationParameter = new Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameterValue
+					ConfigurationParameter = new ConfigurationParameterValue
 					{
 						ID = Guid.NewGuid(),
 						Label = String.Empty,
@@ -262,6 +361,11 @@
 						NumberOptions = standaloneParameter.ConfigurationParameter.NumberOptions,
 						DiscreteOptions = standaloneParameter.ConfigurationParameter.DiscreteOptions,
 						TextOptions = standaloneParameter.ConfigurationParameter.TextOptions,
+						IsLinked = standaloneParameter.ConfigurationParameter.IsLinked,
+						LinkedScript = standaloneParameter.ConfigurationParameter.LinkedScript,
+						LinkedConsumers = standaloneParameter.ConfigurationParameter.LinkedConsumers != null
+							? new List<Guid>(standaloneParameter.ConfigurationParameter.LinkedConsumers)
+							: null,
 					},
 				};
 
@@ -270,24 +374,18 @@
 			}
 		}
 
-		private static void AddServiceSpecStandaloneParameters(List<Models.ServiceConfigurationValue> configurationParameters, Models.ServiceConfigurationVersion configurationVersion)
+		private static void AddServiceSpecStandaloneParameters(List<Models.ServiceConfigurationValue> configurationParameters, Models.ServiceConfigurationVersion configurationVersion, Dictionary<Guid, Guid> parameterIdMap)
 		{
 			foreach (var standaloneParameter in configurationParameters)
 			{
+				var sourceParam = standaloneParameter.ConfigurationParameter;
+				var newParamValue = DuplicateConfigurationParameterValue(sourceParam, parameterIdMap);
+
 				var config = new Models.ServiceConfigurationValue
 				{
 					ID = Guid.NewGuid(),
 					Mandatory = standaloneParameter.Mandatory,
-					ConfigurationParameter = new Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameterValue
-					{
-						ID = Guid.NewGuid(),
-						Label = String.Empty,
-						Type = standaloneParameter.ConfigurationParameter.Type,
-						ConfigurationParameterId = standaloneParameter.ConfigurationParameter.ConfigurationParameterId,
-						NumberOptions = standaloneParameter.ConfigurationParameter.NumberOptions,
-						DiscreteOptions = standaloneParameter.ConfigurationParameter.DiscreteOptions,
-						TextOptions = standaloneParameter.ConfigurationParameter.TextOptions,
-					},
+					ConfigurationParameter = newParamValue,
 				};
 
 				RemoveServiceParameterOptionsLinks(config);

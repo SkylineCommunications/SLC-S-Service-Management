@@ -733,7 +733,7 @@
 			view.AddWidget(view.ConfirmExceedNumberOfVersions, ++row, 0, HorizontalAlignment.Right);
 			view.ConfirmExceedNumberOfVersionsLabel.Text = $"You have reached the maximum number of allowed versions.\nProceeding will delete the version '{versionToBeDelete?.VersionName}'.";
 			view.AddWidget(view.ConfirmExceedNumberOfVersionsLabel, row, 1, 1, 10);
-			view.BtnUpdate.IsEnabled = false;
+			view.BtnUpdate.IsEnabled = view.ConfirmExceedNumberOfVersions.IsChecked;
 			return row;
 		}
 
