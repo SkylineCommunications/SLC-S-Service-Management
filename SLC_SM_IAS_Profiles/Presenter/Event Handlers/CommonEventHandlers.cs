@@ -98,5 +98,17 @@
 			presenter.StoreModels();
 			throw new ScriptAbortException("Ok");
 		}
+
+		public void Handle_GoTo_Previous_Page_Pressed()
+		{
+			presenter.Navigator.MovePreviousSlice();
+			presenter.BuildUI();
+		}
+
+		public void Handle_GoTo_Next_Page_Pressed()
+		{
+			presenter.Navigator.MoveNextSlice();
+			presenter.BuildUI();
+		}
 	}
 }

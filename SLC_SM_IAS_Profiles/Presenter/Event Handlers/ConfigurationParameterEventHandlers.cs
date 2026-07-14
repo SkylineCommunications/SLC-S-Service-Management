@@ -109,11 +109,15 @@
 			if (record.State == State.Removed)
 				return;
 
-			if (record.ConfigurationParameterValue.StringValue == value.Value)
+			var newStringValue = value?.Value ?? string.Empty;
+
+			if (record.ConfigurationParameterValue.StringValue == newStringValue)
 				return;
 
-			record.ConfigurationParameterValue.StringValue = value.Value;
+			record.ConfigurationParameterValue.StringValue = newStringValue;
 			record.State = State.Updated;
+
+			presenter.BuildUI();
 		}
 
 		public void Handle_Number_Value_Changed(ConfigurationDataRecord record, double value)

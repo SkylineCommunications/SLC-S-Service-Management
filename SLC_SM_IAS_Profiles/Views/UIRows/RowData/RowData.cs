@@ -28,7 +28,7 @@
 			set => base.Record = value;
 		}
 
-		public IEnumerable<Models.ProfileDefinition> ReferenceOptions { get; set;  }
+		public IEnumerable<Models.ProfileDefinition> ReferenceOptions { get; set; }
 	}
 
 	public class ConfigurationRowData : RowData
@@ -40,5 +40,7 @@
 		}
 
 		public IEnumerable<Models.ConfigurationParameter> ReferenceOptions { get; set; }
+
+		public bool IsMandatory { get; set; }
 	}
 }

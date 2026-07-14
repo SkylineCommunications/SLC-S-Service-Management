@@ -2,6 +2,7 @@
 {
 	using System.Collections.Generic;
 	using System.Linq;
+	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
 
@@ -30,20 +31,46 @@
 			return this;
 		}
 
+		private static void SetDropDownValidation(DropDown<Models.DiscreteValue> dropDown, bool isInvalid)
+		{
+			if (isInvalid)
+			{
+				dropDown.ValidationState = UIValidationState.Invalid;
+				dropDown.ValidationText = "Mandatory parameter. Please select a value";
+			}
+			else
+			{
+				dropDown.ValidationState = UIValidationState.Valid;
+				dropDown.ValidationText = string.Empty;
+			}
+		}
+
 		private void BuildAndConfigureValue(List<Option<Models.DiscreteValue>> discretes)
 		{
+			discretes.Insert(0, new Option<Models.DiscreteValue>("- Select -", null));
+
 			var value = new DropDown<Models.DiscreteValue>(discretes);
 			value.IsEnabled = true;
 
-			value.Selected = value.Options.First(x => x.DisplayValue == Data.Record.ConfigurationParameterValue.StringValue).Value;
+			var stringValue = Data.Record.ConfigurationParameterValue.StringValue;
+			var match = value.Options.FirstOrDefault(x => x.Value != null && x.DisplayValue == stringValue);
+
+			value.Selected = match != null ? match.Value : null;
+			SetDropDownValidation(value, Data.IsMandatory && match == null);
+
 			Value = value;
-			value.Changed += (sender, args) => Data.Callbacks.ConfigurationParameter.Handle_Discrete_Value_Change(Data.Record, value.Selected);
+			value.Changed += (sender, args) =>
+			{
+				SetDropDownValidation(value, Data.IsMandatory && value.Selected == null);
+				Data.Callbacks.ConfigurationParameter.Handle_Discrete_Value_Change(Data.Record, value.Selected);
+			};
 		}
 
 		private void ConfigureButtonSettings()
 		{
 			BtnSettings.IsEnabled = true;
-			BtnSettings.Pressed += (sender, args) => Data.Callbacks.ConfigurationParameter.Handle_Discrete_Values_Button_Pressed(Data.Record, Value as DropDown<Models.DiscreteValue>);
+			BtnSettings.Pressed += (sender, args) =>
+				Data.Callbacks.ConfigurationParameter.Handle_Discrete_Values_Button_Pressed(Data.Record, Value as DropDown<Models.DiscreteValue>);
 		}
 	}
 }

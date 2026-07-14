@@ -88,7 +88,8 @@
 							x.Value,
 							x.Parameter,
 							State.Equal,
-							RecordType.Reference));
+							RecordType.Reference))
+					.OrderBy(r => r.GetName());
 
 			var profileRecords =
 				profiles
@@ -103,13 +104,12 @@
 							x.Profile,
 							x.Definition,
 							State.Equal,
-							RecordType.Reference));
+							RecordType.Reference))
+					.OrderBy(r => r.GetName());
 
-			var records = configurationRecords
+			return configurationRecords
 				.Concat(profileRecords)
 				.ToList();
-
-			return records;
 		}
 
 		public List<DataRecord> LoadRootProfiles()
@@ -130,6 +130,7 @@
 				})
 				.Where(x => x.ProfileDefinition != null)
 				.Select(x => DataRecordFactory.CreateDataRecord(x.Profile, x.ProfileDefinition, State.Equal))
+				.OrderBy(r => r.GetName())
 				.ToList();
 		}
 
