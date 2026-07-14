@@ -192,6 +192,8 @@
 				};
 			}
 
+			var parameterIdMap = new Dictionary<Guid, Guid>();
+
 			var duplicateService = new Models.ServiceConfigurationVersion
 			{
 				ID = Guid.NewGuid(),
@@ -200,14 +202,59 @@
 				StartDate = source.StartDate,
 				EndDate = source.EndDate,
 				CreatedAt = DateTime.UtcNow,
-				Parameters = DuplicateConfigurationParameters(source.Parameters),
-				Profiles = DuplicateServiceProfiles(source.Profiles, newServiceId),
+				Parameters = DuplicateConfigurationParameters(source.Parameters, parameterIdMap),
+				Profiles = DuplicateServiceProfiles(source.Profiles, newServiceId, parameterIdMap),
 			};
+
+			RemapLinkedConsumers(duplicateService, parameterIdMap);
 
 			return duplicateService;
 		}
 
-		private static List<Models.ServiceConfigurationValue> DuplicateConfigurationParameters(List<Models.ServiceConfigurationValue> sourceParameters)
+		private static void RemapLinkedConsumers(Models.ServiceConfigurationVersion version, Dictionary<Guid, Guid> parameterIdMap)
+		{
+			if (parameterIdMap.Count == 0)
+			{
+				return;
+			}
+
+			foreach (var serviceConfigValue in version.Parameters)
+			{
+				RemapLinkedConsumers(serviceConfigValue?.ConfigurationParameter, parameterIdMap);
+			}
+
+			foreach (var serviceProfile in version.Profiles)
+			{
+				if (serviceProfile?.Profile?.ConfigurationParameterValues == null)
+				{
+					continue;
+				}
+
+				foreach (var paramValue in serviceProfile.Profile.ConfigurationParameterValues)
+				{
+					RemapLinkedConsumers(paramValue, parameterIdMap);
+				}
+			}
+		}
+
+		private static void RemapLinkedConsumers(ConfigModels.ConfigurationParameterValue paramValue, Dictionary<Guid, Guid> parameterIdMap)
+		{
+			if (paramValue?.LinkedConsumers == null || paramValue.LinkedConsumers.Count == 0)
+			{
+				return;
+			}
+
+			for (int i = 0; i < paramValue.LinkedConsumers.Count; i++)
+			{
+				Guid newId;
+				if (parameterIdMap.TryGetValue(paramValue.LinkedConsumers[i], out newId))
+				{
+					paramValue.LinkedConsumers[i] = newId;
+				}
+			}
+		}
+
+		private static List<Models.ServiceConfigurationValue> DuplicateConfigurationParameters(List<Models.ServiceConfigurationValue> sourceParameters, Dictionary<Guid, Guid> parameterIdMap)
 		{
 			var duplicateParameters = new List<Models.ServiceConfigurationValue>();
 
@@ -227,14 +274,14 @@
 				{
 					ID = Guid.NewGuid(),
 					Mandatory = parameter.Mandatory,
-					ConfigurationParameter = DuplicateConfigurationParameterValue(parameter.ConfigurationParameter),
+					ConfigurationParameter = DuplicateConfigurationParameterValue(parameter.ConfigurationParameter, parameterIdMap),
 				});
 			}
 
 			return duplicateParameters;
 		}
 
-		private static List<Models.ServiceProfile> DuplicateServiceProfiles(List<Models.ServiceProfile> sourceProfiles, string newServiceId)
+		private static List<Models.ServiceProfile> DuplicateServiceProfiles(List<Models.ServiceProfile> sourceProfiles, string newServiceId, Dictionary<Guid, Guid> parameterIdMap)
 		{
 			var duplicatedProfiles = new List<Models.ServiceProfile>();
 
@@ -256,7 +303,7 @@
 					ID = Guid.NewGuid(),
 					Mandatory = profile.Mandatory,
 					ProfileDefinition = profile.ProfileDefinition,
-					Profile = DuplicateProfile(profile.Profile, newServiceId),
+					Profile = DuplicateProfile(profile.Profile, newServiceId, parameterIdMap),
 				};
 
 				profilesMapping[profile.Profile.ID] = duplicatedServiceProfile;
@@ -270,29 +317,30 @@
 					continue;
 				}
 
-				var duplicatedProfilesMapping = new List<Guid>();
-				foreach (var nestedProfile in duplicatedServiceProfile.Profile.Profiles)
+				var remappedChildren = new List<Guid>();
+				foreach (var nestedProfileId in duplicatedServiceProfile.Profile.Profiles)
 				{
-					if (profilesMapping.TryGetValue(nestedProfile, out var duplicateNestedProfile))
+					Models.ServiceProfile duplicateNestedProfile;
+					if (profilesMapping.TryGetValue(nestedProfileId, out duplicateNestedProfile))
 					{
-						duplicatedProfilesMapping.Add(duplicateNestedProfile.Profile.ID);
+						remappedChildren.Add(duplicateNestedProfile.Profile.ID);
 					}
 				}
 
-				duplicatedServiceProfile.Profile.Profiles = duplicatedProfilesMapping;
+				duplicatedServiceProfile.Profile.Profiles = remappedChildren;
 			}
 
 			return duplicatedProfiles;
 		}
 
-		private static ConfigModels.Profile DuplicateProfile(ConfigModels.Profile source, string newServiceId)
+		private static ConfigModels.Profile DuplicateProfile(ConfigModels.Profile source, string newServiceId, Dictionary<Guid, Guid> parameterIdMap)
 		{
 			var duplicatedParamValues = new List<ConfigModels.ConfigurationParameterValue>();
 			if (source.ConfigurationParameterValues != null)
 			{
 				foreach (var cpv in source.ConfigurationParameterValues)
 				{
-					duplicatedParamValues.Add(DuplicateConfigurationParameterValue(cpv));
+					duplicatedParamValues.Add(DuplicateConfigurationParameterValue(cpv, parameterIdMap));
 				}
 			}
 
@@ -310,11 +358,14 @@
 			};
 		}
 
-		private static ConfigModels.ConfigurationParameterValue DuplicateConfigurationParameterValue(ConfigModels.ConfigurationParameterValue source)
+		private static ConfigModels.ConfigurationParameterValue DuplicateConfigurationParameterValue(ConfigModels.ConfigurationParameterValue source, Dictionary<Guid, Guid> parameterIdMap)
 		{
+			var newId = Guid.NewGuid();
+			parameterIdMap[source.ID] = newId;
+
 			var duplicateCpv = new ConfigModels.ConfigurationParameterValue
 			{
-				ID = Guid.NewGuid(),
+				ID = newId,
 				Label = source.Label,
 				Type = source.Type,
 				ConfigurationParameterId = source.ConfigurationParameterId,
@@ -323,9 +374,7 @@
 				ValueFixed = source.ValueFixed,
 				IsLinked = source.IsLinked,
 				LinkedScript = source.LinkedScript,
-				LinkedConsumers = source.LinkedConsumers != null
-					? new List<Guid>(source.LinkedConsumers)
-					: null,
+				LinkedConsumers = source.LinkedConsumers != null ? new List<Guid>(source.LinkedConsumers) : null,
 			};
 
 			if (source.NumberOptions != null)
