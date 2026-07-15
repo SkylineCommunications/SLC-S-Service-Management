@@ -67,10 +67,5 @@
 		{
 			ConfigurationParameterValue.Label = name;
 		}
-
-		public override string GetName()
-		{
-			return ConfigurationParameterValue.Label;
-		}
 	}
 }

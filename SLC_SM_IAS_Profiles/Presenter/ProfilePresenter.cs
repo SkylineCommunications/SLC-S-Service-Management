@@ -75,37 +75,25 @@
 			var configValues = Model.ReadConfigurationParameterValues(referencedConfigurationValues.Select(rcp => rcp.ID));
 			var profiles = CachedProfiles.Where(p => referenceProfiles.Contains(p.ID));
 
-			var configurationRecords =
-				configValues
-					.Select(c => new
-					{
-						Value = c,
-						Parameter = CachedConfigurationParameters.SingleOrDefault(p => p.ID == c.ConfigurationParameterId),
-					})
-					.Where(x => x.Parameter != null)
-					.Select(x =>
-						DataRecordFactory.CreateDataRecord(
-							x.Value,
-							x.Parameter,
-							State.Equal,
-							RecordType.Reference))
-					.OrderBy(r => r.GetName());
+			var configurationRecords = configValues
+				.Select(c => new
+				{
+					Value = c,
+					Parameter = CachedConfigurationParameters.SingleOrDefault(p => p.ID == c.ConfigurationParameterId),
+				})
+				.Where(x => x.Parameter != null)
+				.OrderBy(x => x.Parameter.Name, StringComparer.OrdinalIgnoreCase)
+				.Select(x => DataRecordFactory.CreateDataRecord(x.Value, x.Parameter, State.Equal, RecordType.Reference));
 
-			var profileRecords =
-				profiles
-					.Select(p => new
-					{
-						Profile = p,
-						Definition = CachedProfileDefinitions.SingleOrDefault(pd => pd.ID == p.ProfileDefinitionReference),
-					})
-					.Where(x => x.Definition != null)
-					.Select(x =>
-						DataRecordFactory.CreateDataRecord(
-							x.Profile,
-							x.Definition,
-							State.Equal,
-							RecordType.Reference))
-					.OrderBy(r => r.GetName());
+			var profileRecords = profiles
+				.Select(p => new
+				{
+					Profile = p,
+					Definition = CachedProfileDefinitions.SingleOrDefault(pd => pd.ID == p.ProfileDefinitionReference),
+				})
+				.Where(x => x.Definition != null)
+				.OrderBy(x => x.Profile.Name, StringComparer.OrdinalIgnoreCase)
+				.Select(x => DataRecordFactory.CreateDataRecord(x.Profile, x.Definition, State.Equal, RecordType.Reference));
 
 			return configurationRecords
 				.Concat(profileRecords)
@@ -129,8 +117,8 @@
 					ProfileDefinition = CachedProfileDefinitions.SingleOrDefault(pd => p.ProfileDefinitionReference == pd.ID),
 				})
 				.Where(x => x.ProfileDefinition != null)
+				.OrderBy(x => x.Profile.Name, StringComparer.OrdinalIgnoreCase)
 				.Select(x => DataRecordFactory.CreateDataRecord(x.Profile, x.ProfileDefinition, State.Equal))
-				.OrderBy(r => r.GetName())
 				.ToList();
 		}
 

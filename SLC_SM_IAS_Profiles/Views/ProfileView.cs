@@ -115,18 +115,18 @@
 
 			lblTitle.Text = path;
 
-			AddWidget(lblTitle, row, 0, 1, 10);
+			AddWidget(lblTitle, row, 0, 1, 8);
 
 			var pageLabel = new Label();
 			pageLabel.Text = $"Page {context.GetCurrentSliceIndex() + 1} of {context.GetTotalSlicesForCurrentPage()}";
 
-			AddWidget(pageLabel, row, 10, HorizontalAlignment.Right);
+			AddWidget(pageLabel, row, 8, HorizontalAlignment.Right);
 
 			BtnPrevious.IsEnabled = context.CanMovePreviousSlice();
 			BtnNext.IsEnabled = context.CanMoveNextSlice();
 
-			AddWidget(BtnPrevious, row, 11);
-			AddWidget(BtnNext, row, 12);
+			AddWidget(BtnPrevious, row, 9);
+			AddWidget(BtnNext, row, 10);
 		}
 
 		private void BuildConfigurationParameterHeader(int row)

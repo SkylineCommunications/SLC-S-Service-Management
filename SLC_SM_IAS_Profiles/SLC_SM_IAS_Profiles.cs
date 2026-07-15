@@ -8,6 +8,7 @@ Revision History:
 DATE		VERSION		AUTHOR			COMMENTS
 
 10/12/2025	1.0.0.1		RCA, Skyline	Initial version
+15/07/2026	1.0.0.2		SKA, Skyline	Implemented pagination and validation for profiles management
 ****************************************************************************
 */
 

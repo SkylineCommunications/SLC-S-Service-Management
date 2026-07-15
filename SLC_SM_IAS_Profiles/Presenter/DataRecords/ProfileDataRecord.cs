@@ -50,10 +50,5 @@
 		{
 			Profile.Name = name;
 		}
-
-		public override string GetName()
-		{
-			return Profile.Name;
-		}
 	}
 }

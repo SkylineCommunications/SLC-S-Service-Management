@@ -52,7 +52,5 @@
 		public abstract Guid CreateOrUpdate(ProfileModel model);
 
 		public abstract void SetName(string name);
-
-		public abstract string GetName();
 	}
 }
