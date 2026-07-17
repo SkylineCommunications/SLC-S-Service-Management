@@ -377,6 +377,19 @@
 				parameterValues.Add(BuildConfigurationParameter(configParam));
 			}
 
+			string profileName = $"{profileDefinitionInstance.Name} ({instance.Name})";
+
+			var existingNames = profileConfigurations
+				.Where(p => p.State != State.Delete)
+				.Select(p => p.Profile.Name)
+				.ToList();
+
+			if (existingNames.Contains(profileName))
+			{
+				int count = existingNames.Count(n => n.StartsWith(profileName));
+				profileName = $"{profileName} #{count}";
+			}
+
 			var config = new Models.ServiceSpecificationProfile
 			{
 				ID = Guid.NewGuid(),
@@ -386,7 +399,7 @@
 				ProfileDefinition = profileDefinitionInstance,
 				Profile = new Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.Profile
 				{
-					Name = $"{profileDefinitionInstance.Name} ({instance.Name})",
+					Name = profileName,
 					ProfileDefinitionReference = profileDefinitionInstance.ID,
 					ConfigurationParameterValues = parameterValues,
 				},
@@ -476,6 +489,7 @@
 			view.Clear();
 			view.Details.Clear();
 			view.LifeCycleDetails.Clear();
+			view.ProfileCollapseButtons.Clear();
 
 			int row = 0;
 			view.AddWidget(view.TitleDetails, row, 0, 1, 2);
@@ -664,21 +678,20 @@
 		{
 			ancestorDefinitionIds = ancestorDefinitionIds ?? new HashSet<Guid>();
 
-			if (!view.ProfileCollapseButtons.TryGetValue(profile.Profile.Name, out var collapseButton))
-			{
-				collapseButton = new CollapseButton(true)
+			string profileKey = Convert.ToString(profile.Profile.ID);
+
+			var collapseButton = new CollapseButton(true)
 			{
 				ExpandText = Defaults.SymbolPlus,
 				CollapseText = Defaults.SymbolMin,
 				MaxWidth = collapseButtonWidth,
+				Tooltip = profileKey,
 			};
-			}
 
-			collapseButton.Tooltip = profile.Profile.Name;
 			collapseButton.LinkedWidgets.Clear();
 
-			view.Details[profile.Profile.Name] = new Section();
-			view.LifeCycleDetails[profile.Profile.Name] = new Section();
+			view.Details[profileKey] = new Section();
+			view.LifeCycleDetails[profileKey] = new Section();
 
 			var profileLabel = new TextBox { Text = profile.Profile.Name };
 
@@ -689,10 +702,6 @@
 
 			profileLabel.Changed += (sender, args) =>
 			{
-				view.ProfileCollapseButtons[args.Value] = view.ProfileCollapseButtons[profile.Profile.Name];
-				view.ProfileCollapseButtons.Remove(profile.Profile.Name);
-				view.Details.Remove(profile.Profile.Name);
-				view.LifeCycleDetails.Remove(profile.Profile.Name);
 				profile.Profile.Name = args.Value;
 				BuildUI(this.showDetails, this.showLifeCycleDetails);
 			};
@@ -716,13 +725,13 @@
 				BuildParameterUIRow(collapseButton, profileParameter, ++row, ++sectionRow, DeleteProfileParameter(profile, profileParameter), profileParameter.ReferencedConfiguration?.Mandatory == true || profile.Profile.IsReusable, profile.Profile.IsReusable);
 			}
 
-			view.AddSection(view.Details[profile.Profile.Name], originalSectionRow, detailsColumnIndex);
-			collapseButton.LinkedWidgets.AddRange(view.Details[profile.Profile.Name].Widgets);
-			view.Details[profile.Profile.Name].IsVisible = showDetails;
+			view.AddSection(view.Details[profileKey], originalSectionRow, detailsColumnIndex);
+			collapseButton.LinkedWidgets.AddRange(view.Details[profileKey].Widgets);
+			view.Details[profileKey].IsVisible = showDetails;
 
-			view.AddSection(view.LifeCycleDetails[profile.Profile.Name], lifeCycleOriginalSectionRow, lifeCycleDetailsColumnIndex);
-			collapseButton.LinkedWidgets.AddRange(view.LifeCycleDetails[profile.Profile.Name].Widgets);
-			view.LifeCycleDetails[profile.Profile.Name].IsVisible = showLifeCycleDetails;
+			view.AddSection(view.LifeCycleDetails[profileKey], lifeCycleOriginalSectionRow, lifeCycleDetailsColumnIndex);
+			collapseButton.LinkedWidgets.AddRange(view.LifeCycleDetails[profileKey].Widgets);
+			view.LifeCycleDetails[profileKey].IsVisible = showLifeCycleDetails;
 
 			var whiteSpaceAfterParameters = new WhiteSpace { IsVisible = !collapseButton.IsCollapsed, MaxWidth = 20 };
 			view.AddWidget(whiteSpaceAfterParameters, ++row, 0);
@@ -730,15 +739,12 @@
 
 			var childAncestors = new HashSet<Guid>(ancestorDefinitionIds);
 			if (profile.ProfileDefinition?.ID != null)
-			{
 				childAncestors.Add(profile.ProfileDefinition.ID);
-			}
 
 			row = BuildNestedProfilesTableUI(row, profile, collapseButton, depth, childAncestors);
-
 			row = BuildAddProfileParameterUI(showDetails, showLifeCycleDetails, row, profile, collapseButton);
 
-			view.ProfileCollapseButtons[profile.Profile.Name] = collapseButton;
+			view.ProfileCollapseButtons[profileKey] = collapseButton;
 			collapseButton.Pressed += (sender, args) =>
 			{
 				if (sender is CollapseButton cb)
@@ -748,8 +754,8 @@
 				}
 			};
 
-			ShowHideProfileParametersSection(showDetails, collapseButton.Tooltip, view.Details[collapseButton.Tooltip]);
-			ShowHideProfileParametersSection(showLifeCycleDetails, collapseButton.Tooltip, view.LifeCycleDetails[collapseButton.Tooltip]);
+			ShowHideProfileParametersSection(showDetails, profileKey, view.Details[profileKey]);
+			ShowHideProfileParametersSection(showLifeCycleDetails, profileKey, view.LifeCycleDetails[profileKey]);
 			return row;
 		}
 
@@ -1548,9 +1554,11 @@
 			record.State = State.Delete;
 			instance.ConfigurationProfiles.Remove(record.ServiceProfileConfig);
 			parent?.Profile?.Profiles?.Remove(record.Profile.ID);
-			view.ProfileCollapseButtons.Remove(record.Profile.Name);
-			view.Details.Remove(record.Profile.Name);
-			view.LifeCycleDetails.Remove(record.Profile.Name);
+
+			string profileKey = Convert.ToString(record.Profile.ID);
+			view.ProfileCollapseButtons.Remove(profileKey);
+			view.Details.Remove(profileKey);
+			view.LifeCycleDetails.Remove(profileKey);
 		}
 
 		private void ShowHideProfileParametersSection(bool visible, string profileName, Section section)
