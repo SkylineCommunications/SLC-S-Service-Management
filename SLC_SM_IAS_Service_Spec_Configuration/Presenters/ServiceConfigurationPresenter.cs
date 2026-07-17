@@ -654,24 +654,24 @@
 		}
 
 		private int BuildProfileUI(
-			bool showDetails,
-			bool showLifeCycleDetails,
-			int row,
-			ProfileDataRecord profile,
-			ProfileDataRecord parent = null,
-			int depth = 1,
-			HashSet<Guid> ancestorDefinitionIds = null)
+	bool showDetails,
+	bool showLifeCycleDetails,
+	int row,
+	ProfileDataRecord profile,
+	ProfileDataRecord parent = null,
+	int depth = 1,
+	HashSet<Guid> ancestorDefinitionIds = null)
 		{
 			ancestorDefinitionIds = ancestorDefinitionIds ?? new HashSet<Guid>();
 
 			if (!view.ProfileCollapseButtons.TryGetValue(profile.Profile.Name, out var collapseButton))
 			{
 				collapseButton = new CollapseButton(true)
-				{
-					ExpandText = Defaults.SymbolPlus,
-					CollapseText = Defaults.SymbolMin,
-					MaxWidth = collapseButtonWidth,
-				};
+			{
+				ExpandText = Defaults.SymbolPlus,
+				CollapseText = Defaults.SymbolMin,
+				MaxWidth = collapseButtonWidth,
+			};
 			}
 
 			collapseButton.Tooltip = profile.Profile.Name;
@@ -1061,7 +1061,13 @@
 				IsVisible = isVisible,
 			};
 			unit.SetOptions(GetUnits(record.ConfigurationParamValue.NumberOptions, parameter.Selected));
-			unit.Selected = GetDefaultUnit(record.ConfigurationParamValue.NumberOptions, parameter.Selected);
+
+			var defaultUnit = GetDefaultUnit(record.ConfigurationParamValue.NumberOptions, parameter.Selected);
+			if (defaultUnit == null || unit.Options.Any(o => o.Value?.ID == defaultUnit.ID))
+			{
+				unit.Selected = defaultUnit;
+			}
+
 			start.Value = minimum;
 			end.Value = maximum;
 			decimals.Value = decimalVal;
@@ -1138,14 +1144,16 @@
 			Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.NumberParameterOptions numberValueOptions,
 			Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter parameter)
 		{
-			if (numberValueOptions != null)
+			if (numberValueOptions?.DefaultUnit != null)
 			{
-				return numberValueOptions.DefaultUnit;
+				var match = numberValueOptions.Units?.FirstOrDefault(u => u.ID == numberValueOptions.DefaultUnit.ID);
+				return match ?? numberValueOptions.DefaultUnit;
 			}
 
-			if (parameter.NumberOptions != null)
+			if (parameter?.NumberOptions?.DefaultUnit != null)
 			{
-				return parameter.NumberOptions.DefaultUnit;
+				var match = parameter.NumberOptions.Units?.FirstOrDefault(u => u.ID == parameter.NumberOptions.DefaultUnit.ID);
+				return match ?? parameter.NumberOptions.DefaultUnit;
 			}
 
 			return null;

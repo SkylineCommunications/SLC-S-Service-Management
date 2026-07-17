@@ -1498,7 +1498,12 @@
 				IsEnabled = !isValueFixed && !isLinked,
 			};
 			unit.SetOptions(GetUnits(record.ConfigurationParamValue.NumberOptions, parameter.Selected));
-			unit.Selected = GetDefaultUnit(record.ConfigurationParamValue.NumberOptions, parameter.Selected);
+			var defaultUnit = GetDefaultUnit(record.ConfigurationParamValue.NumberOptions, parameter.Selected);
+			if (defaultUnit == null || unit.Options.Any(o => o.Value?.ID == defaultUnit.ID))
+			{
+				unit.Selected = defaultUnit;
+			}
+
 			start.Value = minimum;
 			end.Value = maximum;
 			decimals.Value = decimalVal;
@@ -1595,14 +1600,16 @@
 			NumberParameterOptions numberValueOptions,
 			ConfigurationParameter parameter)
 		{
-			if (numberValueOptions != null)
+			if (numberValueOptions?.DefaultUnit != null)
 			{
-				return numberValueOptions.DefaultUnit;
+				var match = numberValueOptions.Units?.FirstOrDefault(u => u.ID == numberValueOptions.DefaultUnit.ID);
+				return match ?? numberValueOptions.DefaultUnit;
 			}
 
-			if (parameter.NumberOptions != null)
+			if (parameter?.NumberOptions?.DefaultUnit != null)
 			{
-				return parameter.NumberOptions.DefaultUnit;
+				var match = parameter.NumberOptions.Units?.FirstOrDefault(u => u.ID == parameter.NumberOptions.DefaultUnit.ID);
+				return match ?? parameter.NumberOptions.DefaultUnit;
 			}
 
 			return null;
