@@ -260,15 +260,24 @@
 			var loadedProfileIds = new HashSet<Guid>(configuration.ServiceProfileConfigs.Select(p => p.Profile.ID));
 			var missingIds = CollectMissingChildProfileIds(loadedProfileIds);
 
-			if (missingIds.Count == 0)
-				return;
+			while (true)
+			{
+				var idsToFetch = missingIds.Where(id => !loadedProfileIds.Contains(id)).ToList();
+				if (idsToFetch.Count == 0)
+					return;
 
-			var filter = missingIds
-				.Select(id => (FilterElement<Profile>)ProfileExposers.Guid.Equal(id))
-				.Aggregate((f1, f2) => f1.OR(f2));
+				var filter = idsToFetch
+					.Select(id => (FilterElement<Profile>)ProfileExposers.Guid.Equal(id))
+					.Aggregate((f1, f2) => f1.OR(f2));
 
-			foreach (var fetchedProfile in repoConfig.Profiles.Read(filter))
-				IncludeMissingNestedProfile(fetchedProfile, configParams, loadedProfileIds, missingIds);
+				var fetchedProfiles = repoConfig.Profiles.Read(filter).ToList();
+
+				foreach (var fetchedProfile in fetchedProfiles)
+					IncludeMissingNestedProfile(fetchedProfile, configParams, loadedProfileIds, missingIds);
+
+				foreach (var id in idsToFetch)
+					loadedProfileIds.Add(id);
+			}
 		}
 
 		private HashSet<Guid> CollectMissingChildProfileIds(HashSet<Guid> loadedProfileIds)

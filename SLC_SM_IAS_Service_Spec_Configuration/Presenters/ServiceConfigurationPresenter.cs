@@ -428,7 +428,7 @@
 			instance.ConfigurationProfiles.Find(p => p.ID == profile.ServiceProfileConfig.ID).Profile.ConfigurationParameterValues.Add(configParamValue);
 		}
 
-		private void BuildHeaderRow(int row, CollapseButton collapseButton, bool displaylifeCycleHeaders)
+		private void BuildHeaderRow(int row, CollapseButton collapseButton, bool displaylifeCycleHeaders, string sectionKey)
 		{
 			var lblLabel = new Label("Label") { Style = TextStyle.Heading, IsVisible = !collapseButton.IsCollapsed, MaxWidth = 100 };
 			var lblParameter = new Label("Parameter") { Style = TextStyle.Heading, IsVisible = !collapseButton.IsCollapsed, MaxWidth = 100 };
@@ -448,13 +448,13 @@
 				var lblExposeAtOrder = new Label("Expose\r\nAt Order") { Style = TextStyle.Heading, IsVisible = !collapseButton.IsCollapsed, MaxWidth = 100 };
 				var lblMandatoryAtOrder = new Label("Mandatory\r\nAt Order") { Style = TextStyle.Heading, IsVisible = !collapseButton.IsCollapsed, MaxWidth = 100 };
 				var lblMandatoryAtService = new Label("Mandatory\r\nAt Service") { Style = TextStyle.Heading, IsVisible = !collapseButton.IsCollapsed, MaxWidth = 100 };
-				view.LifeCycleDetails[collapseButton.Tooltip].AddWidget(lblDefault, 0, 0);
+				view.LifeCycleDetails[sectionKey].AddWidget(lblDefault, 0, 0);
 				collapseButton.LinkedWidgets.Add(lblDefault);
-				view.LifeCycleDetails[collapseButton.Tooltip].AddWidget(lblExposeAtOrder, 0, 1);
+				view.LifeCycleDetails[sectionKey].AddWidget(lblExposeAtOrder, 0, 1);
 				collapseButton.LinkedWidgets.Add(lblExposeAtOrder);
-				view.LifeCycleDetails[collapseButton.Tooltip].AddWidget(lblMandatoryAtOrder, 0, 2);
+				view.LifeCycleDetails[sectionKey].AddWidget(lblMandatoryAtOrder, 0, 2);
 				collapseButton.LinkedWidgets.Add(lblMandatoryAtOrder);
-				view.LifeCycleDetails[collapseButton.Tooltip].AddWidget(lblMandatoryAtService, 0, 3);
+				view.LifeCycleDetails[sectionKey].AddWidget(lblMandatoryAtService, 0, 3);
 				collapseButton.LinkedWidgets.Add(lblMandatoryAtService);
 			}
 
@@ -471,15 +471,15 @@
 			view.AddWidget(lblUnit, row, 5);
 			collapseButton.LinkedWidgets.Add(lblUnit);
 
-			view.Details[collapseButton.Tooltip].AddWidget(lblStart, 0, 0);
+			view.Details[sectionKey].AddWidget(lblStart, 0, 0);
 			collapseButton.LinkedWidgets.Add(lblStart);
-			view.Details[collapseButton.Tooltip].AddWidget(lblEnd, 0, 1);
+			view.Details[sectionKey].AddWidget(lblEnd, 0, 1);
 			collapseButton.LinkedWidgets.Add(lblEnd);
-			view.Details[collapseButton.Tooltip].AddWidget(lblStop, 0, 2);
+			view.Details[sectionKey].AddWidget(lblStop, 0, 2);
 			collapseButton.LinkedWidgets.Add(lblStop);
-			view.Details[collapseButton.Tooltip].AddWidget(lblDecimals, 0, 3);
+			view.Details[sectionKey].AddWidget(lblDecimals, 0, 3);
 			collapseButton.LinkedWidgets.Add(lblDecimals);
-			view.Details[collapseButton.Tooltip].AddWidget(lblValues, 0, 4);
+			view.Details[sectionKey].AddWidget(lblValues, 0, 4);
 		}
 
 		private void BuildUI(bool showDetails, bool showLifeCycleDetails)
@@ -604,13 +604,13 @@
 			view.AddWidget(new Label(ServiceConfigurationView.StandaloneCollapseButtonTitle) { Style = TextStyle.Bold }, ++row, 1, 1, 5);
 			view.AddWidget(view.StandaloneParameters, row, 0, HorizontalAlignment.Center);
 
-			BuildHeaderRow(++row, view.StandaloneParameters, true);
+			BuildHeaderRow(++row, view.StandaloneParameters, true, ServiceConfigurationView.StandaloneCollapseButtonTitle);
 
 			int originalSectionRow = row;
 			int sectionRow = 0;
 			foreach (var standaloneParameter in standaloneConfigurations.Where(x => x.State != State.Delete).OrderBy(x => x.ConfigurationParam?.Name))
 			{
-				BuildParameterUIRow(view.StandaloneParameters, standaloneParameter, ++row, ++sectionRow, DeleteStandaloneParameter(standaloneParameter));
+				BuildParameterUIRow(view.StandaloneParameters, standaloneParameter, ++row, ++sectionRow, DeleteStandaloneParameter(standaloneParameter), ServiceConfigurationView.StandaloneCollapseButtonTitle);
 			}
 
 			view.AddSection(view.Details[ServiceConfigurationView.StandaloneCollapseButtonTitle], originalSectionRow, detailsColumnIndex);
@@ -685,7 +685,6 @@
 				ExpandText = Defaults.SymbolPlus,
 				CollapseText = Defaults.SymbolMin,
 				MaxWidth = collapseButtonWidth,
-				Tooltip = profileKey,
 			};
 
 			collapseButton.LinkedWidgets.Clear();
@@ -712,17 +711,17 @@
 			view.AddWidget(delete, row, 2);
 			delete.Pressed += DeleteProfileRecursive(profile, parent);
 
-			BuildProfileLifeCycleDetails(profile, collapseButton);
+			BuildProfileLifeCycleDetails(profile, collapseButton, profileKey);
 			int lifeCycleOriginalSectionRow = ++row;
 
-			BuildHeaderRow(++row, collapseButton, false);
+			BuildHeaderRow(++row, collapseButton, false, profileKey);
 
 			int originalSectionRow = row;
 			int sectionRow = 0;
 
 			foreach (var profileParameter in profile.ProfileParameterConfigs.Where(x => x.State != State.Delete).OrderBy(x => x.ConfigurationParam?.Name))
 			{
-				BuildParameterUIRow(collapseButton, profileParameter, ++row, ++sectionRow, DeleteProfileParameter(profile, profileParameter), profileParameter.ReferencedConfiguration?.Mandatory == true || profile.Profile.IsReusable, profile.Profile.IsReusable);
+				BuildParameterUIRow(collapseButton, profileParameter, ++row, ++sectionRow, DeleteProfileParameter(profile, profileParameter), profileKey, profileParameter.ReferencedConfiguration?.Mandatory == true || profile.Profile.IsReusable, profile.Profile.IsReusable);
 			}
 
 			view.AddSection(view.Details[profileKey], originalSectionRow, detailsColumnIndex);
@@ -747,11 +746,8 @@
 			view.ProfileCollapseButtons[profileKey] = collapseButton;
 			collapseButton.Pressed += (sender, args) =>
 			{
-				if (sender is CollapseButton cb)
-				{
-					ShowHideProfileParametersSection(this.showDetails, cb.Tooltip, view.Details[cb.Tooltip]);
-					ShowHideProfileParametersSection(this.showLifeCycleDetails, cb.Tooltip, view.LifeCycleDetails[cb.Tooltip]);
-				}
+				ShowHideProfileParametersSection(this.showDetails, profileKey, view.Details[profileKey]);
+				ShowHideProfileParametersSection(this.showLifeCycleDetails, profileKey, view.LifeCycleDetails[profileKey]);
 			};
 
 			ShowHideProfileParametersSection(showDetails, profileKey, view.Details[profileKey]);
@@ -799,7 +795,7 @@
 			return row;
 		}
 
-		private void BuildProfileLifeCycleDetails(ProfileDataRecord profile, CollapseButton collapseButton)
+		private void BuildProfileLifeCycleDetails(ProfileDataRecord profile, CollapseButton collapseButton, string profileKey)
 		{
 			var exposeAtOrder = new CheckBox
 			{
@@ -832,12 +828,12 @@
 			mandatoryAtOrder.Changed += (sender, args) => profile.ServiceProfileConfig.MandatoryAtServiceOrder = args.IsChecked;
 			mandatoryAtService.Changed += (sender, args) => profile.ServiceProfileConfig.MandatoryAtService = args.IsChecked;
 
-			view.LifeCycleDetails[collapseButton.Tooltip].AddWidget(exposeAtOrder, 0, 1);
-			view.LifeCycleDetails[collapseButton.Tooltip].AddWidget(mandatoryAtOrder, 0, 2);
-			view.LifeCycleDetails[collapseButton.Tooltip].AddWidget(mandatoryAtService, 0, 3);
+			view.LifeCycleDetails[profileKey].AddWidget(exposeAtOrder, 0, 1);
+			view.LifeCycleDetails[profileKey].AddWidget(mandatoryAtOrder, 0, 2);
+			view.LifeCycleDetails[profileKey].AddWidget(mandatoryAtService, 0, 3);
 		}
 
-		private void BuildParameterUIRow(CollapseButton collapseButton, IParameterDataRecord record, int row, int sectionRow, EventHandler<EventArgs> deleteEventHandler, bool mandatory = false, bool isReusable = false)
+		private void BuildParameterUIRow(CollapseButton collapseButton, IParameterDataRecord record, int row, int sectionRow, EventHandler<EventArgs> deleteEventHandler, string sectionKey, bool mandatory = false, bool isReusable = false)
 		{
 			// Init
 			var label = new TextBox(record.ConfigurationParamValue.Label) { IsVisible = !collapseButton.IsCollapsed, IsEnabled = !isReusable };
@@ -870,10 +866,10 @@
 				mandatoryAtOrder.Changed += (sender, args) => standalone.ServiceConfig.MandatoryAtServiceOrder = args.IsChecked;
 				mandatoryAtService.Changed += (sender, args) => standalone.ServiceConfig.MandatoryAtService = args.IsChecked;
 
-				view.LifeCycleDetails[collapseButton.Tooltip].AddWidget(isFixed, sectionRow, 0);
-				view.LifeCycleDetails[collapseButton.Tooltip].AddWidget(exposeAtOrder, sectionRow, 1);
-				view.LifeCycleDetails[collapseButton.Tooltip].AddWidget(mandatoryAtOrder, sectionRow, 2);
-				view.LifeCycleDetails[collapseButton.Tooltip].AddWidget(mandatoryAtService, sectionRow, 3);
+				view.LifeCycleDetails[sectionKey].AddWidget(isFixed, sectionRow, 0);
+				view.LifeCycleDetails[sectionKey].AddWidget(exposeAtOrder, sectionRow, 1);
+				view.LifeCycleDetails[sectionKey].AddWidget(mandatoryAtOrder, sectionRow, 2);
+				view.LifeCycleDetails[sectionKey].AddWidget(mandatoryAtService, sectionRow, 3);
 			}
 
 			label.Changed += (sender, args) => record.ConfigurationParamValue.Label = args.Value;
@@ -918,11 +914,11 @@
 			view.AddWidget(unit, row, 5);
 			collapseButton.LinkedWidgets.Add(unit);
 
-			view.Details[collapseButton.Tooltip].AddWidget(start, sectionRow, 0);
-			view.Details[collapseButton.Tooltip].AddWidget(end, sectionRow, 1);
-			view.Details[collapseButton.Tooltip].AddWidget(step, sectionRow, 2);
-			view.Details[collapseButton.Tooltip].AddWidget(decimals, sectionRow, 3);
-			view.Details[collapseButton.Tooltip].AddWidget(values, sectionRow, 4);
+			view.Details[sectionKey].AddWidget(start, sectionRow, 0);
+			view.Details[sectionKey].AddWidget(end, sectionRow, 1);
+			view.Details[sectionKey].AddWidget(step, sectionRow, 2);
+			view.Details[sectionKey].AddWidget(decimals, sectionRow, 3);
+			view.Details[sectionKey].AddWidget(values, sectionRow, 4);
 
 			view.AddWidget(delete, row, 15);
 			collapseButton.LinkedWidgets.Add(delete);
@@ -1561,11 +1557,9 @@
 			view.LifeCycleDetails.Remove(profileKey);
 		}
 
-		private void ShowHideProfileParametersSection(bool visible, string profileName, Section section)
+		private void ShowHideProfileParametersSection(bool visible, string profileKey, Section section)
 		{
-			section.IsVisible = visible
-								? visible && !view.ProfileCollapseButtons[profileName].IsCollapsed
-								: visible;
+			section.IsVisible = visible && !view.ProfileCollapseButtons[profileKey].IsCollapsed;
 		}
 
 		private void ShowHideStandaloneParametersSection(bool visible, Section section)
