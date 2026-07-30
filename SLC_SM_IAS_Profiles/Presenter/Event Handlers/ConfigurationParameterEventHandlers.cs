@@ -136,7 +136,7 @@
 			record.ConfigurationParameterValue.StringValue = newStringValue;
 			record.State = State.Updated;
 
-			presenter.BuildUI();
+			presenter.View.UpdateSaveButtonState(presenter.Navigator);
 		}
 
 		public void Handle_Number_Value_Changed(ConfigurationDataRecord record, double value)

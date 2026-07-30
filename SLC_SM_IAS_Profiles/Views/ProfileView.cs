@@ -95,6 +95,11 @@
 			BuildFooter(++row, context.CanGoBack(), hasMandatoryUnselected);
 		}
 
+		public void UpdateSaveButtonState(IReadOnlyNavigator context)
+		{
+			BtnUpdate.IsEnabled = !HasUnselectedMandatoryDiscreteParameters(context);
+		}
+
 		private void BuildHeader(IReadOnlyNavigator context, int row)
 		{
 			var lblTitle = new Label();
