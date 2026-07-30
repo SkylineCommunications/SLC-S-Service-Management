@@ -5,9 +5,10 @@
 
 Revision History:
 
-DATE        VERSION        AUTHOR            COMMENTS
+DATE        VERSION     AUTHOR          COMMENTS
 
-dd/mm/2025    1.0.0.1        XXX, Skyline    Initial version
+dd/mm/2025  1.0.0.1     XXX, Skyline    Initial version
+13/07/2026	1.0.0.2		SKA, Skyline	Implemented logic to support duplicating a service
 ****************************************************************************
 */
 
@@ -356,6 +357,35 @@ namespace SLC_SM_Create_Service_Inventory_Item
 			}
 		}
 
+		private void DuplicateService(DataHelpersServiceManagement repo, Models.Service instance)
+		{
+			if (instance.ServiceConfiguration != null
+				&& (instance.ConfigurationVersions == null || !instance.ConfigurationVersions.Any(v => v.ID == instance.ServiceConfiguration.ID)))
+			{
+				if (instance.ConfigurationVersions == null)
+				{
+					instance.ConfigurationVersions = new List<Models.ServiceConfigurationVersion>();
+				}
+
+				instance.ConfigurationVersions.Add(instance.ServiceConfiguration);
+			}
+
+			if (instance.ConfigurationVersions != null)
+			{
+				foreach (var version in instance.ConfigurationVersions)
+				{
+					repo.ServiceConfigurationVersions.CreateOrUpdate(version);
+				}
+			}
+
+			repo.Services.CreateOrUpdate(instance);
+
+			if (instance.GenerateMonitoringService == true)
+			{
+				TryCreateDmsService(instance);
+			}
+		}
+
 		private void TryCreateDmsService(Models.Service instance)
 		{
 			var dms = _engine.GetDms();
@@ -371,13 +401,13 @@ namespace SLC_SM_Create_Service_Inventory_Item
 			SetServiceIcon(dms, serviceId, instance.Icon);
 		}
 
-		private ICollection<IDmsService> GetDmsServices()
+		private IEnumerable<IDmsService> GetDmsServices()
 		{
 			var dms = _engine.GetDms();
 			var services = dms.GetServices();
 			if (!services.Any())
 			{
-				return null;
+				return Enumerable.Empty<IDmsService>();
 			}
 
 			return services;
@@ -507,6 +537,19 @@ namespace SLC_SM_Create_Service_Inventory_Item
 					if (presenter.Validate())
 					{
 						AddOrUpdateService(repo, presenter.Instance);
+						throw new ScriptAbortException("OK");
+					}
+				};
+			}
+			else if (action == Defaults.ScriptAction_CreateServiceInventoryItem.Duplicate)
+			{
+				var sourceService = GetService(repo, domId);
+				presenter.LoadFromModel(sourceService, isDuplication: true);
+				view.BtnAdd.Pressed += (sender, args) =>
+				{
+					if (presenter.Validate())
+					{
+						DuplicateService(repo, presenter.Instance);
 						throw new ScriptAbortException("OK");
 					}
 				};

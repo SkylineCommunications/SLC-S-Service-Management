@@ -16,6 +16,7 @@
 			AddItem,
 			AddItemSilent,
 			Edit,
+			Duplicate,
 		}
 	}
 }
