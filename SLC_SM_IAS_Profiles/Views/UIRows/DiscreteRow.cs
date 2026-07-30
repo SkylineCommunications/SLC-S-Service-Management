@@ -31,18 +31,10 @@
 			return this;
 		}
 
-		private static void SetDropDownValidation(DropDown<Models.DiscreteValue> dropDown, bool isInvalid)
+		private static void SetDropDownValidation(DropDown<Models.DiscreteValue> dropDown, bool isMissingMandatoryValue)
 		{
-			if (isInvalid)
-			{
-				dropDown.ValidationState = UIValidationState.Invalid;
-				dropDown.ValidationText = "Mandatory parameter. Please select a value";
-			}
-			else
-			{
-				dropDown.ValidationState = UIValidationState.Valid;
-				dropDown.ValidationText = string.Empty;
-			}
+			dropDown.ValidationState = isMissingMandatoryValue ? UIValidationState.Invalid : UIValidationState.Valid;
+			dropDown.ValidationText = isMissingMandatoryValue ? "Mandatory parameter. Please select a value" : string.Empty;
 		}
 
 		private void BuildAndConfigureValue(List<Option<Models.DiscreteValue>> discretes)
