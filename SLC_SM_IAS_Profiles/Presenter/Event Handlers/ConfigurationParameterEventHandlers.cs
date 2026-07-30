@@ -33,7 +33,10 @@
 
 			var controller = presenter.Controller;
 
-			var allDiscretes = record.ReferredConfigurationParameter.DiscreteOptions.DiscreteValues
+			var allDiscretes = record.ReferredConfigurationParameter
+				.DiscreteOptions
+				.DiscreteValues
+				.Where(x => x != null)
 				.Select(x => new Option<Models.DiscreteValue>(x.Value, x))
 				.OrderBy(x => x.DisplayValue)
 				.ToList();
@@ -41,19 +44,35 @@
 			var optionsView = new DiscreteValuesView(engine);
 			optionsView.Options.SetOptions(allDiscretes);
 
-			foreach (var option in optionsView.Options.Values.ToList())
+			foreach (var option in optionsView.Options.Values.Where(x => x != null).ToList())
 			{
-				if (values.Options.Any(o => o.Value.Equals(option)))
+				bool isAvailable = values.Options.Any(
+					availableOption =>
+						availableOption.Value != null &&
+						availableOption.Value.Value == option.Value);
+
+				if (isAvailable)
+				{
 					optionsView.Options.Check(option);
+				}
 			}
 
 			optionsView.BtnReturn.Pressed += (_, __) => controller.ShowDialog(presenter.View);
 			optionsView.BtnApply.Pressed += (_, __) =>
 			{
-				var checkedOptions = optionsView.Options.CheckedOptions.ToList();
+				var checkedOptions = optionsView.Options.CheckedOptions
+					.Where(option => option?.Value != null)
+					.ToList();
+
+				checkedOptions.Insert(0, new Option<Models.DiscreteValue>("- Select -", null));
 
 				values.SetOptions(checkedOptions);
-				record.ConfigurationParameterValue.DiscreteOptions.DiscreteValues = checkedOptions.Select(o => o.Value).ToList();
+
+				record.ConfigurationParameterValue.DiscreteOptions.DiscreteValues =
+					checkedOptions
+						.Where(option => option.Value != null)
+						.Select(option => option.Value)
+						.ToList();
 
 				record.State = State.Updated;
 				controller.ShowDialog(presenter.View);
