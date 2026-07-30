@@ -54,7 +54,6 @@
 		{
 			Clear();
 
-			var page = context.GetCurrentPage();
 			int row = 0;
 
 			BuildHeader(context, row);

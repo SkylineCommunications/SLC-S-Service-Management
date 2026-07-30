@@ -142,7 +142,8 @@
 				return 0;
 
 			var count = CurrentPage.Records?.Count ?? 0;
-			return (int)Math.Ceiling(count / (double)PageSize);
+			var total = (int)Math.Ceiling(count / (double)PageSize);
+			return Math.Max(1, total);
 		}
 
 		public bool CanMoveNextSlice()
@@ -190,8 +191,9 @@
 			if (!_sliceIndexByPage.ContainsKey(page))
 				_sliceIndexByPage[page] = 0;
 
-			var total = GetTotalSlicesForCurrentPage();
-			if (total > 0 && _sliceIndexByPage[page] >= total)
+			var count = page.Records?.Count ?? 0;
+			var total = Math.Max(1, (int)Math.Ceiling(count / (double)PageSize));
+			if (_sliceIndexByPage[page] >= total)
 				_sliceIndexByPage[page] = total - 1;
 		}
 
