@@ -116,6 +116,8 @@
 
 			record.ConfigurationParameterValue.StringValue = newStringValue;
 			record.State = State.Updated;
+
+			presenter.BuildUI();
 		}
 
 		public void Handle_Number_Value_Changed(ConfigurationDataRecord record, double value)
