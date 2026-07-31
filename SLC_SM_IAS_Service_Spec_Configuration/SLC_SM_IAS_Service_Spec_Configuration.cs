@@ -8,6 +8,7 @@ Revision History:
 DATE		VERSION		AUTHOR			COMMENTS
 
 28/05/2025	1.0.0.1		RME, Skyline	Initial version
+10/07/2026  1.0.0.2		SKA, Skyline    Added support for nested profiles
 ****************************************************************************
 */
 
