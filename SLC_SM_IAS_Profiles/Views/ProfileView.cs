@@ -28,6 +28,9 @@
 			BtnCancel.Pressed += (sender, args) => throw new ScriptAbortException("OK");
 			BtnUpdate.Pressed += (sender, args) => callbacks.Common.Handle_Update_Pressed();
 			BtnBack.Pressed += (sender, args) => callbacks.Common.Handle_GoBack_Pressed();
+
+			BtnPrevious.Pressed += (sender, args) => callbacks.Common.Handle_GoTo_Previous_Page_Pressed();
+			BtnNext.Pressed += (sender, args) => callbacks.Common.Handle_GoTo_Next_Page_Pressed();
 		}
 
 		public Button BtnUpdate { get; } = new Button("Save") { Style = ButtonStyle.CallToAction, Width = DEFAULT_BUTTON_WIDTH };
@@ -35,6 +38,10 @@
 		public Button BtnCancel { get; } = new Button("Cancel") { Width = DEFAULT_BUTTON_WIDTH };
 
 		public Button BtnBack { get; } = new Button("Back") { Width = DEFAULT_BUTTON_WIDTH };
+
+		public Button BtnPrevious { get; } = new Button("Previous") { Width = DEFAULT_BUTTON_WIDTH };
+
+		public Button BtnNext { get; } = new Button("Next") { Width = DEFAULT_BUTTON_WIDTH };
 
 		private List<Option<Models.ConfigurationUnit>> CachedUnits { get; }
 
@@ -47,16 +54,15 @@
 		{
 			Clear();
 
-			var page = context.GetCurrentPage();
 			int row = 0;
 
-			BuildTitle(context, row);
+			BuildHeader(context, row);
 
 			if (context.GetCurrentPage() is ProfilePage)
 			{
 				BuildConfigurationParameterHeader(++row);
 
-				var configurationRecords = page.Records
+				var configurationRecords = context.GetCurrentSliceRecords()
 					.Where(x => x.State != State.Removed && x is ConfigurationDataRecord)
 					.Cast<ConfigurationDataRecord>()
 					.OrderBy(r => r.ConfigurationParameterValue.Label);
@@ -72,7 +78,7 @@
 
 			BuildProfileDefinitionHeader(++row);
 
-			var profileRecords = page.Records
+			var profileRecords = context.GetCurrentSliceRecords()
 				.Where(x => x.State != State.Removed && x is ProfileDataRecord)
 				.Cast<ProfileDataRecord>()
 				.OrderBy(r => r.Profile.Name);
@@ -85,10 +91,16 @@
 
 			AddNewProfileDropDown(context, allProfileDefinitions, ++row);
 
-			BuildFooter(++row, context.CanGoBack());
+			bool hasMandatoryUnselected = HasUnselectedMandatoryDiscreteParameters(context);
+			BuildFooter(++row, context.CanGoBack(), hasMandatoryUnselected);
 		}
 
-		private void BuildTitle(IReadOnlyNavigator context, int row)
+		public void UpdateSaveButtonState(IReadOnlyNavigator context)
+		{
+			BtnUpdate.IsEnabled = !HasUnselectedMandatoryDiscreteParameters(context);
+		}
+
+		private void BuildHeader(IReadOnlyNavigator context, int row)
 		{
 			var lblTitle = new Label();
 			lblTitle.Style = TextStyle.Heading;
@@ -107,7 +119,18 @@
 
 			lblTitle.Text = path;
 
-			AddWidget(lblTitle, row, 0, 1, 10);
+			AddWidget(lblTitle, row, 0, 1, 8);
+
+			var pageLabel = new Label();
+			pageLabel.Text = $"Page {context.GetCurrentSliceIndex() + 1} of {context.GetTotalSlicesForCurrentPage()}";
+
+			AddWidget(pageLabel, row, 8, HorizontalAlignment.Right);
+
+			BtnPrevious.IsEnabled = context.CanMovePreviousSlice();
+			BtnNext.IsEnabled = context.CanMoveNextSlice();
+
+			AddWidget(BtnPrevious, row, 9);
+			AddWidget(BtnNext, row, 10);
 		}
 
 		private void BuildConfigurationParameterHeader(int row)
@@ -142,9 +165,14 @@
 			row.BuildRow(this);
 		}
 
-		private void BuildFooter(int row, bool canGoBack)
+		private void BuildFooter(int row, bool canGoBack, bool hasMandatoryUnselected = false)
 		{
 			BtnBack.IsVisible = canGoBack;
+
+			BtnUpdate.IsEnabled = !hasMandatoryUnselected;
+			BtnUpdate.Tooltip = hasMandatoryUnselected
+				? "All mandatory parameters must have a value selected before saving."
+				: string.Empty;
 
 			AddWidget(new WhiteSpace(), ++row, 0);
 
@@ -298,6 +326,14 @@
 		{
 			bool canDelete = CanDeleteMandatoryConfiguration(context, record);
 
+			bool isMandatory = false;
+			if (context.GetCurrentPage() is ProfilePage profilePage)
+			{
+				var paramId = record.ReferredConfigurationParameter.ID;
+				isMandatory = profilePage.ProfileDataRecord.ReferredProfileDefinition.ConfigurationParameters
+					.Any(cp => cp.Mandatory && cp.ConfigurationParameter == paramId);
+			}
+
 			return new ConfigurationRowData
 			{
 				Record = record,
@@ -307,6 +343,7 @@
 				Callbacks = Callbacks,
 				RowIndex = row,
 				CanDelete = canDelete,
+				IsMandatory = isMandatory,
 			};
 		}
 
@@ -363,6 +400,28 @@
 				.OfType<ProfileDataRecord>()
 				.Count(r => r.ReferredProfileDefinition.ID == id
 							&& r.State != State.Removed) > 1;
+		}
+
+		private bool HasUnselectedMandatoryDiscreteParameters(IReadOnlyNavigator context)
+		{
+			var page = context.GetCurrentPage() as ProfilePage;
+			if (page == null)
+				return false;
+
+			var mandatoryParamIds = page.ProfileDataRecord.ReferredProfileDefinition.ConfigurationParameters
+				.Where(cp => cp.Mandatory)
+				.Select(cp => cp.ConfigurationParameter)
+				.ToHashSet();
+
+			if (mandatoryParamIds.Count == 0)
+				return false;
+
+			return page.Records
+				.OfType<ConfigurationDataRecord>()
+				.Where(r => r.State != State.Removed
+							&& mandatoryParamIds.Contains(r.ReferredConfigurationParameter.ID)
+							&& r.ConfigurationParameterValue.DiscreteOptions != null)
+				.Any(r => string.IsNullOrEmpty(r.ConfigurationParameterValue.StringValue));
 		}
 	}
 }
