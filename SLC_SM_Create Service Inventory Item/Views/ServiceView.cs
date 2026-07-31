@@ -47,7 +47,7 @@
 
 			AddWidget(LblLinkedDataMinerServices, ++row,0);
 			AddWidget(MonitoringServices, row, 1, 1, 2);
-			AddWidget(RemoveLinkedService, row, 3);
+			AddWidget(LinkService, row, 3);
 
 			AddWidget(GenerateMonitoringService, ++row, 1);
 
@@ -110,9 +110,9 @@
 
 		public Label LblLinkedDataMinerServices { get; } = new Label("Linked Service");
 
-		public DropDown<IDmsService> MonitoringServices { get; } = new DropDown<IDmsService> { Width = Defaults.WidgetWidth};
+		public DropDown<IDmsService> MonitoringServices { get; } = new DropDown<IDmsService> { Width = Defaults.WidgetWidth, IsEnabled = false };
 
-		public CheckBox RemoveLinkedService { get; } = new CheckBox("Remove Linked Service") { IsChecked = false };
+		public CheckBox LinkService { get; } = new CheckBox("Link Service") { IsChecked = false };
 
 		public CheckBox GenerateMonitoringService { get; set; } = new CheckBox("Generate DataMiner Monitoring Service") { IsChecked = false, IsEnabled = false };
 

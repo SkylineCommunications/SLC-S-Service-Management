@@ -62,7 +62,7 @@
 
 			view.IndefiniteRuntime.Changed += (sender, args) => view.End.IsEnabled = !args.IsChecked;
 			view.TboxName.Changed += (sender, args) => ValidateLabel(args.Value);
-			view.RemoveLinkedService.Changed += (sender, args) => view.MonitoringServices.IsEnabled = !args.IsChecked;
+			view.LinkService.Changed += (sender, args) => view.MonitoringServices.IsEnabled = args.IsChecked;
 		}
 
 		public string Name => String.IsNullOrWhiteSpace(view.TboxName.Text) ? view.TboxName.PlaceHolder : view.TboxName.Text;
@@ -76,12 +76,12 @@
 				instanceToReturn.Description = instanceToReturn.Description ?? String.Empty;
 				instanceToReturn.StartTime = view.Start.DateTime.ToUniversalTime();
 				instanceToReturn.EndTime = view.IndefiniteRuntime.IsChecked ? default(DateTime?) : view.End.DateTime.ToUniversalTime();
-				instanceToReturn.GenerateMonitoringService = view.GenerateMonitoringService.IsChecked || !view.RemoveLinkedService.IsChecked;
+				instanceToReturn.GenerateMonitoringService = view.GenerateMonitoringService.IsChecked || view.LinkService.IsChecked;
 				instanceToReturn.Description = instanceToReturn.Description ?? String.Empty;
 				instanceToReturn.Category = view.ServiceCategory.Selected;
 				instanceToReturn.ServiceSpecificationId = view.Specs.Selected?.ID;
 				instanceToReturn.OrganizationId = view.Organizations.Selected?.ID;
-				instanceToReturn.MonitoringService = view.RemoveLinkedService.IsChecked ? string.Empty : view.MonitoringServices.Selected?.DmsServiceId.Value;
+				instanceToReturn.MonitoringService = view.LinkService.IsChecked ? view.MonitoringServices.Selected?.DmsServiceId.Value : string.Empty;
 				instanceToReturn.Icon = view.ServiceCategory?.Selected?.Icon ?? String.Empty;
 				instanceToReturn.ServiceConfiguration = view.ConfigurationVersions.Selected;
 				return instanceToReturn;
@@ -560,19 +560,15 @@
 
 		private void LoadMonitoringSelection(Models.Service source, bool isDuplicate)
 		{
-			if (!isDuplicate &&
-				!source.MonitoringService.IsNullOrEmpty() &&
-				view.MonitoringServices.Options.Any(s => s.Value?.DmsServiceId.Value == source.MonitoringService))
+			bool hasLinkedService = !isDuplicate && !source.MonitoringService.IsNullOrEmpty()
+				&& view.MonitoringServices.Options.Any(option => option.Value?.DmsServiceId.Value == source.MonitoringService);
+
+			view.LinkService.IsChecked = hasLinkedService;
+			view.MonitoringServices.IsEnabled = hasLinkedService;
+
+			if (hasLinkedService)
 			{
-				view.RemoveLinkedService.IsChecked = false;
-				view.MonitoringServices.Selected = view.MonitoringServices.Options
-					.First(x => x.Value?.DmsServiceId.Value == source.MonitoringService).Value;
-				view.MonitoringServices.IsEnabled = true;
-			}
-			else
-			{
-				view.RemoveLinkedService.IsChecked = true;
-				view.MonitoringServices.IsEnabled = false;
+				view.MonitoringServices.Selected = view.MonitoringServices.Options.First(option => option.Value?.DmsServiceId.Value == source.MonitoringService).Value;
 			}
 		}
 
@@ -589,7 +585,7 @@
 		{
 			if (e.SelectedOption?.Value == null)
 			{
-				view.RemoveLinkedService.IsChecked = true;
+				view.LinkService.IsChecked = false;
 			}
 		}
 
