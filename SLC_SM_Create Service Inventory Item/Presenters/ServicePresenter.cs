@@ -44,7 +44,7 @@
 			List<Models.Service> services = repo.Services.ReadBasicDetails();
 
 			getServiceLabels = services.Select(x => x.Name).ToList();
-				serviceId = repo.Services.UniqueServiceId(services);
+			serviceId = repo.Services.UniqueServiceId(services);
 
 			instanceToReturn = new Models.Service
 			{
