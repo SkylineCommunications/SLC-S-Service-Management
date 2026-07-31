@@ -9,6 +9,7 @@ DATE        VERSION     AUTHOR          COMMENTS
 
 dd/mm/2025  1.0.0.1     XXX, Skyline    Initial version
 13/07/2026	1.0.0.2		SKA, Skyline	Implemented logic to support duplicating a service
+31/07/2026	1.0.0.3		SKA, Skyline	Improved performance of service creation using optimized methods for reading the data and inverted the logic for linking a service
 ****************************************************************************
 */
 

@@ -44,7 +44,7 @@
 			List<Models.Service> services = repo.Services.ReadBasicDetails();
 
 			getServiceLabels = services.Select(x => x.Name).ToList();
-			serviceId = repo.Services.UniqueServiceId(services);
+				serviceId = repo.Services.UniqueServiceId(services);
 
 			instanceToReturn = new Models.Service
 			{
@@ -90,11 +90,11 @@
 
 		public void LoadFromModel()
 		{
-			var categoryOptions = repo.ServiceCategories.Read().Where(x => !string.IsNullOrEmpty(x?.Name)).OrderBy(x => x.Name).Select(x => new Option<Models.ServiceCategory>(x.Name, x)).ToList();
+			var categoryOptions = repo.ServiceCategories.ReadBasicDetails().Where(x => !string.IsNullOrEmpty(x?.Name)).OrderBy(x => x.Name).Select(x => new Option<Models.ServiceCategory>(x.Name, x)).ToList();
 			categoryOptions.Insert(0, new Option<Models.ServiceCategory>(DefaultDropDownOption, null));
 			view.ServiceCategory.SetOptions(categoryOptions);
 
-			var specs = repo.ServiceSpecifications.Read().Where(x => !string.IsNullOrEmpty(x?.Name)).OrderBy(x => x.Name).Select(x => new Option<Models.ServiceSpecification>(x.Name, x)).ToList();
+			var specs = repo.ServiceSpecifications.ReadBasicDetails().Where(x => !string.IsNullOrEmpty(x?.Name)).OrderBy(x => x.Name).Select(x => new Option<Models.ServiceSpecification>(x.Name, x)).ToList();
 			specs.Insert(0, new Option<Models.ServiceSpecification>(DefaultDropDownOption, null));
 			view.Specs.SetOptions(specs);
 
@@ -104,7 +104,7 @@
 			var orgs = new List<Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.PeopleAndOrganization.Models.Organization>>();
 			if (this._engine.DomModelExists(SlcPeople_OrganizationsIds.ModuleId, new[] { SlcPeople_OrganizationsIds.Sections.OrganizationInformation.Id.Id }))
 			{
-				orgs = new DataHelperOrganization(_engine.GetUserConnection()).Read()
+				orgs = new DataHelperOrganization(_engine.GetUserConnection()).ReadBasicDetails()
 				.Where(x => !string.IsNullOrEmpty(x?.Name))
 				.OrderBy(x => x.Name)
 				.Select(x => new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.PeopleAndOrganization.Models.Organization>(x.Name, x))
