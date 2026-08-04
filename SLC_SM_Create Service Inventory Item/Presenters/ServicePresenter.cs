@@ -180,7 +180,6 @@
 				view.ErrorConfigurationVersion.Text = String.Empty;
 			}
 
-			view.BtnAdd.IsEnabled = ok;
 			return ok;
 		}
 
