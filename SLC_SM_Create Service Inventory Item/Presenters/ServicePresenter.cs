@@ -642,11 +642,13 @@
 			}
 			else if (getServiceLabels.Contains(newValue, StringComparer.InvariantCultureIgnoreCase))
 			{
+				view.ErrorName.Text = String.Empty;
 				view.TboxName.ValidationText = "Name already exists!";
 				isValid = false;
 			}
 			else
 			{
+				view.ErrorName.Text = String.Empty;
 				view.TboxName.ValidationText = String.Empty;
 			}
 
