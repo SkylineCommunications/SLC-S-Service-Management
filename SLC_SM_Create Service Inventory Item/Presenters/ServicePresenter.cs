@@ -24,6 +24,7 @@
 		private const string DefaultDropDownOption = "-None-";
 
 		private readonly List<string> getServiceLabels;
+		private readonly List<string> serviceIds;
 		private readonly IEngine _engine;
 		private readonly DataHelpersServiceManagement repo;
 		private readonly ServiceView view;
@@ -44,6 +45,7 @@
 			List<Models.Service> services = repo.Services.ReadBasicDetails();
 
 			getServiceLabels = services.Select(x => x.Name).ToList();
+			serviceIds = services.Select(x => x.ServiceID).ToList();
 			serviceId = repo.Services.UniqueServiceId(services);
 
 			instanceToReturn = new Models.Service
@@ -62,17 +64,20 @@
 
 			view.IndefiniteRuntime.Changed += (sender, args) => view.End.IsEnabled = !args.IsChecked;
 			view.TboxName.Changed += (sender, args) => ValidateLabel(args.Value);
+			view.ServiceId.Changed += (sender, args) => ValidateServiceId(args.Value);
 			view.LinkService.Changed += (sender, args) => view.MonitoringServices.IsEnabled = args.IsChecked;
 		}
 
 		public string Name => String.IsNullOrWhiteSpace(view.TboxName.Text) ? view.TboxName.PlaceHolder : view.TboxName.Text;
+
+		public string ServiceId => view.ServiceId.Text?.Trim();
 
 		public Models.Service Instance
 		{
 			get
 			{
 				instanceToReturn.Name = Name;
-				instanceToReturn.ServiceID = view.ServiceId.Text;
+				instanceToReturn.ServiceID = ServiceId;
 				instanceToReturn.Description = instanceToReturn.Description ?? String.Empty;
 				instanceToReturn.StartTime = view.Start.DateTime.ToUniversalTime();
 				instanceToReturn.EndTime = view.IndefiniteRuntime.IsChecked ? default(DateTime?) : view.End.DateTime.ToUniversalTime();
@@ -147,6 +152,7 @@
 		{
 			bool ok = true;
 
+			ok &= ValidateServiceId(ServiceId);
 			ok &= ValidateLabel(view.TboxName.Text);
 
 			if (!isEdit && view.Start.DateTime < DateTime.Now)
@@ -174,7 +180,15 @@
 				view.ErrorConfigurationVersion.Text = String.Empty;
 			}
 
+			view.BtnAdd.IsEnabled = ok;
 			return ok;
+		}
+
+		public void ShowServiceIdExistsError()
+		{
+			view.ServiceId.ValidationText = $"Service ID '{ServiceId}' already exists.";
+			view.ServiceId.ValidationState = UIValidationState.Invalid;
+			UpdateAddButtonState();
 		}
 
 		private static Models.ServiceConfigurationVersion DuplicateConfigurationVersion(Models.ServiceConfigurationVersion source, string newServiceId)
@@ -589,22 +603,58 @@
 			}
 		}
 
+		private void UpdateAddButtonState()
+		{
+			view.BtnAdd.IsEnabled = view.ServiceId.ValidationState != UIValidationState.Invalid && view.TboxName.ValidationState != UIValidationState.Invalid;
+		}
+
+		private bool ValidateServiceId(string value)
+		{
+			bool isValid = true;
+
+			if (String.IsNullOrWhiteSpace(value))
+			{
+				view.ServiceId.ValidationText = "Service ID is required.";
+				isValid = false;
+			}
+			else if (!isEdit && serviceIds.Contains(value.Trim(), StringComparer.InvariantCultureIgnoreCase))
+			{
+				view.ServiceId.ValidationText = "Service ID already exists!";
+				isValid = false;
+			}
+			else
+			{
+				view.ServiceId.ValidationText = String.Empty;
+			}
+
+			view.ServiceId.ValidationState = isValid ? UIValidationState.Valid : UIValidationState.Invalid;
+
+			UpdateAddButtonState();
+			return isValid;
+		}
+
 		private bool ValidateLabel(string newValue)
 		{
+			bool isValid = true;
+
 			if (String.IsNullOrWhiteSpace(newValue))
 			{
 				view.ErrorName.Text = "Placeholder will be used";
-				return true;
 			}
-
-			if (getServiceLabels.Contains(newValue, StringComparer.InvariantCultureIgnoreCase))
+			else if (getServiceLabels.Contains(newValue, StringComparer.InvariantCultureIgnoreCase))
 			{
-				view.ErrorName.Text = "Name already exists!";
-				return false;
+				view.TboxName.ValidationText = "Name already exists!";
+				isValid = false;
+			}
+			else
+			{
+				view.TboxName.ValidationText = String.Empty;
 			}
 
-			view.ErrorName.Text = String.Empty;
-			return true;
+			view.TboxName.ValidationState = isValid ? UIValidationState.Valid : UIValidationState.Invalid;
+
+			UpdateAddButtonState();
+			return isValid;
 		}
 	}
 }

@@ -10,6 +10,7 @@ DATE        VERSION     AUTHOR          COMMENTS
 dd/mm/2025  1.0.0.1     XXX, Skyline    Initial version
 13/07/2026	1.0.0.2		SKA, Skyline	Implemented logic to support duplicating a service
 31/07/2026	1.0.0.3		SKA, Skyline	Improved performance of service creation using optimized methods for reading the data and inverted the logic for linking a service
+04/08/2026	1.0.0.4		SKA, Skyline	Added support for defining a ServiceId when creating a new service
 ****************************************************************************
 */
 
@@ -235,6 +236,11 @@ namespace SLC_SM_Create_Service_Inventory_Item
 			{
 				config.TextOptions.ID = Guid.NewGuid();
 			}
+		}
+
+		private static bool ServiceIdExists(DataHelpersServiceManagement repo, string serviceId)
+		{
+			return repo.Services.ReadBasicDetails(ServiceExposers.ServiceID.Equal(serviceId)).Any();
 		}
 
 		private void AddOrUpdateService(DataHelpersServiceManagement repo, Models.Service instance)
@@ -535,11 +541,19 @@ namespace SLC_SM_Create_Service_Inventory_Item
 				presenter.LoadFromModel();
 				view.BtnAdd.Pressed += (sender, args) =>
 				{
-					if (presenter.Validate())
+					if (!presenter.Validate())
 					{
-						AddOrUpdateService(repo, presenter.Instance);
-						throw new ScriptAbortException("OK");
+						return;
 					}
+
+					if (ServiceIdExists(repo, presenter.ServiceId))
+					{
+						presenter.ShowServiceIdExistsError();
+						return;
+					}
+
+					AddOrUpdateService(repo, presenter.Instance);
+					throw new ScriptAbortException("OK");
 				};
 			}
 			else if (action == Defaults.ScriptAction_CreateServiceInventoryItem.Duplicate)
@@ -548,11 +562,19 @@ namespace SLC_SM_Create_Service_Inventory_Item
 				presenter.LoadFromModel(sourceService, isDuplication: true);
 				view.BtnAdd.Pressed += (sender, args) =>
 				{
-					if (presenter.Validate())
+					if (!presenter.Validate())
 					{
-						DuplicateService(repo, presenter.Instance);
-						throw new ScriptAbortException("OK");
+						return;
 					}
+
+					if (ServiceIdExists(repo, presenter.ServiceId))
+					{
+						presenter.ShowServiceIdExistsError();
+						return;
+					}
+
+					DuplicateService(repo, presenter.Instance);
+					throw new ScriptAbortException("OK");
 				};
 			}
 			else
