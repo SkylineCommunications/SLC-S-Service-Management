@@ -17,7 +17,10 @@
 
 			int row = 0;
 			AddWidget(LblServiceId, row, 0);
-			AddWidget(ServiceId, row, 1);
+			AddWidget(ServiceId, row, 1, 1, 2);
+
+			ServiceId.IsEnabled = action == Defaults.ScriptAction_CreateServiceInventoryItem.Add || action == Defaults.ScriptAction_CreateServiceInventoryItem.Duplicate;
+
 			AddWidget(LblName, ++row, 0);
 			AddWidget(TboxName, row, 1, 1, 2);
 			AddWidget(ErrorName, row, 3);
@@ -58,7 +61,7 @@
 
 		public Label LblServiceId { get; } = new Label("Service ID");
 
-		public Label ServiceId { get; } = new Label();
+		public TextBox ServiceId { get; } = new TextBox { Width = Defaults.WidgetWidth };
 
 		public Label LblName { get; } = new Label("Name");
 
