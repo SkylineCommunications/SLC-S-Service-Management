@@ -456,6 +456,7 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 			{
 				instanceService.ConfigurationVersions.Add(new SdmObjectReference<Models.ServiceConfigurationVersion>(configuration.ServiceConfigurationVersion.Identifier));
 			}
+
 			instanceService.ServiceConfigurationId = new SdmObjectReference<Models.ServiceConfigurationVersion>(configuration.ServiceConfigurationVersion.Identifier);
 			sdmHelper.ServiceInventory.Services.CreateOrUpdate(new[] { instanceService });
 
@@ -795,6 +796,7 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 			{
 				profile.Profile.ConfigurationParameterValues = new List<SdmObjectReference<ConfigurationParameterValue>>();
 			}
+
 			profile.Profile.ConfigurationParameterValues.Add(new SdmObjectReference<ConfigurationParameterValue>(configParamValue.Identifier));
 
 			serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(instanceService.ServiceID, "Edit", $"Added profile parameter '{configurationParameterInstance.Name}' with value {configParamValue.StringValue}"));
@@ -2789,26 +2791,3 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 		}
 	}
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

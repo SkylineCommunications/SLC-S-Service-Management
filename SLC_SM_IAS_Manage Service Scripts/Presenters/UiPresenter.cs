@@ -3,20 +3,15 @@ namespace SLC_SM_IAS_Manage_Service_Scripts.Presenters
 	using System;
 	using System.Collections.Generic;
 	using System.Linq;
-
 	using Newtonsoft.Json;
-
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
-	using SdmModels = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
-
 	using Skyline.DataMiner.Utils.SecureCoding.SecureSerialization.Json.Newtonsoft;
-
 	using SLC_SM_IAS_Manage_Service_Scripts.Model;
 	using SLC_SM_IAS_Manage_Service_Scripts.Views;
-
 	using static SLC_SM_IAS_Manage_Service_Scripts.Views.ServiceScriptDialog;
+	using SdmModels = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 
 	internal sealed class UiPresenter
 	{

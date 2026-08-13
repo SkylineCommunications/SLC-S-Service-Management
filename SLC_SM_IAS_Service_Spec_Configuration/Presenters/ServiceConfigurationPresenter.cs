@@ -174,8 +174,10 @@ namespace SLC_SM_IAS_Service_Spec_Configuration.Presenters
 						CreateOrUpdateOptions(profileParameter);
 						profileParameterValuesToStore.Add(profileParameter.ConfigurationParamValue);
 					}
+
 					profilesToStore.Add(profile.Profile);
 				}
+
 				serviceProfilesToStore.Add(profile.ServiceProfileConfig);
 			}
 
@@ -312,6 +314,7 @@ namespace SLC_SM_IAS_Service_Spec_Configuration.Presenters
 					ShowHideStandaloneParametersSection(showLifeCycleDetails, details.Value);
 					continue;
 				}
+
 				ShowHideProfileParametersSection(showLifeCycleDetails, details.Key, details.Value);
 			}
 		}
@@ -327,6 +330,7 @@ namespace SLC_SM_IAS_Service_Spec_Configuration.Presenters
 					ShowHideStandaloneParametersSection(showDetails, details.Value);
 					continue;
 				}
+
 				ShowHideProfileParametersSection(showDetails, details.Key, details.Value);
 			}
 		}
@@ -430,6 +434,7 @@ namespace SLC_SM_IAS_Service_Spec_Configuration.Presenters
 				{
 					continue;
 				}
+
 				parameterValues.Add(BuildConfigurationParameter(configParam));
 			}
 

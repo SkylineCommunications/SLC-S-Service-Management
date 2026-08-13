@@ -11,7 +11,6 @@
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.Net.ResourceManager.Objects;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
-	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
 	using Skyline.DataMiner.Utils.MediaOps.Common.IOData.Scheduling.Scripts.JobHandler;
 	using Skyline.DataMiner.Utils.MediaOps.Helpers.Workflows;
@@ -19,6 +18,7 @@
 	using SLC_SM_Common.Extensions;
 	using SLC_SM_IAS_Add_Service_Item.ScriptModels;
 	using SLC_SM_IAS_Add_Service_Item.Views;
+	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 
 	public class ServiceItemPresenter
 	{

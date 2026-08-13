@@ -3,12 +3,9 @@ namespace SLC_SM_IAS_Add_Service_Specification.Presenters
 	using System;
 	using System.Collections.Generic;
 	using System.Linq;
-
 	using Skyline.DataMiner.Automation;
-
-	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
-
 	using SLC_SM_IAS_Add_Service_Specification.Views;
+	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 
 	public class ServiceSpecPresenter
 	{

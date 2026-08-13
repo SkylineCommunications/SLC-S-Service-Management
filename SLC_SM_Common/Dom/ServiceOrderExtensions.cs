@@ -50,6 +50,7 @@
 			{
 				return order;
 			}
+
 			connection.GenerateInformationMessage($"[SMS] Status Transition: {order.Name} → {transition}");
 			connection.GenerateInformationMessage($"[SMS] Status Transition: {order.Name} → {transition}");
 			return api.ServiceOrder.ServiceOrders.TransitionStatus(order, transition);
@@ -117,6 +118,7 @@
 			{
 				return order;
 			}
+
 			connection.GenerateInformationMessage($"[SMS] Status Transition: {order.Name} → {transition}");
 			connection.GenerateInformationMessage($"[SMS] Status Transition: {order.Name} → {transition}");
 			return api.ServiceOrder.ServiceOrders.TransitionStatus(order, transition);

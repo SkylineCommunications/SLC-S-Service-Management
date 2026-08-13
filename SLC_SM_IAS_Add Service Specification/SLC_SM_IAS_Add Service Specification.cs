@@ -19,12 +19,12 @@ namespace SLC_SM_IAS_Add_Service_Specification
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
-	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.IAS;
 	using SLC_SM_IAS_Add_Service_Specification.Presenters;
 	using SLC_SM_IAS_Add_Service_Specification.Views;
+	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 
 	/// <summary>
 	///     Represents a DataMiner Automation script.
@@ -120,6 +120,7 @@ namespace SLC_SM_IAS_Add_Service_Specification
 					{
 						api.ServiceCatalog.ServiceSpecifications.Update(specificationToSave);
 					}
+
 					throw new ScriptAbortException("OK");
 				}
 			};

@@ -60,4 +60,3 @@ namespace SLC_SM_IAS_Service_Configuration.Model
 		}
 	}
 }
-
