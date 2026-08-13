@@ -251,14 +251,23 @@ namespace SLC_SM_Create_Service_Inventory_Item
 						continue;
 					}
 
+					var duplicatedConfigParameterValueId = DuplicateConfigurationParameterValue(
+						sdmHelper,
+						sourceParameter.ConfigurationParameterId.Identifier,
+						configParameterValuesById,
+						configParamValueIdMap,
+						duplicatedConfigParameterValues);
+					if (String.IsNullOrWhiteSpace(duplicatedConfigParameterValueId))
+					{
+						continue;
+					}
+
 					var duplicatedParameterId = Guid.NewGuid().ToString();
 					var duplicatedParameter = new SdmModels.ServiceConfigurationValue
 					{
 						Identifier = duplicatedParameterId,
 						Mandatory = sourceParameter.Mandatory,
-						ConfigurationParameterId = sourceParameter.ConfigurationParameterId != null
-							? new SdmObjectReference<ConfigModels.ConfigurationParameter>(sourceParameter.ConfigurationParameterId.Identifier)
-							: null,
+						ConfigurationParameterId = new SdmObjectReference<ConfigModels.ConfigurationParameter>(duplicatedConfigParameterValueId),
 					};
 
 					sdmHelper.ServiceInventory.ServiceConfigurationValues.Create(duplicatedParameter);
@@ -457,6 +466,11 @@ namespace SLC_SM_Create_Service_Inventory_Item
 			Dictionary<string, string> configParamValueIdMap,
 			List<ConfigModels.ConfigurationParameterValue> duplicatedConfigParameterValues)
 		{
+			if (String.IsNullOrWhiteSpace(sourceConfigParamValueId))
+			{
+				return null;
+			}
+
 			if (configParamValueIdMap.TryGetValue(sourceConfigParamValueId, out var alreadyDuplicatedConfigParamValueId))
 			{
 				return alreadyDuplicatedConfigParamValueId;
