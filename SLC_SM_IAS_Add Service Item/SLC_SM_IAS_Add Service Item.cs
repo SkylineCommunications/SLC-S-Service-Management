@@ -21,15 +21,15 @@ namespace SLC_SM_IAS_Add_Service_Item
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.Relationship;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.IAS;
 	using SLC_SM_IAS_Add_Service_Item.Presenters;
 	using SLC_SM_IAS_Add_Service_Item.ScriptModels;
 	using SLC_SM_IAS_Add_Service_Item.Views;
-	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement.Models;
+	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 
 	/// <summary>
 	///     Represents a DataMiner Automation script.
@@ -97,7 +97,7 @@ namespace SLC_SM_IAS_Add_Service_Item
 			var scriptModel = new ScriptScriptModel();
 			if (serviceInstance != null)
 			{
-				scriptModel.ID = serviceInstance.ID;
+				scriptModel.ID = Guid.Parse(serviceInstance.Identifier);
 				scriptModel.Start = serviceInstance.StartTime;
 				scriptModel.End = serviceInstance.EndTime;
 				return scriptModel;
@@ -105,7 +105,7 @@ namespace SLC_SM_IAS_Add_Service_Item
 
 			if (specInstance != null)
 			{
-				scriptModel.ID = specInstance.ID;
+				scriptModel.ID = Guid.Parse(specInstance.Identifier);
 				return scriptModel;
 			}
 
@@ -131,7 +131,7 @@ namespace SLC_SM_IAS_Add_Service_Item
 			       ?? throw new InvalidOperationException($"No Service Item with label '{label}' exists.");
 		}
 
-		private void AddOrUpdateServiceItemToInstance(DataHelperService helper, Models.Service instance, Models.ServiceItem newSection, string oldLabel)
+		private void AddOrUpdateServiceItemToInstance(IServiceManagementApiHelper helper, Models.Service instance, Models.ServiceItem newSection, string oldLabel)
 		{
 			if (instance == null)
 			{
@@ -142,26 +142,27 @@ namespace SLC_SM_IAS_Add_Service_Item
 			var oldItem = instance.ServiceItems.FirstOrDefault(x => x.Label == oldLabel);
 			if (oldItem != null)
 			{
-				newSection.ID = oldItem.ID;
+				newSection.ServiceItemID = oldItem.ServiceItemID;
 				instance.ServiceItems.Remove(oldItem);
 			}
 
-			if (newSection.ID < -1)
+			if (!newSection.ServiceItemID.HasValue)
 			{
 				// Auto assign new ID
-				long[] ids = instance.ServiceItems.Select(x => x.ID).OrderBy(x => x).ToArray();
-				newSection.ID = ids.Any() ? ids.Max() + 1 : 0;
+				long[] ids = instance.ServiceItems.Where(x => x.ServiceItemID.HasValue).Select(x => x.ServiceItemID.Value).OrderBy(x => x).ToArray();
+				newSection.ServiceItemID = ids.Any() ? ids.Max() + 1 : 0;
 			}
 
 			newSection.Icon = instance.Icon; // inherit icon from service.
 
-			AddServiceLink(instance.ID, instance.Name, newSection);
+			AddServiceLink(Guid.Parse(instance.Identifier), instance.Name, newSection);
+			newSection.Type = null;
 
 			instance.ServiceItems.Add(newSection);
-			helper.CreateOrUpdate(instance);
+			helper.ServiceInventory.Services.Update(instance);
 		}
 
-		private void AddOrUpdateServiceItemToInstance(DataHelperServiceSpecification helper, Models.ServiceSpecification instance, Models.ServiceItem newSection, string oldLabel)
+		private void AddOrUpdateServiceItemToInstance(IServiceManagementApiHelper helper, Models.ServiceSpecification instance, Models.ServiceItem newSection, string oldLabel)
 		{
 			if (instance == null)
 			{
@@ -172,19 +173,20 @@ namespace SLC_SM_IAS_Add_Service_Item
 			var oldItem = instance.ServiceItems.FirstOrDefault(x => x.Label == oldLabel);
 			if (oldItem != null)
 			{
-				newSection.ID = oldItem.ID;
+				newSection.ServiceItemID = oldItem.ServiceItemID;
 				instance.ServiceItems.Remove(oldItem);
 			}
 
-			if (newSection.ID < -1)
+			if (!newSection.ServiceItemID.HasValue)
 			{
 				// Auto assign new ID
-				long[] ids = instance.ServiceItems.Select(x => x.ID).OrderBy(x => x).ToArray();
-				newSection.ID = ids.Any() ? ids.Max() + 1 : 0;
+				long[] ids = instance.ServiceItems.Where(x => x.ServiceItemID.HasValue).Select(x => x.ServiceItemID.Value).OrderBy(x => x).ToArray();
+				newSection.ServiceItemID = ids.Any() ? ids.Max() + 1 : 0;
 			}
 
+			newSection.Type = null;
 			instance.ServiceItems.Add(newSection);
-			helper.CreateOrUpdate(instance);
+			helper.ServiceCatalog.ServiceSpecifications.Update(instance);
 		}
 
 		private void AddServiceLink(Guid serviceInstanceId, string serviceInstanceName, Models.ServiceItem newSection)
@@ -196,7 +198,7 @@ namespace SLC_SM_IAS_Add_Service_Item
 			}
 
 			var dataHelper = new DataHelperLink(_engine.GetUserConnection());
-			var link = dataHelper.Read(LinkExposers.ParentID.Equal(serviceInstanceId.ToString()).AND(LinkExposers.ChildID.Equal(newSection.ImplementationReference))).FirstOrDefault();
+			var link = dataHelper.Read(Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.LinkExposers.ParentID.Equal(serviceInstanceId.ToString()).AND(Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.LinkExposers.ChildID.Equal(newSection.ImplementationReference))).FirstOrDefault();
 			if (link != null)
 			{
 				// Already linked OK
@@ -223,10 +225,9 @@ namespace SLC_SM_IAS_Add_Service_Item
 				throw new InvalidOperationException("No Action provided as input to the script");
 			}
 
-			var dataHelperService = new DataHelperService(_engine.GetUserConnection());
-			var serviceInstance = dataHelperService.Read(ServiceExposers.Guid.Equal(domId)).FirstOrDefault();
-			var dataHelperServiceSpecification = new DataHelperServiceSpecification(_engine.GetUserConnection());
-			var specInstance = dataHelperServiceSpecification.Read(ServiceSpecificationExposers.Guid.Equal(domId)).FirstOrDefault();
+			var api = _engine.GetUserConnection().GetServiceManagementApiHelper("Service Inventory");
+			var serviceInstance = api.ServiceInventory.Services.Read(ServiceExposers.Identifier.Equal(domId.ToString())).FirstOrDefault();
+			var specInstance = api.ServiceCatalog.ServiceSpecifications.Read(ServiceSpecificationExposers.Identifier.Equal(domId.ToString())).FirstOrDefault();
 			if (serviceInstance == null && specInstance == null)
 			{
 				throw new InvalidOperationException($"No DOM Instance with ID '{domId}' found on the system!");
@@ -253,8 +254,8 @@ namespace SLC_SM_IAS_Add_Service_Item
 						section.ImplementationReference = jobId;
 					}
 
-					AddOrUpdateServiceItemToInstance(dataHelperService, serviceInstance, section, label);
-					AddOrUpdateServiceItemToInstance(dataHelperServiceSpecification, specInstance, section, label);
+					AddOrUpdateServiceItemToInstance(api, serviceInstance, section, label);
+					AddOrUpdateServiceItemToInstance(api, specInstance, section, label);
 					throw new ScriptAbortException("OK");
 				}
 			};

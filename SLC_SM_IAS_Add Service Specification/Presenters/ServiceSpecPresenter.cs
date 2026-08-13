@@ -1,4 +1,4 @@
-﻿namespace SLC_SM_IAS_Add_Service_Specification.Presenters
+namespace SLC_SM_IAS_Add_Service_Specification.Presenters
 {
 	using System;
 	using System.Collections.Generic;
@@ -6,7 +6,7 @@
 
 	using Skyline.DataMiner.Automation;
 
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
+	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 
 	using SLC_SM_IAS_Add_Service_Specification.Views;
 

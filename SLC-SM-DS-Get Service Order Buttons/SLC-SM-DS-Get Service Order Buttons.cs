@@ -5,10 +5,10 @@ namespace SLCSMDSGetServiceOrderButtons
 	using System.Linq;
 	using Skyline.DataMiner.Analytics.GenericInterface;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
 	using SLC_SM_Common.Extensions;
 	using static DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Serviceorder_Behavior;
+	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 
 	/// <summary>
 	///     Represents a data source.
@@ -62,6 +62,7 @@ namespace SLCSMDSGetServiceOrderButtons
 		private Guid serviceOrderReference;
 		private GQIDMS _dms;
 		private IGQILogger _logger;
+		private IServiceManagementApiHelper _serviceManagementApiHelper;
 
 		public GQIColumn[] GetColumns()
 		{
@@ -103,6 +104,7 @@ namespace SLCSMDSGetServiceOrderButtons
 			_dms = args.DMS;
 			_logger = args.Logger;
 			_logger.MinimumLogLevel = GQILogLevel.Debug;
+			_serviceManagementApiHelper = new ServiceManagementApiHelper(_dms.GetConnection(), "Service Ordering");
 			return default;
 		}
 
@@ -118,7 +120,9 @@ namespace SLCSMDSGetServiceOrderButtons
 				var order = _logger.PerformanceLogger(
 					"Get Service Order",
 					() =>
-						new DataHelperServiceOrder(_dms.GetConnection()).Read(ServiceOrderExposers.Guid.Equal(serviceOrderReference)).FirstOrDefault()
+						_serviceManagementApiHelper.ServiceOrder.ServiceOrders
+							.Read(Models.ServiceOrderExposers.Identifier.Equal(serviceOrderReference.ToString()))
+							.FirstOrDefault()
 						?? throw new NotSupportedException($"Could not find a service order with ID {serviceOrderReference}"));
 				StatusesEnum currentState = order.Status;
 

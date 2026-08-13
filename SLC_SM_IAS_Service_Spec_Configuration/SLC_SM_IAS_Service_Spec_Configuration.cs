@@ -18,8 +18,8 @@ namespace SLC_SM_IAS_Service_Spec_Configuration
 	using System.Linq;
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.IAS;
@@ -84,12 +84,14 @@ namespace SLC_SM_IAS_Service_Spec_Configuration
 			// Input
 			Guid domId = _engine.ReadScriptParamFromApp<Guid>("DOM ID");
 
-			var specification = new DataHelperServiceSpecification(_engine.GetUserConnection()).Read(ServiceSpecificationExposers.Guid.Equal(domId)).FirstOrDefault()
+			var serviceManagementApi = new ServiceManagementApiHelper(_engine.GetUserConnection(), "Service Catalog");
+			var specification = serviceManagementApi.ServiceCatalog.ServiceSpecifications
+				.Read(ServiceSpecificationExposers.Identifier.Equal(domId.ToString())).FirstOrDefault()
 				?? throw new InvalidOperationException($"Instance with ID '{domId}' does not exist");
 
 			// Model-View-Presenter
 			var view = new ServiceConfigurationView(_engine);
-			var presenter = new ServiceConfigurationPresenter(_engine, _controller, view, specification);
+			var presenter = new ServiceConfigurationPresenter(_engine, _controller, view, serviceManagementApi, specification);
 
 			presenter.LoadFromModel();
 

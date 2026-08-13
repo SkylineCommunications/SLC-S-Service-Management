@@ -1,4 +1,4 @@
-﻿namespace SLC_SM_IAS_Service_Configuration.Presenters
+namespace SLC_SM_IAS_Service_Configuration.Presenters
 {
 	using System;
 	using System.Collections.Generic;
@@ -12,17 +12,18 @@
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Net.Messages;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.Logger;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
+	using Skyline.DataMiner.SDM;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
 	using Skyline.DataMiner.Utils.SecureCoding.SecureSerialization.Json.Newtonsoft;
 
 	using SLC_SM_IAS_Service_Configuration.Model;
 	using SLC_SM_IAS_Service_Configuration.Model.DataRecords;
 	using SLC_SM_IAS_Service_Configuration.Views;
-	using static Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.Configurations;
+	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 
 	public partial class ServiceConfigurationPresenter
 	{
@@ -32,15 +33,30 @@
 		private readonly InteractiveController controller;
 		private readonly Models.Service instanceService;
 		private readonly ServiceConfigurationView view;
+		private readonly ServiceManagementApiHelper sdmHelper;
 		private ConfigurationDataRecord configuration;
-		private DataHelpersConfigurations repoConfig;
-		private DataHelpersServiceManagement repoService;
 		private bool showDetails;
 		private Models.ServiceSpecification serviceSpecification;
 		private List<ProfileDefinition> profileDefinitions;
 		private List<Profile> reusableProfiles;
 		private List<string> serviceEditLogs;
 		private ServiceManagementLogHelper serviceManagementLogHelper;
+
+		private Dictionary<string, Models.ServiceConfigurationVersion> serviceConfigurationVersionsById = new Dictionary<string, Models.ServiceConfigurationVersion>();
+		private Dictionary<string, Models.ServiceConfigurationValue> serviceConfigurationValuesById = new Dictionary<string, Models.ServiceConfigurationValue>();
+		private Dictionary<string, Models.ServiceProfile> serviceProfilesById = new Dictionary<string, Models.ServiceProfile>();
+		private Dictionary<string, ServiceSpecificationConfigurationValue> serviceSpecificationConfigurationValuesById = new Dictionary<string, ServiceSpecificationConfigurationValue>();
+		private Dictionary<string, ServiceSpecificationProfile> serviceSpecificationProfilesById = new Dictionary<string, ServiceSpecificationProfile>();
+		private Dictionary<string, ConfigurationParameter> configurationParametersById = new Dictionary<string, ConfigurationParameter>();
+		private Dictionary<string, ConfigurationParameterValue> configurationParameterValuesById = new Dictionary<string, ConfigurationParameterValue>();
+		private Dictionary<string, NumberParameterOptions> numberOptionsById = new Dictionary<string, NumberParameterOptions>();
+		private Dictionary<string, DiscreteParameterOptions> discreteOptionsById = new Dictionary<string, DiscreteParameterOptions>();
+		private Dictionary<string, TextParameterOptions> textOptionsById = new Dictionary<string, TextParameterOptions>();
+		private Dictionary<string, ConfigurationUnit> configurationUnitsById = new Dictionary<string, ConfigurationUnit>();
+		private Dictionary<string, DiscreteValue> discreteValuesById = new Dictionary<string, DiscreteValue>();
+		private Dictionary<string, Profile> profilesById = new Dictionary<string, Profile>();
+		private Dictionary<string, ProfileDefinition> profileDefinitionsById = new Dictionary<string, ProfileDefinition>();
+		private Dictionary<string, ReferencedConfigurationParameter> referencedConfigurationParametersById = new Dictionary<string, ReferencedConfigurationParameter>();
 
 		private int collapeButtonWidth = 85;
 		private int addButtonWidth = 70;
@@ -49,7 +65,7 @@
 
 		private int detailsColumnIndex = 10;
 		private int parameterValueColumnIndex = 3;
-		private Guid? _editingConsumerId;
+		private string _editingConsumerId;
 
 		public ServiceConfigurationPresenter(IEngine engine, InteractiveController controller, ServiceConfigurationView view, Models.Service instance)
 		{
@@ -62,6 +78,7 @@
 			this.reusableProfiles = new List<Profile>();
 			this.serviceEditLogs = new List<string>();
 			this.serviceManagementLogHelper = new ServiceManagementLogHelper(engine.GetUserConnection(), "Inventory");
+			this.sdmHelper = new ServiceManagementApiHelper(engine.GetUserConnection(), "Service Inventory");
 
 			view.BtnCancel.MaxWidth = buttonWidth;
 			view.BtnCancel.Pressed += (sender, args) => throw new ScriptAbortException("OK");
@@ -99,12 +116,8 @@
 
 			view.BtnCopyConfiguration.Pressed += (sender, args) =>
 			{
-				var newConfigurationVersion = HelperMethods.CreateNewServiceConfigurationVersionFromExisting(configuration.ServiceConfigurationVersion);
-				configuration = ConfigurationDataRecord.BuildConfigurationDataRecordRecord(
-					engine,
-					newConfigurationVersion,
-					repoConfig.ConfigurationParameters.Read(),
-					State.Create);
+				var newConfigurationVersion = CreateNewServiceConfigurationVersionFromExisting(configuration.ServiceConfigurationVersion);
+				configuration = BuildConfigurationDataRecord(newConfigurationVersion, State.Create);
 				serviceEditLogs.Clear();
 				serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(instance.ServiceID, "Edit", $"Created new configuration version by copying existing version '{configuration.ServiceConfigurationVersion}'"));
 				BuildUI(this.showDetails);
@@ -118,19 +131,12 @@
 					view.GeneralSettings.IsCollapsed = true;
 					view.StandaloneParameters.IsCollapsed = true;
 					view.Details.Clear();
-					configuration = ConfigurationDataRecord.BuildConfigurationDataRecordRecord(
-						engine,
-						HelperMethods.CreateNewServiceConfigurationVersion(serviceSpecification, instanceService),
-						repoConfig.ConfigurationParameters.Read(),
-						State.Create);
+					configuration = BuildConfigurationDataRecord(CreateNewServiceConfigurationVersion(), State.Create);
 					serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(instance.ServiceID, "Edit", $"Created new configuration version '{configuration.ServiceConfigurationVersion.VersionName}'"));
 				}
 				else
 				{
-					configuration = ConfigurationDataRecord.BuildConfigurationDataRecordRecord(
-						engine,
-						args.Selected,
-						repoConfig.ConfigurationParameters.Read());
+					configuration = BuildConfigurationDataRecord(args.Selected);
 					serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(instance.ServiceID, "Edit", $"Start editing configuration version '{configuration.ServiceConfigurationVersion.VersionName}'"));
 				}
 
@@ -145,50 +151,52 @@
 
 		public void LoadFromModel()
 		{
-			repoService = new DataHelpersServiceManagement(engine.GetUserConnection());
-			repoConfig = new DataHelpersConfigurations(engine.GetUserConnection());
+			serviceConfigurationVersionsById = ReadAll(sdmHelper.ServiceInventory.ServiceConfigurationVersions).ToDictionary(x => x.Identifier);
+			serviceConfigurationValuesById = ReadAll(sdmHelper.ServiceInventory.ServiceConfigurationValues).ToDictionary(x => x.Identifier);
+			serviceProfilesById = ReadAll(sdmHelper.ServiceInventory.ServiceProfiles).ToDictionary(x => x.Identifier);
+			serviceSpecificationConfigurationValuesById = ReadAll(sdmHelper.ServiceCatalog.ServiceSpecificationConfigurationValues).ToDictionary(x => x.Identifier);
+			serviceSpecificationProfilesById = ReadAll(sdmHelper.ServiceCatalog.ServiceSpecificationProfiles).ToDictionary(x => x.Identifier);
+			configurationParametersById = ReadAll(sdmHelper.ServiceCatalog.ConfigurationParameters).ToDictionary(x => x.Identifier);
+			configurationParameterValuesById = ReadAll(sdmHelper.ServiceCatalog.ConfigurationParameterValues).ToDictionary(x => x.Identifier);
+			numberOptionsById = ReadAll(sdmHelper.ServiceCatalog.NumberParameterOptions).ToDictionary(x => x.Identifier);
+			discreteOptionsById = ReadAll(sdmHelper.ServiceCatalog.DiscreteParameterOptions).ToDictionary(x => x.Identifier);
+			textOptionsById = ReadAll(sdmHelper.ServiceCatalog.TextParameterOptions).ToDictionary(x => x.Identifier);
+			configurationUnitsById = ReadAll(sdmHelper.ServiceCatalog.ConfigurationUnits).ToDictionary(x => x.Identifier);
+			discreteValuesById = ReadAll(sdmHelper.ServiceCatalog.DiscreteValues).ToDictionary(x => x.Identifier);
+			profilesById = ReadAll(sdmHelper.ServiceCatalog.Profiles).ToDictionary(x => x.Identifier);
+			profileDefinitions = ReadAll(sdmHelper.ServiceCatalog.ProfileDefinitions);
+			profileDefinitionsById = profileDefinitions.ToDictionary(x => x.Identifier);
+			referencedConfigurationParametersById = ReadAll(sdmHelper.ServiceCatalog.ReferencedConfigurationParameters).ToDictionary(x => x.Identifier);
+			reusableProfiles = profilesById.Values.Where(x => x.IsReusable).ToList();
 
-			var configParams = repoConfig.ConfigurationParameters.Read();
+			serviceSpecification = !String.IsNullOrEmpty(instanceService.ServiceSpecificationId.Identifier)
+				? GetValue(ReadAll(sdmHelper.ServiceCatalog.ServiceSpecifications).ToDictionary(x => x.Identifier), instanceService.ServiceSpecificationId.Identifier)
+				: null;
 
-			serviceSpecification = instanceService.ServiceSpecificationId.HasValue
-					? repoService.ServiceSpecifications.Read(Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceSpecificationExposers.Guid.Equal(instanceService.ServiceSpecificationId.Value)).FirstOrDefault()
-					: null;
+			EnsureServiceCollections();
 
-			if (instanceService.ServiceConfiguration == null)
+			if (String.IsNullOrEmpty(instanceService.ServiceConfigurationId.Identifier)
+				|| !serviceConfigurationVersionsById.TryGetValue(instanceService.ServiceConfigurationId.Identifier, out var activeConfiguration))
 			{
-				configuration = ConfigurationDataRecord.BuildConfigurationDataRecordRecord(
-					engine,
-					HelperMethods.CreateNewServiceConfigurationVersion(serviceSpecification, instanceService),
-					repoConfig.ConfigurationParameters.Read(),
-					State.Create);
-				instanceService.ServiceConfiguration = configuration.ServiceConfigurationVersion;
+				activeConfiguration = CreateNewServiceConfigurationVersion();
+				serviceConfigurationVersionsById[activeConfiguration.Identifier] = activeConfiguration;
+				instanceService.ServiceConfigurationId = new SdmObjectReference<Models.ServiceConfigurationVersion>(activeConfiguration.Identifier);
+				if (!instanceService.ConfigurationVersions.Any(reference => reference.Identifier == activeConfiguration.Identifier))
+				{
+					instanceService.ConfigurationVersions.Add(new SdmObjectReference<Models.ServiceConfigurationVersion>(activeConfiguration.Identifier));
+				}
+
+				configuration = BuildConfigurationDataRecord(activeConfiguration, State.Create);
 				serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(instanceService.ServiceID, "Edit", $"Created new configuration version '{configuration.ServiceConfigurationVersion.VersionName}'"));
 			}
 			else
 			{
-				configuration = ConfigurationDataRecord.BuildConfigurationDataRecordRecord(engine, instanceService.ServiceConfiguration, configParams);
+				configuration = BuildConfigurationDataRecord(activeConfiguration);
 				serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(instanceService.ServiceID, "Edit", $"Start editing configuration version '{configuration.ServiceConfigurationVersion.VersionName}'"));
-				ObtainMissingNestedProfiles(configParams);
+				ObtainMissingNestedProfiles();
 			}
 
 			BuildUI(false);
-		}
-
-		public void StoreModels()
-		{
-			bool isDeletingVersion = configuration.State == State.Delete;
-
-			if (isDeletingVersion)
-				repoService.ServiceConfigurationVersions.TryDelete(configuration.ServiceConfigurationVersion);
-
-			DeleteRemovedStandaloneParameters();
-			SaveProfiles();
-
-			if (!isDeletingVersion)
-			{
-				SaveConfigurationVersion();
-				serviceManagementLogHelper.LogInfo(serviceEditLogs);
-			}
 		}
 
 		private static void ApplyScriptResults(List<ScriptParameters.ScriptParameterUpdate> updates, Dictionary<string, ProfileDataRecord> profileByName, List<IParameterDataRecord> updatedValues)
@@ -202,13 +210,6 @@
 			{
 				ApplySingleUpdate(update, profileByName, updatedValues);
 			}
-		}
-
-		private static void SetNestedReusableRowVisible(Label label, DropDown<ProfileOption> dropDown, Button button, bool visible)
-		{
-			label.IsVisible = visible;
-			dropDown.IsVisible = visible;
-			button.IsVisible = visible;
 		}
 
 		private static void ApplySingleUpdate(ScriptParameters.ScriptParameterUpdate update, Dictionary<string, ProfileDataRecord> profileByName, List<IParameterDataRecord> updatedValues)
@@ -255,110 +256,215 @@
 			record.ConfigurationParamValue.DoubleValue = null;
 		}
 
-		private void ObtainMissingNestedProfiles(List<ConfigurationParameter> configParams)
+		private static void SetNestedReusableRowVisible(Label label, DropDown<ProfileOption> dropDown, Button button, bool visible)
 		{
-			var loadedProfileIds = new HashSet<Guid>(configuration.ServiceProfileConfigs.Select(p => p.Profile.ID));
+			label.IsVisible = visible;
+			dropDown.IsVisible = visible;
+			button.IsVisible = visible;
+		}
+
+		private void ObtainMissingNestedProfiles()
+		{
+			var loadedProfileIds = new HashSet<string>(configuration.ServiceProfileConfigs.Where(p => p.Profile != null).Select(p => p.Profile.Identifier));
 			var missingIds = CollectMissingChildProfileIds(loadedProfileIds);
-
-			while (true)
+			if (missingIds.Count == 0)
 			{
-				var idsToFetch = missingIds.Where(id => !loadedProfileIds.Contains(id)).ToList();
-				if (idsToFetch.Count == 0)
-					return;
+				return;
+			}
 
-				var filter = idsToFetch
-					.Select(id => (FilterElement<Profile>)ProfileExposers.Guid.Equal(id))
-					.Aggregate((f1, f2) => f1.OR(f2));
+			FilterElement<Profile> filter = null;
+			foreach (var missingId in missingIds)
+			{
+				filter = filter == null ? ProfileExposers.Identifier.Equal(missingId) : filter.OR(ProfileExposers.Identifier.Equal(missingId));
+			}
 
-				var fetchedProfiles = repoConfig.Profiles.Read(filter).ToList();
+			if (filter == null)
+			{
+				return;
+			}
 
-				foreach (var fetchedProfile in fetchedProfiles)
-					IncludeMissingNestedProfile(fetchedProfile, configParams, loadedProfileIds, missingIds);
-
-				foreach (var id in idsToFetch)
-					loadedProfileIds.Add(id);
+			foreach (var fetchedProfile in sdmHelper.ServiceCatalog.Profiles.Read(filter))
+			{
+				IncludeMissingNestedProfile(fetchedProfile, loadedProfileIds, missingIds);
 			}
 		}
 
-		private HashSet<Guid> CollectMissingChildProfileIds(HashSet<Guid> loadedProfileIds)
+		private HashSet<string> CollectMissingChildProfileIds(HashSet<string> loadedProfileIds)
 		{
-			var missingIds = new HashSet<Guid>();
-			foreach (var profileRecord in configuration.ServiceProfileConfigs)
+			var missingIds = new HashSet<string>();
+			foreach (var profileRecord in configuration.ServiceProfileConfigs.Where(x => x.State != State.Delete))
 			{
 				if (profileRecord.Profile?.Profiles == null)
+				{
 					continue;
+				}
 
-				foreach (var childId in profileRecord.Profile.Profiles.Where(id => !loadedProfileIds.Contains(id)))
+				foreach (var childId in profileRecord.Profile.Profiles.Select(x => x.Identifier).Where(x => !String.IsNullOrEmpty(x) && !loadedProfileIds.Contains(x)))
+				{
 					missingIds.Add(childId);
+				}
 			}
 
 			return missingIds;
 		}
 
-		private void IncludeMissingNestedProfile(Profile fetchedProfile, List<ConfigurationParameter> configParams, HashSet<Guid> loadedProfileIds, HashSet<Guid> missingIds)
+		private void IncludeMissingNestedProfile(Profile fetchedProfile, HashSet<string> loadedProfileIds, HashSet<string> missingIds)
 		{
-			var profileDefinition = fetchedProfile.ProfileDefinitionReference != Guid.Empty
-				? repoConfig.ProfileDefinitions.Read(ProfileDefinitionExposers.Guid.Equal(fetchedProfile.ProfileDefinitionReference)).FirstOrDefault()
-				: null;
+			if (fetchedProfile == null || String.IsNullOrEmpty(fetchedProfile.Identifier))
+			{
+				return;
+			}
+
+			if (!profileDefinitionsById.TryGetValue(fetchedProfile.ProfileDefinitionId.Identifier ?? String.Empty, out var profileDefinition))
+			{
+				profileDefinition = null;
+			}
 
 			var missingServiceProfile = new Models.ServiceProfile
 			{
-				ID = Guid.NewGuid(),
+				Identifier = Guid.NewGuid().ToString(),
 				Mandatory = false,
-				Profile = fetchedProfile,
-				ProfileDefinition = profileDefinition,
+				ProfileId = new SdmObjectReference<Profile>(fetchedProfile.Identifier),
+				ProfileDefinitionId = profileDefinition == null ? default : new SdmObjectReference<ProfileDefinition>(profileDefinition.Identifier),
 			};
 
-			configuration.ServiceConfigurationVersion.Profiles.Add(missingServiceProfile);
-			configuration.ServiceProfileConfigs.Add(ProfileDataRecord.BuildProfileRecord(engine, missingServiceProfile, configParams, State.Update));
+			configuration.ServiceConfigurationVersion.Profiles.Add(new SdmObjectReference<Models.ServiceProfile>(missingServiceProfile.Identifier));
+			serviceProfilesById[missingServiceProfile.Identifier] = missingServiceProfile;
 
-			if (fetchedProfile.Profiles != null)
+			var profileRecord = ProfileDataRecord.BuildProfileRecord(
+				missingServiceProfile,
+				fetchedProfile,
+				profileDefinition,
+				configurationParameterValuesById,
+				configurationParametersById,
+				referencedConfigurationParametersById,
+				numberOptionsById,
+				discreteOptionsById,
+				textOptionsById,
+				configurationUnitsById,
+				discreteValuesById,
+				State.Update);
+			configuration.ServiceProfileConfigs.Add(profileRecord);
+
+			foreach (var grandChildId in fetchedProfile.Profiles?.Select(x => x.Identifier).Where(x => !String.IsNullOrEmpty(x) && !loadedProfileIds.Contains(x) && !missingIds.Contains(x)) ?? Enumerable.Empty<string>())
 			{
-				foreach (var grandChildId in fetchedProfile.Profiles.Where(id => !loadedProfileIds.Contains(id) && !missingIds.Contains(id)))
-					missingIds.Add(grandChildId);
+				missingIds.Add(grandChildId);
 			}
 
-			loadedProfileIds.Add(fetchedProfile.ID);
+			loadedProfileIds.Add(fetchedProfile.Identifier);
+		}
+
+		public void StoreModels()
+		{
+			bool isDeletingVersion = configuration.State == State.Delete;
+
+			if (isDeletingVersion)
+			{
+				sdmHelper.ServiceInventory.ServiceConfigurationVersions.Delete(configuration.ServiceConfigurationVersion);
+				instanceService.ConfigurationVersions?.RemoveAll(reference => reference.Identifier == configuration.ServiceConfigurationVersion.Identifier);
+				if (instanceService.ServiceConfigurationId.Identifier == configuration.ServiceConfigurationVersion.Identifier)
+				{
+					instanceService.ServiceConfigurationId = default;
+				}
+
+				sdmHelper.ServiceInventory.Services.CreateOrUpdate(new[] { instanceService });
+				return;
+			}
+
+			DeleteRemovedStandaloneParameters();
+			SaveProfiles();
+			SaveConfigurationVersion();
+			serviceManagementLogHelper.LogInfo(serviceEditLogs);
 		}
 
 		private void DeleteRemovedStandaloneParameters()
 		{
 			foreach (var param in configuration.ServiceParameterConfigs.Where(p => p.State == State.Delete))
-				repoService.ServiceConfigurationValues.TryDelete(param.ServiceParameterConfig);
+			{
+				DeleteStandaloneParameterConfiguration(param);
+			}
+
+			foreach (var param in configuration.ServiceParameterConfigs.Where(p => p.State != State.Delete))
+			{
+				param.ConfigurationParamValue.ConfigurationParameterId = new SdmObjectReference<ConfigurationParameter>(param.ConfigurationParam.Identifier);
+				param.ServiceParameterConfig.ConfigurationParameterId = new SdmObjectReference<ConfigurationParameter>(param.ConfigurationParamValue.Identifier);
+				CreateOrUpdateOptions(param);
+				sdmHelper.ServiceCatalog.ConfigurationParameterValues.CreateOrUpdate(new[] { param.ConfigurationParamValue });
+				sdmHelper.ServiceInventory.ServiceConfigurationValues.CreateOrUpdate(new[] { param.ServiceParameterConfig });
+			}
 		}
 
 		private void SaveProfiles()
 		{
-			foreach (var profile in configuration.ServiceProfileConfigs)
+			foreach (var profile in configuration.ServiceProfileConfigs.Where(p => p.State == State.Delete))
 			{
-				if (profile.State == State.Delete)
+				DeleteProfileConfiguration(profile);
+			}
+
+			foreach (var profile in configuration.ServiceProfileConfigs.Where(p => p.State != State.Delete).OrderByDescending(GetProfileDepth))
+			{
+				profile.ServiceProfileConfig.ProfileId = new SdmObjectReference<Profile>(profile.Profile.Identifier);
+				profile.ServiceProfileConfig.ProfileDefinitionId = profile.ProfileDefinition == null ? default : new SdmObjectReference<ProfileDefinition>(profile.ProfileDefinition.Identifier);
+
+				if (!profile.Profile.IsReusable)
 				{
-					repoService.ServiceProfiles.TryDelete(profile.ServiceProfileConfig);
-					continue;
+					foreach (var profileParameter in profile.ProfileParameterConfigs.Where(p => p.State == State.Delete))
+					{
+						DeleteProfileParameterConfiguration(profileParameter);
+					}
+
+					var activeProfileParameters = profile.ProfileParameterConfigs.Where(p => p.State != State.Delete).ToList();
+					profile.Profile.ProfileDefinitionId = profile.ProfileDefinition == null ? default : new SdmObjectReference<ProfileDefinition>(profile.ProfileDefinition.Identifier);
+					profile.Profile.ConfigurationParameterValues = activeProfileParameters
+						.Select(p => new SdmObjectReference<ConfigurationParameterValue>(p.ConfigurationParamValue.Identifier))
+						.ToList();
+
+					foreach (var profileParameter in activeProfileParameters)
+					{
+						profileParameter.ConfigurationParamValue.ConfigurationParameterId = new SdmObjectReference<ConfigurationParameter>(profileParameter.ConfigurationParam.Identifier);
+						CreateOrUpdateOptions(profileParameter);
+						sdmHelper.ServiceCatalog.ConfigurationParameterValues.CreateOrUpdate(new[] { profileParameter.ConfigurationParamValue });
+					}
+
+					sdmHelper.ServiceCatalog.Profiles.CreateOrUpdate(new[] { profile.Profile });
 				}
 
-				if (profile.Profile.IsReusable)
-					continue;
-
-				repoConfig.Profiles.CreateOrUpdate(profile.Profile);
-				DeleteRemovedProfileParameters(profile);
+				sdmHelper.ServiceInventory.ServiceProfiles.CreateOrUpdate(new[] { profile.ServiceProfileConfig });
 			}
 		}
 
 		private void DeleteRemovedProfileParameters(ProfileDataRecord profile)
 		{
 			foreach (var param in profile.ProfileParameterConfigs.Where(p => p.State == State.Delete))
-				repoConfig.ConfigurationParameterValues.TryDelete(param.ConfigurationParamValue);
+			{
+				DeleteProfileParameterConfiguration(param);
+			}
 		}
 
 		private void SaveConfigurationVersion()
 		{
-			repoService.ServiceConfigurationVersions.CreateOrUpdate(configuration.ServiceConfigurationVersion);
+			EnsureConfigurationCollections(configuration.ServiceConfigurationVersion);
+			configuration.ServiceConfigurationVersion.Parameters = configuration.ServiceParameterConfigs
+				.Where(p => p.State != State.Delete)
+				.Select(p => new SdmObjectReference<Models.ServiceConfigurationValue>(p.ServiceParameterConfig.Identifier))
+				.ToList();
+			configuration.ServiceConfigurationVersion.Profiles = configuration.ServiceProfileConfigs
+				.Where(p => p.State != State.Delete)
+				.Select(p => new SdmObjectReference<Models.ServiceProfile>(p.ServiceProfileConfig.Identifier))
+				.ToList();
+
+			sdmHelper.ServiceInventory.ServiceConfigurationVersions.CreateOrUpdate(new[] { configuration.ServiceConfigurationVersion });
+
+			EnsureServiceCollections();
+			if (!instanceService.ConfigurationVersions.Any(reference => reference.Identifier == configuration.ServiceConfigurationVersion.Identifier))
+			{
+				instanceService.ConfigurationVersions.Add(new SdmObjectReference<Models.ServiceConfigurationVersion>(configuration.ServiceConfigurationVersion.Identifier));
+			}
+			instanceService.ServiceConfigurationId = new SdmObjectReference<Models.ServiceConfigurationVersion>(configuration.ServiceConfigurationVersion.Identifier);
+			sdmHelper.ServiceInventory.Services.CreateOrUpdate(new[] { instanceService });
 
 			if (configuration.State == State.Create)
 			{
-				instanceService.ConfigurationVersions.Add(configuration.ServiceConfigurationVersion);
-				repoService.Services.CreateOrUpdate(instanceService);
 				serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(instanceService.ServiceID, "Edit", $"Created configuration version '{configuration.ServiceConfigurationVersion.VersionName}'"));
 			}
 			else
@@ -369,11 +475,17 @@
 
 		private void PopulateLinkedConsumers(IParameterDataRecord producer, IEnumerable<IParameterDataRecord> allParameters)
 		{
+			var producerId = TryParseGuid(producer.ConfigurationParamValue.Identifier);
+			if (!producerId.HasValue)
+			{
+				return;
+			}
+
 			var consumers = allParameters
 				.Where(p =>
 					p.ConfigurationParamValue.IsLinked &&
 					p.ConfigurationParamValue.LinkedConsumers != null &&
-					p.ConfigurationParamValue.LinkedConsumers.Any(id => id == producer.ConfigurationParamValue.ID))
+					p.ConfigurationParamValue.LinkedConsumers.Any(id => id == producerId.Value))
 				.ToList();
 
 			if (!consumers.Any())
@@ -382,7 +494,7 @@
 			}
 
 			var context = BuildScriptContext();
-			context.ParamIdToProfileName.TryGetValue(producer.ConfigurationParamValue.ID, out var producerProfileName);
+			context.ParamIdToProfileName.TryGetValue(producer.ConfigurationParamValue.Identifier, out var producerProfileName);
 
 			foreach (var consumer in consumers.Where(c => !String.IsNullOrWhiteSpace(c.ConfigurationParamValue.LinkedScript)))
 			{
@@ -410,18 +522,18 @@
 				.Concat(activeProfiles.SelectMany(p => p.ProfileParameterConfigs.Where(x => x.State != State.Delete)))
 				.ToList();
 
-			var paramIdToProfileName = new Dictionary<Guid, string>();
+			var paramIdToProfileName = new Dictionary<string, string>();
 			foreach (var profile in activeProfiles)
 			{
 				foreach (var param in profile.ProfileParameterConfigs.Where(x => x.State != State.Delete))
 				{
-					paramIdToProfileName[param.ConfigurationParamValue.ID] = profile.Profile.Name;
+					paramIdToProfileName[param.ConfigurationParamValue.Identifier] = profile.Profile.Name;
 				}
 			}
 
 			var serviceConfigJson = allParameters.Select(p => new
 			{
-				profile = paramIdToProfileName.TryGetValue(p.ConfigurationParamValue.ID, out var pName) ? pName : String.Empty,
+				profile = paramIdToProfileName.TryGetValue(p.ConfigurationParamValue.Identifier, out var pName) ? pName : String.Empty,
 				parameter = p.ConfigurationParam.Name,
 				label = p.ConfigurationParamValue.Label,
 				value = p.ConfigurationParam.Type == SlcConfigurationsIds.Enums.Type.Number
@@ -483,20 +595,35 @@
 		private void AddStandaloneConfigModel(ConfigurationParameter selectedParameter)
 		{
 			var configurationParameterInstance = selectedParameter ?? new ConfigurationParameter();
+			var configurationParameterValue = HelperMethods.BuildConfigurationParameter(configurationParameterInstance);
 			var config = new Models.ServiceConfigurationValue
 			{
-				ID = Guid.NewGuid(),
+				Identifier = Guid.NewGuid().ToString(),
 				Mandatory = false,
-				ConfigurationParameter = HelperMethods.BuildConfigurationParameter(selectedParameter),
+				ConfigurationParameterId = new SdmObjectReference<ConfigurationParameter>(configurationParameterValue.Identifier),
 			};
 
-			configuration.ServiceConfigurationVersion.Parameters.Add(config);
+			configuration.ServiceConfigurationVersion.Parameters.Add(new SdmObjectReference<Models.ServiceConfigurationValue>(config.Identifier));
+			serviceConfigurationValuesById[config.Identifier] = config;
+			configurationParameterValuesById[configurationParameterValue.Identifier] = configurationParameterValue;
 
-			configuration.ServiceParameterConfigs.Add(StandaloneParameterDataRecord.BuildParameterDataRecord(config, configurationParameterInstance, State.Create));
+			var record = StandaloneParameterDataRecord.BuildParameterDataRecord(
+				config,
+				configurationParameterValue,
+				configurationParameterInstance,
+				numberOptionsById,
+				discreteOptionsById,
+				textOptionsById,
+				configurationUnitsById,
+				discreteValuesById,
+				State.Create);
+			TrackNewObjects(record);
+
+			configuration.ServiceParameterConfigs.Add(record);
 			serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(
 				instanceService.ServiceID,
 				"Edit",
-				$"Added standalone parameter '{configurationParameterInstance.Name}' with value {config.ConfigurationParameter.StringValue}"));
+				$"Added standalone parameter '{configurationParameterInstance.Name}' with value {record.ConfigurationParamValue.StringValue}"));
 		}
 
 		private void AddProfileConfigModel(ProfileOption profileOption)
@@ -518,91 +645,127 @@
 
 		private void AddProfileConfigModelFromReusableProfile(ProfileOption profileOption)
 		{
-			var profileInstance = reusableProfiles.Find(p => p.ID == profileOption.Id);
+			var profileInstance = reusableProfiles.Find(p => p.Identifier == profileOption.Id);
 			if (profileInstance == null)
 			{
 				return;
 			}
 
-			bool alreadyAtRootLevel = GetRootLevelReusableProfileIds().Contains(profileInstance.ID);
+			bool alreadyAtRootLevel = GetRootLevelReusableProfileIds().Contains(profileInstance.Identifier);
 			if (alreadyAtRootLevel)
 			{
 				return;
 			}
 
-			var profileDefinitionInstance = repoConfig.ProfileDefinitions.Read(ProfileDefinitionExposers.Guid.Equal(profileInstance.ProfileDefinitionReference)).FirstOrDefault();
-			if (profileDefinitionInstance == null)
+			if (!profileDefinitionsById.TryGetValue(profileInstance.ProfileDefinitionId.Identifier ?? String.Empty, out var profileDefinitionInstance))
 			{
 				return;
 			}
 
 			var profileConfig = new Models.ServiceProfile
 			{
-				ID = Guid.NewGuid(),
+				Identifier = Guid.NewGuid().ToString(),
 				Mandatory = false,
-				Profile = profileInstance,
-				ProfileDefinition = profileDefinitionInstance,
+				ProfileId = new SdmObjectReference<Profile>(profileInstance.Identifier),
+				ProfileDefinitionId = new SdmObjectReference<ProfileDefinition>(profileDefinitionInstance.Identifier),
 			};
 
-			var configParams = HelperMethods.GetConfigParameters(repoConfig, profileInstance);
+			configuration.ServiceConfigurationVersion.Profiles.Add(new SdmObjectReference<Models.ServiceProfile>(profileConfig.Identifier));
+			serviceProfilesById[profileConfig.Identifier] = profileConfig;
 
-			configuration.ServiceConfigurationVersion.Profiles.Add(profileConfig);
-			configuration.ServiceProfileConfigs.Add(ProfileDataRecord.BuildProfileRecord(engine, profileConfig, configParams, State.Create));
-			serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(instanceService.ServiceID, "Edit", $"Added reusable profile '{profileConfig.Profile.Name}'"));
+			var record = ProfileDataRecord.BuildProfileRecord(
+				profileConfig,
+				profileInstance,
+				profileDefinitionInstance,
+				configurationParameterValuesById,
+				configurationParametersById,
+				referencedConfigurationParametersById,
+				numberOptionsById,
+				discreteOptionsById,
+				textOptionsById,
+				configurationUnitsById,
+				discreteValuesById,
+				State.Create);
+			TrackNewObjects(record);
+			configuration.ServiceProfileConfigs.Add(record);
+			serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(instanceService.ServiceID, "Edit", $"Added reusable profile '{profileInstance.Name}'"));
 		}
 
 		private void AddProfileConfigModelFromProfileDefinition(ProfileOption profileOption)
 		{
-			var profileDefinitionInstance = profileDefinitions.Find(pd => pd.ID == profileOption.Id);
+			var profileDefinitionInstance = profileDefinitions.Find(pd => pd.Identifier == profileOption.Id);
 			if (profileDefinitionInstance == null)
 			{
 				return;
 			}
 
-			string profileName = profileOption.Name;  // removed ReplaceTrailingParentesisContent
-			var configParams = HelperMethods.GetConfigParameters(repoConfig, profileDefinitionInstance.ConfigurationParameters);
-
+			string profileName = profileOption.Name;
+			var resolvedReferencedParameters = Resolve(profileDefinitionInstance.ConfigurationParameters, referencedConfigurationParametersById);
+			var configParams = HelperMethods.GetConfigParameters(configurationParametersById, resolvedReferencedParameters);
 			var parameterValues = new List<ConfigurationParameterValue>();
 
-			foreach (var refConfigParam in profileDefinitionInstance.ConfigurationParameters)
+			foreach (var refConfigParam in resolvedReferencedParameters)
 			{
-				var configParam = configParams.FirstOrDefault(p => p.ID == refConfigParam.ConfigurationParameter);
+				var configParam = configParams.FirstOrDefault(p => p.Identifier == refConfigParam.ConfigurationParameterId.Identifier);
 				if (configParam == null)
 				{
 					continue;
 				}
 
-				parameterValues.Add(HelperMethods.BuildConfigurationParameter(configParam));
+				var parameterValue = HelperMethods.BuildConfigurationParameter(configParam);
+				parameterValues.Add(parameterValue);
+				configurationParameterValuesById[parameterValue.Identifier] = parameterValue;
 				serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(
 					instanceService.ServiceID,
 					"Edit",
 					$"Added profile parameter '{configParam.Name}'"));
 			}
 
-			var profileConfig = new Models.ServiceProfile
+			var profile = new Profile
 			{
-				ID = Guid.NewGuid(),
-				Mandatory = false,
-				ProfileDefinition = profileDefinitionInstance,
-				Profile = new Profile
-				{
-					Name = profileName,
-					ProfileDefinitionReference = profileDefinitionInstance.ID,
-					ConfigurationParameterValues = parameterValues,
-				},
+				Identifier = Guid.NewGuid().ToString(),
+				Name = profileName,
+				ProfileDefinitionId = new SdmObjectReference<ProfileDefinition>(profileDefinitionInstance.Identifier),
+				ConfigurationParameterValues = parameterValues.Select(x => new SdmObjectReference<ConfigurationParameterValue>(x.Identifier)).ToList(),
+				Profiles = new List<SdmObjectReference<Profile>>(),
 			};
 
-			if (view.ProfileCollapseButtons.ContainsKey(profileConfig.Profile.Name))
+			if (view.ProfileCollapseButtons.ContainsKey(profile.Name))
 			{
-				profileConfig.Profile.Name = $"{profileConfig.Profile.Name} #{view.ProfileCollapseButtons.Keys.Count(s => s.StartsWith(profileConfig.Profile.Name))}";
+				profile.Name = $"{profile.Name} #{view.ProfileCollapseButtons.Keys.Count(s => s.StartsWith(profile.Name, StringComparison.Ordinal))}";
 			}
 
-			configuration.ServiceConfigurationVersion.Profiles.Add(profileConfig);
-			configuration.ServiceProfileConfigs.Add(ProfileDataRecord.BuildProfileRecord(engine, profileConfig, configParams, State.Create));
+			var profileConfig = new Models.ServiceProfile
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				Mandatory = false,
+				ProfileDefinitionId = new SdmObjectReference<ProfileDefinition>(profileDefinitionInstance.Identifier),
+				ProfileId = new SdmObjectReference<Profile>(profile.Identifier),
+			};
+
+			profilesById[profile.Identifier] = profile;
+			serviceProfilesById[profileConfig.Identifier] = profileConfig;
+			configuration.ServiceConfigurationVersion.Profiles.Add(new SdmObjectReference<Models.ServiceProfile>(profileConfig.Identifier));
+
+			var record = ProfileDataRecord.BuildProfileRecord(
+				profileConfig,
+				profile,
+				profileDefinitionInstance,
+				configurationParameterValuesById,
+				configurationParametersById,
+				referencedConfigurationParametersById,
+				numberOptionsById,
+				discreteOptionsById,
+				textOptionsById,
+				configurationUnitsById,
+				discreteValuesById,
+				State.Create);
+			TrackNewObjects(record);
+			configuration.ServiceProfileConfigs.Add(record);
 			serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(
 				instanceService.ServiceID,
 				"Edit",
-				$"Added profile '{profileConfig.Profile.Name}'"));
+				$"Added profile '{profile.Name}'"));
 		}
 
 		private void AddProfileParameterConfigModel(ProfileDataRecord profile, ConfigurationParameter selected)
@@ -613,17 +776,32 @@
 			}
 
 			var configurationParameterInstance = selected ?? new ConfigurationParameter();
-
 			var configParamValue = HelperMethods.BuildConfigurationParameter(configurationParameterInstance);
+			configurationParameterValuesById[configParamValue.Identifier] = configParamValue;
 
-			profile.ProfileParameterConfigs.Add(ProfileParameterDataRecord.BuildParameterDataRecord(
+			var referencedConfiguration = profile.ResolvedReferencedConfigurationParameters
+				.FirstOrDefault(p => p.ConfigurationParameterId.Identifier == configurationParameterInstance.Identifier);
+
+			var parameterRecord = ProfileParameterDataRecord.BuildParameterDataRecord(
 				configParamValue,
 				configurationParameterInstance,
-				profile.ProfileDefinition.ConfigurationParameters.FirstOrDefault(p => p.ConfigurationParameter == configurationParameterInstance.ID),
-				State.Create));
-			serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(instanceService.ServiceID, "Edit", $"Added profile parameter '{configurationParameterInstance.Name}' with value {configParamValue.StringValue}"));
+				referencedConfiguration,
+				numberOptionsById,
+				discreteOptionsById,
+				textOptionsById,
+				configurationUnitsById,
+				discreteValuesById,
+				State.Create);
+			TrackNewObjects(parameterRecord);
 
-			configuration.ServiceConfigurationVersion.Profiles.Find(p => p.ID == profile.ServiceProfileConfig.ID).Profile.ConfigurationParameterValues.Add(configParamValue);
+			profile.ProfileParameterConfigs.Add(parameterRecord);
+			if (profile.Profile.ConfigurationParameterValues == null)
+			{
+				profile.Profile.ConfigurationParameterValues = new List<SdmObjectReference<ConfigurationParameterValue>>();
+			}
+			profile.Profile.ConfigurationParameterValues.Add(new SdmObjectReference<ConfigurationParameterValue>(configParamValue.Identifier));
+
+			serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(instanceService.ServiceID, "Edit", $"Added profile parameter '{configurationParameterInstance.Name}' with value {configParamValue.StringValue}"));
 		}
 
 		private void BuildHeaderRow(int row, CollapseButton collapseButton, bool hasConsumers = false, bool anyEditing = false)
@@ -696,8 +874,8 @@
 			view.Clear();
 			view.Details.Clear();
 
-			profileDefinitions = repoConfig.ProfileDefinitions.Read();
-			reusableProfiles = repoConfig.Profiles.Read(ProfileExposers.IsReusable.Equal(true));
+			profileDefinitions = profileDefinitionsById.Values.ToList();
+			reusableProfiles = profilesById.Values.Where(x => x.IsReusable).ToList();
 
 			var allParameters = configuration.ServiceParameterConfigs
 				.Where(x => x.State != State.Delete)
@@ -744,7 +922,10 @@
 
 		private int BuildExceedNumberOfVersionUI(int row)
 		{
-			var versionToBeDelete = instanceService.ConfigurationVersions.Find(cv => cv.ID != instanceService.ServiceConfiguration?.ID);
+			var versionToBeDelete = instanceService.ConfigurationVersions
+				?.Where(cv => cv.Identifier != instanceService.ServiceConfigurationId.Identifier)
+				.Select(cv => GetValue(serviceConfigurationVersionsById, cv.Identifier))
+				.FirstOrDefault();
 			view.AddWidget(view.ConfirmExceedNumberOfVersions, ++row, 0, HorizontalAlignment.Right);
 			view.ConfirmExceedNumberOfVersionsLabel.Text = $"You have reached the maximum number of allowed versions.\nProceeding will delete the version '{versionToBeDelete?.VersionName}'.";
 			view.AddWidget(view.ConfirmExceedNumberOfVersionsLabel, row, 1, 1, 10);
@@ -757,7 +938,7 @@
 			InitializeConfigurationVersions();
 
 			var lblCreateAt = new Label("Create At") { Style = TextStyle.Heading, MaxWidth = 100 };
-			var createdAt = new TextBox(configuration.ServiceConfigurationVersion?.CreatedAt?.ToString("g") ?? String.Empty) { IsEnabled = false };
+			var createdAt = new TextBox(String.Empty) { IsEnabled = false };
 
 			view.AddWidget(new Label("Version:") { Style = TextStyle.Heading, MaxWidth = 150 }, row, 0, HorizontalAlignment.Right);
 			view.AddWidget(view.ConfigurationVersions, row, 1);
@@ -772,24 +953,39 @@
 		private void InitializeConfigurationVersions()
 		{
 			var configurationVersionOptions = new List<Option<Models.ServiceConfigurationVersion>> { new Option<Models.ServiceConfigurationVersion>("- Add New Version -", null) };
-			if (instanceService.ConfigurationVersions != null && instanceService.ConfigurationVersions.Count > 0)
+			if (instanceService.ConfigurationVersions != null)
 			{
-				configurationVersionOptions.AddRange(instanceService.ConfigurationVersions.Select(cv => new Option<Models.ServiceConfigurationVersion>(cv.VersionName ?? cv.ID.ToString(), cv)));
+				foreach (var versionReference in instanceService.ConfigurationVersions)
+				{
+					if (String.IsNullOrEmpty(versionReference.Identifier))
+					{
+						continue;
+					}
+
+					var version = GetValue(serviceConfigurationVersionsById, versionReference.Identifier);
+					if (version == null)
+					{
+						continue;
+					}
+
+					configurationVersionOptions.Add(new Option<Models.ServiceConfigurationVersion>(version.VersionName ?? version.Identifier, version));
+				}
 			}
 
 			view.ConfigurationVersions.SetOptions(configurationVersionOptions);
 
 			if (configuration?.ServiceConfigurationVersion != null)
 			{
-				if (!configurationVersionOptions.Exists(cv => cv.Value?.ID == configuration.ServiceConfigurationVersion.ID))
+				if (!configurationVersionOptions.Exists(cv => cv?.Value != null && cv.Value.Identifier == configuration.ServiceConfigurationVersion.Identifier))
 				{
-					view.ConfigurationVersions.AddOption(new Option<Models.ServiceConfigurationVersion>(configuration.ServiceConfigurationVersion.VersionName ?? configuration.ServiceConfigurationVersion.ID.ToString(), configuration.ServiceConfigurationVersion));
+					view.ConfigurationVersions.AddOption(new Option<Models.ServiceConfigurationVersion>(configuration.ServiceConfigurationVersion.VersionName ?? configuration.ServiceConfigurationVersion.Identifier, configuration.ServiceConfigurationVersion));
 				}
 
 				view.ConfigurationVersions.Selected = configuration.ServiceConfigurationVersion;
 			}
 
-			view.BtnCopyConfiguration.IsVisible = view.ConfigurationVersions.Selected != null && instanceService.ConfigurationVersions?.Exists(cv => cv.ID == view.ConfigurationVersions.Selected.ID) == true;
+			view.BtnCopyConfiguration.IsVisible = view.ConfigurationVersions.Selected != null
+				&& instanceService.ConfigurationVersions?.Any(cv => !String.IsNullOrEmpty(cv.Identifier) && cv.Identifier == view.ConfigurationVersions.Selected.Identifier) == true;
 		}
 
 		private int BuildGeneralSettingsUI(int row)
@@ -849,7 +1045,7 @@
 			view.AddWidget(new Label("Add Service Profile:") { Style = TextStyle.Heading }, ++row, 0, HorizontalAlignment.Right);
 			var profileDefinitionsOptions = profileDefinitions == null
 				? new List<Option<ProfileOption>>()
-				: profileDefinitions.Select(p => new Option<ProfileOption>(p.Name, new ProfileOption(p.ID, p.Name, true))).OrderBy(x => x.DisplayValue).ToList();
+				: profileDefinitions.Select(p => new Option<ProfileOption>(p.Name, new ProfileOption(p.Identifier, p.Name, true))).OrderBy(x => x.DisplayValue).ToList();
 			profileDefinitionsOptions.Insert(0, new Option<ProfileOption>("- Profile Definition -", null));
 
 			view.ProfileDefinitionToAdd.SetOptions(profileDefinitionsOptions);
@@ -892,9 +1088,9 @@
 				var rootReusableIds = GetRootLevelReusableProfileIds();
 
 				var matchingReusable = (reusableProfiles ?? new List<Profile>())
-					.Where(p => p.ProfileDefinitionReference == args.Selected.Id
-							 && !rootReusableIds.Contains(p.ID))
-					.Select(p => new Option<ProfileOption>(p.Name, new ProfileOption(p.ID, p.Name, false)))
+					.Where(p => p.ProfileDefinitionId.Identifier == args.Selected.Id
+							 && !rootReusableIds.Contains(p.Identifier))
+					.Select(p => new Option<ProfileOption>(p.Name, new ProfileOption(p.Identifier, p.Name, false)))
 					.OrderBy(x => x.DisplayValue)
 					.ToList();
 
@@ -935,15 +1131,15 @@
 				.OrderBy(x => x.Profile.Name))
 			{
 				// Root profiles start at depth 1; max depth is 3
-				row = BuildProfileUI(showDetails, row, profile, allParameters, parent: null, depth: 1, ancestorDefinitionIds: new HashSet<Guid>());
+				row = BuildProfileUI(showDetails, row, profile, allParameters, parent: null, depth: 1, ancestorDefinitionIds: new HashSet<string>());
 			}
 
 			return row;
 		}
 
-		private int BuildProfileUI(bool showDetails, int row, ProfileDataRecord profile, List<IParameterDataRecord> allParameters, ProfileDataRecord parent = null, int depth = 1, HashSet<Guid> ancestorDefinitionIds = null)
+		private int BuildProfileUI(bool showDetails, int row, ProfileDataRecord profile, List<IParameterDataRecord> allParameters, ProfileDataRecord parent = null, int depth = 1, HashSet<string> ancestorDefinitionIds = null)
 		{
-			ancestorDefinitionIds = ancestorDefinitionIds ?? new HashSet<Guid>();
+			ancestorDefinitionIds = ancestorDefinitionIds ?? new HashSet<string>();
 
 			if (!view.ProfileCollapseButtons.TryGetValue(profile.Profile.Name, out var collapseButton))
 			{
@@ -1001,7 +1197,7 @@
 			delete.Pressed += DeleteProfileRecursive(profile, parent);
 
 			var profileParameterList = profile.ProfileParameterConfigs.Where(x => x.State != State.Delete).OrderBy(x => x.ConfigurationParam?.Name).ToList();
-			BuildHeaderRow(++row, collapseButton, allParameters.Any(p => p.ConfigurationParamValue.IsLinked), _editingConsumerId.HasValue);
+			BuildHeaderRow(++row, collapseButton, allParameters.Any(p => p.ConfigurationParamValue.IsLinked), !String.IsNullOrEmpty(_editingConsumerId));
 
 			int originalSectionRow = row;
 			int sectionRow = 0;
@@ -1038,10 +1234,10 @@
 			view.AddWidget(whiteSpaceAfterParameters, ++row, 0);
 			collapseButton.LinkedWidgets.Add(whiteSpaceAfterParameters);
 
-			var childAncestors = new HashSet<Guid>(ancestorDefinitionIds);
-			if (profile.ProfileDefinition?.ID != null)
+			var childAncestors = new HashSet<string>(ancestorDefinitionIds);
+			if (profile.ProfileDefinition.Identifier != null)
 			{
-				childAncestors.Add(profile.ProfileDefinition.ID);
+				childAncestors.Add(profile.ProfileDefinition.Identifier);
 			}
 
 			row = BuildNestedProfilesTableUI(row, profile, collapseButton, depth, childAncestors);
@@ -1061,7 +1257,7 @@
 			view.AddWidget(parameterToAddLabel, ++row, 0, HorizontalAlignment.Right);
 			collapseButton.LinkedWidgets.Add(parameterToAddLabel);
 
-			var parameterDropDown = new DropDown<ConfigurationParameter>(profile.GetAvailableProfileParameters(repoConfig))
+			var parameterDropDown = new DropDown<ConfigurationParameter>(profile.GetAvailableProfileParameters())
 			{
 				IsVisible = !collapseButton.IsCollapsed,
 			};
@@ -1097,7 +1293,7 @@
 			view.AddWidget(new Label(ServiceConfigurationView.StandaloneCollapseButtonTitle) { Style = TextStyle.Bold }, ++row, 1, 1, 5);
 			view.AddWidget(view.StandaloneParameters, row, 0, HorizontalAlignment.Right);
 			var standaloneParameterList = configuration.ServiceParameterConfigs.Where(x => x.State != State.Delete).ToList();
-			BuildHeaderRow(++row, view.StandaloneParameters, allParameters.Any(p => p.ConfigurationParamValue.IsLinked), _editingConsumerId.HasValue);
+			BuildHeaderRow(++row, view.StandaloneParameters, allParameters.Any(p => p.ConfigurationParamValue.IsLinked), !String.IsNullOrEmpty(_editingConsumerId));
 
 			int originalSectionRow = row;
 			int sectionRow = 0;
@@ -1118,7 +1314,7 @@
 			view.AddWidget(parameterToAddLabel, ++row, 0, HorizontalAlignment.Right);
 			view.StandaloneParameters.LinkedWidgets.Add(parameterToAddLabel);
 
-			var parameterOptions = repoConfig.ConfigurationParameters.Read().Select(x => new Option<ConfigurationParameter>(x.Name, x)).OrderBy(x => x.DisplayValue).ToList();
+			var parameterOptions = configurationParametersById.Values.Select(x => new Option<ConfigurationParameter>(x.Name, x)).OrderBy(x => x.DisplayValue).ToList();
 			parameterOptions.Insert(0, new Option<ConfigurationParameter>("- Add -", null));
 			view.StandaloneParametersToAdd.SetOptions(parameterOptions);
 			view.StandaloneParametersToAdd.IsVisible = !view.StandaloneParameters.IsCollapsed;
@@ -1159,8 +1355,8 @@
 			bool isVisible = !collapseButton.IsCollapsed;
 			bool isValueFixed = record.ConfigurationParamValue.ValueFixed;
 			bool isLinked = record.ConfigurationParamValue.IsLinked;
-			bool isEditingThis = _editingConsumerId == record.ConfigurationParam.ID;
-			bool anyEditing = _editingConsumerId.HasValue;
+			bool isEditingThis = _editingConsumerId == record.ConfigurationParam.Identifier;
+			bool anyEditing = !String.IsNullOrEmpty(_editingConsumerId);
 			string collapseButtonTitle = collapseButton.Tooltip;
 
 			var label = new TextBox(record.ConfigurationParamValue.Label) { IsVisible = isVisible, IsEnabled = !isReusable };
@@ -1305,7 +1501,7 @@
 				};
 				pencilButton.Pressed += (sender, args) =>
 				{
-					_editingConsumerId = isEditingThis ? (Guid?)null : record.ConfigurationParam.ID;
+					_editingConsumerId = isEditingThis ? null : record.ConfigurationParam.Identifier;
 					BuildUI(view.Details[collapseButton.Tooltip].IsVisible);
 				};
 				view.AddWidget(pencilButton, row, 8);
@@ -1323,11 +1519,14 @@
 
 		private void AddProducerCheckBox(CollapseButton collapseButton, IParameterDataRecord record, int row, bool isVisible, IEnumerable<IParameterDataRecord> siblingRecords)
 		{
-			var editingConsumer = siblingRecords.FirstOrDefault(s => s.ConfigurationParam.ID == _editingConsumerId);
+			var editingConsumer = siblingRecords.FirstOrDefault(s => s.ConfigurationParam.Identifier == _editingConsumerId);
 			if (editingConsumer == null)
+			{
 				return;
+			}
 
-			bool isProducerForConsumer = editingConsumer.ConfigurationParamValue.LinkedConsumers?.Contains(record.ConfigurationParamValue.ID) == true;
+			var producerId = TryParseGuid(record.ConfigurationParamValue.Identifier);
+			bool isProducerForConsumer = producerId.HasValue && editingConsumer.ConfigurationParamValue.LinkedConsumers?.Contains(producerId.Value) == true;
 			var producerCheckBox = new CheckBox
 			{
 				IsChecked = isProducerForConsumer,
@@ -1337,17 +1536,26 @@
 
 			producerCheckBox.Changed += (sender, args) =>
 			{
+				if (!producerId.HasValue)
+				{
+					return;
+				}
+
 				if (editingConsumer.ConfigurationParamValue.LinkedConsumers == null)
+				{
 					editingConsumer.ConfigurationParamValue.LinkedConsumers = new List<Guid>();
+				}
 
 				if (args.IsChecked)
 				{
-					if (!editingConsumer.ConfigurationParamValue.LinkedConsumers.Contains(record.ConfigurationParamValue.ID))
-						editingConsumer.ConfigurationParamValue.LinkedConsumers.Add(record.ConfigurationParamValue.ID);
+					if (!editingConsumer.ConfigurationParamValue.LinkedConsumers.Contains(producerId.Value))
+					{
+						editingConsumer.ConfigurationParamValue.LinkedConsumers.Add(producerId.Value);
+					}
 				}
 				else
 				{
-					editingConsumer.ConfigurationParamValue.LinkedConsumers.Remove(record.ConfigurationParamValue.ID);
+					editingConsumer.ConfigurationParamValue.LinkedConsumers.Remove(producerId.Value);
 				}
 			};
 
@@ -1360,7 +1568,7 @@
 			return (sender, args) =>
 			{
 				record.State = State.Delete;
-				configuration.ServiceConfigurationVersion.Parameters.Remove(record.ServiceParameterConfig);
+				configuration.ServiceConfigurationVersion.Parameters.RemoveAll(reference => reference.Identifier == record.ServiceParameterConfig.Identifier);
 				serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(
 					instanceService.ServiceID,
 					"Edit",
@@ -1374,7 +1582,7 @@
 			return (sender, args) =>
 			{
 				parameterRecord.State = State.Delete;
-				configuration.ServiceConfigurationVersion.Profiles.Find(p => p.ID == profileDataRecord.ServiceProfileConfig.ID).Profile.ConfigurationParameterValues.Remove(parameterRecord.ConfigurationParamValue);
+				profileDataRecord.Profile?.ConfigurationParameterValues?.RemoveAll(reference => reference.Identifier == parameterRecord.ConfigurationParamValue.Identifier);
 				serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(
 					instanceService.ServiceID,
 					"Edit",
@@ -1385,9 +1593,9 @@
 
 		private TextBox AddTextWidgets(IParameterDataRecord record, int row, bool isVisible = true, bool isValueFixed = false, bool isLinked = false, string collapseButtonTitle = null, Action onProducerValueChanged = null)
 		{
-			var value = new TextBox(isLinked && record.ConfigurationParamValue.StringValue == null ? String.Empty : record.ConfigurationParamValue.StringValue ?? record.ConfigurationParamValue.TextOptions?.Default ?? String.Empty)
+			var value = new TextBox(isLinked && record.ConfigurationParamValue.StringValue == null ? String.Empty : record.ConfigurationParamValue.StringValue ?? record.TextOptions?.Default ?? String.Empty)
 			{
-				Tooltip = record.ConfigurationParamValue.TextOptions?.UserMessage ?? String.Empty,
+				Tooltip = record.TextOptions?.UserMessage ?? String.Empty,
 				IsVisible = isVisible,
 				IsEnabled = !isValueFixed && !isLinked,
 			};
@@ -1395,16 +1603,16 @@
 			string lastValue = record.ConfigurationParamValue.StringValue;
 			value.Changed += (sender, args) =>
 			{
-				if (record.ConfigurationParamValue.TextOptions?.Regex != null && !Regex.IsMatch(args.Value, record.ConfigurationParamValue.TextOptions.Regex))
+				if (record.TextOptions?.Regex != null && !Regex.IsMatch(args.Value, record.TextOptions.Regex))
 				{
 					value.ValidationState = UIValidationState.Invalid;
-					value.ValidationText = $"Input did not match Regex '{record.ConfigurationParamValue.TextOptions.Regex}' - reverted to previous value";
+					value.ValidationText = $"Input did not match Regex '{record.TextOptions.Regex}' - reverted to previous value";
 					value.Text = args.Previous;
 					return;
 				}
 
 				value.ValidationState = UIValidationState.Valid;
-				value.ValidationText = record.ConfigurationParamValue.TextOptions?.UserMessage;
+				value.ValidationText = record.TextOptions?.UserMessage;
 				record.ConfigurationParamValue.StringValue = args.Value;
 
 				serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(
@@ -1424,26 +1632,31 @@
 
 		private DropDown<DiscreteValue> AddDiscreteWidgets(IParameterDataRecord record, int row, ConfigurationParameter parameter, bool isVisible = true, bool isValueFixed = false, string collapseButtonTitle = null, Action onProducerValueChanged = null)
 		{
-			if (record.ConfigurationParamValue.DiscreteOptions == null)
+			if (record.DiscreteOptions == null)
 			{
-				record.ConfigurationParamValue.DiscreteOptions = parameter?.DiscreteOptions ?? throw new InvalidOperationException($"DiscreteOptions is null for parameter: {record.ConfigurationParam?.Name ?? "Unknown"}");
-				record.ConfigurationParamValue.DiscreteOptions.ID = Guid.NewGuid();
+				throw new InvalidOperationException($"DiscreteOptions is null for parameter: {record.ConfigurationParam?.Name ?? "Unknown"}");
 			}
 
-			var discretes = record.ConfigurationParamValue.DiscreteOptions.DiscreteValues
-											.Select(x => new Option<DiscreteValue>(x.Value, x))
-											.OrderBy(x => x.DisplayValue)
-											.ToList();
+			var discreteValues = Resolve(record.DiscreteOptions.DiscreteValues, discreteValuesById);
+			var discretes = discreteValues
+				.Select(x => new Option<DiscreteValue>(x.Value, x))
+				.OrderBy(x => x.DisplayValue)
+				.ToList();
 
 			var value = new DropDown<DiscreteValue>(discretes)
 			{
 				IsVisible = isVisible,
 				IsEnabled = !isValueFixed,
 			};
-			if (record.ConfigurationParamValue.StringValue != null
+
+			if (!String.IsNullOrEmpty(record.ConfigurationParamValue.StringValue)
 				&& value.Options.Any(x => x.DisplayValue == record.ConfigurationParamValue.StringValue))
 			{
 				value.Selected = value.Options.First(x => x.DisplayValue == record.ConfigurationParamValue.StringValue).Value;
+			}
+			else if (!String.IsNullOrEmpty(record.DiscreteOptions.DefaultDiscreteValueId.Identifier))
+			{
+				value.Selected = discreteValues.FirstOrDefault(x => x.Identifier == record.DiscreteOptions.DefaultDiscreteValueId.Identifier);
 			}
 
 			if (record.ConfigurationParamValue.StringValue == null)
@@ -1487,17 +1700,16 @@
 			string collapseButtonTitle = null,
 			Action onProducerValueChanged = null)
 		{
-			if (record.ConfigurationParamValue.NumberOptions == null)
+			if (record.NumberOptions == null)
 			{
-				record.ConfigurationParamValue.NumberOptions = parameter.Selected?.NumberOptions ?? throw new InvalidOperationException($"NumberOptions is null for parameter: {record.ConfigurationParam?.Name ?? "Unknown"}");
-				record.ConfigurationParamValue.NumberOptions.ID = Guid.NewGuid();
+				throw new InvalidOperationException($"NumberOptions is null for parameter: {record.ConfigurationParam?.Name ?? "Unknown"}");
 			}
 
-			double minimum = record.ConfigurationParamValue.NumberOptions.MinRange ?? -10_000;
-			double maximum = record.ConfigurationParamValue.NumberOptions.MaxRange ?? 10_000;
-			int decimalVal = Convert.ToInt32(record.ConfigurationParamValue.NumberOptions.Decimals);
-			double stepSize = record.ConfigurationParamValue.NumberOptions.StepSize ?? 1;
-			Numeric value = new Numeric(isLinked && record.ConfigurationParamValue.DoubleValue == null ? 0 : record.ConfigurationParamValue.DoubleValue ?? record.ConfigurationParamValue.NumberOptions.DefaultValue ?? 0)
+			double minimum = record.NumberOptions.MinRange ?? -10_000;
+			double maximum = record.NumberOptions.MaxRange ?? 10_000;
+			int decimalVal = Convert.ToInt32(record.NumberOptions.Decimals ?? 0);
+			double stepSize = record.NumberOptions.StepSize ?? 1;
+			Numeric value = new Numeric(isLinked && record.ConfigurationParamValue.DoubleValue == null ? 0 : record.ConfigurationParamValue.DoubleValue ?? record.NumberOptions.DefaultValue ?? 0)
 			{
 				Minimum = minimum,
 				Maximum = maximum,
@@ -1506,9 +1718,9 @@
 				IsVisible = isVisible,
 				IsEnabled = !isValueFixed && !isLinked,
 			};
-			unit.SetOptions(GetUnits(record.ConfigurationParamValue.NumberOptions, parameter.Selected));
-			var defaultUnit = GetDefaultUnit(record.ConfigurationParamValue.NumberOptions, parameter.Selected);
-			if (defaultUnit == null || unit.Options.Any(o => o.Value?.ID == defaultUnit.ID))
+			unit.SetOptions(GetUnits(record.NumberOptions, parameter.Selected));
+			var defaultUnit = GetDefaultUnit(record.NumberOptions, parameter.Selected);
+			if (defaultUnit == null || unit.Options.Any(o => o?.Value != null && o.Value.Identifier == defaultUnit.Identifier))
 			{
 				unit.Selected = defaultUnit;
 			}
@@ -1517,7 +1729,7 @@
 			end.Value = maximum;
 			decimals.Value = decimalVal;
 			step.Value = stepSize;
-			step.StepSize = 1 / Math.Pow(10, decimalVal);
+			step.StepSize = 1 / Math.Pow(10, decimalVal == 0 ? 1 : decimalVal);
 			step.Decimals = decimalVal;
 
 			if (isReusable)
@@ -1540,7 +1752,7 @@
 			start.Changed += (sender, args) =>
 			{
 				value.Minimum = args.Value;
-				record.ConfigurationParamValue.NumberOptions.MinRange = args.Value;
+				record.NumberOptions.MinRange = args.Value;
 				serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(
 					instanceService.ServiceID,
 					"Edit",
@@ -1549,7 +1761,7 @@
 			end.Changed += (sender, args) =>
 			{
 				value.Maximum = args.Value;
-				record.ConfigurationParamValue.NumberOptions.MaxRange = args.Value;
+				record.NumberOptions.MaxRange = args.Value;
 				serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(
 					instanceService.ServiceID,
 					"Edit",
@@ -1559,10 +1771,10 @@
 			{
 				value.Decimals = Convert.ToInt32(args.Value);
 				step.Decimals = Convert.ToInt32(args.Value);
-				double newStepsize = 1 / Math.Pow(10, args.Value);
+				double newStepsize = 1 / Math.Pow(10, args.Value == 0 ? 1 : args.Value);
 				value.StepSize = newStepsize;
 				step.StepSize = newStepsize;
-				record.ConfigurationParamValue.NumberOptions.Decimals = Convert.ToInt32(args.Value);
+				record.NumberOptions.Decimals = Convert.ToInt64(args.Value);
 				serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(
 					instanceService.ServiceID,
 					"Edit",
@@ -1571,7 +1783,7 @@
 			step.Changed += (sender, args) =>
 			{
 				value.StepSize = args.Value;
-				record.ConfigurationParamValue.NumberOptions.StepSize = args.Value;
+				record.NumberOptions.StepSize = args.Value;
 				serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(
 					instanceService.ServiceID,
 					"Edit",
@@ -1579,7 +1791,7 @@
 			};
 			unit.Changed += (sender, args) =>
 			{
-				record.ConfigurationParamValue.NumberOptions.DefaultUnit = args.Selected;
+				record.NumberOptions.DefaultUnitId = args.Selected == null ? default : new SdmObjectReference<ConfigurationUnit>(args.Selected.Identifier);
 				serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(
 					instanceService.ServiceID,
 					"Edit",
@@ -1605,43 +1817,43 @@
 			return value;
 		}
 
-		private ConfigurationUnit GetDefaultUnit(
-			NumberParameterOptions numberValueOptions,
-			ConfigurationParameter parameter)
+		private ConfigurationUnit GetDefaultUnit(NumberParameterOptions numberValueOptions, ConfigurationParameter parameter)
 		{
-			if (numberValueOptions?.DefaultUnit != null)
+			if (!String.IsNullOrEmpty(numberValueOptions?.DefaultUnitId.Identifier))
 			{
-				var match = numberValueOptions.Units?.FirstOrDefault(u => u.ID == numberValueOptions.DefaultUnit.ID);
-				return match ?? numberValueOptions.DefaultUnit;
+				return GetValue(configurationUnitsById, numberValueOptions.DefaultUnitId.Identifier);
 			}
 
-			if (parameter?.NumberOptions?.DefaultUnit != null)
+			if (!String.IsNullOrEmpty(parameter?.NumberOptionsId.Identifier)
+				&& numberOptionsById.TryGetValue(parameter.NumberOptionsId.Identifier, out var parameterOptions)
+				&& !String.IsNullOrEmpty(parameterOptions.DefaultUnitId.Identifier))
 			{
-				var match = parameter.NumberOptions.Units?.FirstOrDefault(u => u.ID == parameter.NumberOptions.DefaultUnit.ID);
-				return match ?? parameter.NumberOptions.DefaultUnit;
+				return GetValue(configurationUnitsById, parameterOptions.DefaultUnitId.Identifier);
 			}
 
 			return null;
 		}
 
-		private List<Option<ConfigurationUnit>> GetUnits(
-			NumberParameterOptions numberValueOptions,
-			ConfigurationParameter parameter)
+		private List<Option<ConfigurationUnit>> GetUnits(NumberParameterOptions numberValueOptions, ConfigurationParameter parameter)
 		{
-			var units = new List<Option<ConfigurationUnit>>();
-			if (numberValueOptions?.DefaultUnit != null)
+			List<ConfigurationUnit> units = new List<ConfigurationUnit>();
+			if (numberValueOptions?.Units != null)
 			{
-				units.AddRange(numberValueOptions.Units.Select(x => new Option<ConfigurationUnit>(x.Name, x)));
+				units.AddRange(Resolve(numberValueOptions.Units, configurationUnitsById));
 			}
-			else if (parameter.NumberOptions?.DefaultUnit != null)
+			else if (!String.IsNullOrEmpty(parameter?.NumberOptionsId.Identifier)
+				&& numberOptionsById.TryGetValue(parameter.NumberOptionsId.Identifier, out var parameterOptions)
+				&& parameterOptions.Units != null)
 			{
-				units.AddRange(parameter.NumberOptions.Units.Select(x => new Option<ConfigurationUnit>(x.Name, x)));
+				units.AddRange(Resolve(parameterOptions.Units, configurationUnitsById));
 			}
 
-			units = units.OrderBy(x => x.DisplayValue).ToList();
-
-			units.Insert(0, new Option<ConfigurationUnit>("-", null));
-			return units;
+			var options = units
+				.Select(x => new Option<ConfigurationUnit>(x.Name, x))
+				.OrderBy(x => x.DisplayValue)
+				.ToList();
+			options.Insert(0, new Option<ConfigurationUnit>("-", null));
+			return options;
 		}
 
 		private void ShowHideProfileParametersDetails(bool showDetails, string profileName, Section details)
@@ -1658,7 +1870,7 @@
 		{
 			return configuration.ServiceProfileConfigs
 				.Where(x => x.State != State.Delete)
-				.Any(x => x.Profile?.Profiles != null && x.Profile.Profiles.Contains(profile.Profile.ID));
+				.Any(x => x.Profile?.Profiles != null && x.Profile.Profiles.Any(reference => reference.Identifier == profile.Profile.Identifier));
 		}
 
 		private List<ProfileDataRecord> GetChildProfileRecords(ProfileDataRecord parent)
@@ -1669,7 +1881,7 @@
 			}
 
 			return configuration.ServiceProfileConfigs
-				.Where(x => x.State != State.Delete && parent.Profile.Profiles.Contains(x.Profile.ID))
+				.Where(x => x.State != State.Delete && parent.Profile.Profiles.Any(reference => reference.Identifier == x.Profile.Identifier))
 				.ToList();
 		}
 
@@ -1682,7 +1894,7 @@
 
 			if (parent.Profile.Profiles == null)
 			{
-				parent.Profile.Profiles = new List<Guid>();
+				parent.Profile.Profiles = new List<SdmObjectReference<Profile>>();
 			}
 
 			if (childOption.IsProfileDefinition)
@@ -1697,56 +1909,79 @@
 
 		private void AddChildProfileFromDefinition(ProfileDataRecord parent, ProfileOption childOption)
 		{
-			var childDefinition = profileDefinitions.Find(pd => pd.ID == childOption.Id);
+			var childDefinition = profileDefinitions.Find(pd => pd.Identifier == childOption.Id);
 			if (childDefinition == null)
 			{
 				return;
 			}
 
-			var configParams = HelperMethods.GetConfigParameters(repoConfig, childDefinition.ConfigurationParameters);
-			var parameterValues = new List<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameterValue>();
+			var resolvedReferencedParameters = Resolve(childDefinition.ConfigurationParameters, referencedConfigurationParametersById);
+			var configParams = HelperMethods.GetConfigParameters(configurationParametersById, resolvedReferencedParameters);
+			var parameterValues = new List<ConfigurationParameterValue>();
 
-			foreach (var refConfigParam in childDefinition.ConfigurationParameters)
+			foreach (var refConfigParam in resolvedReferencedParameters)
 			{
-				var configParam = configParams.FirstOrDefault(p => p.ID == refConfigParam.ConfigurationParameter);
+				var configParam = configParams.FirstOrDefault(p => p.Identifier == refConfigParam.ConfigurationParameterId.Identifier);
 				if (configParam == null)
 				{
 					continue;
 				}
 
-				parameterValues.Add(HelperMethods.BuildConfigurationParameter(configParam));
+				var parameterValue = HelperMethods.BuildConfigurationParameter(configParam);
+				parameterValues.Add(parameterValue);
+				configurationParameterValuesById[parameterValue.Identifier] = parameterValue;
 				serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(instanceService.ServiceID, "Edit", $"Added nested profile parameter '{configParam.Name}'"));
 			}
 
 			string profileName = childOption.Name;
-			var childProfileConfig = new Models.ServiceProfile
+			var childProfile = new Profile
 			{
-				ID = Guid.NewGuid(),
-				Mandatory = false,
-				ProfileDefinition = childDefinition,
-				Profile = new Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.Profile
-				{
-					ID = Guid.NewGuid(),
-					Name = profileName,
-					ProfileDefinitionReference = childDefinition.ID,
-					ConfigurationParameterValues = parameterValues,
-				},
+				Identifier = Guid.NewGuid().ToString(),
+				Name = profileName,
+				ProfileDefinitionId = new SdmObjectReference<ProfileDefinition>(childDefinition.Identifier),
+				ConfigurationParameterValues = parameterValues.Select(x => new SdmObjectReference<ConfigurationParameterValue>(x.Identifier)).ToList(),
+				Profiles = new List<SdmObjectReference<Profile>>(),
 			};
 
-			if (view.ProfileCollapseButtons.ContainsKey(childProfileConfig.Profile.Name))
+			if (view.ProfileCollapseButtons.ContainsKey(childProfile.Name))
 			{
-				childProfileConfig.Profile.Name = $"{childProfileConfig.Profile.Name} #{view.ProfileCollapseButtons.Keys.Count(s => s.StartsWith(childProfileConfig.Profile.Name))}";
+				childProfile.Name = $"{childProfile.Name} #{view.ProfileCollapseButtons.Keys.Count(s => s.StartsWith(childProfile.Name, StringComparison.Ordinal))}";
 			}
 
-			parent.Profile.Profiles.Add(childProfileConfig.Profile.ID);
-			configuration.ServiceConfigurationVersion.Profiles.Add(childProfileConfig);
-			configuration.ServiceProfileConfigs.Add(ProfileDataRecord.BuildProfileRecord(engine, childProfileConfig, configParams, State.Create));
-			serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(instanceService.ServiceID, "Edit", $"Added nested profile '{childProfileConfig.Profile.Name}' under '{parent.Profile.Name}'"));
+			var childProfileConfig = new Models.ServiceProfile
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				Mandatory = false,
+				ProfileDefinitionId = new SdmObjectReference<ProfileDefinition>(childDefinition.Identifier),
+				ProfileId = new SdmObjectReference<Profile>(childProfile.Identifier),
+			};
+
+			parent.Profile.Profiles.Add(new SdmObjectReference<Profile>(childProfile.Identifier));
+			configuration.ServiceConfigurationVersion.Profiles.Add(new SdmObjectReference<Models.ServiceProfile>(childProfileConfig.Identifier));
+			profilesById[childProfile.Identifier] = childProfile;
+			serviceProfilesById[childProfileConfig.Identifier] = childProfileConfig;
+
+			var record = ProfileDataRecord.BuildProfileRecord(
+				childProfileConfig,
+				childProfile,
+				childDefinition,
+				configurationParameterValuesById,
+				configurationParametersById,
+				referencedConfigurationParametersById,
+				numberOptionsById,
+				discreteOptionsById,
+				textOptionsById,
+				configurationUnitsById,
+				discreteValuesById,
+				State.Create);
+			TrackNewObjects(record);
+			configuration.ServiceProfileConfigs.Add(record);
+			serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(instanceService.ServiceID, "Edit", $"Added nested profile '{childProfile.Name}' under '{parent.Profile.Name}'"));
 		}
 
 		private void AddChildProfileFromReusable(ProfileDataRecord parent, ProfileOption childOption)
 		{
-			var profileInstance = reusableProfiles.Find(p => p.ID == childOption.Id);
+			var profileInstance = reusableProfiles.Find(p => p.Identifier == childOption.Id);
 			if (profileInstance == null)
 			{
 				return;
@@ -1754,41 +1989,53 @@
 
 			if (parent.Profile.Profiles == null)
 			{
-				parent.Profile.Profiles = new List<Guid>();
+				parent.Profile.Profiles = new List<SdmObjectReference<Profile>>();
 			}
 
-			if (parent.Profile.Profiles.Contains(profileInstance.ID))
+			if (parent.Profile.Profiles.Any(reference => reference.Identifier == profileInstance.Identifier))
 			{
 				return;
 			}
 
 			bool alreadyInList = configuration.ServiceProfileConfigs
-				.Any(x => x.State != State.Delete && x.Profile?.ID == profileInstance.ID);
+				.Any(x => x.State != State.Delete && x.Profile.Identifier == profileInstance.Identifier);
 
 			if (!alreadyInList)
 			{
-				var profileDefinitionInstance = repoConfig.ProfileDefinitions
-					.Read(ProfileDefinitionExposers.Guid.Equal(profileInstance.ProfileDefinitionReference))
-					.FirstOrDefault();
-				if (profileDefinitionInstance == null)
+				if (!profileDefinitionsById.TryGetValue(profileInstance.ProfileDefinitionId.Identifier ?? String.Empty, out var profileDefinitionInstance))
 				{
 					return;
 				}
 
 				var childProfileConfig = new Models.ServiceProfile
 				{
-					ID = Guid.NewGuid(),
+					Identifier = Guid.NewGuid().ToString(),
 					Mandatory = false,
-					Profile = profileInstance,
-					ProfileDefinition = profileDefinitionInstance,
+					ProfileId = new SdmObjectReference<Profile>(profileInstance.Identifier),
+					ProfileDefinitionId = new SdmObjectReference<ProfileDefinition>(profileDefinitionInstance.Identifier),
 				};
 
-				var configParams = HelperMethods.GetConfigParameters(repoConfig, profileInstance);
-				configuration.ServiceConfigurationVersion.Profiles.Add(childProfileConfig);
-				configuration.ServiceProfileConfigs.Add(ProfileDataRecord.BuildProfileRecord(engine, childProfileConfig, configParams, State.Create));
+				configuration.ServiceConfigurationVersion.Profiles.Add(new SdmObjectReference<Models.ServiceProfile>(childProfileConfig.Identifier));
+				serviceProfilesById[childProfileConfig.Identifier] = childProfileConfig;
+
+				var record = ProfileDataRecord.BuildProfileRecord(
+					childProfileConfig,
+					profileInstance,
+					profileDefinitionInstance,
+					configurationParameterValuesById,
+					configurationParametersById,
+					referencedConfigurationParametersById,
+					numberOptionsById,
+					discreteOptionsById,
+					textOptionsById,
+					configurationUnitsById,
+					discreteValuesById,
+					State.Create);
+				TrackNewObjects(record);
+				configuration.ServiceProfileConfigs.Add(record);
 			}
 
-			parent.Profile.Profiles.Add(profileInstance.ID);
+			parent.Profile.Profiles.Add(new SdmObjectReference<Profile>(profileInstance.Identifier));
 			serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(instanceService.ServiceID, "Edit", $"Added reusable nested profile '{profileInstance.Name}' under '{parent.Profile.Name}'"));
 		}
 
@@ -1809,12 +2056,12 @@
 			}
 
 			record.State = State.Delete;
-			configuration.ServiceConfigurationVersion.Profiles.Remove(record.ServiceProfileConfig);
-			parent?.Profile?.Profiles?.Remove(record.Profile.ID);
+			configuration.ServiceConfigurationVersion.Profiles.RemoveAll(reference => reference.Identifier == record.ServiceProfileConfig.Identifier);
+			parent?.Profile?.Profiles?.RemoveAll(reference => reference.Identifier == record.Profile.Identifier);
 			serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(instanceService.ServiceID, "Edit", $"Deleted profile '{record.Profile.Name}'"));
 		}
 
-		private int BuildNestedProfilesTableUI(int row, ProfileDataRecord parent, CollapseButton collapseButton, int depth, HashSet<Guid> childAncestors)
+		private int BuildNestedProfilesTableUI(int row, ProfileDataRecord parent, CollapseButton collapseButton, int depth, HashSet<string> childAncestors)
 		{
 			var children = GetChildProfileRecords(parent);
 			bool canAddDeeper = depth < MaxNestedProfileDepth
@@ -1840,7 +2087,7 @@
 			List<ProfileDataRecord> children,
 			ProfileDataRecord parent,
 			CollapseButton collapseButton,
-			HashSet<Guid> childAncestors,
+			HashSet<string> childAncestors,
 			int depth,
 			bool isVisible)
 		{
@@ -1894,7 +2141,7 @@
 			int row,
 			ProfileDataRecord parent,
 			CollapseButton collapseButton,
-			HashSet<Guid> childAncestors,
+			HashSet<string> childAncestors,
 			bool isVisible)
 		{
 			var spacer = new WhiteSpace { IsVisible = isVisible };
@@ -1906,8 +2153,8 @@
 			collapseButton.LinkedWidgets.Add(addProfileLabel);
 
 			var definitionOptions = profileDefinitions
-				.Where(pd => !childAncestors.Contains(pd.ID))
-				.Select(pd => new Option<ProfileOption>(pd.Name, new ProfileOption(pd.ID, pd.Name, true)))
+				.Where(pd => !childAncestors.Contains(pd.Identifier))
+				.Select(pd => new Option<ProfileOption>(pd.Name, new ProfileOption(pd.Identifier, pd.Name, true)))
 				.OrderBy(x => x.DisplayValue)
 				.ToList();
 			definitionOptions.Insert(0, new Option<ProfileOption>("- Profile Definition -", null));
@@ -1948,14 +2195,14 @@
 				}
 
 				var existingChildIds = parent.Profile?.Profiles != null
-					? new HashSet<Guid>(parent.Profile.Profiles)
-					: new HashSet<Guid>();
+					? new HashSet<string>(parent.Profile.Profiles.Select(reference => reference.Identifier))
+					: new HashSet<string>();
 
 				var matchingReusable = (reusableProfiles ?? new List<Profile>())
-					.Where(p => p.ProfileDefinitionReference == a.Selected.Id
-							 && !childAncestors.Contains(p.ProfileDefinitionReference)
-							 && !existingChildIds.Contains(p.ID))
-					.Select(p => new Option<ProfileOption>(p.Name, new ProfileOption(p.ID, p.Name, false)))
+					.Where(p => p.ProfileDefinitionId.Identifier == a.Selected.Id
+							 && !childAncestors.Contains(p.ProfileDefinitionId.Identifier)
+							 && !existingChildIds.Contains(p.Identifier))
+					.Select(p => new Option<ProfileOption>(p.Name, new ProfileOption(p.Identifier, p.Name, false)))
 					.OrderBy(x => x.DisplayValue)
 					.ToList();
 
@@ -1988,21 +2235,557 @@
 			return row;
 		}
 
-		private HashSet<Guid> GetRootLevelReusableProfileIds()
+		private HashSet<string> GetRootLevelReusableProfileIds()
 		{
-			return new HashSet<Guid>(
+			return new HashSet<string>(
 				configuration.ServiceProfileConfigs
 					.Where(p => p.State != State.Delete
 							 && p.Profile.IsReusable
 							 && !IsChildProfile(p))
-					.Select(p => p.Profile.ID));
+					.Select(p => p.Profile.Identifier));
+		}
+
+		private ConfigurationDataRecord BuildConfigurationDataRecord(Models.ServiceConfigurationVersion version, State state = State.Update)
+		{
+			EnsureConfigurationCollections(version);
+			serviceConfigurationVersionsById[version.Identifier] = version;
+			return ConfigurationDataRecord.BuildConfigurationDataRecordRecord(
+				engine,
+				version,
+				serviceConfigurationValuesById,
+				serviceProfilesById,
+				configurationParameterValuesById,
+				configurationParametersById,
+				profilesById,
+				profileDefinitionsById,
+				referencedConfigurationParametersById,
+				numberOptionsById,
+				discreteOptionsById,
+				textOptionsById,
+				configurationUnitsById,
+				discreteValuesById,
+				state);
+		}
+
+		private Models.ServiceConfigurationVersion CreateNewServiceConfigurationVersion()
+		{
+			var version = new Models.ServiceConfigurationVersion
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				VersionName = "New Version",
+				Description = String.Empty,
+				StartDate = null,
+				EndDate = null,
+				Parameters = new List<SdmObjectReference<Models.ServiceConfigurationValue>>(),
+				Profiles = new List<SdmObjectReference<Models.ServiceProfile>>(),
+			};
+
+			if (serviceSpecification != null)
+			{
+				AddServiceSpecificationStandaloneParameters(serviceSpecification, version);
+				AddServiceSpecificationProfiles(serviceSpecification, version);
+			}
+
+			serviceConfigurationVersionsById[version.Identifier] = version;
+			return version;
+		}
+
+		private Models.ServiceConfigurationVersion CreateNewServiceConfigurationVersionFromExisting(Models.ServiceConfigurationVersion sourceVersion)
+		{
+			if (sourceVersion == null)
+			{
+				var emptyVersion = CreateNewServiceConfigurationVersion();
+				emptyVersion.VersionName = "- Copy";
+				return emptyVersion;
+			}
+
+			var newVersion = new Models.ServiceConfigurationVersion
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				VersionName = $"{sourceVersion.VersionName} - Copy",
+				Description = sourceVersion.Description,
+				StartDate = sourceVersion.StartDate,
+				EndDate = sourceVersion.EndDate,
+				Parameters = new List<SdmObjectReference<Models.ServiceConfigurationValue>>(),
+				Profiles = new List<SdmObjectReference<Models.ServiceProfile>>(),
+			};
+
+			var parameterIdMap = new Dictionary<Guid, Guid>();
+			var createdParameterValues = new List<ConfigurationParameterValue>();
+
+			foreach (var parameterReference in sourceVersion.Parameters ?? new List<SdmObjectReference<Models.ServiceConfigurationValue>>())
+			{
+				var sourceConfig = GetValue(serviceConfigurationValuesById, parameterReference.Identifier);
+				if (sourceConfig == null)
+				{
+					continue;
+				}
+
+				var sourceParameterValue = GetValue(configurationParameterValuesById, sourceConfig.ConfigurationParameterId.Identifier);
+				if (sourceParameterValue == null)
+				{
+					continue;
+				}
+
+				var duplicatedParameterValue = CloneConfigurationParameterValue(sourceParameterValue, parameterIdMap);
+				configurationParameterValuesById[duplicatedParameterValue.Identifier] = duplicatedParameterValue;
+				createdParameterValues.Add(duplicatedParameterValue);
+
+				var duplicatedConfig = new Models.ServiceConfigurationValue
+				{
+					Identifier = Guid.NewGuid().ToString(),
+					Mandatory = sourceConfig.Mandatory,
+					ConfigurationParameterId = new SdmObjectReference<ConfigurationParameter>(duplicatedParameterValue.Identifier),
+				};
+				serviceConfigurationValuesById[duplicatedConfig.Identifier] = duplicatedConfig;
+				newVersion.Parameters.Add(new SdmObjectReference<Models.ServiceConfigurationValue>(duplicatedConfig.Identifier));
+			}
+
+			var profileIdMap = new Dictionary<string, string>(StringComparer.Ordinal);
+			var duplicatedProfiles = new List<(Models.ServiceProfile Config, Profile Profile)>();
+			foreach (var profileReference in sourceVersion.Profiles ?? new List<SdmObjectReference<Models.ServiceProfile>>())
+			{
+				var sourceProfileConfig = GetValue(serviceProfilesById, profileReference.Identifier);
+				if (sourceProfileConfig == null)
+				{
+					continue;
+				}
+
+				var sourceProfile = GetValue(profilesById, sourceProfileConfig.ProfileId.Identifier);
+				if (sourceProfile == null)
+				{
+					continue;
+				}
+
+				var duplicatedProfile = new Profile
+				{
+					Identifier = Guid.NewGuid().ToString(),
+					Name = sourceProfile.Name,
+					ProfileDefinitionId = String.IsNullOrEmpty(sourceProfile.ProfileDefinitionId.Identifier) ? default : new SdmObjectReference<ProfileDefinition>(sourceProfile.ProfileDefinitionId.Identifier),
+					Profiles = sourceProfile.Profiles?.Select(reference => new SdmObjectReference<Profile>(reference.Identifier)).ToList() ?? new List<SdmObjectReference<Profile>>(),
+					ConfigurationParameterValues = new List<SdmObjectReference<ConfigurationParameterValue>>(),
+					IsReusable = sourceProfile.IsReusable,
+				};
+
+				foreach (var parameterValueReference in sourceProfile.ConfigurationParameterValues ?? new List<SdmObjectReference<ConfigurationParameterValue>>())
+				{
+					var sourceParameterValue = GetValue(configurationParameterValuesById, parameterValueReference.Identifier);
+					if (sourceParameterValue == null)
+					{
+						continue;
+					}
+
+					var duplicatedParameterValue = CloneConfigurationParameterValue(sourceParameterValue, parameterIdMap);
+					configurationParameterValuesById[duplicatedParameterValue.Identifier] = duplicatedParameterValue;
+					createdParameterValues.Add(duplicatedParameterValue);
+					duplicatedProfile.ConfigurationParameterValues.Add(new SdmObjectReference<ConfigurationParameterValue>(duplicatedParameterValue.Identifier));
+				}
+
+				var duplicatedServiceProfile = new Models.ServiceProfile
+				{
+					Identifier = Guid.NewGuid().ToString(),
+					Mandatory = sourceProfileConfig.Mandatory,
+					ProfileDefinitionId = String.IsNullOrEmpty(sourceProfileConfig.ProfileDefinitionId.Identifier) ? default : new SdmObjectReference<ProfileDefinition>(sourceProfileConfig.ProfileDefinitionId.Identifier),
+					ProfileId = new SdmObjectReference<Profile>(duplicatedProfile.Identifier),
+				};
+
+				profileIdMap[sourceProfile.Identifier] = duplicatedProfile.Identifier;
+				duplicatedProfiles.Add((duplicatedServiceProfile, duplicatedProfile));
+			}
+
+			foreach (var duplicatedProfile in duplicatedProfiles)
+			{
+				if (duplicatedProfile.Profile.Profiles != null)
+				{
+					duplicatedProfile.Profile.Profiles = duplicatedProfile.Profile.Profiles
+						.Select(reference => profileIdMap.TryGetValue(reference.Identifier ?? String.Empty, out var mapped) ? new SdmObjectReference<Profile>(mapped) : reference)
+						.ToList();
+				}
+
+				profilesById[duplicatedProfile.Profile.Identifier] = duplicatedProfile.Profile;
+				serviceProfilesById[duplicatedProfile.Config.Identifier] = duplicatedProfile.Config;
+				newVersion.Profiles.Add(new SdmObjectReference<Models.ServiceProfile>(duplicatedProfile.Config.Identifier));
+			}
+
+			RemapLinkedConsumers(createdParameterValues, parameterIdMap);
+			serviceConfigurationVersionsById[newVersion.Identifier] = newVersion;
+			return newVersion;
+		}
+
+		private void AddServiceSpecificationStandaloneParameters(Models.ServiceSpecification specification, Models.ServiceConfigurationVersion targetVersion)
+		{
+			foreach (var parameterReference in specification.ConfigurationParameters ?? new List<SdmObjectReference<ServiceSpecificationConfigurationValue>>())
+			{
+				var specificationConfiguration = GetValue(serviceSpecificationConfigurationValuesById, parameterReference.Identifier);
+				if (specificationConfiguration == null)
+				{
+					continue;
+				}
+
+				var templateParameterValue = GetValue(configurationParameterValuesById, specificationConfiguration.ConfigurationParameterId.Identifier);
+				if (templateParameterValue == null)
+				{
+					continue;
+				}
+
+				var duplicatedParameterValue = CloneConfigurationParameterValue(templateParameterValue, null);
+				duplicatedParameterValue.Label = String.Empty;
+				configurationParameterValuesById[duplicatedParameterValue.Identifier] = duplicatedParameterValue;
+
+				var configurationValue = new Models.ServiceConfigurationValue
+				{
+					Identifier = Guid.NewGuid().ToString(),
+					Mandatory = specificationConfiguration.MandatoryAtService,
+					ConfigurationParameterId = new SdmObjectReference<ConfigurationParameter>(duplicatedParameterValue.Identifier),
+				};
+
+				serviceConfigurationValuesById[configurationValue.Identifier] = configurationValue;
+				targetVersion.Parameters.Add(new SdmObjectReference<Models.ServiceConfigurationValue>(configurationValue.Identifier));
+			}
+		}
+
+		private void AddServiceSpecificationProfiles(Models.ServiceSpecification specification, Models.ServiceConfigurationVersion targetVersion)
+		{
+			foreach (var profileReference in specification.ConfigurationProfiles ?? new List<SdmObjectReference<ServiceSpecificationProfile>>())
+			{
+				var specificationProfile = GetValue(serviceSpecificationProfilesById, profileReference.Identifier);
+				if (specificationProfile == null)
+				{
+					continue;
+				}
+
+				var sourceProfile = GetValue(profilesById, specificationProfile.ProfileId.Identifier);
+				if (sourceProfile == null)
+				{
+					continue;
+				}
+
+				var duplicatedProfile = new Profile
+				{
+					Identifier = Guid.NewGuid().ToString(),
+					Name = sourceProfile.Name,
+					ProfileDefinitionId = String.IsNullOrEmpty(sourceProfile.ProfileDefinitionId.Identifier) ? default : new SdmObjectReference<ProfileDefinition>(sourceProfile.ProfileDefinitionId.Identifier),
+					Profiles = sourceProfile.Profiles?.Select(reference => new SdmObjectReference<Profile>(reference.Identifier)).ToList() ?? new List<SdmObjectReference<Profile>>(),
+					ConfigurationParameterValues = new List<SdmObjectReference<ConfigurationParameterValue>>(),
+					IsReusable = sourceProfile.IsReusable,
+				};
+
+				foreach (var parameterReference in sourceProfile.ConfigurationParameterValues ?? new List<SdmObjectReference<ConfigurationParameterValue>>())
+				{
+					var sourceParameterValue = GetValue(configurationParameterValuesById, parameterReference.Identifier);
+					if (sourceParameterValue == null)
+					{
+						continue;
+					}
+
+					var duplicatedParameterValue = CloneConfigurationParameterValue(sourceParameterValue, null);
+					configurationParameterValuesById[duplicatedParameterValue.Identifier] = duplicatedParameterValue;
+					duplicatedProfile.ConfigurationParameterValues.Add(new SdmObjectReference<ConfigurationParameterValue>(duplicatedParameterValue.Identifier));
+				}
+
+				var serviceProfile = new Models.ServiceProfile
+				{
+					Identifier = Guid.NewGuid().ToString(),
+					Mandatory = specificationProfile.MandatoryAtService,
+					ProfileDefinitionId = String.IsNullOrEmpty(specificationProfile.ProfileDefinitionId.Identifier) ? default : new SdmObjectReference<ProfileDefinition>(specificationProfile.ProfileDefinitionId.Identifier),
+					ProfileId = new SdmObjectReference<Profile>(duplicatedProfile.Identifier),
+				};
+
+				profilesById[duplicatedProfile.Identifier] = duplicatedProfile;
+				serviceProfilesById[serviceProfile.Identifier] = serviceProfile;
+				targetVersion.Profiles.Add(new SdmObjectReference<Models.ServiceProfile>(serviceProfile.Identifier));
+			}
+		}
+
+		private ConfigurationParameterValue CloneConfigurationParameterValue(ConfigurationParameterValue source, Dictionary<Guid, Guid> parameterIdMap)
+		{
+			var cloned = new ConfigurationParameterValue
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				Label = source.Label,
+				Type = source.Type,
+				ConfigurationParameterId = source.ConfigurationParameterId == null ? default : new SdmObjectReference<ConfigurationParameter>(source.ConfigurationParameterId.Identifier),
+				StringValue = source.StringValue,
+				DoubleValue = source.DoubleValue,
+				ValueFixed = source.ValueFixed,
+				IsLinked = source.IsLinked,
+				LinkedScript = source.LinkedScript,
+				LinkedConsumers = source.LinkedConsumers != null ? new List<Guid>(source.LinkedConsumers) : null,
+			};
+
+			if (!String.IsNullOrEmpty(source.NumberOptionsId.Identifier) && numberOptionsById.TryGetValue(source.NumberOptionsId.Identifier, out var sourceNumberOptions))
+			{
+				var clonedNumberOptions = new NumberParameterOptions
+				{
+					Identifier = Guid.NewGuid().ToString(),
+					Units = sourceNumberOptions.Units?.ToList() ?? new List<SdmObjectReference<ConfigurationUnit>>(),
+					DefaultUnitId = sourceNumberOptions.DefaultUnitId,
+					MinRange = sourceNumberOptions.MinRange,
+					MaxRange = sourceNumberOptions.MaxRange,
+					Decimals = sourceNumberOptions.Decimals,
+					StepSize = sourceNumberOptions.StepSize,
+					DefaultValue = sourceNumberOptions.DefaultValue,
+				};
+				numberOptionsById[clonedNumberOptions.Identifier] = clonedNumberOptions;
+				cloned.NumberOptionsId = new SdmObjectReference<NumberParameterOptions>(clonedNumberOptions.Identifier);
+			}
+
+			if (!String.IsNullOrEmpty(source.DiscreteOptionsId.Identifier) && discreteOptionsById.TryGetValue(source.DiscreteOptionsId.Identifier, out var sourceDiscreteOptions))
+			{
+				var clonedDiscreteOptions = new DiscreteParameterOptions
+				{
+					Identifier = Guid.NewGuid().ToString(),
+					DiscreteValues = sourceDiscreteOptions.DiscreteValues?.ToList() ?? new List<SdmObjectReference<DiscreteValue>>(),
+					DefaultDiscreteValueId = sourceDiscreteOptions.DefaultDiscreteValueId,
+				};
+				discreteOptionsById[clonedDiscreteOptions.Identifier] = clonedDiscreteOptions;
+				cloned.DiscreteOptionsId = new SdmObjectReference<DiscreteParameterOptions>(clonedDiscreteOptions.Identifier);
+			}
+
+			if (!String.IsNullOrEmpty(source.TextOptionsId.Identifier) && textOptionsById.TryGetValue(source.TextOptionsId.Identifier, out var sourceTextOptions))
+			{
+				var clonedTextOptions = new TextParameterOptions
+				{
+					Identifier = Guid.NewGuid().ToString(),
+					Regex = sourceTextOptions.Regex,
+					UserMessage = sourceTextOptions.UserMessage,
+					Default = sourceTextOptions.Default,
+				};
+				textOptionsById[clonedTextOptions.Identifier] = clonedTextOptions;
+				cloned.TextOptionsId = new SdmObjectReference<TextParameterOptions>(clonedTextOptions.Identifier);
+			}
+
+			if (parameterIdMap != null)
+			{
+				var oldId = TryParseGuid(source.Identifier);
+				var newId = TryParseGuid(cloned.Identifier);
+				if (oldId.HasValue && newId.HasValue)
+				{
+					parameterIdMap[oldId.Value] = newId.Value;
+				}
+			}
+
+			return cloned;
+		}
+
+		private static void RemapLinkedConsumers(IEnumerable<ConfigurationParameterValue> parameterValues, IReadOnlyDictionary<Guid, Guid> idMap)
+		{
+			if (idMap == null || idMap.Count == 0)
+			{
+				return;
+			}
+
+			foreach (var parameterValue in parameterValues)
+			{
+				if (parameterValue?.LinkedConsumers == null)
+				{
+					continue;
+				}
+
+				for (int i = 0; i < parameterValue.LinkedConsumers.Count; i++)
+				{
+					if (idMap.TryGetValue(parameterValue.LinkedConsumers[i], out var remappedId))
+					{
+						parameterValue.LinkedConsumers[i] = remappedId;
+					}
+				}
+			}
+		}
+
+		private void EnsureServiceCollections()
+		{
+			if (instanceService.ConfigurationVersions == null)
+			{
+				instanceService.ConfigurationVersions = new List<SdmObjectReference<Models.ServiceConfigurationVersion>>();
+			}
+		}
+
+		private static void EnsureConfigurationCollections(Models.ServiceConfigurationVersion version)
+		{
+			if (version.Parameters == null)
+			{
+				version.Parameters = new List<SdmObjectReference<Models.ServiceConfigurationValue>>();
+			}
+
+			if (version.Profiles == null)
+			{
+				version.Profiles = new List<SdmObjectReference<Models.ServiceProfile>>();
+			}
+		}
+
+		private static Guid? TryParseGuid(string identifier)
+		{
+			if (Guid.TryParse(identifier, out var parsed))
+			{
+				return parsed;
+			}
+
+			return null;
+		}
+
+		private static List<T> ReadAll<T>(IBulkRepository<T> repository)
+			where T : SdmObject<T>
+		{
+			return repository.Read(new TRUEFilterElement<T>()).ToList();
+		}
+
+		private static T GetValue<T>(IReadOnlyDictionary<string, T> values, string identifier)
+			where T : class
+		{
+			return !String.IsNullOrEmpty(identifier) && values.TryGetValue(identifier, out var value) ? value : null;
+		}
+
+		private static List<T> Resolve<T>(IEnumerable<SdmObjectReference<T>> references, IReadOnlyDictionary<string, T> values)
+			where T : SdmObject<T>
+		{
+			return references?
+				.Select(reference => GetValue(values, reference.Identifier))
+				.Where(value => value != null)
+				.ToList() ?? new List<T>();
+		}
+
+		private void CreateOrUpdateOptions(IParameterDataRecord record)
+		{
+			if (record.NumberOptions != null)
+			{
+				sdmHelper.ServiceCatalog.NumberParameterOptions.CreateOrUpdate(new[] { record.NumberOptions });
+			}
+
+			if (record.DiscreteOptions != null)
+			{
+				sdmHelper.ServiceCatalog.DiscreteParameterOptions.CreateOrUpdate(new[] { record.DiscreteOptions });
+			}
+
+			if (record.TextOptions != null)
+			{
+				sdmHelper.ServiceCatalog.TextParameterOptions.CreateOrUpdate(new[] { record.TextOptions });
+			}
+		}
+
+		private void DeleteOptions(IParameterDataRecord record)
+		{
+			if (record.NumberOptionsPersisted && record.NumberOptions != null)
+			{
+				sdmHelper.ServiceCatalog.NumberParameterOptions.Delete(record.NumberOptions);
+			}
+
+			if (record.DiscreteOptionsPersisted && record.DiscreteOptions != null)
+			{
+				sdmHelper.ServiceCatalog.DiscreteParameterOptions.Delete(record.DiscreteOptions);
+			}
+
+			if (record.TextOptionsPersisted && record.TextOptions != null)
+			{
+				sdmHelper.ServiceCatalog.TextParameterOptions.Delete(record.TextOptions);
+			}
+		}
+
+		private void DeleteParameterValueAndOptions(IParameterDataRecord record)
+		{
+			sdmHelper.ServiceCatalog.ConfigurationParameterValues.Delete(record.ConfigurationParamValue);
+			DeleteOptions(record);
+		}
+
+		private void DeleteStandaloneParameterConfiguration(StandaloneParameterDataRecord record)
+		{
+			sdmHelper.ServiceInventory.ServiceConfigurationValues.Delete(record.ServiceParameterConfig);
+			DeleteParameterValueAndOptions(record);
+		}
+
+		private void DeleteProfileConfiguration(ProfileDataRecord record)
+		{
+			sdmHelper.ServiceInventory.ServiceProfiles.Delete(record.ServiceProfileConfig);
+
+			if (record.Profile == null || record.Profile.IsReusable)
+			{
+				return;
+			}
+
+			foreach (var profileParameter in record.ProfileParameterConfigs)
+			{
+				DeleteParameterValueAndOptions(profileParameter);
+			}
+
+			sdmHelper.ServiceCatalog.Profiles.Delete(record.Profile);
+		}
+
+		private void DeleteProfileParameterConfiguration(ProfileParameterDataRecord record)
+		{
+			DeleteParameterValueAndOptions(record);
+		}
+
+		private int GetProfileDepth(ProfileDataRecord record)
+		{
+			if (record?.Profile == null)
+			{
+				return 0;
+			}
+
+			int depth = 1;
+			var children = GetChildProfileRecords(record);
+			if (children.Count == 0)
+			{
+				return depth;
+			}
+
+			foreach (var child in children)
+			{
+				depth = Math.Max(depth, 1 + GetProfileDepth(child));
+			}
+
+			return depth;
+		}
+
+		private void TrackOptions(IParameterDataRecord record)
+		{
+			if (record.NumberOptions != null)
+			{
+				numberOptionsById[record.NumberOptions.Identifier] = record.NumberOptions;
+			}
+
+			if (record.DiscreteOptions != null)
+			{
+				discreteOptionsById[record.DiscreteOptions.Identifier] = record.DiscreteOptions;
+			}
+
+			if (record.TextOptions != null)
+			{
+				textOptionsById[record.TextOptions.Identifier] = record.TextOptions;
+			}
+		}
+
+		private void TrackNewObjects(StandaloneParameterDataRecord record)
+		{
+			serviceConfigurationValuesById[record.ServiceParameterConfig.Identifier] = record.ServiceParameterConfig;
+			configurationParameterValuesById[record.ConfigurationParamValue.Identifier] = record.ConfigurationParamValue;
+			TrackOptions(record);
+		}
+
+		private void TrackNewObjects(ProfileParameterDataRecord record)
+		{
+			configurationParameterValuesById[record.ConfigurationParamValue.Identifier] = record.ConfigurationParamValue;
+			TrackOptions(record);
+		}
+
+		private void TrackNewObjects(ProfileDataRecord record)
+		{
+			serviceProfilesById[record.ServiceProfileConfig.Identifier] = record.ServiceProfileConfig;
+			if (record.Profile != null && !String.IsNullOrEmpty(record.Profile.Identifier))
+			{
+				profilesById[record.Profile.Identifier] = record.Profile;
+			}
+
+			foreach (var profileParameter in record.ProfileParameterConfigs)
+			{
+				TrackNewObjects(profileParameter);
+			}
 		}
 
 		private sealed class ScriptContext
 		{
 			public List<IParameterDataRecord> AllParameters { get; set; }
 
-			public Dictionary<Guid, string> ParamIdToProfileName { get; set; }
+			public Dictionary<string, string> ParamIdToProfileName { get; set; }
 
 			public Dictionary<string, ProfileDataRecord> ProfileByName { get; set; }
 
@@ -2010,3 +2793,26 @@
 		}
 	}
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

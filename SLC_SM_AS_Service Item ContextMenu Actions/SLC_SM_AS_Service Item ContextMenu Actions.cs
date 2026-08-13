@@ -4,8 +4,8 @@ namespace SLCSMASServiceItemContextMenuActions
 	using System.Linq;
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.IAS;
 
@@ -70,7 +70,10 @@ namespace SLCSMASServiceItemContextMenuActions
 			string label = _engine.ReadScriptParamFromApp("Service Item Label");
 			string contextMenuAction = _engine.ReadScriptParamFromApp("ContextMenu Action");
 
-			var service = new DataHelperService(_engine.GetUserConnection()).Read(ServiceExposers.Guid.Equal(domId)).FirstOrDefault()
+			var api = new ServiceManagementApiHelper(_engine.GetUserConnection(), "Service Inventory");
+			var service = api.ServiceInventory.Services
+				.Read(ServiceExposers.Identifier.Equal(domId.ToString()))
+				.FirstOrDefault()
 				?? throw new NotSupportedException($"No Service item with ID '{domId}' exists on the system!");
 
 			var serviceItem = service.ServiceItems?.FirstOrDefault(s => s.Label == label)
@@ -86,7 +89,7 @@ namespace SLCSMASServiceItemContextMenuActions
 			}
 		}
 
-		private void RunSrmBookingManagerActions(Models.ServiceItem serviceItem, string contextMenuAction)
+		private void RunSrmBookingManagerActions(ServiceItem serviceItem, string contextMenuAction)
 		{
 			string bookingManager = serviceItem.DefinitionReference;
 			string reservationId = serviceItem.ImplementationReference;

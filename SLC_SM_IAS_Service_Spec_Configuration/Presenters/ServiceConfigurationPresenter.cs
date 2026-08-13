@@ -1,24 +1,21 @@
-﻿namespace SLC_SM_IAS_Service_Spec_Configuration.Presenters
+namespace SLC_SM_IAS_Service_Spec_Configuration.Presenters
 {
 	using System;
 	using System.Collections.Generic;
 	using System.Linq;
 	using System.Text.RegularExpressions;
-
 	using DomHelpers.SlcConfigurations;
 	using Library;
-
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.Configurations;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
+	using Skyline.DataMiner.SDM;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
-
 	using SLC_SM_IAS_Service_Spec_Configuration.Model;
 	using SLC_SM_IAS_Service_Spec_Configuration.Model.DataRecords;
 	using SLC_SM_IAS_Service_Spec_Configuration.Views;
-
 	using static SLC_SM_IAS_Service_Spec_Configuration.Model.DataRecords.ServiceConfigurationPresenter;
 
 	public partial class ServiceConfigurationPresenter
@@ -28,48 +25,51 @@
 		private readonly int addButtonWidth = 70;
 		private readonly int deleteProfileButtonWidth = 55;
 		private readonly int buttonWidth = 200;
-
 		private readonly int detailsColumnIndex = 6;
 		private readonly int lifeCycleDetailsColumnIndex = 11;
 		private readonly int parameterValueColumnIndex = 4;
-
 		private readonly List<StandaloneParameterDataRecord> standaloneConfigurations = new List<StandaloneParameterDataRecord>();
 		private readonly List<ProfileDataRecord> profileConfigurations = new List<ProfileDataRecord>();
 		private readonly IEngine engine;
 		private readonly InteractiveController controller;
-		private readonly Models.ServiceSpecification instance;
+		private readonly ServiceSpecification instance;
 		private readonly ServiceConfigurationView view;
-		private DataHelpersServiceManagement repoService;
-		private DataHelpersConfigurations repoConfig;
-		private List<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ProfileDefinition> profileDefinitions;
-		private List<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.Profile> reusableProfiles;
-
+		private readonly ServiceManagementApiHelper apiHelper;
+		private List<ProfileDefinition> profileDefinitions = new List<ProfileDefinition>();
+		private List<Profile> reusableProfiles = new List<Profile>();
+		private Dictionary<string, ServiceSpecificationConfigurationValue> serviceSpecificationConfigurationValuesById = new Dictionary<string, ServiceSpecificationConfigurationValue>();
+		private Dictionary<string, ServiceSpecificationProfile> serviceSpecificationProfilesById = new Dictionary<string, ServiceSpecificationProfile>();
+		private Dictionary<string, ConfigurationParameter> configurationParametersById = new Dictionary<string, ConfigurationParameter>();
+		private Dictionary<string, ConfigurationParameterValue> configurationParameterValuesById = new Dictionary<string, ConfigurationParameterValue>();
+		private Dictionary<string, NumberParameterOptions> numberOptionsById = new Dictionary<string, NumberParameterOptions>();
+		private Dictionary<string, DiscreteParameterOptions> discreteOptionsById = new Dictionary<string, DiscreteParameterOptions>();
+		private Dictionary<string, TextParameterOptions> textOptionsById = new Dictionary<string, TextParameterOptions>();
+		private Dictionary<string, ConfigurationUnit> configurationUnitsById = new Dictionary<string, ConfigurationUnit>();
+		private Dictionary<string, DiscreteValue> discreteValuesById = new Dictionary<string, DiscreteValue>();
+		private Dictionary<string, Profile> profilesById = new Dictionary<string, Profile>();
+		private Dictionary<string, ProfileDefinition> profileDefinitionsById = new Dictionary<string, ProfileDefinition>();
+		private Dictionary<string, ReferencedConfigurationParameter> referencedConfigurationParametersById = new Dictionary<string, ReferencedConfigurationParameter>();
+		private readonly Dictionary<string, bool> collapsedProfileStatesById = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+		private bool standaloneParametersCollapsed;
 		private bool showDetails;
 		private bool showLifeCycleDetails;
 
-		public ServiceConfigurationPresenter(IEngine engine, InteractiveController controller, ServiceConfigurationView view, Models.ServiceSpecification instance)
+		public ServiceConfigurationPresenter(IEngine engine, InteractiveController controller, ServiceConfigurationView view, ServiceManagementApiHelper apiHelper, ServiceSpecification instance)
 		{
 			this.engine = engine;
 			this.controller = controller;
 			this.view = view;
+			this.apiHelper = apiHelper;
 			this.instance = instance;
-
-			showDetails = false;
-			showLifeCycleDetails = false;
-			profileDefinitions = new List<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ProfileDefinition>();
-			reusableProfiles = new List<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.Profile>();
-
+			standaloneParametersCollapsed = view.StandaloneParameters.IsCollapsed;
 			view.BtnCancel.MaxWidth = buttonWidth;
 			view.BtnUpdate.MaxWidth = buttonWidth;
 			view.BtnShowLifeCycleDetails.MaxWidth = buttonWidth;
 			view.BtnShowValueDetails.MaxWidth = buttonWidth;
-
 			view.BtnCancel.Pressed += OnCancelButtonPressed;
 			view.BtnUpdate.Pressed += OnUpdateButtonPressed;
-
 			view.BtnShowValueDetails.Pressed += OnBtnShowValueDetailsPressed;
 			view.BtnShowLifeCycleDetails.Pressed += OnBtnShowLifeCycleDetailsPressed;
-
 			view.StandaloneParameters.Pressed += (sender, args) =>
 			{
 				if (sender is CollapseButton collapseButton)
@@ -82,85 +82,150 @@
 
 		public void LoadFromModel()
 		{
-			repoService = new DataHelpersServiceManagement(engine.GetUserConnection());
-			repoConfig = new DataHelpersConfigurations(engine.GetUserConnection());
+			if (apiHelper == null)
+			{
+				throw new InvalidOperationException("ServiceManagementApiHelper is required to load the model.");
+			}
 
-			var configParams = repoConfig.ConfigurationParameters.Read();
-
-			BuildDataRecords(configParams);
-			ObtainMissingNestedProfiles(configParams);
-
-			var parameterOptions = configParams.Select(x => new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter>(x.Name, x)).OrderBy(x => x.DisplayValue).ToList();
-			parameterOptions.Insert(0, new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter>("- Parameter -", null));
+			configurationParametersById = ReadAll(apiHelper.ServiceCatalog.ConfigurationParameters).ToDictionary(x => x.Identifier);
+			configurationParameterValuesById = ReadAll(apiHelper.ServiceCatalog.ConfigurationParameterValues).ToDictionary(x => x.Identifier);
+			numberOptionsById = ReadAll(apiHelper.ServiceCatalog.NumberParameterOptions).ToDictionary(x => x.Identifier);
+			discreteOptionsById = ReadAll(apiHelper.ServiceCatalog.DiscreteParameterOptions).ToDictionary(x => x.Identifier);
+			textOptionsById = ReadAll(apiHelper.ServiceCatalog.TextParameterOptions).ToDictionary(x => x.Identifier);
+			configurationUnitsById = ReadAll(apiHelper.ServiceCatalog.ConfigurationUnits).ToDictionary(x => x.Identifier);
+			discreteValuesById = ReadAll(apiHelper.ServiceCatalog.DiscreteValues).ToDictionary(x => x.Identifier);
+			profilesById = ReadAll(apiHelper.ServiceCatalog.Profiles).ToDictionary(x => x.Identifier);
+			profileDefinitions = ReadAll(apiHelper.ServiceCatalog.ProfileDefinitions);
+			profileDefinitionsById = profileDefinitions.ToDictionary(x => x.Identifier);
+			referencedConfigurationParametersById = ReadAll(apiHelper.ServiceCatalog.ReferencedConfigurationParameters).ToDictionary(x => x.Identifier);
+			reusableProfiles = profilesById.Values.Where(x => x.IsReusable).ToList();
+			serviceSpecificationConfigurationValuesById = ReadAll(apiHelper.ServiceCatalog.ServiceSpecificationConfigurationValues).ToDictionary(x => x.Identifier);
+			serviceSpecificationProfilesById = ReadAll(apiHelper.ServiceCatalog.ServiceSpecificationProfiles).ToDictionary(x => x.Identifier);
+			EnsureInstanceCollections();
+			BuildDataRecords();
+			ObtainMissingNestedProfiles();
+			var parameterOptions = configurationParametersById.Values.Select(x => new Option<ConfigurationParameter>(x.Name, x)).OrderBy(x => x.DisplayValue).ToList();
+			parameterOptions.Insert(0, new Option<ConfigurationParameter>("- Parameter -", null));
 			view.AddParameter.SetOptions(parameterOptions);
-
-			profileDefinitions = repoConfig.ProfileDefinitions.Read();
-			reusableProfiles = repoConfig.Profiles.Read(ProfileExposers.IsReusable.Equal(true));
-
 			BuildUI(false, false);
 		}
 
 		public void StoreModels()
 		{
-			foreach (var configuration in standaloneConfigurations)
+			if (apiHelper == null)
 			{
-				if (configuration.State == State.Delete)
+				throw new InvalidOperationException("ServiceManagementApiHelper is required to store the model.");
+			}
+
+			foreach (var configuration in standaloneConfigurations.Where(x => x.State == State.Delete))
+			{
+				DeleteStandaloneConfiguration(configuration);
+			}
+
+			foreach (var profile in profileConfigurations.Where(x => x.State == State.Delete))
+			{
+				DeleteProfileConfiguration(profile);
+			}
+
+			foreach (var profile in profileConfigurations.Where(x => x.State != State.Delete && !x.Profile.IsReusable))
+			{
+				foreach (var profileParameter in profile.ProfileParameterConfigs.Where(x => x.State == State.Delete))
 				{
-					repoService.ServiceSpecificationConfigurationValues.TryDelete(configuration.ServiceConfig);
+					DeleteProfileParameterConfiguration(profileParameter);
 				}
 			}
 
-			foreach (var profile in profileConfigurations)
+			var standaloneParameterValuesToStore = new List<ConfigurationParameterValue>();
+			var standaloneConfigurationsToStore = new List<ServiceSpecificationConfigurationValue>();
+			foreach (var configuration in standaloneConfigurations.Where(x => x.State != State.Delete))
 			{
-				if (profile.State == State.Delete)
-				{
-					repoService.ServiceSpecificationProfiles.TryDelete(profile.ServiceProfileConfig);
-				}
+				configuration.ConfigurationParamValue.ConfigurationParameterId = new SdmObjectReference<ConfigurationParameter>(configuration.ConfigurationParam.Identifier);
+				configuration.ServiceConfig.ConfigurationParameterId = new SdmObjectReference<ConfigurationParameter>(configuration.ConfigurationParamValue.Identifier);
+				CreateOrUpdateOptions(configuration);
+				standaloneParameterValuesToStore.Add(configuration.ConfigurationParamValue);
+				standaloneConfigurationsToStore.Add(configuration.ServiceConfig);
+			}
 
-				if (profile.Profile.IsReusable)
-				{
-					continue;
-				}
+			if (standaloneParameterValuesToStore.Count > 0)
+			{
+				apiHelper.ServiceCatalog.ConfigurationParameterValues.CreateOrUpdate(standaloneParameterValuesToStore);
+			}
 
-				foreach (var profileParameter in profile.ProfileParameterConfigs)
+			if (standaloneConfigurationsToStore.Count > 0)
+			{
+				apiHelper.ServiceCatalog.ServiceSpecificationConfigurationValues.CreateOrUpdate(standaloneConfigurationsToStore);
+			}
+
+			var activeProfiles = profileConfigurations.Where(x => x.State != State.Delete).OrderByDescending(GetProfileDepth).ToList();
+			var profileParameterValuesToStore = new List<ConfigurationParameterValue>();
+			var profilesToStore = new List<Profile>();
+			var serviceProfilesToStore = new List<ServiceSpecificationProfile>();
+			foreach (var profile in activeProfiles)
+			{
+				profile.ServiceProfileConfig.ProfileId = new SdmObjectReference<Profile>(profile.Profile.Identifier);
+				profile.ServiceProfileConfig.ProfileDefinitionId = new SdmObjectReference<ProfileDefinition>(profile.ProfileDefinition.Identifier);
+				if (!profile.Profile.IsReusable)
 				{
-					if (profileParameter.State == State.Delete)
+					profile.Profile.ProfileDefinitionId = new SdmObjectReference<ProfileDefinition>(profile.ProfileDefinition.Identifier);
+					profile.Profile.ConfigurationParameterValues = profile.ProfileParameterConfigs.Where(x => x.State != State.Delete).Select(x => new SdmObjectReference<ConfigurationParameterValue>(x.ConfigurationParamValue.Identifier)).ToList();
+					foreach (var profileParameter in profile.ProfileParameterConfigs.Where(x => x.State != State.Delete))
 					{
-						repoConfig.ConfigurationParameterValues.TryDelete(profileParameter.ConfigurationParamValue);
+						profileParameter.ConfigurationParamValue.ConfigurationParameterId = new SdmObjectReference<ConfigurationParameter>(profileParameter.ConfigurationParam.Identifier);
+						CreateOrUpdateOptions(profileParameter);
+						profileParameterValuesToStore.Add(profileParameter.ConfigurationParamValue);
 					}
+					profilesToStore.Add(profile.Profile);
 				}
+				serviceProfilesToStore.Add(profile.ServiceProfileConfig);
 			}
 
-			repoService.ServiceSpecifications.CreateOrUpdate(instance);
+			if (profileParameterValuesToStore.Count > 0)
+			{
+				apiHelper.ServiceCatalog.ConfigurationParameterValues.CreateOrUpdate(profileParameterValuesToStore);
+			}
+
+			if (profilesToStore.Count > 0)
+			{
+				apiHelper.ServiceCatalog.Profiles.CreateOrUpdate(profilesToStore);
+			}
+
+			if (serviceProfilesToStore.Count > 0)
+			{
+				apiHelper.ServiceCatalog.ServiceSpecificationProfiles.CreateOrUpdate(serviceProfilesToStore);
+			}
+
+			apiHelper.ServiceCatalog.ServiceSpecifications.CreateOrUpdate(new[] { instance });
 		}
 
-		private void ObtainMissingNestedProfiles(List<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter> configParams)
+		private void ObtainMissingNestedProfiles()
 		{
-			var loadedProfileIds = new HashSet<Guid>(
-				profileConfigurations
-					.Where(p => p.Profile != null)
-					.Select(p => p.Profile.ID));
-
+			var loadedProfileIds = new HashSet<string>(profileConfigurations.Where(p => p.Profile != null).Select(p => p.Profile.Identifier));
 			var missingIds = CollectMissingChildProfileIds(loadedProfileIds);
-
 			if (missingIds.Count == 0)
 			{
 				return;
 			}
 
-			var filter = missingIds
-				.Select(id => (FilterElement<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.Profile>)ProfileExposers.Guid.Equal(id))
-				.Aggregate((f1, f2) => f1.OR(f2));
-
-			foreach (var fetchedProfile in repoConfig.Profiles.Read(filter))
+			FilterElement<Profile> filter = null;
+			foreach (var missingId in missingIds)
 			{
-				IncludeMissingNestedProfile(fetchedProfile, configParams, loadedProfileIds, missingIds);
+				filter = filter == null ? ProfileExposers.Identifier.Equal(missingId) : filter.OR(ProfileExposers.Identifier.Equal(missingId));
+			}
+
+			if (filter == null)
+			{
+				return;
+			}
+
+			foreach (var fetchedProfile in apiHelper.ServiceCatalog.Profiles.Read(filter))
+			{
+				IncludeMissingNestedProfile(fetchedProfile, loadedProfileIds, missingIds);
 			}
 		}
 
-		private HashSet<Guid> CollectMissingChildProfileIds(HashSet<Guid> loadedProfileIds)
+		private HashSet<string> CollectMissingChildProfileIds(HashSet<string> loadedProfileIds)
 		{
-			var missingIds = new HashSet<Guid>();
+			var missingIds = new HashSet<string>();
 			foreach (var profileRecord in profileConfigurations.Where(x => x.State != State.Delete))
 			{
 				if (profileRecord.Profile?.Profiles == null)
@@ -168,7 +233,7 @@
 					continue;
 				}
 
-				foreach (var childId in profileRecord.Profile.Profiles.Where(id => !loadedProfileIds.Contains(id)))
+				foreach (var childId in profileRecord.Profile.Profiles.Select(x => x.Identifier).Where(x => !String.IsNullOrEmpty(x) && !loadedProfileIds.Contains(x)))
 				{
 					missingIds.Add(childId);
 				}
@@ -177,38 +242,40 @@
 			return missingIds;
 		}
 
-		private void IncludeMissingNestedProfile(
-			Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.Profile fetchedProfile,
-			List<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter> configParams,
-			HashSet<Guid> loadedProfileIds,
-			HashSet<Guid> missingIds)
+		private void IncludeMissingNestedProfile(Profile fetchedProfile, HashSet<string> loadedProfileIds, HashSet<string> missingIds)
 		{
-			var profileDefinition = fetchedProfile.ProfileDefinitionReference != Guid.Empty
-				? repoConfig.ProfileDefinitions.Read(ProfileDefinitionExposers.Guid.Equal(fetchedProfile.ProfileDefinitionReference)).FirstOrDefault()
-				: null;
-
-			var missingServiceProfile = new Models.ServiceSpecificationProfile
+			if (fetchedProfile == null || String.IsNullOrEmpty(fetchedProfile.Identifier))
 			{
-				ID = Guid.NewGuid(),
+				return;
+			}
+
+			if (!profileDefinitionsById.TryGetValue(fetchedProfile.ProfileDefinitionId.Identifier ?? String.Empty, out var profileDefinition))
+			{
+				profileDefinition = null;
+			}
+
+			var missingServiceProfile = new ServiceSpecificationProfile
+			{
+				Identifier = Guid.NewGuid().ToString(),
 				ExposeAtServiceOrder = true,
 				MandatoryAtServiceOrder = false,
 				MandatoryAtService = false,
-				Profile = fetchedProfile,
-				ProfileDefinition = profileDefinition,
+				ProfileId = new SdmObjectReference<Profile>(fetchedProfile.Identifier),
+				ProfileDefinitionId = profileDefinition == null ? default : new SdmObjectReference<ProfileDefinition>(profileDefinition.Identifier),
 			};
 
-			instance.ConfigurationProfiles.Add(missingServiceProfile);
-			profileConfigurations.Add(ProfileDataRecord.BuildProfileRecord(missingServiceProfile, configParams));
+			instance.ConfigurationProfiles.Add(new SdmObjectReference<ServiceSpecificationProfile>(missingServiceProfile.Identifier));
+			serviceSpecificationProfilesById[missingServiceProfile.Identifier] = missingServiceProfile;
+			var profileRecord = ProfileDataRecord.BuildProfileRecord(missingServiceProfile, fetchedProfile, profileDefinition, configurationParameterValuesById, configurationParametersById, referencedConfigurationParametersById, numberOptionsById, discreteOptionsById, textOptionsById, configurationUnitsById, discreteValuesById);
+			TrackNewObjects(profileRecord);
+			profileConfigurations.Add(profileRecord);
 
-			if (fetchedProfile.Profiles != null)
+			foreach (var grandChildId in fetchedProfile.Profiles?.Select(x => x.Identifier).Where(x => !String.IsNullOrEmpty(x) && !loadedProfileIds.Contains(x) && !missingIds.Contains(x)) ?? Enumerable.Empty<string>())
 			{
-				foreach (var grandChildId in fetchedProfile.Profiles.Where(id => !loadedProfileIds.Contains(id) && !missingIds.Contains(id)))
-				{
-					missingIds.Add(grandChildId);
-				}
+				missingIds.Add(grandChildId);
 			}
 
-			loadedProfileIds.Add(fetchedProfile.ID);
+			loadedProfileIds.Add(fetchedProfile.Identifier);
 		}
 
 		private static void OnCancelButtonPressed(object sender, EventArgs e)
@@ -216,34 +283,15 @@
 			throw new ScriptAbortException("OK");
 		}
 
-		private static Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameterValue BuildConfigurationParameter(Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter configurationParameterInstance)
+		private static ConfigurationParameterValue BuildConfigurationParameter(ConfigurationParameter configurationParameterInstance)
 		{
-			var configurationParameterValue = new Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameterValue
+			return new ConfigurationParameterValue
 			{
+				Identifier = Guid.NewGuid().ToString(),
 				Label = String.Empty,
 				Type = configurationParameterInstance.Type,
-				ConfigurationParameterId = configurationParameterInstance.ID,
-				NumberOptions = configurationParameterInstance.NumberOptions,
-				DiscreteOptions = configurationParameterInstance.DiscreteOptions,
-				TextOptions = configurationParameterInstance.TextOptions,
+				ConfigurationParameterId = new SdmObjectReference<ConfigurationParameter>(configurationParameterInstance.Identifier),
 			};
-
-			if (configurationParameterValue.NumberOptions != null)
-			{
-				configurationParameterValue.NumberOptions.ID = Guid.NewGuid();
-			}
-
-			if (configurationParameterValue.DiscreteOptions != null)
-			{
-				configurationParameterValue.DiscreteOptions.ID = Guid.NewGuid();
-			}
-
-			if (configurationParameterValue.TextOptions != null)
-			{
-				configurationParameterValue.TextOptions.ID = Guid.NewGuid();
-			}
-
-			return configurationParameterValue;
 		}
 
 		private static void SetNestedReusableRowVisible(Label label, DropDown<ProfileOption> dropDown, Button button, bool visible)
@@ -257,7 +305,6 @@
 		{
 			showLifeCycleDetails = !showLifeCycleDetails;
 			view.BtnShowLifeCycleDetails.Text = !showLifeCycleDetails ? view.BtnShowLifeCycleDetails.Text.Replace("Hide", "Show") : view.BtnShowLifeCycleDetails.Text.Replace("Show", "Hide");
-
 			foreach (var details in view.LifeCycleDetails)
 			{
 				if (details.Key == ServiceConfigurationView.StandaloneCollapseButtonTitle)
@@ -265,7 +312,6 @@
 					ShowHideStandaloneParametersSection(showLifeCycleDetails, details.Value);
 					continue;
 				}
-
 				ShowHideProfileParametersSection(showLifeCycleDetails, details.Key, details.Value);
 			}
 		}
@@ -274,7 +320,6 @@
 		{
 			showDetails = !showDetails;
 			view.BtnShowValueDetails.Text = !showDetails ? view.BtnShowValueDetails.Text.Replace("Hide", "Show") : view.BtnShowValueDetails.Text.Replace("Show", "Hide");
-
 			foreach (var details in view.Details)
 			{
 				if (details.Key == ServiceConfigurationView.StandaloneCollapseButtonTitle)
@@ -282,7 +327,6 @@
 					ShowHideStandaloneParametersSection(showDetails, details.Value);
 					continue;
 				}
-
 				ShowHideProfileParametersSection(showDetails, details.Key, details.Value);
 			}
 		}
@@ -293,21 +337,26 @@
 			throw new ScriptAbortException("OK");
 		}
 
-		public void AddStandaloneParameterConfigModel(Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter selectedParameter)
+		public void AddStandaloneParameterConfigModel(ConfigurationParameter selectedParameter)
 		{
-			var configurationParameterInstance = selectedParameter ?? new Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter();
-			var config = new Models.ServiceSpecificationConfigurationValue
+			var configurationParameterInstance = selectedParameter ?? new ConfigurationParameter();
+			var configurationParameterValue = BuildConfigurationParameter(configurationParameterInstance);
+			var config = new ServiceSpecificationConfigurationValue
 			{
-				ID = Guid.NewGuid(),
+				Identifier = Guid.NewGuid().ToString(),
 				ExposeAtServiceOrder = true,
 				MandatoryAtServiceOrder = false,
 				MandatoryAtService = false,
+				ConfigurationParameterId = new SdmObjectReference<ConfigurationParameter>(configurationParameterValue.Identifier),
 			};
-			config.ConfigurationParameter = BuildConfigurationParameter(configurationParameterInstance);
 
-			instance.ConfigurationParameters.Add(config);
-
-			standaloneConfigurations.Add(StandaloneParameterDataRecord.BuildDataRecord(config, configurationParameterInstance));
+			EnsureInstanceCollections();
+			instance.ConfigurationParameters.Add(new SdmObjectReference<ServiceSpecificationConfigurationValue>(config.Identifier));
+			serviceSpecificationConfigurationValuesById[config.Identifier] = config;
+			configurationParameterValuesById[configurationParameterValue.Identifier] = configurationParameterValue;
+			var record = StandaloneParameterDataRecord.BuildDataRecord(config, configurationParameterValue, configurationParameterInstance, numberOptionsById, discreteOptionsById, textOptionsById, configurationUnitsById, discreteValuesById);
+			TrackNewObjects(record);
+			standaloneConfigurations.Add(record);
 		}
 
 		private void AddProfileConfigModel(ProfileOption selectedProfile)
@@ -329,103 +378,115 @@
 
 		private void AddProfileConfigModelFromReusableProfile(ProfileOption profileOption)
 		{
-			var profileInstance = reusableProfiles.Find(p => p.ID == profileOption.Id);
+			var profileInstance = reusableProfiles.Find(p => p.Identifier == profileOption.Id);
 			if (profileInstance == null)
 			{
 				return;
 			}
 
-			bool alreadyAtRootLevel = GetRootLevelReusableProfileIds().Contains(profileInstance.ID);
-			if (alreadyAtRootLevel)
+			if (GetRootLevelReusableProfileIds().Contains(profileInstance.Identifier))
 			{
 				return;
 			}
 
-			var profileDefinitionInstance = repoConfig.ProfileDefinitions.Read(ProfileDefinitionExposers.Guid.Equal(profileInstance.ProfileDefinitionReference))[0];
-
-			var config = new Models.ServiceSpecificationProfile
+			if (!profileDefinitionsById.TryGetValue(profileInstance.ProfileDefinitionId.Identifier ?? String.Empty, out var profileDefinitionInstance))
 			{
-				ID = Guid.NewGuid(),
+				return;
+			}
+
+			var config = new ServiceSpecificationProfile
+			{
+				Identifier = Guid.NewGuid().ToString(),
 				ExposeAtServiceOrder = true,
 				MandatoryAtServiceOrder = false,
 				MandatoryAtService = false,
-				Profile = profileInstance,
-				ProfileDefinition = profileDefinitionInstance,
+				ProfileId = new SdmObjectReference<Profile>(profileInstance.Identifier),
+				ProfileDefinitionId = new SdmObjectReference<ProfileDefinition>(profileDefinitionInstance.Identifier),
 			};
 
-			var configParams = DomExtensions.GetConfigParameters(repoConfig, profileInstance);
-
-			instance.ConfigurationProfiles.Add(config);
-			profileConfigurations.Add(ProfileDataRecord.BuildProfileRecord(config, configParams));
+			EnsureInstanceCollections();
+			instance.ConfigurationProfiles.Add(new SdmObjectReference<ServiceSpecificationProfile>(config.Identifier));
+			serviceSpecificationProfilesById[config.Identifier] = config;
+			var record = ProfileDataRecord.BuildProfileRecord(config, profileInstance, profileDefinitionInstance, configurationParameterValuesById, configurationParametersById, referencedConfigurationParametersById, numberOptionsById, discreteOptionsById, textOptionsById, configurationUnitsById, discreteValuesById);
+			TrackNewObjects(record);
+			profileConfigurations.Add(record);
 		}
 
 		private void AddProfileConfigModelFromProfileDefinition(ProfileOption profileOption)
 		{
-			var profileDefinitionInstance = profileDefinitions.Find(pd => pd.ID == profileOption.Id);
-			var configParams = DomExtensions.GetConfigParameters(repoConfig, profileDefinitionInstance.ConfigurationParameters);
-
-			var parameterValues = new List<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameterValue>();
-
-			foreach (var refConfigParam in profileDefinitionInstance.ConfigurationParameters)
+			var profileDefinitionInstance = profileDefinitions.Find(pd => pd.Identifier == profileOption.Id);
+			if (profileDefinitionInstance == null)
 			{
-				var configParam = configParams.FirstOrDefault(p => p.ID == refConfigParam.ConfigurationParameter);
+				return;
+			}
+
+			var resolvedReferencedParameters = Resolve(profileDefinitionInstance.ConfigurationParameters, referencedConfigurationParametersById);
+			var configParams = DomExtensions.GetConfigParameters(configurationParametersById, resolvedReferencedParameters);
+			var parameterValues = new List<ConfigurationParameterValue>();
+			foreach (var refConfigParam in resolvedReferencedParameters)
+			{
+				var configParam = configParams.FirstOrDefault(p => p.Identifier == refConfigParam.ConfigurationParameterId.Identifier);
 				if (configParam == null)
 				{
 					continue;
 				}
-
 				parameterValues.Add(BuildConfigurationParameter(configParam));
 			}
 
 			string profileName = $"{profileDefinitionInstance.Name} ({instance.Name})";
-
-			var existingNames = profileConfigurations
-				.Where(p => p.State != State.Delete)
-				.Select(p => p.Profile.Name)
-				.ToList();
-
+			var existingNames = profileConfigurations.Where(p => p.State != State.Delete).Select(p => p.Profile.Name).ToList();
 			if (existingNames.Contains(profileName))
 			{
-				int count = existingNames.Count(n => n.StartsWith(profileName));
+				int count = existingNames.Count(n => n.StartsWith(profileName, StringComparison.Ordinal));
 				profileName = $"{profileName} #{count}";
 			}
 
-			var config = new Models.ServiceSpecificationProfile
+			var profile = new Profile
 			{
-				ID = Guid.NewGuid(),
+				Identifier = Guid.NewGuid().ToString(),
+				Name = profileName,
+				ProfileDefinitionId = new SdmObjectReference<ProfileDefinition>(profileDefinitionInstance.Identifier),
+				ConfigurationParameterValues = parameterValues.Select(x => new SdmObjectReference<ConfigurationParameterValue>(x.Identifier)).ToList(),
+				Profiles = new List<SdmObjectReference<Profile>>(),
+			};
+			var config = new ServiceSpecificationProfile
+			{
+				Identifier = Guid.NewGuid().ToString(),
 				ExposeAtServiceOrder = true,
 				MandatoryAtServiceOrder = false,
 				MandatoryAtService = false,
-				ProfileDefinition = profileDefinitionInstance,
-				Profile = new Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.Profile
-				{
-					Name = profileName,
-					ProfileDefinitionReference = profileDefinitionInstance.ID,
-					ConfigurationParameterValues = parameterValues,
-				},
+				ProfileDefinitionId = new SdmObjectReference<ProfileDefinition>(profileDefinitionInstance.Identifier),
+				ProfileId = new SdmObjectReference<Profile>(profile.Identifier),
 			};
 
-			instance.ConfigurationProfiles.Add(config);
-			profileConfigurations.Add(ProfileDataRecord.BuildProfileRecord(config, configParams));
+			EnsureInstanceCollections();
+			instance.ConfigurationProfiles.Add(new SdmObjectReference<ServiceSpecificationProfile>(config.Identifier));
+			profilesById[profile.Identifier] = profile;
+			serviceSpecificationProfilesById[config.Identifier] = config;
+			foreach (var parameterValue in parameterValues)
+			{
+				configurationParameterValuesById[parameterValue.Identifier] = parameterValue;
+			}
+
+			var record = ProfileDataRecord.BuildProfileRecord(config, profile, profileDefinitionInstance, configurationParameterValuesById, configurationParametersById, referencedConfigurationParametersById, numberOptionsById, discreteOptionsById, textOptionsById, configurationUnitsById, discreteValuesById);
+			TrackNewObjects(record);
+			profileConfigurations.Add(record);
 		}
 
-		private void AddProfileParameterConfigModel(ProfileDataRecord profile, Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter selected)
+		private void AddProfileParameterConfigModel(ProfileDataRecord profile, ConfigurationParameter selected)
 		{
 			if (profile == null)
 			{
 				return;
 			}
 
-			var configurationParameterInstance = selected ?? new Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter();
-
+			var configurationParameterInstance = selected ?? new ConfigurationParameter();
 			var configParamValue = BuildConfigurationParameter(configurationParameterInstance);
-
-			profile.ProfileParameterConfigs.Add(ProfileParameterDataRecord.BuildParameterDataRecord(
-				configParamValue,
-				configurationParameterInstance,
-				profile.ProfileDefinition.ConfigurationParameters.FirstOrDefault(p => p.ConfigurationParameter == configurationParameterInstance.ID)));
-
-			instance.ConfigurationProfiles.Find(p => p.ID == profile.ServiceProfileConfig.ID).Profile.ConfigurationParameterValues.Add(configParamValue);
+			var parameterRecord = ProfileParameterDataRecord.BuildParameterDataRecord(configParamValue, configurationParameterInstance, profile.ResolvedReferencedConfigurationParameters.FirstOrDefault(p => p.ConfigurationParameterId.Identifier == configurationParameterInstance.Identifier), numberOptionsById, discreteOptionsById, textOptionsById, configurationUnitsById, discreteValuesById);
+			profile.ProfileParameterConfigs.Add(parameterRecord);
+			EnsureProfileCollections(profile.Profile);
+			profile.Profile.ConfigurationParameterValues.Add(new SdmObjectReference<ConfigurationParameterValue>(configParamValue.Identifier));
+			TrackNewObjects(parameterRecord);
 		}
 
 		private void BuildHeaderRow(int row, CollapseButton collapseButton, bool displaylifeCycleHeaders, string sectionKey)
@@ -442,48 +503,47 @@
 			var lblDecimals = new Label("Decimals") { Style = TextStyle.Heading, IsVisible = !collapseButton.IsCollapsed, MaxWidth = 100 };
 			var lblValues = new Label("Values") { Style = TextStyle.Heading, IsVisible = !collapseButton.IsCollapsed, MaxWidth = 100 };
 			var lblDefault = new Label("Fixed") { Style = TextStyle.Heading, IsVisible = !collapseButton.IsCollapsed, MaxWidth = 100 };
-
 			if (displaylifeCycleHeaders)
 			{
 				var lblExposeAtOrder = new Label("Expose\r\nAt Order") { Style = TextStyle.Heading, IsVisible = !collapseButton.IsCollapsed, MaxWidth = 100 };
 				var lblMandatoryAtOrder = new Label("Mandatory\r\nAt Order") { Style = TextStyle.Heading, IsVisible = !collapseButton.IsCollapsed, MaxWidth = 100 };
 				var lblMandatoryAtService = new Label("Mandatory\r\nAt Service") { Style = TextStyle.Heading, IsVisible = !collapseButton.IsCollapsed, MaxWidth = 100 };
 				view.LifeCycleDetails[sectionKey].AddWidget(lblDefault, 0, 0);
-				collapseButton.LinkedWidgets.Add(lblDefault);
 				view.LifeCycleDetails[sectionKey].AddWidget(lblExposeAtOrder, 0, 1);
-				collapseButton.LinkedWidgets.Add(lblExposeAtOrder);
 				view.LifeCycleDetails[sectionKey].AddWidget(lblMandatoryAtOrder, 0, 2);
-				collapseButton.LinkedWidgets.Add(lblMandatoryAtOrder);
 				view.LifeCycleDetails[sectionKey].AddWidget(lblMandatoryAtService, 0, 3);
+				collapseButton.LinkedWidgets.Add(lblDefault);
+				collapseButton.LinkedWidgets.Add(lblExposeAtOrder);
+				collapseButton.LinkedWidgets.Add(lblMandatoryAtOrder);
 				collapseButton.LinkedWidgets.Add(lblMandatoryAtService);
 			}
 
 			view.AddWidget(lblLabel, row, 0);
-			collapseButton.LinkedWidgets.Add(lblLabel);
 			view.AddWidget(lblParameter, row, 1);
-			collapseButton.LinkedWidgets.Add(lblParameter);
 			view.AddWidget(lblLink, row, 2);
-			collapseButton.LinkedWidgets.Add(lblLink);
 			view.AddWidget(lblNa, row, 3);
-			collapseButton.LinkedWidgets.Add(lblNa);
 			view.AddWidget(lblValue, row, 4);
-			collapseButton.LinkedWidgets.Add(lblValue);
 			view.AddWidget(lblUnit, row, 5);
-			collapseButton.LinkedWidgets.Add(lblUnit);
-
 			view.Details[sectionKey].AddWidget(lblStart, 0, 0);
-			collapseButton.LinkedWidgets.Add(lblStart);
 			view.Details[sectionKey].AddWidget(lblEnd, 0, 1);
-			collapseButton.LinkedWidgets.Add(lblEnd);
 			view.Details[sectionKey].AddWidget(lblStop, 0, 2);
-			collapseButton.LinkedWidgets.Add(lblStop);
 			view.Details[sectionKey].AddWidget(lblDecimals, 0, 3);
-			collapseButton.LinkedWidgets.Add(lblDecimals);
 			view.Details[sectionKey].AddWidget(lblValues, 0, 4);
+			collapseButton.LinkedWidgets.Add(lblLabel);
+			collapseButton.LinkedWidgets.Add(lblParameter);
+			collapseButton.LinkedWidgets.Add(lblLink);
+			collapseButton.LinkedWidgets.Add(lblNa);
+			collapseButton.LinkedWidgets.Add(lblValue);
+			collapseButton.LinkedWidgets.Add(lblUnit);
+			collapseButton.LinkedWidgets.Add(lblStart);
+			collapseButton.LinkedWidgets.Add(lblEnd);
+			collapseButton.LinkedWidgets.Add(lblStop);
+			collapseButton.LinkedWidgets.Add(lblDecimals);
 		}
 
 		private void BuildUI(bool showDetails, bool showLifeCycleDetails)
 		{
+			CaptureCollapseStates();
 			this.showDetails = showDetails;
 			this.showLifeCycleDetails = showLifeCycleDetails;
 			view.Clear();
@@ -516,7 +576,7 @@
 		{
 			view.AddWidget(new Label("Add Profile:") { Style = TextStyle.Heading, MaxWidth = 100 }, ++row, 0, HorizontalAlignment.Right);
 
-			var profileDefinitionsOptions = profileDefinitions.Select(p => new Option<ProfileOption>(p.Name, new ProfileOption(p.ID, p.Name, true))).OrderBy(x => x.DisplayValue).ToList();
+			var profileDefinitionsOptions = profileDefinitions.Select(p => new Option<ProfileOption>(p.Name, new ProfileOption(p.Identifier, p.Name, true))).OrderBy(x => x.DisplayValue).ToList();
 			profileDefinitionsOptions.Insert(0, new Option<ProfileOption>("- Profile Definition -", null));
 
 			view.AddProfile.SetOptions(profileDefinitionsOptions);
@@ -551,33 +611,27 @@
 			{
 				if (args.Selected == null)
 				{
-					reusableLabel.IsVisible = false;
-					reusableProfileDropDown.IsVisible = false;
-					addReusableProfileButton.IsVisible = false;
+					SetNestedReusableRowVisible(reusableLabel, reusableProfileDropDown, addReusableProfileButton, false);
 					return;
 				}
 
 				var rootReusableIds = GetRootLevelReusableProfileIds();
-				var matchingReusable = (reusableProfiles ?? new List<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.Profile>())
-					.Where(p => p.ProfileDefinitionReference == args.Selected.Id
-						&& !rootReusableIds.Contains(p.ID))
-					.Select(p => new Option<ProfileOption>(p.Name, new ProfileOption(p.ID, p.Name, false)))
+				var matchingReusable = reusableProfiles
+					.Where(p => p.ProfileDefinitionId.Identifier == args.Selected.Id
+						&& !rootReusableIds.Contains(p.Identifier))
+					.Select(p => new Option<ProfileOption>(p.Name, new ProfileOption(p.Identifier, p.Name, false)))
 					.OrderBy(x => x.DisplayValue)
 					.ToList();
 
 				if (matchingReusable.Count == 0)
 				{
-					reusableLabel.IsVisible = false;
-					reusableProfileDropDown.IsVisible = false;
-					addReusableProfileButton.IsVisible = false;
+					SetNestedReusableRowVisible(reusableLabel, reusableProfileDropDown, addReusableProfileButton, false);
 					return;
 				}
 
 				matchingReusable.Insert(0, new Option<ProfileOption>("- Reusable Profile -", null));
 				reusableProfileDropDown.SetOptions(matchingReusable);
-				reusableLabel.IsVisible = true;
-				reusableProfileDropDown.IsVisible = true;
-				addReusableProfileButton.IsVisible = true;
+				SetNestedReusableRowVisible(reusableLabel, reusableProfileDropDown, addReusableProfileButton, true);
 			};
 
 			addReusableProfileButton.Pressed += (sender, args) =>
@@ -597,6 +651,7 @@
 
 		private int BuildStandaloneParametersUI(bool showDetails, bool showLifeCycleDetails, int row)
 		{
+			view.StandaloneParameters.IsCollapsed = standaloneParametersCollapsed;
 			view.StandaloneParameters.MaxWidth = collapseButtonWidth;
 			view.StandaloneParameters.LinkedWidgets.Clear();
 			view.Details[ServiceConfigurationView.StandaloneCollapseButtonTitle] = new Section();
@@ -661,24 +716,24 @@
 				.Where(x => x.State != State.Delete && !IsChildProfile(x))
 				.OrderBy(x => x.Profile.Name))
 			{
-				row = BuildProfileUI(showDetails, showLifeCycleDetails, row, profile, parent: null, depth: 1, ancestorDefinitionIds: new HashSet<Guid>());
+				row = BuildProfileUI(showDetails, showLifeCycleDetails, row, profile, parent: null, depth: 1, ancestorDefinitionIds: new HashSet<string>());
 			}
 
 			return row;
 		}
 
 		private int BuildProfileUI(
-	bool showDetails,
-	bool showLifeCycleDetails,
-	int row,
-	ProfileDataRecord profile,
-	ProfileDataRecord parent = null,
-	int depth = 1,
-	HashSet<Guid> ancestorDefinitionIds = null)
+			bool showDetails,
+			bool showLifeCycleDetails,
+			int row,
+			ProfileDataRecord profile,
+			ProfileDataRecord parent = null,
+			int depth = 1,
+			HashSet<string> ancestorDefinitionIds = null)
 		{
-			ancestorDefinitionIds = ancestorDefinitionIds ?? new HashSet<Guid>();
+			ancestorDefinitionIds = ancestorDefinitionIds ?? new HashSet<string>();
 
-			string profileKey = Convert.ToString(profile.Profile.ID);
+			string profileKey = profile.Profile.Identifier;
 
 			var collapseButton = new CollapseButton(true)
 			{
@@ -686,6 +741,11 @@
 				CollapseText = Defaults.SymbolMin,
 				MaxWidth = collapseButtonWidth,
 			};
+
+			if (collapsedProfileStatesById.TryGetValue(profileKey, out bool isCollapsed))
+			{
+				collapseButton.IsCollapsed = isCollapsed;
+			}
 
 			collapseButton.LinkedWidgets.Clear();
 
@@ -736,9 +796,11 @@
 			view.AddWidget(whiteSpaceAfterParameters, ++row, 0);
 			collapseButton.LinkedWidgets.Add(whiteSpaceAfterParameters);
 
-			var childAncestors = new HashSet<Guid>(ancestorDefinitionIds);
-			if (profile.ProfileDefinition?.ID != null)
-				childAncestors.Add(profile.ProfileDefinition.ID);
+			var childAncestors = new HashSet<string>(ancestorDefinitionIds);
+			if (profile.ProfileDefinition?.Identifier != null)
+			{
+				childAncestors.Add(profile.ProfileDefinition.Identifier);
+			}
 
 			row = BuildNestedProfilesTableUI(row, profile, collapseButton, depth, childAncestors);
 			row = BuildAddProfileParameterUI(showDetails, showLifeCycleDetails, row, profile, collapseButton);
@@ -755,6 +817,17 @@
 			return row;
 		}
 
+		private void CaptureCollapseStates()
+		{
+			standaloneParametersCollapsed = view.StandaloneParameters.IsCollapsed;
+
+			collapsedProfileStatesById.Clear();
+			foreach (var buttonByProfile in view.ProfileCollapseButtons)
+			{
+				collapsedProfileStatesById[buttonByProfile.Key] = buttonByProfile.Value.IsCollapsed;
+			}
+		}
+
 		private int BuildAddProfileParameterUI(bool showDetails, bool showLifeCycleDetails, int row, ProfileDataRecord profile, CollapseButton collapseButton)
 		{
 			if (profile.Profile.IsReusable)
@@ -766,7 +839,7 @@
 			view.AddWidget(parameterToAddLabel, ++row, 0, HorizontalAlignment.Right);
 			collapseButton.LinkedWidgets.Add(parameterToAddLabel);
 
-			var parameterDropDown = new DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter>(profile.GetAvailableProfileParameters(repoConfig))
+			var parameterDropDown = new DropDown<ConfigurationParameter>(profile.GetAvailableProfileParameters())
 			{
 				IsVisible = !collapseButton.IsCollapsed,
 			};
@@ -837,16 +910,16 @@
 		{
 			// Init
 			var label = new TextBox(record.ConfigurationParamValue.Label) { IsVisible = !collapseButton.IsCollapsed, IsEnabled = !isReusable };
-			var parameter = new DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter>(
-				new[] { new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter>(record.ConfigurationParam.Name, record.ConfigurationParam) })
+			var parameter = new DropDown<ConfigurationParameter>(
+				new[] { new Option<ConfigurationParameter>(record.ConfigurationParam.Name, record.ConfigurationParam) })
 			{
 				IsEnabled = false,
 				IsVisible = !collapseButton.IsCollapsed,
 			};
 			var link = new CheckBox { IsChecked = record.ConfigurationParamValue.LinkedConfigurationReference != null, IsVisible = !collapseButton.IsCollapsed, IsEnabled = !isReusable };
 			var na = new CheckBox { IsChecked = false, IsVisible = !collapseButton.IsCollapsed, IsEnabled = !isReusable };
-			var unit = new DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationUnit>(
-				new[] { new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationUnit>("-", null) })
+			var unit = new DropDown<ConfigurationUnit>(
+				new[] { new Option<ConfigurationUnit>("-", null) })
 			{ IsEnabled = false, MaxWidth = 80, IsVisible = !collapseButton.IsCollapsed };
 			var start = new Numeric { IsEnabled = false, MaxWidth = 100, IsVisible = !collapseButton.IsCollapsed };
 			var end = new Numeric { IsEnabled = false, MaxWidth = 100, IsVisible = !collapseButton.IsCollapsed };
@@ -926,9 +999,9 @@
 
 		private TextBox AddTextWidget(IParameterDataRecord record, int row, CheckBox na, bool isVisible, bool isReusable)
 		{
-			var value = new TextBox(record.ConfigurationParamValue.StringValue ?? record.ConfigurationParamValue.TextOptions?.Default ?? String.Empty)
+			var value = new TextBox(record.ConfigurationParamValue.StringValue ?? record.TextOptions?.Default ?? String.Empty)
 			{
-				Tooltip = record.ConfigurationParamValue.TextOptions?.UserMessage ?? String.Empty,
+				Tooltip = record.TextOptions?.UserMessage ?? String.Empty,
 				IsVisible = isVisible,
 			};
 			value.Changed += (sender, args) =>
@@ -938,16 +1011,16 @@
 					return;
 				}
 
-				if (record.ConfigurationParamValue.TextOptions?.Regex != null && !Regex.IsMatch(args.Value, record.ConfigurationParamValue.TextOptions.Regex))
+				if (record.TextOptions?.Regex != null && !Regex.IsMatch(args.Value, record.TextOptions.Regex))
 				{
 					value.ValidationState = UIValidationState.Invalid;
-					value.ValidationText = $"Input did not match Regex '{record.ConfigurationParamValue.TextOptions.Regex}' - reverted to previous value";
+					value.ValidationText = $"Input did not match Regex '{record.TextOptions.Regex}' - reverted to previous value";
 					value.Text = args.Previous;
 					return;
 				}
 
 				value.ValidationState = UIValidationState.Valid;
-				value.ValidationText = record.ConfigurationParamValue.TextOptions?.UserMessage;
+				value.ValidationText = record.TextOptions?.UserMessage;
 				record.ConfigurationParamValue.StringValue = args.Value;
 			};
 			view.AddWidget(value, row, parameterValueColumnIndex);
@@ -967,24 +1040,22 @@
 			return value;
 		}
 
-		private DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.DiscreteValue> AddDisceteWidget(IParameterDataRecord record, int row, CheckBox na, Button values, bool isVisible, bool isReusable)
+		private DropDown<DiscreteValue> AddDisceteWidget(IParameterDataRecord record, int row, CheckBox na, Button values, bool isVisible, bool isReusable)
 		{
-			if (record.ConfigurationParamValue.DiscreteOptions == null)
+			if (record.DiscreteOptions == null)
 			{
-				record.ConfigurationParamValue.DiscreteOptions = record.ConfigurationParam?.DiscreteOptions ?? throw new InvalidOperationException($"DiscreteOptions is null for parameter: {record.ConfigurationParam?.Name ?? "Unknown"}");
-				record.ConfigurationParamValue.DiscreteOptions.ID = Guid.NewGuid();
+				throw new InvalidOperationException($"DiscreteOptions is null for parameter: {record.ConfigurationParam?.Name ?? "Unknown"}");
 			}
 
-			var allDiscretes = record.ConfigurationParam?.DiscreteOptions?.DiscreteValues == null
-				? new List<Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.DiscreteValue>>()
-				: record.ConfigurationParam.DiscreteOptions.DiscreteValues
-											.Select(x => new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.DiscreteValue>(x.Value, x))
-											.OrderBy(x => x.DisplayValue)
-											.ToList();
+			var allDiscretes = GetAllDiscreteValues(record.ConfigurationParam)
+				.Select(x => new Option<DiscreteValue>(x.Value, x))
+				.OrderBy(x => x.DisplayValue)
+				.ToList();
 
-			var discretes = allDiscretes.Where(d => record.ConfigurationParamValue.DiscreteOptions?.DiscreteValues?.Any(r => d.Value.Equals(r)) == true).ToList();
+			var currentValueIdentifiers = new HashSet<string>((record.DiscreteValues ?? new List<DiscreteValue>()).Select(x => x.Identifier));
+			var discretes = allDiscretes.Where(d => currentValueIdentifiers.Contains(d.Value.Identifier)).ToList();
 
-			var value = new DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.DiscreteValue>(discretes)
+			var value = new DropDown<DiscreteValue>(discretes)
 			{
 				IsVisible = isVisible,
 			};
@@ -1009,7 +1080,7 @@
 				optionsView.Options.SetOptions(allDiscretes);
 				foreach (var option in optionsView.Options.Values.ToList())
 				{
-					if (value.Options.Any(o => o.Value.Equals(option)))
+					if (value.Options.Any(o => o.Value.Identifier == option.Identifier))
 					{
 						optionsView.Options.Check(option); // check only the available items.
 					}
@@ -1019,7 +1090,10 @@
 				{
 					value.SetOptions(optionsView.Options.CheckedOptions);
 					record.ConfigurationParamValue.StringValue = value.Selected?.Value;
-					record.ConfigurationParamValue.DiscreteOptions.DiscreteValues = optionsView.Options.Checked.ToList();
+					record.DiscreteValues = optionsView.Options.Checked.ToList();
+					record.DiscreteOptions.DiscreteValues = record.DiscreteValues
+						.Select(x => new SdmObjectReference<DiscreteValue>(x.Identifier))
+						.ToList();
 					controller.ShowDialog(view);
 				};
 				optionsView.BtnCancel.Pressed += (o, eventArgs) => controller.ShowDialog(view);
@@ -1042,19 +1116,18 @@
 			return value;
 		}
 
-		private Numeric AddNumericWidget(IParameterDataRecord record, int row, DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter> parameter, CheckBox na, DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationUnit> unit, Numeric start, Numeric end, Numeric step, Numeric decimals, bool isVisible, bool isReusable)
+		private Numeric AddNumericWidget(IParameterDataRecord record, int row, DropDown<ConfigurationParameter> parameter, CheckBox na, DropDown<ConfigurationUnit> unit, Numeric start, Numeric end, Numeric step, Numeric decimals, bool isVisible, bool isReusable)
 		{
-			if (record.ConfigurationParamValue.NumberOptions == null)
+			if (record.NumberOptions == null)
 			{
-				record.ConfigurationParamValue.NumberOptions = parameter?.Selected?.NumberOptions ?? record.ConfigurationParam?.NumberOptions ?? throw new InvalidOperationException($"NumberOptions is null for parameter: {record.ConfigurationParam?.Name ?? "Unknown"}");
-				record.ConfigurationParamValue.NumberOptions.ID = Guid.NewGuid();
+				throw new InvalidOperationException($"NumberOptions is null for parameter: {record.ConfigurationParam?.Name ?? "Unknown"}");
 			}
 
-			double minimum = record.ConfigurationParamValue.NumberOptions.MinRange ?? -10_000;
-			double maximum = record.ConfigurationParamValue.NumberOptions.MaxRange ?? 10_000;
-			int decimalVal = Convert.ToInt32(record.ConfigurationParamValue.NumberOptions.Decimals);
-			double stepSize = record.ConfigurationParamValue.NumberOptions.StepSize ?? 1;
-			Numeric value = new Numeric(record.ConfigurationParamValue.DoubleValue ?? record.ConfigurationParamValue.NumberOptions.DefaultValue ?? minimum)
+			double minimum = record.NumberOptions.MinRange ?? -10_000;
+			double maximum = record.NumberOptions.MaxRange ?? 10_000;
+			int decimalVal = Convert.ToInt32(record.NumberOptions.Decimals);
+			double stepSize = record.NumberOptions.StepSize ?? 1;
+			Numeric value = new Numeric(record.ConfigurationParamValue.DoubleValue ?? record.NumberOptions.DefaultValue ?? minimum)
 			{
 				Minimum = minimum,
 				Maximum = maximum,
@@ -1062,10 +1135,10 @@
 				Decimals = decimalVal,
 				IsVisible = isVisible,
 			};
-			unit.SetOptions(GetUnits(record.ConfigurationParamValue.NumberOptions, parameter.Selected));
+			unit.SetOptions(GetUnits(record));
 
-			var defaultUnit = GetDefaultUnit(record.ConfigurationParamValue.NumberOptions, parameter.Selected);
-			if (defaultUnit == null || unit.Options.Any(o => o.Value?.ID == defaultUnit.ID))
+			var defaultUnit = GetDefaultUnit(record);
+			if (defaultUnit == null || unit.Options.Any(o => o.Value?.Identifier == defaultUnit.Identifier))
 			{
 				unit.Selected = defaultUnit;
 			}
@@ -1097,12 +1170,12 @@
 			start.Changed += (sender, args) =>
 			{
 				value.Minimum = args.Value;
-				record.ConfigurationParamValue.NumberOptions.MinRange = args.Value;
+				record.NumberOptions.MinRange = args.Value;
 			};
 			end.Changed += (sender, args) =>
 			{
 				value.Maximum = args.Value;
-				record.ConfigurationParamValue.NumberOptions.MaxRange = args.Value;
+				record.NumberOptions.MaxRange = args.Value;
 			};
 			decimals.Changed += (sender, args) =>
 			{
@@ -1111,14 +1184,17 @@
 				double newStepsize = 1 / Math.Pow(10, args.Value);
 				value.StepSize = newStepsize;
 				step.StepSize = newStepsize;
-				record.ConfigurationParamValue.NumberOptions.Decimals = Convert.ToInt32(args.Value);
+				record.NumberOptions.Decimals = Convert.ToInt32(args.Value);
 			};
 			step.Changed += (sender, args) =>
 			{
 				value.StepSize = args.Value;
-				record.ConfigurationParamValue.NumberOptions.StepSize = args.Value;
+				record.NumberOptions.StepSize = args.Value;
 			};
-			unit.Changed += (sender, args) => record.ConfigurationParamValue.NumberOptions.DefaultUnit = args.Selected;
+			unit.Changed += (sender, args) =>
+				record.NumberOptions.DefaultUnitId = args.Selected == null
+					? default
+					: new SdmObjectReference<ConfigurationUnit>(args.Selected.Identifier);
 			value.Changed += (sender, args) =>
 			{
 				if (args.Value != args.Previous)
@@ -1142,66 +1218,99 @@
 			return value;
 		}
 
-		private Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationUnit GetDefaultUnit(
-			Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.NumberParameterOptions numberValueOptions,
-			Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter parameter)
+		private static ConfigurationUnit GetDefaultUnit(IParameterDataRecord record)
 		{
-			if (numberValueOptions?.DefaultUnit != null)
-			{
-				var match = numberValueOptions.Units?.FirstOrDefault(u => u.ID == numberValueOptions.DefaultUnit.ID);
-				return match ?? numberValueOptions.DefaultUnit;
-			}
-
-			if (parameter?.NumberOptions?.DefaultUnit != null)
-			{
-				var match = parameter.NumberOptions.Units?.FirstOrDefault(u => u.ID == parameter.NumberOptions.DefaultUnit.ID);
-				return match ?? parameter.NumberOptions.DefaultUnit;
-			}
-
-			return null;
+			return record.Units.Find(x => x.Identifier == record.NumberOptions?.DefaultUnitId.Identifier);
 		}
 
-		private List<Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationUnit>> GetUnits(
-			Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.NumberParameterOptions numberValueOptions,
-			Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter parameter)
+		private static List<Option<ConfigurationUnit>> GetUnits(IParameterDataRecord record)
 		{
-			var units = new List<Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationUnit>>();
-			if (numberValueOptions?.Units != null)
-			{
-				units.AddRange(numberValueOptions.Units.Select(x => new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationUnit>(x.Name, x)));
-			}
-			else if (parameter.NumberOptions?.Units != null)
-			{
-				units.AddRange(parameter.NumberOptions.Units.Select(x => new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationUnit>(x.Name, x)));
-			}
+			var units = (record.Units ?? new List<ConfigurationUnit>())
+				.Select(x => new Option<ConfigurationUnit>(x.Name, x))
+				.OrderBy(x => x.DisplayValue)
+				.ToList();
 
-			units = units.OrderBy(x => x.DisplayValue).ToList();
-
-			units.Insert(0, new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationUnit>("-", null));
+			units.Insert(0, new Option<ConfigurationUnit>("-", null));
 			return units;
 		}
 
-		private void BuildDataRecords(List<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter> configParams)
+		private List<DiscreteValue> GetAllDiscreteValues(ConfigurationParameter configParam)
+		{
+			var templateOptionsId = configParam?.DiscreteOptionsId.Identifier;
+			if (String.IsNullOrEmpty(templateOptionsId) || !discreteOptionsById.TryGetValue(templateOptionsId, out var templateOptions))
+			{
+				return new List<DiscreteValue>();
+			}
+
+			return Resolve(templateOptions.DiscreteValues, discreteValuesById);
+		}
+
+		private void BuildDataRecords()
 		{
 			if (instance.ConfigurationParameters != null)
 			{
-				foreach (var currentConfig in instance.ConfigurationParameters)
+				foreach (var configReference in instance.ConfigurationParameters)
 				{
-					var configParam = configParams.Find(x => x.ID == currentConfig?.ConfigurationParameter?.ConfigurationParameterId);
+					var currentConfig = GetValue(serviceSpecificationConfigurationValuesById, configReference.Identifier);
+					if (currentConfig == null)
+					{
+						continue;
+					}
+
+					var configurationParameterValue = GetValue(configurationParameterValuesById, currentConfig.ConfigurationParameterId.Identifier);
+					if (configurationParameterValue == null)
+					{
+						continue;
+					}
+
+					var configParam = GetValue(configurationParametersById, configurationParameterValue.ConfigurationParameterId.Identifier);
 					if (configParam == null)
 					{
 						continue;
 					}
 
-					standaloneConfigurations.Add(StandaloneParameterDataRecord.BuildDataRecord(currentConfig, configParam));
+					standaloneConfigurations.Add(StandaloneParameterDataRecord.BuildDataRecord(
+						currentConfig,
+						configurationParameterValue,
+						configParam,
+						numberOptionsById,
+						discreteOptionsById,
+						textOptionsById,
+						configurationUnitsById,
+						discreteValuesById));
 				}
 			}
 
 			if (instance.ConfigurationProfiles != null)
 			{
-				foreach (var currentConfig in instance.ConfigurationProfiles)
+				foreach (var profileReference in instance.ConfigurationProfiles)
 				{
-					profileConfigurations.Add(ProfileDataRecord.BuildProfileRecord(currentConfig, configParams));
+					var currentConfig = GetValue(serviceSpecificationProfilesById, profileReference.Identifier);
+					if (currentConfig == null)
+					{
+						continue;
+					}
+
+					var currentProfile = GetValue(profilesById, currentConfig.ProfileId.Identifier);
+					if (currentProfile == null)
+					{
+						continue;
+					}
+
+					var currentProfileDefinition = GetValue(profileDefinitionsById, currentConfig.ProfileDefinitionId.Identifier);
+
+					profileConfigurations.Add(ProfileDataRecord.BuildProfileRecord(
+						currentConfig,
+						currentProfile,
+						currentProfileDefinition,
+						configurationParameterValuesById,
+						configurationParametersById,
+						referencedConfigurationParametersById,
+						numberOptionsById,
+						discreteOptionsById,
+						textOptionsById,
+						configurationUnitsById,
+						discreteValuesById));
 				}
 			}
 		}
@@ -1210,7 +1319,7 @@
 		{
 			return profileConfigurations
 				.Where(x => x.State != State.Delete)
-				.Any(x => x.Profile?.Profiles != null && x.Profile.Profiles.Contains(profile.Profile.ID));
+				.Any(x => x.Profile?.Profiles != null && x.Profile.Profiles.Any(reference => reference.Identifier == profile.Profile.Identifier));
 		}
 
 		private List<ProfileDataRecord> GetChildProfileRecords(ProfileDataRecord parent)
@@ -1220,8 +1329,10 @@
 				return new List<ProfileDataRecord>();
 			}
 
+			var childIds = new HashSet<string>(parent.Profile.Profiles.Select(reference => reference.Identifier));
+
 			return profileConfigurations
-				.Where(x => x.State != State.Delete && parent.Profile.Profiles.Contains(x.Profile.ID))
+				.Where(x => x.State != State.Delete && childIds.Contains(x.Profile?.Identifier))
 				.ToList();
 		}
 
@@ -1232,10 +1343,7 @@
 				return;
 			}
 
-			if (parent.Profile.Profiles == null)
-			{
-				parent.Profile.Profiles = new List<Guid>();
-			}
+			EnsureProfileCollections(parent.Profile);
 
 			if (childOption.IsProfileDefinition)
 			{
@@ -1249,18 +1357,18 @@
 
 		private void AddChildProfileFromDefinition(ProfileDataRecord parent, ProfileOption childOption)
 		{
-			var childDefinition = profileDefinitions.Find(pd => pd.ID == childOption.Id);
+			var childDefinition = profileDefinitions.Find(pd => pd.Identifier == childOption.Id);
 			if (childDefinition == null)
 			{
 				return;
 			}
 
-			var configParams = DomExtensions.GetConfigParameters(repoConfig, childDefinition.ConfigurationParameters);
-			var parameterValues = new List<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameterValue>();
-
-			foreach (var refConfigParam in childDefinition.ConfigurationParameters)
+			var resolvedReferencedParameters = Resolve(childDefinition.ConfigurationParameters, referencedConfigurationParametersById);
+			var configParams = DomExtensions.GetConfigParameters(configurationParametersById, resolvedReferencedParameters);
+			var parameterValues = new List<ConfigurationParameterValue>();
+			foreach (var refConfigParam in resolvedReferencedParameters)
 			{
-				var configParam = configParams.FirstOrDefault(p => p.ID == refConfigParam.ConfigurationParameter);
+				var configParam = configParams.FirstOrDefault(p => p.Identifier == refConfigParam.ConfigurationParameterId.Identifier);
 				if (configParam == null)
 				{
 					continue;
@@ -1269,77 +1377,85 @@
 				parameterValues.Add(BuildConfigurationParameter(configParam));
 			}
 
-			var childProfileConfig = new Models.ServiceSpecificationProfile
+			var childProfile = new Profile
 			{
-				ID = Guid.NewGuid(),
+				Identifier = Guid.NewGuid().ToString(),
+				Name = childOption.Name,
+				ProfileDefinitionId = new SdmObjectReference<ProfileDefinition>(childDefinition.Identifier),
+				ConfigurationParameterValues = parameterValues.Select(x => new SdmObjectReference<ConfigurationParameterValue>(x.Identifier)).ToList(),
+				Profiles = new List<SdmObjectReference<Profile>>(),
+			};
+
+			var childProfileConfig = new ServiceSpecificationProfile
+			{
+				Identifier = Guid.NewGuid().ToString(),
 				ExposeAtServiceOrder = true,
 				MandatoryAtServiceOrder = false,
 				MandatoryAtService = false,
-				ProfileDefinition = childDefinition,
-				Profile = new Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.Profile
-				{
-					ID = Guid.NewGuid(),
-					Name = childOption.Name,
-					ProfileDefinitionReference = childDefinition.ID,
-					ConfigurationParameterValues = parameterValues,
-				},
+				ProfileDefinitionId = new SdmObjectReference<ProfileDefinition>(childDefinition.Identifier),
+				ProfileId = new SdmObjectReference<Profile>(childProfile.Identifier),
 			};
 
-			parent.Profile.Profiles.Add(childProfileConfig.Profile.ID);
-			instance.ConfigurationProfiles.Add(childProfileConfig);
-			profileConfigurations.Add(ProfileDataRecord.BuildProfileRecord(childProfileConfig, configParams));
+			parent.Profile.Profiles.Add(new SdmObjectReference<Profile>(childProfile.Identifier));
+			EnsureInstanceCollections();
+			instance.ConfigurationProfiles.Add(new SdmObjectReference<ServiceSpecificationProfile>(childProfileConfig.Identifier));
+			profilesById[childProfile.Identifier] = childProfile;
+			serviceSpecificationProfilesById[childProfileConfig.Identifier] = childProfileConfig;
+			foreach (var parameterValue in parameterValues)
+			{
+				configurationParameterValuesById[parameterValue.Identifier] = parameterValue;
+			}
+
+			var record = ProfileDataRecord.BuildProfileRecord(childProfileConfig, childProfile, childDefinition, configurationParameterValuesById, configurationParametersById, referencedConfigurationParametersById, numberOptionsById, discreteOptionsById, textOptionsById, configurationUnitsById, discreteValuesById);
+			TrackNewObjects(record);
+			profileConfigurations.Add(record);
 		}
 
 		private void AddChildProfileFromReusable(ProfileDataRecord parent, ProfileOption childOption)
 		{
-			var profileInstance = reusableProfiles.Find(p => p.ID == childOption.Id);
+			var profileInstance = reusableProfiles.Find(p => p.Identifier == childOption.Id);
 			if (profileInstance == null)
 			{
 				return;
 			}
 
-			if (parent.Profile.Profiles == null)
-			{
-				parent.Profile.Profiles = new List<Guid>();
-			}
-
-			if (parent.Profile.Profiles.Contains(profileInstance.ID))
+			if (parent.Profile.Profiles.Any(reference => reference.Identifier == profileInstance.Identifier))
 			{
 				return;
 			}
 
 			bool alreadyTracked = profileConfigurations
-				.Any(x => x.State != State.Delete && x.Profile?.ID == profileInstance.ID);
+				.Any(x => x.State != State.Delete && x.Profile?.Identifier == profileInstance.Identifier);
 
 			if (!alreadyTracked)
 			{
-				var profileDefinitionInstance = repoConfig.ProfileDefinitions
-					.Read(ProfileDefinitionExposers.Guid.Equal(profileInstance.ProfileDefinitionReference))
-					.FirstOrDefault();
-				if (profileDefinitionInstance == null)
+				if (!profileDefinitionsById.TryGetValue(profileInstance.ProfileDefinitionId.Identifier ?? String.Empty, out var profileDefinitionInstance))
 				{
 					return;
 				}
 
-				var childProfileConfig = new Models.ServiceSpecificationProfile
+				var childProfileConfig = new ServiceSpecificationProfile
 				{
-					ID = Guid.NewGuid(),
+					Identifier = Guid.NewGuid().ToString(),
 					ExposeAtServiceOrder = true,
 					MandatoryAtServiceOrder = false,
 					MandatoryAtService = false,
-					Profile = profileInstance,
-					ProfileDefinition = profileDefinitionInstance,
+					ProfileId = new SdmObjectReference<Profile>(profileInstance.Identifier),
+					ProfileDefinitionId = new SdmObjectReference<ProfileDefinition>(profileDefinitionInstance.Identifier),
 				};
 
-				var configParams = DomExtensions.GetConfigParameters(repoConfig, profileInstance);
-				instance.ConfigurationProfiles.Add(childProfileConfig);
-				profileConfigurations.Add(ProfileDataRecord.BuildProfileRecord(childProfileConfig, configParams));
+				EnsureInstanceCollections();
+				instance.ConfigurationProfiles.Add(new SdmObjectReference<ServiceSpecificationProfile>(childProfileConfig.Identifier));
+				serviceSpecificationProfilesById[childProfileConfig.Identifier] = childProfileConfig;
+				var record = ProfileDataRecord.BuildProfileRecord(childProfileConfig, profileInstance, profileDefinitionInstance, configurationParameterValuesById, configurationParametersById, referencedConfigurationParametersById, numberOptionsById, discreteOptionsById, textOptionsById, configurationUnitsById, discreteValuesById);
+				TrackNewObjects(record);
+				profileConfigurations.Add(record);
 			}
 
-			parent.Profile.Profiles.Add(profileInstance.ID);
+			parent.Profile.Profiles.Add(new SdmObjectReference<Profile>(profileInstance.Identifier));
 		}
 
-		private int BuildNestedProfilesTableUI(int row, ProfileDataRecord parent, CollapseButton collapseButton, int depth, HashSet<Guid> childAncestors)
+		private int BuildNestedProfilesTableUI(int row, ProfileDataRecord parent, CollapseButton collapseButton, int depth, HashSet<string> childAncestors)
 		{
 			var children = GetChildProfileRecords(parent);
 			bool canAddDeeper = depth < MaxNestedProfileDepth && !parent.Profile.IsReusable;
@@ -1369,7 +1485,7 @@
 			List<ProfileDataRecord> children,
 			ProfileDataRecord parent,
 			CollapseButton collapseButton,
-			HashSet<Guid> childAncestors,
+			HashSet<string> childAncestors,
 			int depth,
 			bool isVisible)
 		{
@@ -1422,7 +1538,7 @@
 			int row,
 			ProfileDataRecord parent,
 			CollapseButton collapseButton,
-			HashSet<Guid> childAncestors,
+			HashSet<string> childAncestors,
 			bool isVisible)
 		{
 			var spacer = new WhiteSpace { IsVisible = isVisible };
@@ -1434,8 +1550,8 @@
 			collapseButton.LinkedWidgets.Add(addProfileLabel);
 
 			var definitionOptions = profileDefinitions
-				.Where(pd => !childAncestors.Contains(pd.ID))
-				.Select(pd => new Option<ProfileOption>(pd.Name, new ProfileOption(pd.ID, pd.Name, true)))
+				.Where(pd => !childAncestors.Contains(pd.Identifier))
+				.Select(pd => new Option<ProfileOption>(pd.Name, new ProfileOption(pd.Identifier, pd.Name, true)))
 				.OrderBy(x => x.DisplayValue)
 				.ToList();
 			definitionOptions.Insert(0, new Option<ProfileOption>("- Profile Definition -", null));
@@ -1479,14 +1595,14 @@
 				}
 
 				var existingChildIds = parent.Profile?.Profiles != null
-					? new HashSet<Guid>(parent.Profile.Profiles)
-					: new HashSet<Guid>();
+					? new HashSet<string>(parent.Profile.Profiles.Select(reference => reference.Identifier))
+					: new HashSet<string>();
 
-				var matchingReusable = (reusableProfiles ?? new List<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.Profile>())
-					.Where(p => p.ProfileDefinitionReference == a.Selected.Id
-							 && !childAncestors.Contains(p.ProfileDefinitionReference)
-							 && !existingChildIds.Contains(p.ID))
-					.Select(p => new Option<ProfileOption>(p.Name, new ProfileOption(p.ID, p.Name, false)))
+				var matchingReusable = reusableProfiles
+					.Where(p => p.ProfileDefinitionId.Identifier == a.Selected.Id
+							 && !childAncestors.Contains(p.ProfileDefinitionId.Identifier)
+							 && !existingChildIds.Contains(p.Identifier))
+					.Select(p => new Option<ProfileOption>(p.Name, new ProfileOption(p.Identifier, p.Name, false)))
 					.OrderBy(x => x.DisplayValue)
 					.ToList();
 
@@ -1515,20 +1631,22 @@
 			collapseButton.Pressed += (s, a) =>
 			{
 				if (collapseButton.IsCollapsed)
+				{
 					SetNestedReusableRowVisible(reusableLabel, reusableDropDown, addReusableButton, false);
+				}
 			};
 
 			return row;
 		}
 
-		private HashSet<Guid> GetRootLevelReusableProfileIds()
+		private HashSet<string> GetRootLevelReusableProfileIds()
 		{
-			return new HashSet<Guid>(
+			return new HashSet<string>(
 				profileConfigurations
 					.Where(p => p.State != State.Delete
 							 && p.Profile.IsReusable
 							 && !IsChildProfile(p))
-					.Select(p => p.Profile.ID));
+					.Select(p => p.Profile.Identifier));
 		}
 
 		private EventHandler<EventArgs> DeleteProfileRecursive(ProfileDataRecord record, ProfileDataRecord parent)
@@ -1548,10 +1666,10 @@
 			}
 
 			record.State = State.Delete;
-			instance.ConfigurationProfiles.Remove(record.ServiceProfileConfig);
-			parent?.Profile?.Profiles?.Remove(record.Profile.ID);
+			instance.ConfigurationProfiles?.RemoveAll(reference => reference.Identifier == record.ServiceProfileConfig.Identifier);
+			parent?.Profile?.Profiles?.RemoveAll(reference => reference.Identifier == record.Profile?.Identifier);
 
-			string profileKey = Convert.ToString(record.Profile.ID);
+			string profileKey = record.Profile?.Identifier ?? record.ServiceProfileConfig.Identifier;
 			view.ProfileCollapseButtons.Remove(profileKey);
 			view.Details.Remove(profileKey);
 			view.LifeCycleDetails.Remove(profileKey);
@@ -1574,7 +1692,7 @@
 			return (sender, args) =>
 			{
 				record.State = State.Delete;
-				instance.ConfigurationParameters.Remove(record.ServiceConfig);
+				instance.ConfigurationParameters?.RemoveAll(reference => reference.Identifier == record.ServiceConfig.Identifier);
 				BuildUI(showDetails, showLifeCycleDetails);
 			};
 		}
@@ -1584,9 +1702,204 @@
 			return (sender, args) =>
 			{
 				parameterRecord.State = State.Delete;
-				instance.ConfigurationProfiles.Find(p => p.ID == profileDataRecord.ServiceProfileConfig.ID).Profile.ConfigurationParameterValues.Remove(parameterRecord.ConfigurationParamValue);
+				profileDataRecord.Profile?.ConfigurationParameterValues?.RemoveAll(reference => reference.Identifier == parameterRecord.ConfigurationParamValue.Identifier);
 				BuildUI(showDetails, showLifeCycleDetails);
 			};
+		}
+
+		private static List<T> ReadAll<T>(IBulkRepository<T> repository)
+			where T : SdmObject<T>
+		{
+			return repository.Read(new TRUEFilterElement<T>()).ToList();
+		}
+
+		private static T GetValue<T>(IReadOnlyDictionary<string, T> values, string identifier)
+			where T : class
+		{
+			return !String.IsNullOrEmpty(identifier) && values.TryGetValue(identifier, out var value) ? value : null;
+		}
+
+		private static List<T> Resolve<T>(IEnumerable<SdmObjectReference<T>> references, IReadOnlyDictionary<string, T> values)
+			where T : SdmObject<T>
+		{
+			return references?
+				.Select(reference => GetValue(values, reference.Identifier))
+				.Where(value => value != null)
+				.ToList() ?? new List<T>();
+		}
+
+		private void CreateOrUpdateOptions(IParameterDataRecord record)
+		{
+			if (record.NumberOptions != null)
+			{
+				apiHelper.ServiceCatalog.NumberParameterOptions.CreateOrUpdate(new[] { record.NumberOptions });
+			}
+
+			if (record.DiscreteOptions != null)
+			{
+				apiHelper.ServiceCatalog.DiscreteParameterOptions.CreateOrUpdate(new[] { record.DiscreteOptions });
+			}
+
+			if (record.TextOptions != null)
+			{
+				apiHelper.ServiceCatalog.TextParameterOptions.CreateOrUpdate(new[] { record.TextOptions });
+			}
+		}
+
+		private void DeleteOptions(IParameterDataRecord record)
+		{
+			if (record.NumberOptionsPersisted && record.NumberOptions != null)
+			{
+				apiHelper.ServiceCatalog.NumberParameterOptions.Delete(record.NumberOptions);
+			}
+
+			if (record.DiscreteOptionsPersisted && record.DiscreteOptions != null)
+			{
+				apiHelper.ServiceCatalog.DiscreteParameterOptions.Delete(record.DiscreteOptions);
+			}
+
+			if (record.TextOptionsPersisted && record.TextOptions != null)
+			{
+				apiHelper.ServiceCatalog.TextParameterOptions.Delete(record.TextOptions);
+			}
+		}
+
+		private void DeleteParameterValueAndOptions(IParameterDataRecord record)
+		{
+			apiHelper.ServiceCatalog.ConfigurationParameterValues.Delete(record.ConfigurationParamValue);
+			DeleteOptions(record);
+		}
+
+		private void DeleteStandaloneConfiguration(StandaloneParameterDataRecord record)
+		{
+			apiHelper.ServiceCatalog.ServiceSpecificationConfigurationValues.Delete(record.ServiceConfig);
+			DeleteParameterValueAndOptions(record);
+		}
+
+		private void DeleteProfileConfiguration(ProfileDataRecord record)
+		{
+			apiHelper.ServiceCatalog.ServiceSpecificationProfiles.Delete(record.ServiceProfileConfig);
+
+			if (record.Profile == null || record.Profile.IsReusable)
+			{
+				return;
+			}
+
+			foreach (var profileParameter in record.ProfileParameterConfigs)
+			{
+				DeleteParameterValueAndOptions(profileParameter);
+			}
+
+			apiHelper.ServiceCatalog.Profiles.Delete(record.Profile);
+		}
+
+		private void DeleteProfileParameterConfiguration(ProfileParameterDataRecord record)
+		{
+			DeleteParameterValueAndOptions(record);
+		}
+
+		private void EnsureInstanceCollections()
+		{
+			if (instance.ConfigurationParameters == null)
+			{
+				instance.ConfigurationParameters = new List<SdmObjectReference<ServiceSpecificationConfigurationValue>>();
+			}
+
+			if (instance.ConfigurationProfiles == null)
+			{
+				instance.ConfigurationProfiles = new List<SdmObjectReference<ServiceSpecificationProfile>>();
+			}
+		}
+
+		private static void EnsureProfileCollections(Profile profile)
+		{
+			if (profile.ConfigurationParameterValues == null)
+			{
+				profile.ConfigurationParameterValues = new List<SdmObjectReference<ConfigurationParameterValue>>();
+			}
+
+			if (profile.Profiles == null)
+			{
+				profile.Profiles = new List<SdmObjectReference<Profile>>();
+			}
+		}
+
+		private void TrackOptions(IParameterDataRecord record)
+		{
+			if (record.NumberOptions != null)
+			{
+				numberOptionsById[record.NumberOptions.Identifier] = record.NumberOptions;
+			}
+
+			if (record.DiscreteOptions != null)
+			{
+				discreteOptionsById[record.DiscreteOptions.Identifier] = record.DiscreteOptions;
+			}
+
+			if (record.TextOptions != null)
+			{
+				textOptionsById[record.TextOptions.Identifier] = record.TextOptions;
+			}
+		}
+
+		private void TrackNewObjects(StandaloneParameterDataRecord record)
+		{
+			configurationParameterValuesById[record.ConfigurationParamValue.Identifier] = record.ConfigurationParamValue;
+			TrackOptions(record);
+		}
+
+		private void TrackNewObjects(ProfileParameterDataRecord record)
+		{
+			configurationParameterValuesById[record.ConfigurationParamValue.Identifier] = record.ConfigurationParamValue;
+			TrackOptions(record);
+		}
+
+		private void TrackNewObjects(ProfileDataRecord record)
+		{
+			if (record.Profile != null)
+			{
+				profilesById[record.Profile.Identifier] = record.Profile;
+			}
+
+			if (record.ServiceProfileConfig != null)
+			{
+				serviceSpecificationProfilesById[record.ServiceProfileConfig.Identifier] = record.ServiceProfileConfig;
+			}
+
+			foreach (var parameterConfig in record.ProfileParameterConfigs)
+			{
+				TrackNewObjects(parameterConfig);
+			}
+		}
+
+		private int GetProfileDepth(ProfileDataRecord record)
+		{
+			int depth = 1;
+			var current = record;
+			var visited = new HashSet<string>();
+			if (current.Profile?.Identifier != null)
+			{
+				visited.Add(current.Profile.Identifier);
+			}
+
+			while (true)
+			{
+				var parent = profileConfigurations.FirstOrDefault(p =>
+					p.State != State.Delete &&
+					!ReferenceEquals(p, current) &&
+					p.Profile?.Profiles != null &&
+					p.Profile.Profiles.Any(reference => reference.Identifier == current.Profile?.Identifier));
+
+				if (parent?.Profile?.Identifier == null || !visited.Add(parent.Profile.Identifier))
+				{
+					break;
+				}
+
+				depth++;
+				current = parent;
+			}
+
+			return depth;
 		}
 	}
 }

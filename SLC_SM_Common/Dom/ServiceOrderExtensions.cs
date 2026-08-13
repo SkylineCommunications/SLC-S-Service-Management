@@ -1,12 +1,15 @@
 ﻿namespace SLC_SM_Common.Dom
 {
 	using System;
+	using System.Collections.Generic;
 	using System.Linq;
 	using DomHelpers.SlcServicemanagement;
 	using Skyline.DataMiner.Net;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
+	using Skyline.DataMiner.Net.Messages.SLDataGateway;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
 	using SLC_SM_Common.Extensions;
 	using static DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Serviceorder_Behavior;
+	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 
 	public static class ServiceOrderExtensions
 	{
@@ -29,8 +32,11 @@
 				return order;
 			}
 
+			var api = connection.GetServiceManagementApiHelper("Service Ordering");
+			var orderItems = GetOrderItems(api, order);
+
 			// Order can only be completed if all order items are either completed or cancelled. If there is at least one order item that is not in one of these two states, the order cannot be completed.
-			if (order.OrderItems.Any(o => o.ServiceOrderItem.Status != SlcServicemanagementIds.Behaviors.Serviceorderitem_Behavior.StatusesEnum.Completed && o.ServiceOrderItem.Status != SlcServicemanagementIds.Behaviors.Serviceorderitem_Behavior.StatusesEnum.Cancelled))
+			if (orderItems.Any(o => o.Status != SlcServicemanagementIds.Behaviors.Serviceorderitem_Behavior.StatusesEnum.Completed && o.Status != SlcServicemanagementIds.Behaviors.Serviceorderitem_Behavior.StatusesEnum.Cancelled))
 			{
 				return order;
 			}
@@ -44,10 +50,9 @@
 			{
 				return order;
 			}
-
 			connection.GenerateInformationMessage($"[SMS] Status Transition: {order.Name} → {transition}");
-			var orderHelper = new DataHelperServiceOrder(connection);
-			return orderHelper.UpdateState(order, transition);
+			connection.GenerateInformationMessage($"[SMS] Status Transition: {order.Name} → {transition}");
+			return api.ServiceOrder.ServiceOrders.TransitionStatus(order, transition);
 		}
 
 		/// <summary>
@@ -79,8 +84,7 @@
 			}
 
 			connection.GenerateInformationMessage($"[SMS] Status Transition: {order.Name} → {transition}");
-			var orderHelper = new DataHelperServiceOrder(connection);
-			return orderHelper.UpdateState(order, transition);
+			return connection.GetServiceManagementApiHelper("Service Ordering").ServiceOrder.ServiceOrders.TransitionStatus(order, transition);
 		}
 
 		/// <summary>
@@ -97,7 +101,9 @@
 				return order;
 			}
 
-			if (order.OrderItems.Any(o => o.ServiceOrderItem.Status != SlcServicemanagementIds.Behaviors.Serviceorderitem_Behavior.StatusesEnum.Acknowledged))
+			var api = connection.GetServiceManagementApiHelper("Service Ordering");
+			var orderItems = GetOrderItems(api, order);
+			if (orderItems.Any(o => o.Status != SlcServicemanagementIds.Behaviors.Serviceorderitem_Behavior.StatusesEnum.Acknowledged))
 			{
 				return order;
 			}
@@ -111,10 +117,9 @@
 			{
 				return order;
 			}
-
 			connection.GenerateInformationMessage($"[SMS] Status Transition: {order.Name} → {transition}");
-			var orderHelper = new DataHelperServiceOrder(connection);
-			return orderHelper.UpdateState(order, transition);
+			connection.GenerateInformationMessage($"[SMS] Status Transition: {order.Name} → {transition}");
+			return api.ServiceOrder.ServiceOrders.TransitionStatus(order, transition);
 		}
 
 		/// <summary>
@@ -133,7 +138,9 @@
 				return order;
 			}
 
-			if (order.OrderItems.Any(o => o.ServiceOrderItem.Status != SlcServicemanagementIds.Behaviors.Serviceorderitem_Behavior.StatusesEnum.Cancelled))
+			var api = connection.GetServiceManagementApiHelper("Service Ordering");
+			var orderItems = GetOrderItems(api, order);
+			if (orderItems.Any(o => o.Status != SlcServicemanagementIds.Behaviors.Serviceorderitem_Behavior.StatusesEnum.Cancelled))
 			{
 				return order;
 			}
@@ -148,14 +155,12 @@
 				return order;
 			}
 
-			var orderHelper = new DataHelperServiceOrder(connection);
-
 			order.CancellationInfo.Reason = cancellationReason;
 			order.CancellationInfo.CancellationDate = DateTime.UtcNow;
-			orderHelper.CreateOrUpdate(order);
+			api.ServiceOrder.ServiceOrders.Update(order);
 
 			connection.GenerateInformationMessage($"[SMS] Status Transition: {order.Name} → {transition}");
-			return orderHelper.UpdateState(order, transition);
+			return api.ServiceOrder.ServiceOrders.TransitionStatus(order, transition);
 		}
 
 		/// <summary>
@@ -174,7 +179,9 @@
 				return order;
 			}
 
-			if (order.OrderItems.Any(o => o.ServiceOrderItem.Status != SlcServicemanagementIds.Behaviors.Serviceorderitem_Behavior.StatusesEnum.Rejected))
+			var api = connection.GetServiceManagementApiHelper("Service Ordering");
+			var orderItems = GetOrderItems(api, order);
+			if (orderItems.Any(o => o.Status != SlcServicemanagementIds.Behaviors.Serviceorderitem_Behavior.StatusesEnum.Rejected))
 			{
 				return order;
 			}
@@ -193,14 +200,29 @@
 				return order;
 			}
 
-			var orderHelper = new DataHelperServiceOrder(connection);
-
 			order.CancellationInfo.Reason = reasonForRejection;
 			order.CancellationInfo.CancellationDate = DateTime.UtcNow;
-			orderHelper.CreateOrUpdate(order);
+			api.ServiceOrder.ServiceOrders.Update(order);
 
 			connection.GenerateInformationMessage($"[SMS] Status Transition: {order.Name} → {transition}");
-			return orderHelper.UpdateState(order, transition);
+			return api.ServiceOrder.ServiceOrders.TransitionStatus(order, transition);
+		}
+
+		private static List<Models.ServiceOrderItem> GetOrderItems(IServiceManagementApiHelper api, Models.ServiceOrder order)
+		{
+			var ids = new HashSet<string>(
+				order.OrderItems
+					.Where(o => o?.ServiceOrderItemId != null && !String.IsNullOrWhiteSpace(o.ServiceOrderItemId.Identifier))
+					.Select(o => o.ServiceOrderItemId.Identifier),
+				StringComparer.OrdinalIgnoreCase);
+			if (ids.Count == 0)
+			{
+				return new List<Models.ServiceOrderItem>();
+			}
+
+			return api.ServiceOrder.ServiceOrderItems.Read(new TRUEFilterElement<Models.ServiceOrderItem>())
+				.Where(item => !String.IsNullOrWhiteSpace(item.Identifier) && ids.Contains(item.Identifier))
+				.ToList();
 		}
 	}
 }

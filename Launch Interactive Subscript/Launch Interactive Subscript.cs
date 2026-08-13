@@ -27,9 +27,11 @@ namespace Launch_Interactive_Subscript
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.IAS;
 	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement.Models;
+	using SdmModels = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 
 	/// <summary>
 	///     Represents a DataMiner Automation script.
@@ -165,7 +167,11 @@ namespace Launch_Interactive_Subscript
 			// Update Service Item to active (if applicable)
 			if (!String.IsNullOrEmpty(scriptOutput))
 			{
-				service.UpdateStatusOnServiceItem(engine.GetUserConnection());
+				var inventoryApi = new ServiceManagementApiHelper(engine.GetUserConnection(), "Service Inventory");
+				var sdmService = inventoryApi.ServiceInventory.Services
+					.Read(SdmModels.ServiceExposers.Identifier.Equal(service.ID.ToString()))
+					.FirstOrDefault();
+				sdmService?.UpdateStatusOnServiceItem(engine.GetUserConnection());
 			}
 		}
 	}

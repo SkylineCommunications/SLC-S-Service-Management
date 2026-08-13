@@ -14,14 +14,14 @@
 	using Skyline.DataMiner.Net.Messages;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.Relationship;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 	using Skyline.DataMiner.Utils.MediaOps.Common.IOData.Scheduling.Scripts.JobHandler;
 	using Skyline.DataMiner.Utils.MediaOps.Helpers.Scheduling;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
 	using SLC_SM_Common.Extensions;
 	using static DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Service_Behavior;
-	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement.Models;
+	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 
 	public static class ServiceItemExtensions
 	{
@@ -53,14 +53,17 @@
 				return service;
 			}
 
-			var srvHelper = new DataHelperService(connection);
+			var inventoryApi = connection.GetServiceManagementApiHelper("Service Inventory");
 
 			connection.GenerateInformationMessage($"[SMS] Status Transition: {service.Name} → {transition}");
-			service = srvHelper.UpdateState(service, transition);
+			service = inventoryApi.ServiceInventory.Services.TransitionStatus(service, transition);
 
-			var itemHelper = new DataHelperServiceOrderItem(connection);
-			var orderItem = itemHelper.Read(ServiceOrderItemExposers.ServiceID.Equal(service.ID)
-				.AND(ServiceOrderItemExposers.Action.Equal(OrderActionType.Add.ToString()))).FirstOrDefault();
+			var orderItem = connection.GetServiceManagementApiHelper("Service Ordering")
+				.ServiceOrder.ServiceOrderItems.Read(new TRUEFilterElement<Models.ServiceOrderItem>())
+				.FirstOrDefault(item =>
+					String.Equals(item.Action, OrderActionType.Add.ToString(), StringComparison.OrdinalIgnoreCase)
+					&& item.ServiceInfo?.ServiceId != null
+					&& String.Equals(item.ServiceInfo.ServiceId.Identifier, service.Identifier, StringComparison.OrdinalIgnoreCase));
 			orderItem?.UpdateStatusToCompleted(connection);
 
 			return service;
@@ -101,10 +104,10 @@
 				return service;
 			}
 
-			var srvHelper = new DataHelperService(connection);
+			var inventoryApi = connection.GetServiceManagementApiHelper("Service Inventory");
 
 			connection.GenerateInformationMessage($"[SMS] Status Transition: {service.Name} → {transition}");
-			return srvHelper.UpdateState(service, transition);
+			return inventoryApi.ServiceInventory.Services.TransitionStatus(service, transition);
 		}
 
 		/// <summary>
@@ -132,14 +135,17 @@
 				return service;
 			}
 
-			var srvHelper = new DataHelperService(engine.GetUserConnection());
+			var inventoryApi = engine.GetUserConnection().GetServiceManagementApiHelper("Service Inventory");
 
 			engine.GenerateInformation($"[SMS] Status Transition: {service.Name} → {transition}");
-			service = srvHelper.UpdateState(service, transition);
+			service = inventoryApi.ServiceInventory.Services.TransitionStatus(service, transition);
 
-			var itemHelper = new DataHelperServiceOrderItem(engine.GetUserConnection());
-			var orderItem = itemHelper.Read(ServiceOrderItemExposers.ServiceID.Equal(service.ID)
-				.AND(ServiceOrderItemExposers.Action.Equal(OrderActionType.Delete.ToString()))).FirstOrDefault();
+			var orderItem = engine.GetUserConnection().GetServiceManagementApiHelper("Service Ordering")
+				.ServiceOrder.ServiceOrderItems.Read(new TRUEFilterElement<Models.ServiceOrderItem>())
+				.FirstOrDefault(item =>
+					String.Equals(item.Action, OrderActionType.Delete.ToString(), StringComparison.OrdinalIgnoreCase)
+					&& item.ServiceInfo?.ServiceId != null
+					&& String.Equals(item.ServiceInfo.ServiceId.Identifier, service.Identifier, StringComparison.OrdinalIgnoreCase));
 			orderItem?.UpdateStatusToCompleted(engine.GetUserConnection());
 
 			return service;
@@ -166,15 +172,15 @@
 				return service;
 			}
 
-			var srvHelper = new DataHelperService(connection);
+			var inventoryApi = connection.GetServiceManagementApiHelper("Service Inventory");
 			if (service.Status == StatusesEnum.New)
 			{
-				service = srvHelper.UpdateState(service, TransitionsEnum.New_To_Designed);
+				service = inventoryApi.ServiceInventory.Services.TransitionStatus(service, TransitionsEnum.New_To_Designed);
 			}
 
 			if (service.Status == StatusesEnum.Designed)
 			{
-				service = srvHelper.UpdateState(service, TransitionsEnum.Designed_To_Reserved);
+				service = inventoryApi.ServiceInventory.Services.TransitionStatus(service, TransitionsEnum.Designed_To_Reserved);
 			}
 
 			return service;
@@ -246,27 +252,27 @@
 		private static bool LinksStillExist(IConnection connection, Guid refId)
 		{
 			var linkHelper = new DataHelperLink(connection);
-			Skyline.DataMiner.ProjectApi.ServiceManagement.API.Relationship.Models.Link link = linkHelper.Read(LinkExposers.Guid.Equal(refId)).FirstOrDefault();
+			Skyline.DataMiner.ProjectApi.ServiceManagement.API.Relationship.Models.Link link = linkHelper.Read(Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.LinkExposers.Guid.Equal(refId)).FirstOrDefault();
 			if (link == null)
 			{
 				return false;
 			}
 
-			var dataHelper = new DataHelperService(connection);
+			var inventoryApi = connection.GetServiceManagementApiHelper("Service Inventory");
 
 			FilterElement<Models.Service> filter = new ORFilterElement<Models.Service>();
 			if (link.ChildID != null && Guid.TryParse(link.ChildID, out Guid childId))
 			{
-				filter = filter.OR(ServiceExposers.Guid.Equal(childId));
+				filter = filter.OR(ServiceExposers.Identifier.Equal(childId.ToString()));
 			}
 
 			if (link.ParentID != null && Guid.TryParse(link.ParentID, out Guid parentId))
 			{
-				filter = filter.OR(ServiceExposers.Guid.Equal(parentId));
+				filter = filter.OR(ServiceExposers.Identifier.Equal(parentId.ToString()));
 			}
 
-			var services = !filter.isEmpty() ? dataHelper.Read(filter) : new List<Models.Service>();
-			if (services.Count > 1)
+			var services = !filter.isEmpty() ? inventoryApi.ServiceInventory.Services.Read(filter) : new List<Models.Service>();
+			if (services.Count() > 1)
 			{
 				return true;
 			}

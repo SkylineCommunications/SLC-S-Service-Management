@@ -8,55 +8,55 @@
 
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Core.DataMinerSystem.Common;
-	using Skyline.DataMiner.Net.Helper;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API;
+	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.PeopleAndOrganization;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
+	using Skyline.DataMiner.SDM;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
 
 	using SLC_SM_Create_Service_Inventory_Item.Views;
 
-	using ConfigModels = Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models;
-	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement.Models;
+	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 
 	public class ServicePresenter
 	{
 		private const string DefaultDropDownOption = "-None-";
 
-		private readonly List<string> getServiceLabels;
-		private readonly List<string> serviceIds;
-		private readonly IEngine _engine;
-		private readonly DataHelpersServiceManagement repo;
+		private readonly List<string> existingServiceNames;
+		private readonly List<string> existingServiceIds;
+		private readonly IEngine engine;
+		private readonly IServiceManagementApiHelper sdmHelper;
 		private readonly ServiceView view;
-		private readonly IEnumerable<IDmsService> serviceList;
-
-		private readonly string serviceId;
+		private readonly IEnumerable<IDmsService> dmsServices;
+		private readonly string generatedServiceId;
 
 		private Models.Service instanceToReturn;
-		private bool isEdit = false;
+		private bool isEdit;
 
-		public ServicePresenter(IEngine engine, DataHelpersServiceManagement repo, ServiceView view, IEnumerable<IDmsService> serviceList)
+		public ServicePresenter(IEngine engine, IServiceManagementApiHelper sdmHelper, ServiceView view, IEnumerable<IDmsService> serviceList)
 		{
-			_engine = engine;
-			this.repo = repo;
+			this.engine = engine;
+			this.sdmHelper = sdmHelper;
 			this.view = view;
-			this.serviceList = serviceList;
+			dmsServices = serviceList;
 
-			List<Models.Service> services = repo.Services.ReadBasicDetails();
-
-			getServiceLabels = services.Select(x => x.Name).ToList();
-			serviceIds = services.Select(x => x.ServiceID).ToList();
-			serviceId = repo.Services.UniqueServiceId(services);
+			var services = sdmHelper.ServiceInventory.Services.Read(new TRUEFilterElement<Models.Service>()).ToList();
+			existingServiceNames = services.Select(x => x.Name).Where(x => !String.IsNullOrWhiteSpace(x)).ToList();
+			existingServiceIds = services.Select(x => x.ServiceID).Where(x => !String.IsNullOrWhiteSpace(x)).ToList();
+			generatedServiceId = GenerateUniqueServiceId(existingServiceIds);
 
 			instanceToReturn = new Models.Service
 			{
-				ID = Guid.NewGuid(),
-				Name = serviceId,
-				ServiceID = serviceId,
-				Description = serviceId,
-				MonitoringService = string.Empty,
+				Identifier = Guid.NewGuid().ToString(),
+				Name = generatedServiceId,
+				ServiceID = generatedServiceId,
+				Description = generatedServiceId,
+				MonitoringService = String.Empty,
 				ServiceItems = new List<Models.ServiceItem>(),
-				ServiceItemsRelationships = new List<Models.ServiceItemRelationShip>(),
+				ServiceItemsRelationships = new List<Models.ServiceItemRelationship>(),
+				ConfigurationVersions = new List<SdmObjectReference<Models.ServiceConfigurationVersion>>(),
 			};
 
 			view.TboxName.PlaceHolder = instanceToReturn.Name;
@@ -72,7 +72,7 @@
 
 		public string ServiceId => view.ServiceId.Text?.Trim();
 
-		public Models.Service Instance
+		public Models.Service SdmInstance
 		{
 			get
 			{
@@ -82,38 +82,63 @@
 				instanceToReturn.StartTime = view.Start.DateTime.ToUniversalTime();
 				instanceToReturn.EndTime = view.IndefiniteRuntime.IsChecked ? default(DateTime?) : view.End.DateTime.ToUniversalTime();
 				instanceToReturn.GenerateMonitoringService = view.GenerateMonitoringService.IsChecked || view.LinkService.IsChecked;
-				instanceToReturn.Description = instanceToReturn.Description ?? String.Empty;
-				instanceToReturn.Category = view.ServiceCategory.Selected;
-				instanceToReturn.ServiceSpecificationId = view.Specs.Selected?.ID;
-				instanceToReturn.OrganizationId = view.Organizations.Selected?.ID;
-				instanceToReturn.MonitoringService = view.LinkService.IsChecked ? view.MonitoringServices.Selected?.DmsServiceId.Value : string.Empty;
+				instanceToReturn.MonitoringService = view.LinkService.IsChecked ? view.MonitoringServices.Selected?.DmsServiceId.Value : String.Empty;
 				instanceToReturn.Icon = view.ServiceCategory?.Selected?.Icon ?? String.Empty;
-				instanceToReturn.ServiceConfiguration = view.ConfigurationVersions.Selected;
-				return instanceToReturn;
+				instanceToReturn.Identifier = String.IsNullOrWhiteSpace(instanceToReturn.Identifier) ? Guid.NewGuid().ToString() : instanceToReturn.Identifier;
+
+				instanceToReturn.CategoryId = view.ServiceCategory.Selected != null && !String.IsNullOrWhiteSpace(view.ServiceCategory.Selected.Identifier)
+					? new SdmObjectReference<Models.ServiceCategory>(view.ServiceCategory.Selected.Identifier)
+					: null;
+
+				instanceToReturn.ServiceSpecificationId = view.Specs.Selected != null && !String.IsNullOrWhiteSpace(view.Specs.Selected.Identifier)
+					? new SdmObjectReference<Models.ServiceSpecification>(view.Specs.Selected.Identifier)
+					: null;
+
+				var selectedConfigurationVersion = view.ConfigurationVersions.Selected;
+				instanceToReturn.ServiceConfigurationId = selectedConfigurationVersion != null && !String.IsNullOrWhiteSpace(selectedConfigurationVersion.Identifier)
+					? new SdmObjectReference<Models.ServiceConfigurationVersion>(selectedConfigurationVersion.Identifier)
+					: null;
+
+				if (selectedConfigurationVersion != null)
+				{
+					EnsureConfigurationVersionReference(selectedConfigurationVersion.Identifier);
+				}
+
+				return CloneService(instanceToReturn);
 			}
 		}
 
 		public void LoadFromModel()
 		{
-			var categoryOptions = repo.ServiceCategories.ReadBasicDetails().Where(x => !string.IsNullOrEmpty(x?.Name)).OrderBy(x => x.Name).Select(x => new Option<Models.ServiceCategory>(x.Name, x)).ToList();
+			var categoryOptions = sdmHelper.ServiceCatalog.ServiceCategories
+				.Read(new TRUEFilterElement<Models.ServiceCategory>())
+				.Where(x => !String.IsNullOrEmpty(x?.Name))
+				.OrderBy(x => x.Name)
+				.Select(x => new Option<Models.ServiceCategory>(x.Name, x))
+				.ToList();
 			categoryOptions.Insert(0, new Option<Models.ServiceCategory>(DefaultDropDownOption, null));
 			view.ServiceCategory.SetOptions(categoryOptions);
 
-			var specs = repo.ServiceSpecifications.ReadBasicDetails().Where(x => !string.IsNullOrEmpty(x?.Name)).OrderBy(x => x.Name).Select(x => new Option<Models.ServiceSpecification>(x.Name, x)).ToList();
+			var specs = sdmHelper.ServiceCatalog.ServiceSpecifications
+				.Read(new TRUEFilterElement<Models.ServiceSpecification>())
+				.Where(x => !String.IsNullOrEmpty(x?.Name))
+				.OrderBy(x => x.Name)
+				.Select(x => new Option<Models.ServiceSpecification>(x.Name, x))
+				.ToList();
 			specs.Insert(0, new Option<Models.ServiceSpecification>(DefaultDropDownOption, null));
 			view.Specs.SetOptions(specs);
 
-			var services = serviceList.Where(x => !string.IsNullOrEmpty(x?.Name)).OrderBy(x => x.Name).Select(x => new Option<IDmsService>(x.Name, x)).ToList();
+			var services = dmsServices.Where(x => !String.IsNullOrEmpty(x?.Name)).OrderBy(x => x.Name).Select(x => new Option<IDmsService>(x.Name, x)).ToList();
 			view.MonitoringServices.SetOptions(services);
 
 			var orgs = new List<Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.PeopleAndOrganization.Models.Organization>>();
-			if (this._engine.DomModelExists(SlcPeople_OrganizationsIds.ModuleId, new[] { SlcPeople_OrganizationsIds.Sections.OrganizationInformation.Id.Id }))
+			if (engine.DomModelExists(SlcPeople_OrganizationsIds.ModuleId, new[] { SlcPeople_OrganizationsIds.Sections.OrganizationInformation.Id.Id }))
 			{
-				orgs = new DataHelperOrganization(_engine.GetUserConnection()).ReadBasicDetails()
-				.Where(x => !string.IsNullOrEmpty(x?.Name))
-				.OrderBy(x => x.Name)
-				.Select(x => new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.PeopleAndOrganization.Models.Organization>(x.Name, x))
-				.ToList();
+				orgs = new DataHelperOrganization(engine.GetUserConnection()).ReadBasicDetails()
+					.Where(x => !String.IsNullOrEmpty(x?.Name))
+					.OrderBy(x => x.Name)
+					.Select(x => new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.PeopleAndOrganization.Models.Organization>(x.Name, x))
+					.ToList();
 			}
 
 			orgs.Insert(0, new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.PeopleAndOrganization.Models.Organization>(DefaultDropDownOption, null));
@@ -128,30 +153,38 @@
 
 		public void LoadFromModel(Models.Service source, bool isDuplication = false)
 		{
+			if (source == null)
+			{
+				throw new ArgumentNullException(nameof(source));
+			}
+
 			isEdit = !isDuplication;
-			instanceToReturn = isDuplication ? CreateDuplicatedInstance(source) : source;
+			instanceToReturn = isDuplication ? CreateDuplicatedInstance(source) : CloneService(source);
 
 			if (!isDuplication)
 			{
-				getServiceLabels.Remove(source.Name);
+				existingServiceNames.Remove(source.Name);
 			}
 
 			LoadFromModel();
 
-			LoadConfigurationVersions(instanceToReturn.ConfigurationVersions, instanceToReturn.ServiceConfiguration);
+			var configurationVersions = ResolveConfigurationVersions(instanceToReturn.ConfigurationVersions);
+			var selectedConfigurationVersion = configurationVersions.FirstOrDefault(v =>
+				instanceToReturn.ServiceConfigurationId != null && String.Equals(v.Identifier, instanceToReturn.ServiceConfigurationId.Identifier, StringComparison.InvariantCultureIgnoreCase));
+
+			LoadConfigurationVersions(configurationVersions, selectedConfigurationVersion);
 			LoadGeneralFields(instanceToReturn, isDuplication ? "Duplicate" : "Save");
 			LoadTimeFields(instanceToReturn);
 			LoadSelections(instanceToReturn, !isDuplication);
-			LoadMonitoringSelection(source, isDuplication);
+			LoadMonitoringSelection(instanceToReturn, isDuplication);
 
-			view.GenerateMonitoringService.IsChecked = !isDuplication && source.GenerateMonitoringService.GetValueOrDefault();
+			view.GenerateMonitoringService.IsChecked = !isDuplication && instanceToReturn.GenerateMonitoringService.GetValueOrDefault();
 			view.GenerateMonitoringService.IsVisible = !isEdit;
 		}
 
 		public bool Validate()
 		{
 			bool ok = true;
-
 			ok &= ValidateServiceId(ServiceId);
 			ok &= ValidateLabel(view.TboxName.Text);
 
@@ -190,308 +223,101 @@
 			UpdateAddButtonState();
 		}
 
-		private static Models.ServiceConfigurationVersion DuplicateConfigurationVersion(Models.ServiceConfigurationVersion source, string newServiceId)
+		private static string GenerateUniqueServiceId(IEnumerable<string> existingServiceIds)
 		{
-			if (source == null)
-			{
-				return new Models.ServiceConfigurationVersion
+			var maxValue = existingServiceIds
+				.Where(x => !String.IsNullOrWhiteSpace(x))
+				.Select(x =>
 				{
-					ID = Guid.NewGuid(),
-					CreatedAt = DateTime.UtcNow,
-					VersionName = "Default (Copy)",
-					Description = "Default",
-					Parameters = new List<Models.ServiceConfigurationValue>(),
-					Profiles = new List<Models.ServiceProfile>(),
-				};
-			}
+					var parts = x.Split('-');
+					return parts.Length > 1 && Int32.TryParse(parts.Last(), out var number) ? number : 0;
+				})
+				.DefaultIfEmpty(0)
+				.Max();
 
-			var parameterIdMap = new Dictionary<Guid, Guid>();
+			return $"SERVICE-{maxValue + 1:00000}";
+		}
 
-			var duplicateService = new Models.ServiceConfigurationVersion
+		private static Models.Service CloneService(Models.Service source)
+		{
+			return new Models.Service
 			{
-				ID = Guid.NewGuid(),
-				VersionName = source.VersionName + " (Copy)",
+				Identifier = source.Identifier,
+				Name = source.Name,
+				ServiceID = source.ServiceID,
 				Description = source.Description,
-				StartDate = source.StartDate,
-				EndDate = source.EndDate,
-				CreatedAt = DateTime.UtcNow,
-				Parameters = DuplicateConfigurationParameters(source.Parameters, parameterIdMap),
-				Profiles = DuplicateServiceProfiles(source.Profiles, newServiceId, parameterIdMap),
+				StartTime = source.StartTime,
+				EndTime = source.EndTime,
+				GenerateMonitoringService = source.GenerateMonitoringService,
+				MonitoringService = source.MonitoringService,
+				Icon = source.Icon,
+				CategoryId = source.CategoryId != null ? new SdmObjectReference<Models.ServiceCategory>(source.CategoryId.Identifier) : null,
+				ServiceSpecificationId = source.ServiceSpecificationId != null ? new SdmObjectReference<Models.ServiceSpecification>(source.ServiceSpecificationId.Identifier) : null,
+				ServiceConfigurationId = source.ServiceConfigurationId != null ? new SdmObjectReference<Models.ServiceConfigurationVersion>(source.ServiceConfigurationId.Identifier) : null,
+				ConfigurationVersions = source.ConfigurationVersions?.Select(v => new SdmObjectReference<Models.ServiceConfigurationVersion>(v.Identifier)).ToList()
+					?? new List<SdmObjectReference<Models.ServiceConfigurationVersion>>(),
+				ServiceItems = source.ServiceItems?.Select(item => new Models.ServiceItem
+				{
+					ServiceItemID = item.ServiceItemID,
+					Label = item.Label,
+					Script = item.Script,
+					DefinitionReference = item.DefinitionReference,
+					ImplementationReference = item.ImplementationReference,
+					Type = item.Type,
+					Icon = item.Icon,
+				}).ToList() ?? new List<Models.ServiceItem>(),
+				ServiceItemsRelationships = source.ServiceItemsRelationships?.Select(rel => new Models.ServiceItemRelationship
+				{
+					Id = rel.Id,
+					ParentServiceItem = rel.ParentServiceItem,
+					ChildServiceItem = rel.ChildServiceItem,
+				}).ToList() ?? new List<Models.ServiceItemRelationship>(),
 			};
-
-			RemapLinkedConsumers(duplicateService, parameterIdMap);
-
-			return duplicateService;
-		}
-
-		private static void RemapLinkedConsumers(Models.ServiceConfigurationVersion version, Dictionary<Guid, Guid> parameterIdMap)
-		{
-			if (parameterIdMap.Count == 0)
-			{
-				return;
-			}
-
-			foreach (var serviceConfigValue in version.Parameters)
-			{
-				RemapLinkedConsumers(serviceConfigValue?.ConfigurationParameter, parameterIdMap);
-			}
-
-			foreach (var serviceProfile in version.Profiles)
-			{
-				if (serviceProfile?.Profile?.ConfigurationParameterValues == null)
-				{
-					continue;
-				}
-
-				foreach (var paramValue in serviceProfile.Profile.ConfigurationParameterValues)
-				{
-					RemapLinkedConsumers(paramValue, parameterIdMap);
-				}
-			}
-		}
-
-		private static void RemapLinkedConsumers(ConfigModels.ConfigurationParameterValue paramValue, Dictionary<Guid, Guid> parameterIdMap)
-		{
-			if (paramValue?.LinkedConsumers == null || paramValue.LinkedConsumers.Count == 0)
-			{
-				return;
-			}
-
-			for (int i = 0; i < paramValue.LinkedConsumers.Count; i++)
-			{
-				Guid newId;
-				if (parameterIdMap.TryGetValue(paramValue.LinkedConsumers[i], out newId))
-				{
-					paramValue.LinkedConsumers[i] = newId;
-				}
-			}
-		}
-
-		private static List<Models.ServiceConfigurationValue> DuplicateConfigurationParameters(List<Models.ServiceConfigurationValue> sourceParameters, Dictionary<Guid, Guid> parameterIdMap)
-		{
-			var duplicateParameters = new List<Models.ServiceConfigurationValue>();
-
-			if (sourceParameters == null)
-			{
-				return duplicateParameters;
-			}
-
-			foreach (var parameter in sourceParameters)
-			{
-				if (parameter?.ConfigurationParameter == null)
-				{
-					continue;
-				}
-
-				duplicateParameters.Add(new Models.ServiceConfigurationValue
-				{
-					ID = Guid.NewGuid(),
-					Mandatory = parameter.Mandatory,
-					ConfigurationParameter = DuplicateConfigurationParameterValue(parameter.ConfigurationParameter, parameterIdMap),
-				});
-			}
-
-			return duplicateParameters;
-		}
-
-		private static List<Models.ServiceProfile> DuplicateServiceProfiles(List<Models.ServiceProfile> sourceProfiles, string newServiceId, Dictionary<Guid, Guid> parameterIdMap)
-		{
-			var duplicatedProfiles = new List<Models.ServiceProfile>();
-
-			if (sourceProfiles == null || sourceProfiles.Count == 0)
-			{
-				return duplicatedProfiles;
-			}
-
-			var profilesMapping = new Dictionary<Guid, Models.ServiceProfile>();
-			foreach (var profile in sourceProfiles)
-			{
-				if (profile?.Profile == null)
-				{
-					continue;
-				}
-
-				var duplicatedServiceProfile = new Models.ServiceProfile
-				{
-					ID = Guid.NewGuid(),
-					Mandatory = profile.Mandatory,
-					ProfileDefinition = profile.ProfileDefinition,
-					Profile = DuplicateProfile(profile.Profile, newServiceId, parameterIdMap),
-				};
-
-				profilesMapping[profile.Profile.ID] = duplicatedServiceProfile;
-				duplicatedProfiles.Add(duplicatedServiceProfile);
-			}
-
-			foreach (var duplicatedServiceProfile in duplicatedProfiles)
-			{
-				if (duplicatedServiceProfile.Profile.Profiles == null || duplicatedServiceProfile.Profile.Profiles.Count == 0)
-				{
-					continue;
-				}
-
-				var remappedChildren = new List<Guid>();
-				foreach (var nestedProfileId in duplicatedServiceProfile.Profile.Profiles)
-				{
-					Models.ServiceProfile duplicateNestedProfile;
-					if (profilesMapping.TryGetValue(nestedProfileId, out duplicateNestedProfile))
-					{
-						remappedChildren.Add(duplicateNestedProfile.Profile.ID);
-					}
-				}
-
-				duplicatedServiceProfile.Profile.Profiles = remappedChildren;
-			}
-
-			return duplicatedProfiles;
-		}
-
-		private static ConfigModels.Profile DuplicateProfile(ConfigModels.Profile source, string newServiceId, Dictionary<Guid, Guid> parameterIdMap)
-		{
-			var duplicatedParamValues = new List<ConfigModels.ConfigurationParameterValue>();
-			if (source.ConfigurationParameterValues != null)
-			{
-				foreach (var cpv in source.ConfigurationParameterValues)
-				{
-					duplicatedParamValues.Add(DuplicateConfigurationParameterValue(cpv, parameterIdMap));
-				}
-			}
-
-			return new ConfigModels.Profile
-			{
-				ID = Guid.NewGuid(),
-				Name = source.Name.ReplaceTrailingParentesisContent(newServiceId),
-				IsReusable = false,
-				ProfileDefinitionReference = source.ProfileDefinitionReference,
-				Profiles = source.Profiles != null ? new List<Guid>(source.Profiles) : new List<Guid>(),
-				TestedProtocols = source.TestedProtocols != null
-					? new List<ConfigModels.ProtocolTest>(source.TestedProtocols)
-					: new List<ConfigModels.ProtocolTest>(),
-				ConfigurationParameterValues = duplicatedParamValues,
-			};
-		}
-
-		private static ConfigModels.ConfigurationParameterValue DuplicateConfigurationParameterValue(ConfigModels.ConfigurationParameterValue source, Dictionary<Guid, Guid> parameterIdMap)
-		{
-			var newId = Guid.NewGuid();
-			parameterIdMap[source.ID] = newId;
-
-			var duplicateCpv = new ConfigModels.ConfigurationParameterValue
-			{
-				ID = newId,
-				Label = source.Label,
-				Type = source.Type,
-				ConfigurationParameterId = source.ConfigurationParameterId,
-				StringValue = source.StringValue,
-				DoubleValue = source.DoubleValue,
-				ValueFixed = source.ValueFixed,
-				IsLinked = source.IsLinked,
-				LinkedScript = source.LinkedScript,
-				LinkedConsumers = source.LinkedConsumers != null ? new List<Guid>(source.LinkedConsumers) : null,
-			};
-
-			if (source.NumberOptions != null)
-			{
-				var units = source.NumberOptions.Units?
-					.Select(u => new ConfigModels.ConfigurationUnit { ID = u.ID, Name = u.Name })
-					.ToList()
-					?? new List<ConfigModels.ConfigurationUnit>();
-
-				ConfigModels.ConfigurationUnit defaultUnit = null;
-				if (source.NumberOptions.DefaultUnit != null)
-				{
-					defaultUnit = units.FirstOrDefault(u => u.ID == source.NumberOptions.DefaultUnit.ID);
-					if (defaultUnit == null)
-					{
-						defaultUnit = new ConfigModels.ConfigurationUnit
-						{
-							ID = source.NumberOptions.DefaultUnit.ID,
-							Name = source.NumberOptions.DefaultUnit.Name,
-						};
-						units.Add(defaultUnit);
-					}
-				}
-
-				duplicateCpv.NumberOptions = new ConfigModels.NumberParameterOptions
-				{
-					ID = Guid.NewGuid(),
-					MinRange = source.NumberOptions.MinRange,
-					MaxRange = source.NumberOptions.MaxRange,
-					StepSize = source.NumberOptions.StepSize,
-					Decimals = source.NumberOptions.Decimals,
-					DefaultValue = source.NumberOptions.DefaultValue,
-					DefaultUnit = defaultUnit,
-					Units = units,
-				};
-			}
-
-			if (source.DiscreteOptions != null)
-			{
-				duplicateCpv.DiscreteOptions = new ConfigModels.DiscreteParameterOptions
-				{
-					ID = Guid.NewGuid(),
-					Default = source.DiscreteOptions.Default,
-					DiscreteValues = source.DiscreteOptions.DiscreteValues?
-						.Select(dv => new ConfigModels.DiscreteValue { Value = dv.Value })
-						.ToList()
-						?? new List<ConfigModels.DiscreteValue>(),
-				};
-			}
-
-			if (source.TextOptions != null)
-			{
-				duplicateCpv.TextOptions = new ConfigModels.TextParameterOptions
-				{
-					ID = Guid.NewGuid(),
-					Default = source.TextOptions.Default,
-					Regex = source.TextOptions.Regex,
-					UserMessage = source.TextOptions.UserMessage,
-				};
-			}
-
-			return duplicateCpv;
 		}
 
 		private Models.Service CreateDuplicatedInstance(Models.Service source)
 		{
-			var duplicatedVersions = source.ConfigurationVersions?
-				.Select(v => DuplicateConfigurationVersion(v, serviceId))
-				.ToList() ?? new List<Models.ServiceConfigurationVersion>();
+			var duplicate = CloneService(source);
+			duplicate.Identifier = Guid.NewGuid().ToString();
+			duplicate.ServiceID = generatedServiceId;
+			duplicate.Name = (source.Name ?? generatedServiceId) + " (Copy)";
+			duplicate.GenerateMonitoringService = false;
+			duplicate.MonitoringService = String.Empty;
+			return duplicate;
+		}
 
-			var activeVersion = source.ServiceConfiguration == null
-				? duplicatedVersions.FirstOrDefault()
-				: duplicatedVersions.FirstOrDefault(v => v.VersionName == source.ServiceConfiguration.VersionName + " (Copy)") ?? duplicatedVersions.FirstOrDefault();
-
-			return new Models.Service
+		private void EnsureConfigurationVersionReference(string identifier)
+		{
+			if (String.IsNullOrWhiteSpace(identifier))
 			{
-				ID = Guid.NewGuid(),
-				ServiceID = serviceId,
-				Name = source.Name + " (Copy)",
-				Description = source.Description,
-				StartTime = source.StartTime,
-				EndTime = source.EndTime,
-				ServiceSpecificationId = source.ServiceSpecificationId,
-				Category = source.Category,
-				Icon = source.Icon,
-				OrganizationId = source.OrganizationId,
-				GenerateMonitoringService = false,
-				MonitoringService = String.Empty,
-				ConfigurationVersions = duplicatedVersions,
-				ServiceConfiguration = activeVersion,
-				ServiceItems = source.ServiceItems?
-					.Select(item => new Models.ServiceItem
-					{
-						ID = item.ID,
-						Label = item.Label,
-						Script = item.Script,
-						DefinitionReference = item.DefinitionReference,
-						Icon = item.Icon,
-					})
-					.ToList() ?? new List<Models.ServiceItem>(),
-				ServiceItemsRelationships = source.ServiceItemsRelationships != null
-					? new List<Models.ServiceItemRelationShip>(source.ServiceItemsRelationships)
-					: new List<Models.ServiceItemRelationShip>(),
-			};
+				return;
+			}
+
+			instanceToReturn.ConfigurationVersions = instanceToReturn.ConfigurationVersions ?? new List<SdmObjectReference<Models.ServiceConfigurationVersion>>();
+			if (!instanceToReturn.ConfigurationVersions.Any(cv => String.Equals(cv.Identifier, identifier, StringComparison.InvariantCultureIgnoreCase)))
+			{
+				instanceToReturn.ConfigurationVersions.Add(new SdmObjectReference<Models.ServiceConfigurationVersion>(identifier));
+			}
+		}
+
+		private List<Models.ServiceConfigurationVersion> ResolveConfigurationVersions(List<SdmObjectReference<Models.ServiceConfigurationVersion>> refs)
+		{
+			if (refs == null || refs.Count == 0)
+			{
+				return new List<Models.ServiceConfigurationVersion>();
+			}
+
+			var ids = refs.Select(r => r.Identifier).Where(id => !String.IsNullOrWhiteSpace(id)).ToHashSet(StringComparer.InvariantCultureIgnoreCase);
+			if (ids.Count == 0)
+			{
+				return new List<Models.ServiceConfigurationVersion>();
+			}
+
+			return sdmHelper.ServiceInventory.ServiceConfigurationVersions
+				.Read(new TRUEFilterElement<Models.ServiceConfigurationVersion>())
+				.Where(v => v != null && !String.IsNullOrWhiteSpace(v.Identifier) && ids.Contains(v.Identifier))
+				.OrderBy(v => v.VersionName)
+				.ToList();
 		}
 
 		private void LoadConfigurationVersions(List<Models.ServiceConfigurationVersion> versions, Models.ServiceConfigurationVersion selectedVersion)
@@ -505,17 +331,19 @@
 				return;
 			}
 
-			var options = versions
-				.OrderBy(x => x.VersionName)
+			var options = versions.OrderBy(x => x.VersionName)
 				.Select(x => new Option<Models.ServiceConfigurationVersion>(x.VersionName, x))
 				.ToList();
-
 			options.Insert(0, new Option<Models.ServiceConfigurationVersion>(DefaultDropDownOption, null));
 			view.ConfigurationVersions.SetOptions(options);
 
-			if (selectedVersion != null && view.ConfigurationVersions.Options.Any(x => x.Value?.ID == selectedVersion.ID))
+			if (selectedVersion != null)
 			{
-				view.ConfigurationVersions.SelectedOption = view.ConfigurationVersions.Options.First(x => x.Value?.ID == selectedVersion.ID);
+				var selected = view.ConfigurationVersions.Options.FirstOrDefault(x => String.Equals(x.Value?.Identifier, selectedVersion.Identifier, StringComparison.InvariantCultureIgnoreCase));
+				if (selected != null)
+				{
+					view.ConfigurationVersions.SelectedOption = selected;
+				}
 			}
 		}
 
@@ -523,7 +351,6 @@
 		{
 			view.BtnAdd.Text = actionText;
 			view.TboxName.Text = instance.Name;
-
 			if (!String.IsNullOrEmpty(instance.ServiceID))
 			{
 				view.TboxName.PlaceHolder = instance.ServiceID;
@@ -554,31 +381,33 @@
 
 		private void LoadSelections(Models.Service instance, bool lockSpecification)
 		{
-			if (instance.Category != null && view.ServiceCategory.Options.Any(s => s.Value?.ID == instance.Category.ID))
+			if (instance.CategoryId != null)
 			{
-				view.ServiceCategory.SelectedOption = view.ServiceCategory.Options.First(s => s.Value?.ID == instance.Category.ID);
+				var cat = view.ServiceCategory.Options.FirstOrDefault(s => String.Equals(s.Value?.Identifier, instance.CategoryId.Identifier, StringComparison.InvariantCultureIgnoreCase));
+				if (cat != null)
+				{
+					view.ServiceCategory.SelectedOption = cat;
+				}
 			}
 
-			if (instance.ServiceSpecificationId.HasValue && view.Specs.Options.Any(x => x.Value?.ID == instance.ServiceSpecificationId))
+			if (instance.ServiceSpecificationId != null)
 			{
-				view.Specs.SelectedOption = view.Specs.Options.First(x => x.Value?.ID == instance.ServiceSpecificationId);
-				view.Specs.IsEnabled = !lockSpecification;
-			}
-
-			if (instance.OrganizationId.HasValue && view.Organizations.Options.Any(o => o.Value?.ID == instance.OrganizationId))
-			{
-				view.Organizations.SelectedOption = view.Organizations.Options.First(x => x.Value?.ID == instance.OrganizationId);
+				var spec = view.Specs.Options.FirstOrDefault(x => String.Equals(x.Value?.Identifier, instance.ServiceSpecificationId.Identifier, StringComparison.InvariantCultureIgnoreCase));
+				if (spec != null)
+				{
+					view.Specs.SelectedOption = spec;
+					view.Specs.IsEnabled = !lockSpecification;
+				}
 			}
 		}
 
 		private void LoadMonitoringSelection(Models.Service source, bool isDuplicate)
 		{
-			bool hasLinkedService = !isDuplicate && !source.MonitoringService.IsNullOrEmpty()
+			bool hasLinkedService = !isDuplicate && !String.IsNullOrEmpty(source.MonitoringService)
 				&& view.MonitoringServices.Options.Any(option => option.Value?.DmsServiceId.Value == source.MonitoringService);
 
 			view.LinkService.IsChecked = hasLinkedService;
 			view.MonitoringServices.IsEnabled = hasLinkedService;
-
 			if (hasLinkedService)
 			{
 				view.MonitoringServices.Selected = view.MonitoringServices.Options.First(option => option.Value?.DmsServiceId.Value == source.MonitoringService).Value;
@@ -610,13 +439,12 @@
 		private bool ValidateServiceId(string value)
 		{
 			bool isValid = true;
-
 			if (String.IsNullOrWhiteSpace(value))
 			{
 				view.ServiceId.ValidationText = "Service ID is required.";
 				isValid = false;
 			}
-			else if (!isEdit && serviceIds.Contains(value.Trim(), StringComparer.InvariantCultureIgnoreCase))
+			else if (!isEdit && existingServiceIds.Contains(value.Trim(), StringComparer.InvariantCultureIgnoreCase))
 			{
 				view.ServiceId.ValidationText = "Service ID already exists!";
 				isValid = false;
@@ -627,7 +455,6 @@
 			}
 
 			view.ServiceId.ValidationState = isValid ? UIValidationState.Valid : UIValidationState.Invalid;
-
 			UpdateAddButtonState();
 			return isValid;
 		}
@@ -635,12 +462,11 @@
 		private bool ValidateLabel(string newValue)
 		{
 			bool isValid = true;
-
 			if (String.IsNullOrWhiteSpace(newValue))
 			{
 				view.ErrorName.Text = "Placeholder will be used";
 			}
-			else if (getServiceLabels.Contains(newValue, StringComparer.InvariantCultureIgnoreCase))
+			else if (existingServiceNames.Contains(newValue, StringComparer.InvariantCultureIgnoreCase))
 			{
 				view.ErrorName.Text = String.Empty;
 				view.TboxName.ValidationText = "Name already exists!";
@@ -653,7 +479,6 @@
 			}
 
 			view.TboxName.ValidationState = isValid ? UIValidationState.Valid : UIValidationState.Invalid;
-
 			UpdateAddButtonState();
 			return isValid;
 		}

@@ -1,4 +1,4 @@
-/*
+﻿/*
 ****************************************************************************
 *  Copyright (c),  Skyline Communications NV  All Rights Reserved.    *
 ****************************************************************************
@@ -17,8 +17,9 @@ namespace SLC_SM_IAS_Add_Service_Specification
 	using System.Linq;
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
+	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.IAS;
@@ -94,8 +95,8 @@ namespace SLC_SM_IAS_Add_Service_Specification
 				throw new InvalidOperationException("No Action provided as input to the script");
 			}
 
-			var dataHelperServiceSpec = new DataHelperServiceSpecification(_engine.GetUserConnection());
-			List<Models.ServiceSpecification> serviceSpecifications = dataHelperServiceSpec.ReadBasicDetails();
+			var api = _engine.GetUserConnection().GetServiceManagementApiHelper("Service Catalog");
+			List<Models.ServiceSpecification> serviceSpecifications = api.ServiceCatalog.ServiceSpecifications.Read(new TRUEFilterElement<Models.ServiceSpecification>()).ToList();
 
 			var usedOrderItemLabels = serviceSpecifications.Select(x => x.Name).ToList();
 
@@ -109,7 +110,16 @@ namespace SLC_SM_IAS_Add_Service_Specification
 			{
 				if (presenter.Validate())
 				{
-					dataHelperServiceSpec.CreateOrUpdate(presenter.GetData);
+					Models.ServiceSpecification specificationToSave = presenter.GetData;
+					if (action == Action.Add)
+					{
+						specificationToSave.Identifier = Guid.NewGuid().ToString();
+						api.ServiceCatalog.ServiceSpecifications.Create(specificationToSave);
+					}
+					else
+					{
+						api.ServiceCatalog.ServiceSpecifications.Update(specificationToSave);
+					}
 					throw new ScriptAbortException("OK");
 				}
 			};
@@ -121,10 +131,10 @@ namespace SLC_SM_IAS_Add_Service_Specification
 			else
 			{
 				Guid domId = _engine.ReadScriptParamFromApp<Guid>("DOM ID");
-				var specification = serviceSpecifications.Find(x => x.ID == domId)
+				var specification = serviceSpecifications.Find(x => String.Equals(x.Identifier, domId.ToString(), StringComparison.OrdinalIgnoreCase))
 				                     ?? throw new InvalidOperationException($"No Service Specification with ID '{domId}' found on the system!");
 
-				var specificationToEdit = dataHelperServiceSpec.Read(ServiceSpecificationExposers.Guid.Equal(specification.ID)).FirstOrDefault();
+				var specificationToEdit = api.ServiceCatalog.ServiceSpecifications.Read(ServiceSpecificationExposers.Identifier.Equal(specification.Identifier)).FirstOrDefault();
 				presenter.LoadFromModel(specificationToEdit);
 			}
 

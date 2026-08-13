@@ -1,17 +1,14 @@
-﻿namespace SLC_SM_IAS_Service_Spec_Configuration.Views
+namespace SLC_SM_IAS_Service_Spec_Configuration.Views
 {
 	using System;
 	using System.Collections.Generic;
 	using System.Linq;
-
 	using DomHelpers.SlcConfigurations;
-
 	using Skyline.DataMiner.Automation;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.Configurations;
+	using Skyline.DataMiner.SDM;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
-
 	using SLC_SM_IAS_Service_Spec_Configuration.Model.DataRecords;
-
-	using static Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models;
 
 	public class NestedProfileView : Dialog
 	{
@@ -71,13 +68,12 @@
 
 		private void AddDiscreteWidget(IParameterDataRecord record, int row, bool isDisabled)
 		{
-			var discreteOptions = record.ConfigurationParamValue.DiscreteOptions;
-			if (discreteOptions == null)
+			if (record.DiscreteOptions == null)
 			{
 				return;
 			}
 
-			var options = discreteOptions.DiscreteValues
+			var options = record.DiscreteValues
 				.Select(x => new Option<DiscreteValue>(x.Value, x))
 				.OrderBy(x => x.DisplayValue)
 				.ToList();
@@ -96,7 +92,7 @@
 
 		private void AddNumericWidget(IParameterDataRecord record, int row, bool isDisabled, bool showDetails)
 		{
-			var numOptions = record.ConfigurationParamValue.NumberOptions;
+			var numOptions = record.NumberOptions;
 			double min = numOptions?.MinRange ?? -10_000;
 			double max = numOptions?.MaxRange ?? 10_000;
 			int decimals = Convert.ToInt32(numOptions?.Decimals ?? 0);
@@ -113,22 +109,25 @@
 			numericWidget.Changed += (s, a) => record.ConfigurationParamValue.DoubleValue = a.Value;
 			AddWidget(numericWidget, row, ValueColumnIndex);
 
-			var unitOptions = (numOptions?.Units ?? new List<ConfigurationUnit>())
+			var unitOptions = (record.Units ?? new List<ConfigurationUnit>())
 				.Select(u => new Option<ConfigurationUnit>(u.Name, u))
 				.ToList();
 			unitOptions.Insert(0, new Option<ConfigurationUnit>("-", null));
 
 			var unitDropDown = new DropDown<ConfigurationUnit>(unitOptions) { IsEnabled = !isDisabled, MaxWidth = 80 };
-			if (numOptions?.DefaultUnit != null && unitOptions.Any(o => o.Value?.ID == numOptions.DefaultUnit.ID))
+			var defaultUnit = record.Units?.FirstOrDefault(u => u.Identifier == numOptions?.DefaultUnitId.Identifier);
+			if (defaultUnit != null && unitOptions.Any(o => o.Value?.Identifier == defaultUnit.Identifier))
 			{
-				unitDropDown.Selected = numOptions.DefaultUnit;
+				unitDropDown.Selected = defaultUnit;
 			}
 
 			unitDropDown.Changed += (s, a) =>
 			{
 				if (numOptions != null)
 				{
-					numOptions.DefaultUnit = a.Selected;
+					numOptions.DefaultUnitId = a.Selected == null
+						? default
+						: new SdmObjectReference<ConfigurationUnit>(a.Selected.Identifier);
 				}
 			};
 			AddWidget(unitDropDown, row, 4);

@@ -3,18 +3,18 @@
 	using System.Collections.Generic;
 	using System.Linq;
 	using DomHelpers.SlcWorkflow;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
+	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 
 	internal class WorkflowsInstanceAdapter : IDefinitionObject
 	{
 		private readonly Models.ServiceItem _serviceItem;
 		private readonly WorkflowsInstance _instance;
-		private readonly IList<Models.ServiceItemRelationShip> _existingItemRelationShips;
+		private readonly IList<Models.ServiceItemRelationship> _existingItemRelationships;
 
-		internal WorkflowsInstanceAdapter(Models.ServiceItem serviceItem, WorkflowsInstance instance, IList<Models.ServiceItemRelationShip> existingItemRelationShips)
+		internal WorkflowsInstanceAdapter(Models.ServiceItem serviceItem, WorkflowsInstance instance, IList<Models.ServiceItemRelationship> existingItemRelationships)
 		{
 			_instance = instance;
-			_existingItemRelationShips = existingItemRelationShips;
+			_existingItemRelationships = existingItemRelationships;
 			_serviceItem = serviceItem;
 		}
 

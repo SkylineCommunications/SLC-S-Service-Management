@@ -1,15 +1,15 @@
-﻿namespace ServiceStateTransitions
+namespace ServiceStateTransitions
 {
 	using System;
 	using System.Linq;
 	using Library.Dom;
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.IAS;
 	using static DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Service_Behavior;
+	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 
 	/// <summary>
 	///     Represents a DataMiner Automation script.
@@ -75,8 +75,8 @@
 											 .FirstOrDefault(t => t.ToString().Equals($"{previousState}_to_{nextState}", StringComparison.OrdinalIgnoreCase))
 										 ?? throw new NotSupportedException($"The provided previousState '{previousState}' is not supported for nextState '{nextState}'");
 
-			var srvHelper = new DataHelperService(engine.GetUserConnection());
-			var service = srvHelper.Read(ServiceExposers.Guid.Equal(serviceReference)).FirstOrDefault()
+			var api = new ServiceManagementApiHelper(engine.GetUserConnection(), "Service Inventory");
+			var service = api.ServiceInventory.Services.Read(Models.ServiceExposers.Identifier.Equal(serviceReference.ToString())).FirstOrDefault()
 						  ?? throw new NotSupportedException($"No Service with ID '{serviceReference}' exists on the system");
 
 			switch (transition)
@@ -92,7 +92,7 @@
 
 				default:
 					engine.GenerateInformation($"[SMS] Status Transition: {service.Name} → {transition}");
-					srvHelper.UpdateState(service, transition);
+					api.ServiceInventory.Services.TransitionStatus(service, transition);
 					break;
 			}
 		}

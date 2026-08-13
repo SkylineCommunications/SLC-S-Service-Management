@@ -5,32 +5,35 @@
 	using System.Linq;
 	using Library;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
 	using SLC_SM_IAS_Add_Service_Order_Item_1.Views;
+	using ConfigurationModels = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.Configurations;
+	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 
 	public class ServiceOrderItemPresenter
 	{
 		private readonly string[] getServiceOrderItemLabels;
-		private readonly DataHelpersServiceManagement repo;
+		private readonly IServiceManagementApiHelper repo;
 		private readonly ServiceOrderItemView view;
-		private Models.ServiceOrderItems instanceToReturn;
+		private Models.ServiceOrderEntry orderEntry;
+		private Models.ServiceOrderItem instanceToReturn;
 		private bool isEdit;
 
-		public ServiceOrderItemPresenter(ServiceOrderItemView view, DataHelpersServiceManagement repo, string[] getServiceOrderItemLabels)
+		public ServiceOrderItemPresenter(ServiceOrderItemView view, IServiceManagementApiHelper repo, string[] getServiceOrderItemLabels)
 		{
 			this.view = view;
 			this.repo = repo;
 			this.getServiceOrderItemLabels = getServiceOrderItemLabels;
-			instanceToReturn = new Models.ServiceOrderItems
+			instanceToReturn = new Models.ServiceOrderItem
 			{
-				ServiceOrderItem = new Models.ServiceOrderItem
+				Identifier = Guid.NewGuid().ToString(),
+				ServiceInfo = new Models.ServiceOrderItemServiceInfo
 				{
-					ID = Guid.NewGuid(),
-					Configurations = new List<Models.ServiceOrderItemConfigurationValue>(),
+					Configurations = new List<Skyline.DataMiner.SDM.SdmObjectReference<Models.ServiceOrderItemConfigurationValue>>(),
 				},
 			};
+			orderEntry = new Models.ServiceOrderEntry { ServiceOrderItemId = instanceToReturn };
 
 			view.IndefiniteTime.Changed += (sender, args) => view.End.IsEnabled = !args.IsChecked;
 			view.TboxName.Changed += (sender, args) => ValidateLabel(args.Value);
@@ -51,36 +54,84 @@
 			};
 		}
 
-		public Models.ServiceOrderItems GetData
+		public Models.ServiceOrderItem GetData
 		{
 			get
 			{
-				instanceToReturn.ServiceOrderItem.Name = Name;
-				instanceToReturn.ServiceOrderItem.Description = view.TboxDescription.Text ?? String.Empty;
-				instanceToReturn.ServiceOrderItem.Action = view.ActionType.Selected.ToString();
-				instanceToReturn.ServiceOrderItem.StartTime = view.Start.IsVisible ? view.Start.DateTime : default(DateTime?);
-				instanceToReturn.ServiceOrderItem.EndTime = !view.Start.IsVisible || view.IndefiniteTime.IsChecked ? default(DateTime?) : view.End.DateTime;
-				instanceToReturn.ServiceOrderItem.IndefiniteRuntime = view.IndefiniteTime.IsChecked;
-				instanceToReturn.ServiceOrderItem.ServiceCategoryId = view.Category.Selected?.ID;
-				instanceToReturn.ServiceOrderItem.SpecificationId = view.Specification.Selected?.ID;
-				instanceToReturn.ServiceOrderItem.ServiceId = view.Service.Selected?.ID;
-
+				instanceToReturn.Name = Name;
+				instanceToReturn.Description = view.TboxDescription.Text ?? String.Empty;
+				instanceToReturn.Action = view.ActionType.Selected.ToString();
+				instanceToReturn.StartTime = view.Start.IsVisible ? view.Start.DateTime : default(DateTime?);
+				instanceToReturn.EndTime = !view.Start.IsVisible || view.IndefiniteTime.IsChecked ? default(DateTime?) : view.End.DateTime;
+				instanceToReturn.IndefiniteRuntime = view.IndefiniteTime.IsChecked;
+				var configurations = instanceToReturn.ServiceInfo?.Configurations ?? new List<Skyline.DataMiner.SDM.SdmObjectReference<Models.ServiceOrderItemConfigurationValue>>();
+				instanceToReturn.ServiceInfo = new Models.ServiceOrderItemServiceInfo
+				{
+					ServiceCategoryId = view.Category.Selected,
+					SpecificationId = view.Specification.Selected,
+					ServiceId = view.Service.Selected,
+					Configurations = configurations,
+				};
 				if (!isEdit && view.Specification.Selected != null)
 				{
-					instanceToReturn.ServiceOrderItem.Configurations = view.Specification.Selected.ConfigurationParameters.Where(x => x?.ConfigurationParameter != null).Select(x => new Models.ServiceOrderItemConfigurationValue
+					var specificationConfigurationIds = view.Specification.Selected.ConfigurationParameters
+						.Select(reference => reference.Identifier)
+						.ToHashSet();
+
+					var specificationConfigurations = repo.ServiceCatalog.ServiceSpecificationConfigurationValues
+						.Read(new TRUEFilterElement<Models.ServiceSpecificationConfigurationValue>())
+						.Where(configuration => specificationConfigurationIds.Contains(configuration.Identifier))
+						.ToList();
+
+					var parameterValuesByParameterId = repo.ServiceCatalog.ConfigurationParameterValues
+						.Read(new TRUEFilterElement<ConfigurationModels.ConfigurationParameterValue>())
+						.Where(value => value.ConfigurationParameterId != null && !String.IsNullOrEmpty(value.ConfigurationParameterId.Identifier))
+						.GroupBy(value => value.ConfigurationParameterId.Identifier)
+						.ToDictionary(group => group.Key, group => group.First());
+
+					var orderItemConfigurations = new List<Models.ServiceOrderItemConfigurationValue>();
+
+					foreach (var specificationConfiguration in specificationConfigurations)
 					{
-						ConfigurationParameter = x.ConfigurationParameter,
-						Mandatory = x.MandatoryAtServiceOrder,
-					}).ToList();
-					foreach (var config in instanceToReturn.ServiceOrderItem.Configurations)
-					{
-						config.ConfigurationParameter.ID = Guid.NewGuid(); // Duplicate
+						var sourceValueId = specificationConfiguration.ConfigurationParameterId.Identifier;
+						if (String.IsNullOrEmpty(sourceValueId) ||
+							!parameterValuesByParameterId.TryGetValue(sourceValueId, out var sourceValue))
+						{
+							continue;
+						}
+
+						var orderValue = CloneConfigurationParameterValue(sourceValue);
+
+						repo.ServiceCatalog.ConfigurationParameterValues.CreateOrUpdate(
+							new[] { orderValue });
+
+						var orderItemConfiguration = new Models.ServiceOrderItemConfigurationValue
+						{
+							Identifier = Guid.NewGuid().ToString(),
+							ConfigurationParameterValueId =
+								new Skyline.DataMiner.SDM.SdmObjectReference<ConfigurationModels.ConfigurationParameterValue>(
+									orderValue.Identifier),
+							Mandatory = specificationConfiguration.MandatoryAtServiceOrder,
+						};
+
+						repo.ServiceOrder.ServiceOrderItemConfigurationValues.CreateOrUpdate(
+							new[] { orderItemConfiguration });
+
+						orderItemConfigurations.Add(orderItemConfiguration);
 					}
+
+					instanceToReturn.ServiceInfo.Configurations = orderItemConfigurations
+					.Select(configuration =>
+						new Skyline.DataMiner.SDM.SdmObjectReference<Models.ServiceOrderItemConfigurationValue>(
+							configuration.Identifier))
+					.ToList();
 				}
 
 				return instanceToReturn;
 			}
 		}
+
+		public Models.ServiceOrderEntry GetOrderEntry => orderEntry;
 
 		public string Name => String.IsNullOrWhiteSpace(view.TboxName.Text) ? view.TboxName.PlaceHolder : view.TboxName.Text;
 
@@ -89,15 +140,15 @@
 			view.TboxName.PlaceHolder = $"Service Order Item #{nr + 1:000}";
 
 			// Load correct types
-			var categories = repo.ServiceCategories.Read().OrderBy(x => x.Name).Select(x => new Option<Models.ServiceCategory>(x.Name, x)).ToList();
+			var categories = repo.ServiceCatalog.ServiceCategories.Read(new TRUEFilterElement<Models.ServiceCategory>()).OrderBy(x => x.Name).Select(x => new Option<Models.ServiceCategory>(x.Name, x)).ToList();
 			categories.Insert(0, new Option<Models.ServiceCategory>("-None-", null));
 			view.Category.SetOptions(categories);
 
-			var specs = repo.ServiceSpecifications.Read().OrderBy(x => x.Name).Select(x => new Option<Models.ServiceSpecification>(x.Name, x)).ToList();
+			var specs = repo.ServiceCatalog.ServiceSpecifications.Read(new TRUEFilterElement<Models.ServiceSpecification>()).OrderBy(x => x.Name).Select(x => new Option<Models.ServiceSpecification>(x.Name, x)).ToList();
 			specs.Insert(0, new Option<Models.ServiceSpecification>("-None-", null));
 			view.Specification.SetOptions(specs);
 
-			var serviceOptions = repo.Services.ReadBasicDetails().OrderBy(x => x.Name).Select(x => new Option<Models.Service>(x.Name, x)).ToList();
+			var serviceOptions = repo.ServiceInventory.Services.Read(new TRUEFilterElement<Models.Service>()).OrderBy(x => x.Name).Select(x => new Option<Models.Service>(x.Name, x)).ToList();
 			serviceOptions.Insert(0, new Option<Models.Service>("-None-", null));
 			view.Service.SetOptions(serviceOptions);
 
@@ -108,48 +159,49 @@
 			UpdateUiOnActionTypeChange(view.ActionType.SelectedOption);
 		}
 
-		public void LoadFromModel(Models.ServiceOrderItems instance)
+		public void LoadFromModel(Models.ServiceOrderItem instance)
 		{
 			instanceToReturn = instance;
+			orderEntry = new Models.ServiceOrderEntry { ServiceOrderItemId = instance };
 			isEdit = true;
 
 			// Load correct types
 			LoadFromModel(0);
 
 			view.BtnAdd.Text = "Save";
-			view.TboxName.Text = instance.ServiceOrderItem.Name;
-			view.ActionType.Selected = Enum.TryParse(instance.ServiceOrderItem.Action, true, out OrderActionType action)
+			view.TboxName.Text = instance.Name;
+			view.ActionType.Selected = Enum.TryParse(instance.Action, true, out OrderActionType action)
 				? action
 				: OrderActionType.NoChange;
-			view.TboxDescription.Text = instance.ServiceOrderItem.Description ?? String.Empty;
-			view.Start.DateTime = instance.ServiceOrderItem.StartTime ?? DateTime.Now;
-			view.End.DateTime = instance.ServiceOrderItem.EndTime ?? DateTime.Now + TimeSpan.FromDays(7);
-			view.IndefiniteTime.IsChecked = instance.ServiceOrderItem.IndefiniteRuntime ?? false;
+			view.TboxDescription.Text = instance.Description ?? String.Empty;
+			view.Start.DateTime = instance.StartTime ?? DateTime.Now;
+			view.End.DateTime = instance.EndTime ?? DateTime.Now + TimeSpan.FromDays(7);
+			view.IndefiniteTime.IsChecked = instance.IndefiniteRuntime ?? false;
 			if (view.IndefiniteTime.IsChecked)
 			{
 				view.End.IsEnabled = false;
 			}
 
-			var serviceCategoryInstance = view.Category.Values.FirstOrDefault(v => v?.ID == instance.ServiceOrderItem.ServiceCategoryId);
+			var serviceCategoryInstance = view.Category.Values.FirstOrDefault(v => v?.Identifier == instance.ServiceInfo?.ServiceCategoryId.Identifier);
 			if (serviceCategoryInstance != null)
 			{
 				view.Category.Selected = serviceCategoryInstance;
 			}
 
-			var serviceInstance = view.Service.Values.FirstOrDefault(v => v?.ID == instance.ServiceOrderItem.ServiceId);
+			var serviceInstance = view.Service.Values.FirstOrDefault(v => v?.Identifier == instance.ServiceInfo?.ServiceId.Identifier);
 			if (serviceInstance != null)
 			{
 				view.Service.Selected = serviceInstance;
 			}
 
-			var serviceSpecificationsInstance = view.Specification.Values.FirstOrDefault(v => v?.ID == instance.ServiceOrderItem.SpecificationId);
+			var serviceSpecificationsInstance = view.Specification.Values.FirstOrDefault(v => v?.Identifier == instance.ServiceInfo?.SpecificationId.Identifier);
 			if (serviceSpecificationsInstance != null)
 			{
 				view.Specification.Selected = serviceSpecificationsInstance;
 			}
 			else
 			{
-				view.Specification.Selected = view.Specification.Values.FirstOrDefault(v => v?.ID == view.Service.Selected?.ServiceSpecificationId);
+				view.Specification.Selected = view.Specification.Values.FirstOrDefault(v => v?.Identifier == view.Service.Selected?.ServiceSpecificationId.ToString());
 			}
 
 			UpdateUiOnActionTypeChange(view.ActionType.SelectedOption);
@@ -238,6 +290,27 @@
 
 			view.ErrorName.Text = String.Empty;
 			return true;
+		}
+
+		private static ConfigurationModels.ConfigurationParameterValue CloneConfigurationParameterValue(ConfigurationModels.ConfigurationParameterValue source)
+		{
+			return new ConfigurationModels.ConfigurationParameterValue
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				Label = source.Label,
+				Type = source.Type,
+				ConfigurationParameterId = source.ConfigurationParameterId,
+				NumberOptionsId = source.NumberOptionsId,
+				DiscreteOptionsId = source.DiscreteOptionsId,
+				TextOptionsId = source.TextOptionsId,
+				StringValue = source.StringValue,
+				DoubleValue = source.DoubleValue,
+				ValueFixed = source.ValueFixed,
+				LinkedConfigurationReference = source.LinkedConfigurationReference,
+				IsLinked = source.IsLinked,
+				LinkedScript = source.LinkedScript,
+				LinkedConsumers = source.LinkedConsumers,
+			};
 		}
 	}
 }
