@@ -444,7 +444,7 @@ namespace SLC_SM_Create_Service_Inventory_Item
 			{
 				Identifier = duplicatedProfileId,
 				Name = (sourceProfile.Name ?? String.Empty).ReplaceTrailingParentesisContent(newServiceId),
-				IsReusable = false,
+				IsReusable = sourceProfile.IsReusable,
 				ProfileDefinitionId = sourceProfile.ProfileDefinitionId != null
 					? new SdmObjectReference<ConfigModels.ProfileDefinition>(sourceProfile.ProfileDefinitionId.Identifier)
 					: null,

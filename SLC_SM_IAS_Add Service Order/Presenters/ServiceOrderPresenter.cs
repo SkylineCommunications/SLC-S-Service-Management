@@ -127,6 +127,8 @@
 			view.TboxName.Text = instance.Name;
 			view.TboxName.PlaceHolder = instance.OrderId;
 			view.OrderId.Text = instance.OrderId;
+			view.ExternalId.Text = instance.ExternalID ?? String.Empty;
+			view.Description.Text = instance.Description ?? String.Empty;
 			if (instance.CompletionInfo?.RequestedStartDate != null)
 			{
 				view.CompletedByStart.DateTime = instance.CompletionInfo.RequestedStartDate.Value;

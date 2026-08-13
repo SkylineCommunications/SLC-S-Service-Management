@@ -53,6 +53,7 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 		private Dictionary<string, Profile> profilesById = new Dictionary<string, Profile>();
 		private Dictionary<string, ProfileDefinition> profileDefinitionsById = new Dictionary<string, ProfileDefinition>();
 		private Dictionary<string, ReferencedConfigurationParameter> referencedConfigurationParametersById = new Dictionary<string, ReferencedConfigurationParameter>();
+		private HashSet<string> initialReusableProfileIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
 		private int collapeButtonWidth = 85;
 		private int addButtonWidth = 70;
@@ -164,6 +165,7 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 			profileDefinitionsById = profileDefinitions.ToDictionary(x => x.Identifier);
 			referencedConfigurationParametersById = ReadAll(sdmHelper.ServiceCatalog.ReferencedConfigurationParameters).ToDictionary(x => x.Identifier);
 			reusableProfiles = profilesById.Values.Where(x => x.IsReusable).ToList();
+			initialReusableProfileIds = new HashSet<string>(reusableProfiles.Select(x => x.Identifier), StringComparer.OrdinalIgnoreCase);
 
 			serviceSpecification = !String.IsNullOrEmpty(instanceService.ServiceSpecificationId.Identifier)
 				? GetValue(ReadAll(sdmHelper.ServiceCatalog.ServiceSpecifications).ToDictionary(x => x.Identifier), instanceService.ServiceSpecificationId.Identifier)
@@ -367,10 +369,45 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 				return;
 			}
 
+			EnforceMaximumConfigurationVersions();
 			DeleteRemovedStandaloneParameters();
 			SaveProfiles();
 			SaveConfigurationVersion();
 			serviceManagementLogHelper.LogInfo(serviceEditLogs);
+		}
+
+		private void EnforceMaximumConfigurationVersions()
+		{
+			if (configuration.State != State.Create)
+			{
+				return;
+			}
+
+			var persistedVersions = (instanceService.ConfigurationVersions ?? new List<SdmObjectReference<Models.ServiceConfigurationVersion>>())
+				.Where(cv => cv != null
+					&& !String.IsNullOrWhiteSpace(cv.Identifier)
+					&& !String.Equals(cv.Identifier, configuration.ServiceConfigurationVersion.Identifier, StringComparison.OrdinalIgnoreCase))
+				.Select(cv => GetValue(serviceConfigurationVersionsById, cv.Identifier))
+				.Where(cv => cv != null)
+				.ToList();
+
+			if (persistedVersions.Count < 2)
+			{
+				return;
+			}
+
+			var versionToDelete = persistedVersions
+				.FirstOrDefault(cv => !String.Equals(cv.Identifier, instanceService.ServiceConfigurationId.Identifier, StringComparison.OrdinalIgnoreCase))
+				?? persistedVersions.FirstOrDefault();
+			if (versionToDelete == null)
+			{
+				return;
+			}
+
+			sdmHelper.ServiceInventory.ServiceConfigurationVersions.Delete(versionToDelete);
+			instanceService.ConfigurationVersions.RemoveAll(reference => String.Equals(reference.Identifier, versionToDelete.Identifier, StringComparison.OrdinalIgnoreCase));
+			serviceConfigurationVersionsById.Remove(versionToDelete.Identifier);
+			serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(instanceService.ServiceID, "Edit", $"Deleted configuration version '{versionToDelete.VersionName}' due to max version limit"));
 		}
 
 		private void DeleteRemovedStandaloneParameters()
@@ -402,7 +439,8 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 				profile.ServiceProfileConfig.ProfileId = new SdmObjectReference<Profile>(profile.Profile.Identifier);
 				profile.ServiceProfileConfig.ProfileDefinitionId = profile.ProfileDefinition == null ? default : new SdmObjectReference<ProfileDefinition>(profile.ProfileDefinition.Identifier);
 
-				if (!profile.Profile.IsReusable)
+				bool shouldPersistProfileObject = !profile.Profile.IsReusable || !initialReusableProfileIds.Contains(profile.Profile.Identifier);
+				if (shouldPersistProfileObject)
 				{
 					foreach (var profileParameter in profile.ProfileParameterConfigs.Where(p => p.State == State.Delete))
 					{
@@ -908,7 +946,7 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 
 			row = BuildProfileAdditionUI(row);
 
-			if (configuration.State == State.Create && view.ConfigurationVersions.Options.Count() > 3)
+			if (configuration.State == State.Create && GetPersistedConfigurationVersionCount() >= 2)
 			{
 				row = BuildExceedNumberOfVersionUI(row);
 			}
@@ -920,8 +958,11 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 
 		private int BuildExceedNumberOfVersionUI(int row)
 		{
-			var versionToBeDelete = instanceService.ConfigurationVersions
-				?.Where(cv => cv.Identifier != instanceService.ServiceConfigurationId.Identifier)
+			var versionToBeDelete = (instanceService.ConfigurationVersions ?? new List<SdmObjectReference<Models.ServiceConfigurationVersion>>())
+				.Where(cv => cv != null
+					&& !String.IsNullOrWhiteSpace(cv.Identifier)
+					&& !String.Equals(cv.Identifier, configuration.ServiceConfigurationVersion.Identifier, StringComparison.OrdinalIgnoreCase)
+					&& !String.Equals(cv.Identifier, instanceService.ServiceConfigurationId.Identifier, StringComparison.OrdinalIgnoreCase))
 				.Select(cv => GetValue(serviceConfigurationVersionsById, cv.Identifier))
 				.FirstOrDefault();
 			view.AddWidget(view.ConfirmExceedNumberOfVersions, ++row, 0, HorizontalAlignment.Right);
@@ -929,6 +970,14 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 			view.AddWidget(view.ConfirmExceedNumberOfVersionsLabel, row, 1, 1, 10);
 			view.BtnUpdate.IsEnabled = view.ConfirmExceedNumberOfVersions.IsChecked;
 			return row;
+		}
+
+		private int GetPersistedConfigurationVersionCount()
+		{
+			return (instanceService.ConfigurationVersions ?? new List<SdmObjectReference<Models.ServiceConfigurationVersion>>())
+				.Count(cv => cv != null
+					&& !String.IsNullOrWhiteSpace(cv.Identifier)
+					&& !String.Equals(cv.Identifier, configuration.ServiceConfigurationVersion.Identifier, StringComparison.OrdinalIgnoreCase));
 		}
 
 		private int BuildConfigurationVersionsSelectionUI(int row)
@@ -1125,8 +1174,8 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 		private int BuildProfilesUI(bool showDetails, int row, List<IParameterDataRecord> allParameters)
 		{
 			foreach (var profile in configuration.ServiceProfileConfigs
-				.Where(x => x.State != State.Delete && !IsChildProfile(x))
-				.OrderBy(x => x.Profile.Name))
+				.Where(x => x != null && x.State != State.Delete && x.Profile != null && !IsChildProfile(x))
+				.OrderBy(x => x.Profile.Name ?? String.Empty, StringComparer.OrdinalIgnoreCase))
 			{
 				// Root profiles start at depth 1; max depth is 3
 				row = BuildProfileUI(showDetails, row, profile, allParameters, parent: null, depth: 1, ancestorDefinitionIds: new HashSet<string>());
@@ -1137,6 +1186,11 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 
 		private int BuildProfileUI(bool showDetails, int row, ProfileDataRecord profile, List<IParameterDataRecord> allParameters, ProfileDataRecord parent = null, int depth = 1, HashSet<string> ancestorDefinitionIds = null)
 		{
+			if (profile?.Profile == null || profile.ServiceProfileConfig == null)
+			{
+				return row;
+			}
+
 			ancestorDefinitionIds = ancestorDefinitionIds ?? new HashSet<string>();
 
 			if (!view.ProfileCollapseButtons.TryGetValue(profile.Profile.Name, out var collapseButton))
@@ -2096,7 +2150,9 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 			collapseButton.LinkedWidgets.Add(headerName);
 			collapseButton.LinkedWidgets.Add(headerDefinition);
 
-			foreach (var child in children.OrderBy(c => c.Profile.Name))
+			foreach (var child in children
+				.Where(c => c?.Profile != null)
+				.OrderBy(c => c.Profile.Name ?? String.Empty, StringComparer.OrdinalIgnoreCase))
 			{
 				var captured = child;
 				++row;
@@ -2339,8 +2395,7 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 				newVersion.Parameters.Add(new SdmObjectReference<Models.ServiceConfigurationValue>(duplicatedConfig.Identifier));
 			}
 
-			var profileIdMap = new Dictionary<string, string>(StringComparer.Ordinal);
-			var duplicatedProfiles = new List<(Models.ServiceProfile Config, Profile Profile)>();
+			var profileIdMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 			foreach (var profileReference in sourceVersion.Profiles ?? new List<SdmObjectReference<Models.ServiceProfile>>())
 			{
 				var sourceProfileConfig = GetValue(serviceProfilesById, profileReference.Identifier);
@@ -2355,28 +2410,10 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 					continue;
 				}
 
-				var duplicatedProfile = new Profile
+				var duplicatedProfileId = DuplicateProfileForConfigurationCopy(sourceProfile.Identifier, profileIdMap, parameterIdMap, createdParameterValues);
+				if (String.IsNullOrWhiteSpace(duplicatedProfileId))
 				{
-					Identifier = Guid.NewGuid().ToString(),
-					Name = sourceProfile.Name,
-					ProfileDefinitionId = String.IsNullOrEmpty(sourceProfile.ProfileDefinitionId.Identifier) ? default : new SdmObjectReference<ProfileDefinition>(sourceProfile.ProfileDefinitionId.Identifier),
-					Profiles = sourceProfile.Profiles?.Select(reference => new SdmObjectReference<Profile>(reference.Identifier)).ToList() ?? new List<SdmObjectReference<Profile>>(),
-					ConfigurationParameterValues = new List<SdmObjectReference<ConfigurationParameterValue>>(),
-					IsReusable = sourceProfile.IsReusable,
-				};
-
-				foreach (var parameterValueReference in sourceProfile.ConfigurationParameterValues ?? new List<SdmObjectReference<ConfigurationParameterValue>>())
-				{
-					var sourceParameterValue = GetValue(configurationParameterValuesById, parameterValueReference.Identifier);
-					if (sourceParameterValue == null)
-					{
-						continue;
-					}
-
-					var duplicatedParameterValue = CloneConfigurationParameterValue(sourceParameterValue, parameterIdMap);
-					configurationParameterValuesById[duplicatedParameterValue.Identifier] = duplicatedParameterValue;
-					createdParameterValues.Add(duplicatedParameterValue);
-					duplicatedProfile.ConfigurationParameterValues.Add(new SdmObjectReference<ConfigurationParameterValue>(duplicatedParameterValue.Identifier));
+					continue;
 				}
 
 				var duplicatedServiceProfile = new Models.ServiceProfile
@@ -2384,30 +2421,80 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 					Identifier = Guid.NewGuid().ToString(),
 					Mandatory = sourceProfileConfig.Mandatory,
 					ProfileDefinitionId = String.IsNullOrEmpty(sourceProfileConfig.ProfileDefinitionId.Identifier) ? default : new SdmObjectReference<ProfileDefinition>(sourceProfileConfig.ProfileDefinitionId.Identifier),
-					ProfileId = new SdmObjectReference<Profile>(duplicatedProfile.Identifier),
+					ProfileId = new SdmObjectReference<Profile>(duplicatedProfileId),
 				};
 
-				profileIdMap[sourceProfile.Identifier] = duplicatedProfile.Identifier;
-				duplicatedProfiles.Add((duplicatedServiceProfile, duplicatedProfile));
-			}
-
-			foreach (var duplicatedProfile in duplicatedProfiles)
-			{
-				if (duplicatedProfile.Profile.Profiles != null)
-				{
-					duplicatedProfile.Profile.Profiles = duplicatedProfile.Profile.Profiles
-						.Select(reference => profileIdMap.TryGetValue(reference.Identifier ?? String.Empty, out var mapped) ? new SdmObjectReference<Profile>(mapped) : reference)
-						.ToList();
-				}
-
-				profilesById[duplicatedProfile.Profile.Identifier] = duplicatedProfile.Profile;
-				serviceProfilesById[duplicatedProfile.Config.Identifier] = duplicatedProfile.Config;
-				newVersion.Profiles.Add(new SdmObjectReference<Models.ServiceProfile>(duplicatedProfile.Config.Identifier));
+				serviceProfilesById[duplicatedServiceProfile.Identifier] = duplicatedServiceProfile;
+				newVersion.Profiles.Add(new SdmObjectReference<Models.ServiceProfile>(duplicatedServiceProfile.Identifier));
 			}
 
 			RemapLinkedConsumers(createdParameterValues, parameterIdMap);
 			serviceConfigurationVersionsById[newVersion.Identifier] = newVersion;
 			return newVersion;
+		}
+
+		private string DuplicateProfileForConfigurationCopy(
+			string sourceProfileId,
+			IDictionary<string, string> profileIdMap,
+			Dictionary<Guid, Guid> parameterIdMap,
+			ICollection<ConfigurationParameterValue> createdParameterValues)
+		{
+			if (String.IsNullOrWhiteSpace(sourceProfileId))
+			{
+				return null;
+			}
+
+			if (profileIdMap.TryGetValue(sourceProfileId, out var existingDuplicatedId))
+			{
+				return existingDuplicatedId;
+			}
+
+			var sourceProfile = GetValue(profilesById, sourceProfileId);
+			if (sourceProfile == null)
+			{
+				return null;
+			}
+
+			var duplicatedProfileId = Guid.NewGuid().ToString();
+			profileIdMap[sourceProfileId] = duplicatedProfileId;
+
+			var duplicatedProfile = new Profile
+			{
+				Identifier = duplicatedProfileId,
+				Name = sourceProfile.Name,
+				ProfileDefinitionId = String.IsNullOrEmpty(sourceProfile.ProfileDefinitionId.Identifier)
+					? default
+					: new SdmObjectReference<ProfileDefinition>(sourceProfile.ProfileDefinitionId.Identifier),
+				Profiles = new List<SdmObjectReference<Profile>>(),
+				ConfigurationParameterValues = new List<SdmObjectReference<ConfigurationParameterValue>>(),
+				IsReusable = sourceProfile.IsReusable,
+			};
+
+			foreach (var parameterValueReference in sourceProfile.ConfigurationParameterValues ?? new List<SdmObjectReference<ConfigurationParameterValue>>())
+			{
+				var sourceParameterValue = GetValue(configurationParameterValuesById, parameterValueReference.Identifier);
+				if (sourceParameterValue == null)
+				{
+					continue;
+				}
+
+				var duplicatedParameterValue = CloneConfigurationParameterValue(sourceParameterValue, parameterIdMap);
+				configurationParameterValuesById[duplicatedParameterValue.Identifier] = duplicatedParameterValue;
+				createdParameterValues.Add(duplicatedParameterValue);
+				duplicatedProfile.ConfigurationParameterValues.Add(new SdmObjectReference<ConfigurationParameterValue>(duplicatedParameterValue.Identifier));
+			}
+
+			foreach (var childProfileReference in sourceProfile.Profiles ?? new List<SdmObjectReference<Profile>>())
+			{
+				var duplicatedChildId = DuplicateProfileForConfigurationCopy(childProfileReference.Identifier, profileIdMap, parameterIdMap, createdParameterValues);
+				if (!String.IsNullOrWhiteSpace(duplicatedChildId))
+				{
+					duplicatedProfile.Profiles.Add(new SdmObjectReference<Profile>(duplicatedChildId));
+				}
+			}
+
+			profilesById[duplicatedProfile.Identifier] = duplicatedProfile;
+			return duplicatedProfile.Identifier;
 		}
 
 		private void AddServiceSpecificationStandaloneParameters(Models.ServiceSpecification specification, Models.ServiceConfigurationVersion targetVersion)
