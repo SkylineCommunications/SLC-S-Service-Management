@@ -4,25 +4,21 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 	using System.Collections.Generic;
 	using System.Linq;
 	using System.Text.RegularExpressions;
-
 	using DomHelpers.SlcConfigurations;
-
 	using Newtonsoft.Json;
-
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Net.Messages;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.Logger;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.Configurations;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 	using Skyline.DataMiner.SDM;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
 	using Skyline.DataMiner.Utils.SecureCoding.SecureSerialization.Json.Newtonsoft;
-
 	using SLC_SM_IAS_Service_Configuration.Model;
 	using SLC_SM_IAS_Service_Configuration.Model.DataRecords;
 	using SLC_SM_IAS_Service_Configuration.Views;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.Configurations;
 	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 
 	public partial class ServiceConfigurationPresenter

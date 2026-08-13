@@ -3,8 +3,6 @@
 	using System;
 	using System.Collections.Generic;
 	using System.Linq;
-
-	using DomHelpers.SlcRelationships;
 	using DomHelpers.SlcServicemanagement;
 	using DomHelpers.SlcWorkflow;
 

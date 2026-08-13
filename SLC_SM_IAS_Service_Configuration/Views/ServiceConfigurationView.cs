@@ -3,7 +3,6 @@ namespace SLC_SM_IAS_Service_Configuration.Views
 	using System.Collections.Generic;
 	using Library;
 	using Skyline.DataMiner.Automation;
-	using Skyline.DataMiner.Net.Profiles;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
 
 	using SLC_SM_IAS_Service_Configuration.Model;

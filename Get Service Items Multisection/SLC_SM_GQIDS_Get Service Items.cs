@@ -4,7 +4,6 @@ namespace SLC_SM_GQIDS_Get_Service_Items
 	using System;
 	using System.Collections.Generic;
 	using System.Linq;
-	using System.Security.Policy;
 	using DomHelpers.SlcServicemanagement;
 	using DomHelpers.SlcWorkflow;
 	using Skyline.DataMiner.Analytics.GenericInterface;
@@ -12,7 +11,6 @@ namespace SLC_SM_GQIDS_Get_Service_Items
 	using Skyline.DataMiner.Net.Messages;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.Net.ResourceManager.Objects;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
 	using SLC_SM_Common.Extensions;
 	using SLDataGateway.API.Querying;

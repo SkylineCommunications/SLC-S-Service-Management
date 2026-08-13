@@ -13,7 +13,6 @@ dd/mm/2025    1.0.0.1        XXX, Skyline    Initial version
 namespace SLC_SM_IAS_Add_Service_Order_Item_1
 {
 	using System;
-	using System.Collections.Generic;
 	using System.Linq;
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;

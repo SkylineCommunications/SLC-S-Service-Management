@@ -3,13 +3,12 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 	using System;
 	using System.Collections.Generic;
 	using System.Linq;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.Logger;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.Configurations;
 	using Skyline.DataMiner.SDM;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.Logger;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
 	using SLC_SM_IAS_Service_Configuration.Model;
 	using SLC_SM_IAS_Service_Configuration.Views;
-	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 
 	public partial class ServiceConfigurationPresenter
 	{

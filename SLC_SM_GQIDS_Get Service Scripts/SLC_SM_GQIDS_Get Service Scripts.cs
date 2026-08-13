@@ -12,8 +12,6 @@ namespace SLCSMGQIDSGetServiceScripts
 
 	using SLC_SM_Common.Extensions;
 
-	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
-
 	[GQIMetaData(Name = DataSourceName)]
 	public class GetServiceScripts : IGQIDataSource, IGQIInputArguments, IGQIOnInit
 	{

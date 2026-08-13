@@ -1,7 +1,6 @@
 ﻿namespace SLC_SM_IAS_ManageRelationships.Controller
 {
 	using System.Collections.Generic;
-	using System.Linq;
 	using DomHelpers.SlcWorkflow;
 	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 
