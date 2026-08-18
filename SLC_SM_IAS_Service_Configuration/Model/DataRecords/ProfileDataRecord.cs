@@ -57,6 +57,11 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 
 				foreach (var currentParameterConfigRef in currentProfile?.ConfigurationParameterValues ?? new List<SdmObjectReference<ConfigurationParameterValue>>())
 				{
+					if (currentParameterConfigRef == null || String.IsNullOrWhiteSpace(currentParameterConfigRef.Identifier))
+					{
+						continue;
+					}
+
 					var currentParameterConfig = GetValue(configParamValues, currentParameterConfigRef.Identifier);
 					if (currentParameterConfig == null)
 					{

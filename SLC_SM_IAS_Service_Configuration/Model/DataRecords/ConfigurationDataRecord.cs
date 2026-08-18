@@ -36,34 +36,87 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 				IReadOnlyDictionary<string, DiscreteValue> discreteValuesById,
 				State state = State.Update)
 			{
-				var dataRecord = new ConfigurationDataRecord
+				var dataRecord = CreateConfigurationDataRecord(currentConfig, state);
+				if (currentConfig == null)
+				{
+					return dataRecord;
+				}
+
+				AddProfileConfigs(
+					engine,
+					dataRecord,
+					currentConfig,
+					serviceProfilesById,
+					profilesById,
+					profileDefinitionsById,
+					configurationParameterValuesById,
+					configurationParametersById,
+					referencedConfigurationParametersById,
+					numberOptionsById,
+					discreteOptionsById,
+					textOptionsById,
+					configurationUnitsById,
+					discreteValuesById,
+					state);
+
+				AddStandaloneParameterConfigs(
+					dataRecord,
+					currentConfig,
+					serviceConfigurationValuesById,
+					configurationParameterValuesById,
+					configurationParametersById,
+					numberOptionsById,
+					discreteOptionsById,
+					textOptionsById,
+					configurationUnitsById,
+					discreteValuesById,
+					state);
+
+				return dataRecord;
+			}
+
+			private static ConfigurationDataRecord CreateConfigurationDataRecord(
+				Models.ServiceConfigurationVersion currentConfig,
+				State state)
+			{
+				return new ConfigurationDataRecord
 				{
 					State = state,
 					ServiceConfigurationVersion = currentConfig,
 					ServiceParameterConfigs = new List<StandaloneParameterDataRecord>(),
 					ServiceProfileConfigs = new List<ProfileDataRecord>(),
 				};
+			}
 
-				if (currentConfig == null)
-				{
-					return dataRecord;
-				}
-
+			private static void AddProfileConfigs(
+				IEngine engine,
+				ConfigurationDataRecord dataRecord,
+				Models.ServiceConfigurationVersion currentConfig,
+				IReadOnlyDictionary<string, Models.ServiceProfile> serviceProfilesById,
+				IReadOnlyDictionary<string, Profile> profilesById,
+				IReadOnlyDictionary<string, ProfileDefinition> profileDefinitionsById,
+				IReadOnlyDictionary<string, ConfigurationParameterValue> configurationParameterValuesById,
+				IReadOnlyDictionary<string, ConfigurationParameter> configurationParametersById,
+				IReadOnlyDictionary<string, ReferencedConfigurationParameter> referencedConfigurationParametersById,
+				IReadOnlyDictionary<string, NumberParameterOptions> numberOptionsById,
+				IReadOnlyDictionary<string, DiscreteParameterOptions> discreteOptionsById,
+				IReadOnlyDictionary<string, TextParameterOptions> textOptionsById,
+				IReadOnlyDictionary<string, ConfigurationUnit> configurationUnitsById,
+				IReadOnlyDictionary<string, DiscreteValue> discreteValuesById,
+				State state)
+			{
 				foreach (var profileRef in currentConfig.Profiles ?? new List<SdmObjectReference<Models.ServiceProfile>>())
 				{
-					if (profileRef == null || String.IsNullOrWhiteSpace(profileRef.Identifier))
-					{
-						continue;
-					}
-
-					if (!serviceProfilesById.TryGetValue(profileRef.Identifier, out var serviceProfile) || serviceProfile == null)
+					if (!TryGetServiceProfile(profileRef, serviceProfilesById, out var serviceProfile))
 					{
 						continue;
 					}
 
 					profilesById.TryGetValue(serviceProfile.ProfileId.Identifier ?? String.Empty, out var profile);
 					profileDefinitionsById.TryGetValue(serviceProfile.ProfileDefinitionId.Identifier ?? String.Empty, out var profileDefinition);
+
 					engine.Log($"Building profile data record for profile with identifier {serviceProfile.Identifier} and name {profile?.Name}");
+
 					dataRecord.ServiceProfileConfigs.Add(ProfileDataRecord.BuildProfileRecord(
 						serviceProfile,
 						profile,
@@ -78,43 +131,32 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 						discreteValuesById,
 						state));
 				}
+			}
 
+			private static void AddStandaloneParameterConfigs(
+				ConfigurationDataRecord dataRecord,
+				Models.ServiceConfigurationVersion currentConfig,
+				IReadOnlyDictionary<string, Models.ServiceConfigurationValue> serviceConfigurationValuesById,
+				IReadOnlyDictionary<string, ConfigurationParameterValue> configurationParameterValuesById,
+				IReadOnlyDictionary<string, ConfigurationParameter> configurationParametersById,
+				IReadOnlyDictionary<string, NumberParameterOptions> numberOptionsById,
+				IReadOnlyDictionary<string, DiscreteParameterOptions> discreteOptionsById,
+				IReadOnlyDictionary<string, TextParameterOptions> textOptionsById,
+				IReadOnlyDictionary<string, ConfigurationUnit> configurationUnitsById,
+				IReadOnlyDictionary<string, DiscreteValue> discreteValuesById,
+				State state)
+			{
 				foreach (var parameterRef in currentConfig.Parameters ?? new List<SdmObjectReference<Models.ServiceConfigurationValue>>())
 				{
-					if (parameterRef == null || String.IsNullOrWhiteSpace(parameterRef.Identifier))
-					{
-						continue;
-					}
-
-					if (!serviceConfigurationValuesById.TryGetValue(parameterRef.Identifier, out var serviceConfigValue) || serviceConfigValue == null)
-					{
-						continue;
-					}
-
-					if (serviceConfigValue.ConfigurationParameterId == null || String.IsNullOrWhiteSpace(serviceConfigValue.ConfigurationParameterId.Identifier))
-					{
-						continue;
-					}
-
-					if (!configurationParameterValuesById.TryGetValue(serviceConfigValue.ConfigurationParameterId.Identifier, out var configParamValue) || configParamValue == null)
-					{
-						continue;
-					}
-
-					if (configParamValue.ConfigurationParameterId == null || String.IsNullOrWhiteSpace(configParamValue.ConfigurationParameterId.Identifier))
-					{
-						continue;
-					}
-
-					if (!configurationParametersById.TryGetValue(configParamValue.ConfigurationParameterId.Identifier, out var configParam) || configParam == null)
+					if (!TryGetParameterInput(parameterRef, serviceConfigurationValuesById, configurationParameterValuesById, configurationParametersById, out var input))
 					{
 						continue;
 					}
 
 					dataRecord.ServiceParameterConfigs.Add(StandaloneParameterDataRecord.BuildParameterDataRecord(
-						serviceConfigValue,
-						configParamValue,
-						configParam,
+						input.ServiceConfigValue,
+						input.ConfigParamValue,
+						input.ConfigParam,
 						numberOptionsById,
 						discreteOptionsById,
 						textOptionsById,
@@ -122,8 +164,75 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 						discreteValuesById,
 						state));
 				}
+			}
 
-				return dataRecord;
+			private static bool TryGetServiceProfile(
+				SdmObjectReference<Models.ServiceProfile> profileRef,
+				IReadOnlyDictionary<string, Models.ServiceProfile> serviceProfilesById,
+				out Models.ServiceProfile serviceProfile)
+			{
+				serviceProfile = null;
+
+				if (profileRef == null || String.IsNullOrWhiteSpace(profileRef.Identifier))
+				{
+					return false;
+				}
+
+				return serviceProfilesById.TryGetValue(profileRef.Identifier, out serviceProfile) && serviceProfile != null;
+			}
+
+			private static bool TryGetParameterInput(
+				SdmObjectReference<Models.ServiceConfigurationValue> parameterRef,
+				IReadOnlyDictionary<string, Models.ServiceConfigurationValue> serviceConfigurationValuesById,
+				IReadOnlyDictionary<string, ConfigurationParameterValue> configurationParameterValuesById,
+				IReadOnlyDictionary<string, ConfigurationParameter> configurationParametersById,
+				out ParameterInput input)
+			{
+				input = null;
+
+				if (parameterRef == null || String.IsNullOrWhiteSpace(parameterRef.Identifier))
+				{
+					return false;
+				}
+
+				if (!serviceConfigurationValuesById.TryGetValue(parameterRef.Identifier, out var serviceConfigValue) || serviceConfigValue == null)
+				{
+					return false;
+				}
+
+				var configParamValueId = serviceConfigValue.ConfigurationParameterId.Identifier;
+				if (String.IsNullOrWhiteSpace(configParamValueId)
+					|| !configurationParameterValuesById.TryGetValue(configParamValueId, out var configParamValue)
+					|| configParamValue == null)
+				{
+					return false;
+				}
+
+				var configParamId = configParamValue.ConfigurationParameterId.Identifier;
+				if (String.IsNullOrWhiteSpace(configParamId)
+					|| !configurationParametersById.TryGetValue(configParamId, out var configParam)
+					|| configParam == null)
+				{
+					return false;
+				}
+
+				input = new ParameterInput
+				{
+					ServiceConfigValue = serviceConfigValue,
+					ConfigParamValue = configParamValue,
+					ConfigParam = configParam,
+				};
+
+				return true;
+			}
+
+			private sealed class ParameterInput
+			{
+				public Models.ServiceConfigurationValue ServiceConfigValue { get; set; }
+
+				public ConfigurationParameterValue ConfigParamValue { get; set; }
+
+				public ConfigurationParameter ConfigParam { get; set; }
 			}
 		}
 	}

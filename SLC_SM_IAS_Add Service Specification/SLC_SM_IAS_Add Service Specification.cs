@@ -110,33 +110,47 @@ namespace SLC_SM_IAS_Add_Service_Specification
 			{
 				if (presenter.Validate())
 				{
-					Models.ServiceSpecification specificationToSave = presenter.GetData;
-					if (action == Action.Add)
+					ServiceSpecification specificationToSave = presenter.GetData;
+
+					switch (action)
 					{
-						specificationToSave.Identifier = Guid.NewGuid().ToString();
-						api.ServiceCatalog.ServiceSpecifications.Create(specificationToSave);
-					}
-					else
-					{
-						api.ServiceCatalog.ServiceSpecifications.Update(specificationToSave);
+						case Action.Add:
+							specificationToSave.Identifier = Guid.NewGuid().ToString();
+							api.ServiceCatalog.ServiceSpecifications.Create(specificationToSave);
+							break;
+
+						case Action.Edit:
+							api.ServiceCatalog.ServiceSpecifications.Update(specificationToSave);
+							break;
+
+						default:
+							throw new InvalidOperationException($"Unsupported action '{action}'.");
 					}
 
 					throw new ScriptAbortException("OK");
 				}
 			};
 
-			if (action == Action.Add)
+			switch (action)
 			{
-				presenter.LoadFromModel();
-			}
-			else
-			{
-				Guid domId = _engine.ReadScriptParamFromApp<Guid>("DOM ID");
-				var specification = serviceSpecifications.Find(x => String.Equals(x.Identifier, domId.ToString(), StringComparison.OrdinalIgnoreCase))
-				                     ?? throw new InvalidOperationException($"No Service Specification with ID '{domId}' found on the system!");
+				case Action.Add:
+					presenter.LoadFromModel();
+					break;
 
-				var specificationToEdit = api.ServiceCatalog.ServiceSpecifications.Read(ServiceSpecificationExposers.Identifier.Equal(specification.Identifier)).FirstOrDefault();
-				presenter.LoadFromModel(specificationToEdit);
+				case Action.Edit:
+					Guid domId = _engine.ReadScriptParamFromApp<Guid>("DOM ID");
+					var specification = serviceSpecifications.Find(x => String.Equals(x.Identifier, domId.ToString(), StringComparison.OrdinalIgnoreCase))
+										 ?? throw new InvalidOperationException($"No Service Specification with ID '{domId}' found on the system!");
+
+					var specificationToEdit = api.ServiceCatalog.ServiceSpecifications
+						.Read(ServiceSpecificationExposers.Identifier.Equal(specification.Identifier))
+						.FirstOrDefault();
+
+					presenter.LoadFromModel(specificationToEdit);
+					break;
+
+				default:
+					throw new InvalidOperationException($"Unsupported action '{action}'.");
 			}
 
 			// Run interactive

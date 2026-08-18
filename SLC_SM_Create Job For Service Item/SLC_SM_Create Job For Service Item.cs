@@ -253,17 +253,9 @@ namespace SLCSMCreateJobForServiceItem
 
 		private void UpdateServiceStatusOnServiceItem(Models.Service instance)
 		{
-			if (instance?.ServiceItems == null)
-			{
-				return;
-			}
-
-			if (!instance.ServiceItems.All(x => !String.IsNullOrEmpty(x.ImplementationReference) && Guid.TryParse(x.ImplementationReference, out Guid _)))
-			{
-				return;
-			}
-
-			if (!Guid.TryParse(instance.Identifier, out var serviceGuid))
+			if (instance?.ServiceItems == null
+				|| !instance.ServiceItems.All(x => !String.IsNullOrEmpty(x.ImplementationReference) && Guid.TryParse(x.ImplementationReference, out Guid _))
+				|| !Guid.TryParse(instance.Identifier, out var serviceGuid))
 			{
 				return;
 			}

@@ -117,6 +117,16 @@ namespace SLC_SM_IAS_Service_Spec_Configuration.Presenters
 				throw new InvalidOperationException("ServiceManagementApiHelper is required to store the model.");
 			}
 
+			DeleteRemovedItems();
+
+			StoreStandaloneConfigurations();
+			StoreProfiles();
+
+			apiHelper.ServiceCatalog.ServiceSpecifications.CreateOrUpdate(new[] { instance });
+		}
+
+		private void DeleteRemovedItems()
+		{
 			foreach (var configuration in standaloneConfigurations.Where(x => x.State == State.Delete))
 			{
 				DeleteStandaloneConfiguration(configuration);
@@ -134,14 +144,19 @@ namespace SLC_SM_IAS_Service_Spec_Configuration.Presenters
 					DeleteProfileParameterConfiguration(profileParameter);
 				}
 			}
+		}
 
+		private void StoreStandaloneConfigurations()
+		{
 			var standaloneParameterValuesToStore = new List<ConfigurationParameterValue>();
 			var standaloneConfigurationsToStore = new List<ServiceSpecificationConfigurationValue>();
+
 			foreach (var configuration in standaloneConfigurations.Where(x => x.State != State.Delete))
 			{
 				configuration.ConfigurationParamValue.ConfigurationParameterId = new SdmObjectReference<ConfigurationParameter>(configuration.ConfigurationParam.Identifier);
 				configuration.ServiceConfig.ConfigurationParameterId = new SdmObjectReference<ConfigurationParameter>(configuration.ConfigurationParamValue.Identifier);
 				CreateOrUpdateOptions(configuration);
+
 				standaloneParameterValuesToStore.Add(configuration.ConfigurationParamValue);
 				standaloneConfigurationsToStore.Add(configuration.ServiceConfig);
 			}
@@ -155,20 +170,34 @@ namespace SLC_SM_IAS_Service_Spec_Configuration.Presenters
 			{
 				apiHelper.ServiceCatalog.ServiceSpecificationConfigurationValues.CreateOrUpdate(standaloneConfigurationsToStore);
 			}
+		}
 
-			var activeProfiles = profileConfigurations.Where(x => x.State != State.Delete).OrderByDescending(GetProfileDepth).ToList();
+		private void StoreProfiles()
+		{
+			var activeProfiles = profileConfigurations
+				.Where(x => x.State != State.Delete)
+				.OrderByDescending(GetProfileDepth)
+				.ToList();
+
 			var profileParameterValuesToStore = new List<ConfigurationParameterValue>();
 			var profilesToStore = new List<Profile>();
 			var serviceProfilesToStore = new List<ServiceSpecificationProfile>();
+
 			foreach (var profile in activeProfiles)
 			{
 				profile.ServiceProfileConfig.ProfileId = new SdmObjectReference<Profile>(profile.Profile.Identifier);
 				profile.ServiceProfileConfig.ProfileDefinitionId = new SdmObjectReference<ProfileDefinition>(profile.ProfileDefinition.Identifier);
+
 				if (!profile.Profile.IsReusable)
 				{
+					var activeProfileParameters = profile.ProfileParameterConfigs.Where(x => x.State != State.Delete).ToList();
+
 					profile.Profile.ProfileDefinitionId = new SdmObjectReference<ProfileDefinition>(profile.ProfileDefinition.Identifier);
-					profile.Profile.ConfigurationParameterValues = profile.ProfileParameterConfigs.Where(x => x.State != State.Delete).Select(x => new SdmObjectReference<ConfigurationParameterValue>(x.ConfigurationParamValue.Identifier)).ToList();
-					foreach (var profileParameter in profile.ProfileParameterConfigs.Where(x => x.State != State.Delete))
+					profile.Profile.ConfigurationParameterValues = activeProfileParameters
+						.Select(x => new SdmObjectReference<ConfigurationParameterValue>(x.ConfigurationParamValue.Identifier))
+						.ToList();
+
+					foreach (var profileParameter in activeProfileParameters)
 					{
 						profileParameter.ConfigurationParamValue.ConfigurationParameterId = new SdmObjectReference<ConfigurationParameter>(profileParameter.ConfigurationParam.Identifier);
 						CreateOrUpdateOptions(profileParameter);
@@ -195,8 +224,6 @@ namespace SLC_SM_IAS_Service_Spec_Configuration.Presenters
 			{
 				apiHelper.ServiceCatalog.ServiceSpecificationProfiles.CreateOrUpdate(serviceProfilesToStore);
 			}
-
-			apiHelper.ServiceCatalog.ServiceSpecifications.CreateOrUpdate(new[] { instance });
 		}
 
 		private void ObtainMissingNestedProfiles()

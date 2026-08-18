@@ -93,6 +93,11 @@
 
 					foreach (var specificationConfiguration in specificationConfigurations)
 					{
+						if (specificationConfiguration?.ConfigurationParameterId == null)
+						{
+							continue;
+						}
+
 						var sourceValueId = specificationConfiguration.ConfigurationParameterId.Identifier;
 						if (String.IsNullOrEmpty(sourceValueId) ||
 							!parameterValuesByParameterId.TryGetValue(sourceValueId, out var sourceValue))

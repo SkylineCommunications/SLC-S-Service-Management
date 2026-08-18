@@ -32,15 +32,15 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 		private readonly ServiceManagementApiHelper sdmHelper;
 		private ConfigurationDataRecord configuration;
 		private bool showDetails;
-		private Models.ServiceSpecification serviceSpecification;
+		private ServiceSpecification serviceSpecification;
 		private List<ProfileDefinition> profileDefinitions;
 		private List<Profile> reusableProfiles;
 		private List<string> serviceEditLogs;
 		private ServiceManagementLogHelper serviceManagementLogHelper;
 
-		private Dictionary<string, Models.ServiceConfigurationVersion> serviceConfigurationVersionsById = new Dictionary<string, Models.ServiceConfigurationVersion>();
-		private Dictionary<string, Models.ServiceConfigurationValue> serviceConfigurationValuesById = new Dictionary<string, Models.ServiceConfigurationValue>();
-		private Dictionary<string, Models.ServiceProfile> serviceProfilesById = new Dictionary<string, Models.ServiceProfile>();
+		private Dictionary<string, ServiceConfigurationVersion> serviceConfigurationVersionsById = new Dictionary<string, ServiceConfigurationVersion>();
+		private Dictionary<string, ServiceConfigurationValue> serviceConfigurationValuesById = new Dictionary<string, ServiceConfigurationValue>();
+		private Dictionary<string, ServiceProfile> serviceProfilesById = new Dictionary<string, ServiceProfile>();
 		private Dictionary<string, ServiceSpecificationConfigurationValue> serviceSpecificationConfigurationValuesById = new Dictionary<string, ServiceSpecificationConfigurationValue>();
 		private Dictionary<string, ServiceSpecificationProfile> serviceSpecificationProfilesById = new Dictionary<string, ServiceSpecificationProfile>();
 		private Dictionary<string, ConfigurationParameter> configurationParametersById = new Dictionary<string, ConfigurationParameter>();
@@ -178,10 +178,10 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 			{
 				activeConfiguration = CreateNewServiceConfigurationVersion();
 				serviceConfigurationVersionsById[activeConfiguration.Identifier] = activeConfiguration;
-				instanceService.ServiceConfigurationId = new SdmObjectReference<Models.ServiceConfigurationVersion>(activeConfiguration.Identifier);
+				instanceService.ServiceConfigurationId = new SdmObjectReference<ServiceConfigurationVersion>(activeConfiguration.Identifier);
 				if (!instanceService.ConfigurationVersions.Any(reference => reference.Identifier == activeConfiguration.Identifier))
 				{
-					instanceService.ConfigurationVersions.Add(new SdmObjectReference<Models.ServiceConfigurationVersion>(activeConfiguration.Identifier));
+					instanceService.ConfigurationVersions.Add(new SdmObjectReference<ServiceConfigurationVersion>(activeConfiguration.Identifier));
 				}
 
 				configuration = BuildConfigurationDataRecord(activeConfiguration, State.Create);
@@ -261,6 +261,42 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 			button.IsVisible = visible;
 		}
 
+		private static bool IsDeletedProfile(ProfileDataRecord profile)
+		{
+			return profile != null && profile.State == State.Delete;
+		}
+
+		private static bool IsProcessableProfile(ProfileDataRecord profile)
+		{
+			return profile != null
+				&& profile.State != State.Delete
+				&& profile.ServiceProfileConfig != null
+				&& profile.Profile != null;
+		}
+
+		private static void PrepareServiceProfileConfig(ProfileDataRecord profile)
+		{
+			profile.ServiceProfileConfig.ProfileId = new SdmObjectReference<Profile>(profile.Profile.Identifier);
+			profile.ServiceProfileConfig.ProfileDefinitionId = profile.ProfileDefinition == null
+				? default
+				: new SdmObjectReference<ProfileDefinition>(profile.ProfileDefinition.Identifier);
+		}
+
+		private static bool IsDeletedProfileParameter(ProfileParameterDataRecord profileParameter)
+		{
+			return profileParameter != null && profileParameter.State == State.Delete;
+		}
+
+		private static bool IsProcessableProfileParameter(ProfileParameterDataRecord profileParameter)
+		{
+			return profileParameter != null
+				&& profileParameter.State != State.Delete
+				&& profileParameter.ConfigurationParam != null
+				&& profileParameter.ConfigurationParamValue != null
+				&& !String.IsNullOrWhiteSpace(profileParameter.ConfigurationParam.Identifier)
+				&& !String.IsNullOrWhiteSpace(profileParameter.ConfigurationParamValue.Identifier);
+		}
+
 		private void ObtainMissingNestedProfiles()
 		{
 			var loadedProfileIds = new HashSet<string>(configuration.ServiceProfileConfigs.Where(p => p.Profile != null).Select(p => p.Profile.Identifier));
@@ -318,7 +354,7 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 				profileDefinition = null;
 			}
 
-			var missingServiceProfile = new Models.ServiceProfile
+			var missingServiceProfile = new ServiceProfile
 			{
 				Identifier = Guid.NewGuid().ToString(),
 				Mandatory = false,
@@ -326,7 +362,7 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 				ProfileDefinitionId = profileDefinition == null ? default : new SdmObjectReference<ProfileDefinition>(profileDefinition.Identifier),
 			};
 
-			configuration.ServiceConfigurationVersion.Profiles.Add(new SdmObjectReference<Models.ServiceProfile>(missingServiceProfile.Identifier));
+			configuration.ServiceConfigurationVersion.Profiles.Add(new SdmObjectReference<ServiceProfile>(missingServiceProfile.Identifier));
 			serviceProfilesById[missingServiceProfile.Identifier] = missingServiceProfile;
 
 			var profileRecord = ProfileDataRecord.BuildProfileRecord(
@@ -383,7 +419,7 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 				return;
 			}
 
-			var persistedVersions = (instanceService.ConfigurationVersions ?? new List<SdmObjectReference<Models.ServiceConfigurationVersion>>())
+			var persistedVersions = (instanceService.ConfigurationVersions ?? new List<SdmObjectReference<ServiceConfigurationVersion>>())
 				.Where(cv => cv != null
 					&& !String.IsNullOrWhiteSpace(cv.Identifier)
 					&& !String.Equals(cv.Identifier, configuration.ServiceConfigurationVersion.Identifier, StringComparison.OrdinalIgnoreCase))
@@ -429,50 +465,65 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 
 		private void SaveProfiles()
 		{
-			foreach (var profile in configuration.ServiceProfileConfigs.Where(p => p.State == State.Delete))
+			var profiles = configuration?.ServiceProfileConfigs ?? new List<ProfileDataRecord>();
+
+			foreach (var profile in profiles.Where(IsDeletedProfile))
 			{
 				DeleteProfileConfiguration(profile);
 			}
 
-			foreach (var profile in configuration.ServiceProfileConfigs.Where(p => p.State != State.Delete).OrderByDescending(GetProfileDepth))
+			foreach (var profile in profiles.Where(IsProcessableProfile).OrderByDescending(GetProfileDepth))
 			{
-				profile.ServiceProfileConfig.ProfileId = new SdmObjectReference<Profile>(profile.Profile.Identifier);
-				profile.ServiceProfileConfig.ProfileDefinitionId = profile.ProfileDefinition == null ? default : new SdmObjectReference<ProfileDefinition>(profile.ProfileDefinition.Identifier);
+				PrepareServiceProfileConfig(profile);
 
-				bool shouldPersistProfileObject = !profile.Profile.IsReusable || !initialReusableProfileIds.Contains(profile.Profile.Identifier);
-				if (shouldPersistProfileObject)
+				if (ShouldPersistProfileObject(profile))
 				{
-					foreach (var profileParameter in profile.ProfileParameterConfigs.Where(p => p.State == State.Delete))
-					{
-						DeleteProfileParameterConfiguration(profileParameter);
-					}
-
-					var activeProfileParameters = profile.ProfileParameterConfigs.Where(p => p.State != State.Delete).ToList();
-					profile.Profile.ProfileDefinitionId = profile.ProfileDefinition == null ? default : new SdmObjectReference<ProfileDefinition>(profile.ProfileDefinition.Identifier);
-					profile.Profile.ConfigurationParameterValues = activeProfileParameters
-						.Select(p => new SdmObjectReference<ConfigurationParameterValue>(p.ConfigurationParamValue.Identifier))
-						.ToList();
-
-					foreach (var profileParameter in activeProfileParameters)
-					{
-						profileParameter.ConfigurationParamValue.ConfigurationParameterId = new SdmObjectReference<ConfigurationParameter>(profileParameter.ConfigurationParam.Identifier);
-						CreateOrUpdateOptions(profileParameter);
-						sdmHelper.ServiceCatalog.ConfigurationParameterValues.CreateOrUpdate(new[] { profileParameter.ConfigurationParamValue });
-					}
-
-					sdmHelper.ServiceCatalog.Profiles.CreateOrUpdate(new[] { profile.Profile });
+					PersistProfileObject(profile);
 				}
 
 				sdmHelper.ServiceInventory.ServiceProfiles.CreateOrUpdate(new[] { profile.ServiceProfileConfig });
 			}
 		}
 
-		private void DeleteRemovedProfileParameters(ProfileDataRecord profile)
+		private bool ShouldPersistProfileObject(ProfileDataRecord profile)
 		{
-			foreach (var param in profile.ProfileParameterConfigs.Where(p => p.State == State.Delete))
+			return !profile.Profile.IsReusable || !initialReusableProfileIds.Contains(profile.Profile.Identifier);
+		}
+
+		private void PersistProfileObject(ProfileDataRecord profile)
+		{
+			var profileParameters = profile.ProfileParameterConfigs ?? new List<ProfileParameterDataRecord>();
+
+			foreach (var profileParameter in profileParameters.Where(IsDeletedProfileParameter))
 			{
-				DeleteProfileParameterConfiguration(param);
+				DeleteProfileParameterConfiguration(profileParameter);
 			}
+
+			var activeProfileParameters = profileParameters.Where(IsProcessableProfileParameter).ToList();
+
+			profile.Profile.ProfileDefinitionId = profile.ProfileDefinition == null
+				? default
+				: new SdmObjectReference<ProfileDefinition>(profile.ProfileDefinition.Identifier);
+
+			profile.Profile.ConfigurationParameterValues = activeProfileParameters
+				.Select(p => new SdmObjectReference<ConfigurationParameterValue>(p.ConfigurationParamValue.Identifier))
+				.ToList();
+
+			foreach (var profileParameter in activeProfileParameters)
+			{
+				if (profileParameter?.ConfigurationParamValue == null || profileParameter.ConfigurationParam == null)
+				{
+					continue;
+				}
+
+				profileParameter.ConfigurationParamValue.ConfigurationParameterId =
+					new SdmObjectReference<ConfigurationParameter>(profileParameter.ConfigurationParam.Identifier);
+
+				CreateOrUpdateOptions(profileParameter);
+				sdmHelper.ServiceCatalog.ConfigurationParameterValues.CreateOrUpdate(new[] { profileParameter.ConfigurationParamValue });
+			}
+
+			sdmHelper.ServiceCatalog.Profiles.CreateOrUpdate(new[] { profile.Profile });
 		}
 
 		private void SaveConfigurationVersion()
@@ -480,11 +531,11 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 			EnsureConfigurationCollections(configuration.ServiceConfigurationVersion);
 			configuration.ServiceConfigurationVersion.Parameters = configuration.ServiceParameterConfigs
 				.Where(p => p.State != State.Delete)
-				.Select(p => new SdmObjectReference<Models.ServiceConfigurationValue>(p.ServiceParameterConfig.Identifier))
+				.Select(p => new SdmObjectReference<ServiceConfigurationValue>(p.ServiceParameterConfig.Identifier))
 				.ToList();
 			configuration.ServiceConfigurationVersion.Profiles = configuration.ServiceProfileConfigs
 				.Where(p => p.State != State.Delete)
-				.Select(p => new SdmObjectReference<Models.ServiceProfile>(p.ServiceProfileConfig.Identifier))
+				.Select(p => new SdmObjectReference<ServiceProfile>(p.ServiceProfileConfig.Identifier))
 				.ToList();
 
 			sdmHelper.ServiceInventory.ServiceConfigurationVersions.CreateOrUpdate(new[] { configuration.ServiceConfigurationVersion });
@@ -492,10 +543,10 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 			EnsureServiceCollections();
 			if (!instanceService.ConfigurationVersions.Any(reference => reference.Identifier == configuration.ServiceConfigurationVersion.Identifier))
 			{
-				instanceService.ConfigurationVersions.Add(new SdmObjectReference<Models.ServiceConfigurationVersion>(configuration.ServiceConfigurationVersion.Identifier));
+				instanceService.ConfigurationVersions.Add(new SdmObjectReference<ServiceConfigurationVersion>(configuration.ServiceConfigurationVersion.Identifier));
 			}
 
-			instanceService.ServiceConfigurationId = new SdmObjectReference<Models.ServiceConfigurationVersion>(configuration.ServiceConfigurationVersion.Identifier);
+			instanceService.ServiceConfigurationId = new SdmObjectReference<ServiceConfigurationVersion>(configuration.ServiceConfigurationVersion.Identifier);
 			sdmHelper.ServiceInventory.Services.CreateOrUpdate(new[] { instanceService });
 
 			if (configuration.State == State.Create)
@@ -631,14 +682,14 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 		{
 			var configurationParameterInstance = selectedParameter ?? new ConfigurationParameter();
 			var configurationParameterValue = HelperMethods.BuildConfigurationParameter(configurationParameterInstance);
-			var config = new Models.ServiceConfigurationValue
+			var config = new ServiceConfigurationValue
 			{
 				Identifier = Guid.NewGuid().ToString(),
 				Mandatory = false,
 				ConfigurationParameterId = new SdmObjectReference<ConfigurationParameter>(configurationParameterValue.Identifier),
 			};
 
-			configuration.ServiceConfigurationVersion.Parameters.Add(new SdmObjectReference<Models.ServiceConfigurationValue>(config.Identifier));
+			configuration.ServiceConfigurationVersion.Parameters.Add(new SdmObjectReference<ServiceConfigurationValue>(config.Identifier));
 			serviceConfigurationValuesById[config.Identifier] = config;
 			configurationParameterValuesById[configurationParameterValue.Identifier] = configurationParameterValue;
 
@@ -697,7 +748,7 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 				return;
 			}
 
-			var profileConfig = new Models.ServiceProfile
+			var profileConfig = new ServiceProfile
 			{
 				Identifier = Guid.NewGuid().ToString(),
 				Mandatory = false,
@@ -705,7 +756,7 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 				ProfileDefinitionId = new SdmObjectReference<ProfileDefinition>(profileDefinitionInstance.Identifier),
 			};
 
-			configuration.ServiceConfigurationVersion.Profiles.Add(new SdmObjectReference<Models.ServiceProfile>(profileConfig.Identifier));
+			configuration.ServiceConfigurationVersion.Profiles.Add(new SdmObjectReference<ServiceProfile>(profileConfig.Identifier));
 			serviceProfilesById[profileConfig.Identifier] = profileConfig;
 
 			var record = ProfileDataRecord.BuildProfileRecord(
@@ -770,7 +821,7 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 				profile.Name = $"{profile.Name} #{view.ProfileCollapseButtons.Keys.Count(s => s.StartsWith(profile.Name, StringComparison.Ordinal))}";
 			}
 
-			var profileConfig = new Models.ServiceProfile
+			var profileConfig = new ServiceProfile
 			{
 				Identifier = Guid.NewGuid().ToString(),
 				Mandatory = false,
@@ -780,7 +831,7 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 
 			profilesById[profile.Identifier] = profile;
 			serviceProfilesById[profileConfig.Identifier] = profileConfig;
-			configuration.ServiceConfigurationVersion.Profiles.Add(new SdmObjectReference<Models.ServiceProfile>(profileConfig.Identifier));
+			configuration.ServiceConfigurationVersion.Profiles.Add(new SdmObjectReference<ServiceProfile>(profileConfig.Identifier));
 
 			var record = ProfileDataRecord.BuildProfileRecord(
 				profileConfig,
@@ -958,7 +1009,7 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 
 		private int BuildExceedNumberOfVersionUI(int row)
 		{
-			var versionToBeDelete = (instanceService.ConfigurationVersions ?? new List<SdmObjectReference<Models.ServiceConfigurationVersion>>())
+			var versionToBeDelete = (instanceService.ConfigurationVersions ?? new List<SdmObjectReference<ServiceConfigurationVersion>>())
 				.Where(cv => cv != null
 					&& !String.IsNullOrWhiteSpace(cv.Identifier)
 					&& !String.Equals(cv.Identifier, configuration.ServiceConfigurationVersion.Identifier, StringComparison.OrdinalIgnoreCase)
@@ -974,7 +1025,7 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 
 		private int GetPersistedConfigurationVersionCount()
 		{
-			return (instanceService.ConfigurationVersions ?? new List<SdmObjectReference<Models.ServiceConfigurationVersion>>())
+			return (instanceService.ConfigurationVersions ?? new List<SdmObjectReference<ServiceConfigurationVersion>>())
 				.Count(cv => cv != null
 					&& !String.IsNullOrWhiteSpace(cv.Identifier)
 					&& !String.Equals(cv.Identifier, configuration.ServiceConfigurationVersion.Identifier, StringComparison.OrdinalIgnoreCase));
@@ -999,12 +1050,12 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 
 		private void InitializeConfigurationVersions()
 		{
-			var configurationVersionOptions = new List<Option<Models.ServiceConfigurationVersion>> { new Option<Models.ServiceConfigurationVersion>("- Add New Version -", null) };
+			var configurationVersionOptions = new List<Option<ServiceConfigurationVersion>> { new Option<ServiceConfigurationVersion>("- Add New Version -", null) };
 			if (instanceService.ConfigurationVersions != null)
 			{
 				foreach (var versionReference in instanceService.ConfigurationVersions)
 				{
-					if (String.IsNullOrEmpty(versionReference.Identifier))
+					if (versionReference == null || String.IsNullOrEmpty(versionReference.Identifier))
 					{
 						continue;
 					}
@@ -1015,7 +1066,7 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 						continue;
 					}
 
-					configurationVersionOptions.Add(new Option<Models.ServiceConfigurationVersion>(version.VersionName ?? version.Identifier, version));
+					configurationVersionOptions.Add(new Option<ServiceConfigurationVersion>(version.VersionName ?? version.Identifier, version));
 				}
 			}
 
@@ -1025,7 +1076,7 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 			{
 				if (!configurationVersionOptions.Exists(cv => cv?.Value != null && cv.Value.Identifier == configuration.ServiceConfigurationVersion.Identifier))
 				{
-					view.ConfigurationVersions.AddOption(new Option<Models.ServiceConfigurationVersion>(configuration.ServiceConfigurationVersion.VersionName ?? configuration.ServiceConfigurationVersion.Identifier, configuration.ServiceConfigurationVersion));
+					view.ConfigurationVersions.AddOption(new Option<ServiceConfigurationVersion>(configuration.ServiceConfigurationVersion.VersionName ?? configuration.ServiceConfigurationVersion.Identifier, configuration.ServiceConfigurationVersion));
 				}
 
 				view.ConfigurationVersions.Selected = configuration.ServiceConfigurationVersion;
@@ -2000,7 +2051,7 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 				childProfile.Name = $"{childProfile.Name} #{view.ProfileCollapseButtons.Keys.Count(s => s.StartsWith(childProfile.Name, StringComparison.Ordinal))}";
 			}
 
-			var childProfileConfig = new Models.ServiceProfile
+			var childProfileConfig = new ServiceProfile
 			{
 				Identifier = Guid.NewGuid().ToString(),
 				Mandatory = false,
@@ -2009,7 +2060,7 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 			};
 
 			parent.Profile.Profiles.Add(new SdmObjectReference<Profile>(childProfile.Identifier));
-			configuration.ServiceConfigurationVersion.Profiles.Add(new SdmObjectReference<Models.ServiceProfile>(childProfileConfig.Identifier));
+			configuration.ServiceConfigurationVersion.Profiles.Add(new SdmObjectReference<ServiceProfile>(childProfileConfig.Identifier));
 			profilesById[childProfile.Identifier] = childProfile;
 			serviceProfilesById[childProfileConfig.Identifier] = childProfileConfig;
 
@@ -2059,7 +2110,7 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 					return;
 				}
 
-				var childProfileConfig = new Models.ServiceProfile
+				var childProfileConfig = new ServiceProfile
 				{
 					Identifier = Guid.NewGuid().ToString(),
 					Mandatory = false,
@@ -2067,7 +2118,7 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 					ProfileDefinitionId = new SdmObjectReference<ProfileDefinition>(profileDefinitionInstance.Identifier),
 				};
 
-				configuration.ServiceConfigurationVersion.Profiles.Add(new SdmObjectReference<Models.ServiceProfile>(childProfileConfig.Identifier));
+				configuration.ServiceConfigurationVersion.Profiles.Add(new SdmObjectReference<ServiceProfile>(childProfileConfig.Identifier));
 				serviceProfilesById[childProfileConfig.Identifier] = childProfileConfig;
 
 				var record = ProfileDataRecord.BuildProfileRecord(
@@ -2299,7 +2350,7 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 					.Select(p => p.Profile.Identifier));
 		}
 
-		private ConfigurationDataRecord BuildConfigurationDataRecord(Models.ServiceConfigurationVersion version, State state = State.Update)
+		private ConfigurationDataRecord BuildConfigurationDataRecord(ServiceConfigurationVersion version, State state = State.Update)
 		{
 			EnsureConfigurationCollections(version);
 			serviceConfigurationVersionsById[version.Identifier] = version;
@@ -2321,17 +2372,17 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 				state);
 		}
 
-		private Models.ServiceConfigurationVersion CreateNewServiceConfigurationVersion()
+		private ServiceConfigurationVersion CreateNewServiceConfigurationVersion()
 		{
-			var version = new Models.ServiceConfigurationVersion
+			var version = new ServiceConfigurationVersion
 			{
 				Identifier = Guid.NewGuid().ToString(),
 				VersionName = "New Version",
 				Description = String.Empty,
 				StartDate = null,
 				EndDate = null,
-				Parameters = new List<SdmObjectReference<Models.ServiceConfigurationValue>>(),
-				Profiles = new List<SdmObjectReference<Models.ServiceProfile>>(),
+				Parameters = new List<SdmObjectReference<ServiceConfigurationValue>>(),
+				Profiles = new List<SdmObjectReference<ServiceProfile>>(),
 			};
 
 			if (serviceSpecification != null)
@@ -2344,7 +2395,7 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 			return version;
 		}
 
-		private Models.ServiceConfigurationVersion CreateNewServiceConfigurationVersionFromExisting(Models.ServiceConfigurationVersion sourceVersion)
+		private ServiceConfigurationVersion CreateNewServiceConfigurationVersionFromExisting(ServiceConfigurationVersion sourceVersion)
 		{
 			if (sourceVersion == null)
 			{
@@ -2353,24 +2404,43 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 				return emptyVersion;
 			}
 
-			var newVersion = new Models.ServiceConfigurationVersion
+			var newVersion = new ServiceConfigurationVersion
 			{
 				Identifier = Guid.NewGuid().ToString(),
 				VersionName = $"{sourceVersion.VersionName} - Copy",
 				Description = sourceVersion.Description,
 				StartDate = sourceVersion.StartDate,
 				EndDate = sourceVersion.EndDate,
-				Parameters = new List<SdmObjectReference<Models.ServiceConfigurationValue>>(),
-				Profiles = new List<SdmObjectReference<Models.ServiceProfile>>(),
+				Parameters = new List<SdmObjectReference<ServiceConfigurationValue>>(),
+				Profiles = new List<SdmObjectReference<ServiceProfile>>(),
 			};
 
 			var parameterIdMap = new Dictionary<Guid, Guid>();
 			var createdParameterValues = new List<ConfigurationParameterValue>();
 
-			foreach (var parameterReference in sourceVersion.Parameters ?? new List<SdmObjectReference<Models.ServiceConfigurationValue>>())
+			CopyStandaloneParameters(sourceVersion, newVersion, parameterIdMap, createdParameterValues);
+			CopyProfiles(sourceVersion, newVersion, parameterIdMap, createdParameterValues);
+
+			RemapLinkedConsumers(createdParameterValues, parameterIdMap);
+			serviceConfigurationVersionsById[newVersion.Identifier] = newVersion;
+			return newVersion;
+		}
+
+		private void CopyStandaloneParameters(
+			ServiceConfigurationVersion sourceVersion,
+			ServiceConfigurationVersion newVersion,
+			Dictionary<Guid, Guid> parameterIdMap,
+			List<ConfigurationParameterValue> createdParameterValues)
+		{
+			foreach (var parameterReference in sourceVersion.Parameters ?? new List<SdmObjectReference<ServiceConfigurationValue>>())
 			{
+				if (parameterReference == null || String.IsNullOrEmpty(parameterReference.Identifier))
+				{
+					continue;
+				}
+
 				var sourceConfig = GetValue(serviceConfigurationValuesById, parameterReference.Identifier);
-				if (sourceConfig == null)
+				if (sourceConfig?.ConfigurationParameterId == null || String.IsNullOrWhiteSpace(sourceConfig.ConfigurationParameterId.Identifier))
 				{
 					continue;
 				}
@@ -2385,21 +2455,35 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 				configurationParameterValuesById[duplicatedParameterValue.Identifier] = duplicatedParameterValue;
 				createdParameterValues.Add(duplicatedParameterValue);
 
-				var duplicatedConfig = new Models.ServiceConfigurationValue
+				var duplicatedConfig = new ServiceConfigurationValue
 				{
 					Identifier = Guid.NewGuid().ToString(),
 					Mandatory = sourceConfig.Mandatory,
 					ConfigurationParameterId = new SdmObjectReference<ConfigurationParameter>(duplicatedParameterValue.Identifier),
 				};
-				serviceConfigurationValuesById[duplicatedConfig.Identifier] = duplicatedConfig;
-				newVersion.Parameters.Add(new SdmObjectReference<Models.ServiceConfigurationValue>(duplicatedConfig.Identifier));
-			}
 
+				serviceConfigurationValuesById[duplicatedConfig.Identifier] = duplicatedConfig;
+				newVersion.Parameters.Add(new SdmObjectReference<ServiceConfigurationValue>(duplicatedConfig.Identifier));
+			}
+		}
+
+		private void CopyProfiles(
+			ServiceConfigurationVersion sourceVersion,
+			ServiceConfigurationVersion newVersion,
+			Dictionary<Guid, Guid> parameterIdMap,
+			List<ConfigurationParameterValue> createdParameterValues)
+		{
 			var profileIdMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-			foreach (var profileReference in sourceVersion.Profiles ?? new List<SdmObjectReference<Models.ServiceProfile>>())
+
+			foreach (var profileReference in sourceVersion.Profiles ?? new List<SdmObjectReference<ServiceProfile>>())
 			{
+				if (profileReference == null || String.IsNullOrEmpty(profileReference.Identifier))
+				{
+					continue;
+				}
+
 				var sourceProfileConfig = GetValue(serviceProfilesById, profileReference.Identifier);
-				if (sourceProfileConfig == null)
+				if (sourceProfileConfig?.ProfileId == null || String.IsNullOrWhiteSpace(sourceProfileConfig.ProfileId.Identifier))
 				{
 					continue;
 				}
@@ -2410,27 +2494,30 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 					continue;
 				}
 
-				var duplicatedProfileId = DuplicateProfileForConfigurationCopy(sourceProfile.Identifier, profileIdMap, parameterIdMap, createdParameterValues);
+				var duplicatedProfileId = DuplicateProfileForConfigurationCopy(
+					sourceProfile.Identifier,
+					profileIdMap,
+					parameterIdMap,
+					createdParameterValues);
+
 				if (String.IsNullOrWhiteSpace(duplicatedProfileId))
 				{
 					continue;
 				}
 
-				var duplicatedServiceProfile = new Models.ServiceProfile
+				var duplicatedServiceProfile = new ServiceProfile
 				{
 					Identifier = Guid.NewGuid().ToString(),
 					Mandatory = sourceProfileConfig.Mandatory,
-					ProfileDefinitionId = String.IsNullOrEmpty(sourceProfileConfig.ProfileDefinitionId.Identifier) ? default : new SdmObjectReference<ProfileDefinition>(sourceProfileConfig.ProfileDefinitionId.Identifier),
+					ProfileDefinitionId = String.IsNullOrEmpty(sourceProfileConfig.ProfileDefinitionId.Identifier)
+						? default
+						: new SdmObjectReference<ProfileDefinition>(sourceProfileConfig.ProfileDefinitionId.Identifier),
 					ProfileId = new SdmObjectReference<Profile>(duplicatedProfileId),
 				};
 
 				serviceProfilesById[duplicatedServiceProfile.Identifier] = duplicatedServiceProfile;
-				newVersion.Profiles.Add(new SdmObjectReference<Models.ServiceProfile>(duplicatedServiceProfile.Identifier));
+				newVersion.Profiles.Add(new SdmObjectReference<ServiceProfile>(duplicatedServiceProfile.Identifier));
 			}
-
-			RemapLinkedConsumers(createdParameterValues, parameterIdMap);
-			serviceConfigurationVersionsById[newVersion.Identifier] = newVersion;
-			return newVersion;
 		}
 
 		private string DuplicateProfileForConfigurationCopy(
@@ -2497,7 +2584,7 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 			return duplicatedProfile.Identifier;
 		}
 
-		private void AddServiceSpecificationStandaloneParameters(Models.ServiceSpecification specification, Models.ServiceConfigurationVersion targetVersion)
+		private void AddServiceSpecificationStandaloneParameters(ServiceSpecification specification, ServiceConfigurationVersion targetVersion)
 		{
 			foreach (var parameterReference in specification.ConfigurationParameters ?? new List<SdmObjectReference<ServiceSpecificationConfigurationValue>>())
 			{
@@ -2517,7 +2604,7 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 				duplicatedParameterValue.Label = String.Empty;
 				configurationParameterValuesById[duplicatedParameterValue.Identifier] = duplicatedParameterValue;
 
-				var configurationValue = new Models.ServiceConfigurationValue
+				var configurationValue = new ServiceConfigurationValue
 				{
 					Identifier = Guid.NewGuid().ToString(),
 					Mandatory = specificationConfiguration.MandatoryAtService,
@@ -2525,11 +2612,11 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 				};
 
 				serviceConfigurationValuesById[configurationValue.Identifier] = configurationValue;
-				targetVersion.Parameters.Add(new SdmObjectReference<Models.ServiceConfigurationValue>(configurationValue.Identifier));
+				targetVersion.Parameters.Add(new SdmObjectReference<ServiceConfigurationValue>(configurationValue.Identifier));
 			}
 		}
 
-		private void AddServiceSpecificationProfiles(Models.ServiceSpecification specification, Models.ServiceConfigurationVersion targetVersion)
+		private void AddServiceSpecificationProfiles(ServiceSpecification specification, ServiceConfigurationVersion targetVersion)
 		{
 			foreach (var profileReference in specification.ConfigurationProfiles ?? new List<SdmObjectReference<ServiceSpecificationProfile>>())
 			{
@@ -2568,7 +2655,7 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 					duplicatedProfile.ConfigurationParameterValues.Add(new SdmObjectReference<ConfigurationParameterValue>(duplicatedParameterValue.Identifier));
 				}
 
-				var serviceProfile = new Models.ServiceProfile
+				var serviceProfile = new ServiceProfile
 				{
 					Identifier = Guid.NewGuid().ToString(),
 					Mandatory = specificationProfile.MandatoryAtService,
@@ -2578,7 +2665,7 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 
 				profilesById[duplicatedProfile.Identifier] = duplicatedProfile;
 				serviceProfilesById[serviceProfile.Identifier] = serviceProfile;
-				targetVersion.Profiles.Add(new SdmObjectReference<Models.ServiceProfile>(serviceProfile.Identifier));
+				targetVersion.Profiles.Add(new SdmObjectReference<ServiceProfile>(serviceProfile.Identifier));
 			}
 		}
 
@@ -2681,20 +2768,20 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 		{
 			if (instanceService.ConfigurationVersions == null)
 			{
-				instanceService.ConfigurationVersions = new List<SdmObjectReference<Models.ServiceConfigurationVersion>>();
+				instanceService.ConfigurationVersions = new List<SdmObjectReference<ServiceConfigurationVersion>>();
 			}
 		}
 
-		private static void EnsureConfigurationCollections(Models.ServiceConfigurationVersion version)
+		private static void EnsureConfigurationCollections(ServiceConfigurationVersion version)
 		{
 			if (version.Parameters == null)
 			{
-				version.Parameters = new List<SdmObjectReference<Models.ServiceConfigurationValue>>();
+				version.Parameters = new List<SdmObjectReference<ServiceConfigurationValue>>();
 			}
 
 			if (version.Profiles == null)
 			{
-				version.Profiles = new List<SdmObjectReference<Models.ServiceProfile>>();
+				version.Profiles = new List<SdmObjectReference<ServiceProfile>>();
 			}
 		}
 

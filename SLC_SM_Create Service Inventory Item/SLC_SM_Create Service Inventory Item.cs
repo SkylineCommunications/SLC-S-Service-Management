@@ -112,6 +112,49 @@ namespace SLC_SM_Create_Service_Inventory_Item
 			return sdmHelper.ServiceInventory.Services.Read(SdmModels.ServiceExposers.ServiceID.Equal(serviceId)).Any();
 		}
 
+		private static HashSet<string> GetSourceConfigurationVersionIds(SdmModels.Service sourceService)
+		{
+			if (sourceService.ConfigurationVersions == null || sourceService.ConfigurationVersions.Count == 0)
+			{
+				return new HashSet<string>(StringComparer.InvariantCultureIgnoreCase);
+			}
+
+			return sourceService.ConfigurationVersions
+				.Where(r => r != null && !String.IsNullOrWhiteSpace(r.Identifier))
+				.Select(r => r.Identifier)
+				.ToHashSet(StringComparer.InvariantCultureIgnoreCase);
+		}
+
+		private static void RemapDuplicatedLinkedConsumers(
+			IServiceManagementApiHelper sdmHelper,
+			List<ConfigModels.ConfigurationParameterValue> duplicatedConfigParameterValues,
+			Dictionary<string, string> configParamValueIdMap)
+		{
+			if (duplicatedConfigParameterValues == null || duplicatedConfigParameterValues.Count == 0)
+			{
+				return;
+			}
+
+			var guidMap = BuildGuidMap(configParamValueIdMap);
+			if (guidMap.Count == 0)
+			{
+				return;
+			}
+
+			foreach (var duplicated in duplicatedConfigParameterValues)
+			{
+				if (!HasLinkedConsumers(duplicated))
+				{
+					continue;
+				}
+
+				if (RemapLinkedConsumers(duplicated.LinkedConsumers, guidMap))
+				{
+					sdmHelper.ServiceCatalog.ConfigurationParameterValues.Update(duplicated);
+				}
+			}
+		}
+
 		private void AddOrUpdateServiceViaSdm(IServiceManagementApiHelper sdmHelper, SdmModels.Service instance)
 		{
 			if (instance.ServiceSpecificationId != null && !String.IsNullOrWhiteSpace(instance.ServiceSpecificationId.Identifier))
@@ -137,7 +180,7 @@ namespace SLC_SM_Create_Service_Inventory_Item
 
 			sdmHelper.ServiceInventory.Services.Create(instance);
 
-			if (instance.GenerateMonitoringService == true)
+			if ((bool)instance.GenerateMonitoringService)
 			{
 				TryCreateDmsService(instance.Name, instance.Icon);
 			}
@@ -182,7 +225,7 @@ namespace SLC_SM_Create_Service_Inventory_Item
 			instance.ServiceItems = SanitizeServiceItemsForCreate(instance.ServiceItems);
 			sdmHelper.ServiceInventory.Services.Create(instance);
 
-			if (instance.GenerateMonitoringService == true)
+			if ((bool)instance.GenerateMonitoringService)
 			{
 				TryCreateDmsService(instance.Name, instance.Icon);
 			}
@@ -194,132 +237,194 @@ namespace SLC_SM_Create_Service_Inventory_Item
 			string newServiceId,
 			Dictionary<string, string> configurationVersionMap)
 		{
-			if (sourceService.ConfigurationVersions == null || sourceService.ConfigurationVersions.Count == 0)
-			{
-				return new List<string>();
-			}
-
-			var sourceConfigVersionIds = sourceService.ConfigurationVersions
-				.Where(r => r != null && !String.IsNullOrWhiteSpace(r.Identifier))
-				.Select(r => r.Identifier)
-				.ToHashSet(StringComparer.InvariantCultureIgnoreCase);
-
+			var sourceConfigVersionIds = GetSourceConfigurationVersionIds(sourceService);
 			if (sourceConfigVersionIds.Count == 0)
 			{
 				return new List<string>();
 			}
 
-			var serviceConfigurationVersions = sdmHelper.ServiceInventory.ServiceConfigurationVersions
-				.Read(new TRUEFilterElement<SdmModels.ServiceConfigurationVersion>())
-				.Where(v => v != null && !String.IsNullOrWhiteSpace(v.Identifier) && sourceConfigVersionIds.Contains(v.Identifier))
-				.ToList();
-			var serviceConfigurationValuesById = sdmHelper.ServiceInventory.ServiceConfigurationValues
-				.Read(new TRUEFilterElement<SdmModels.ServiceConfigurationValue>())
-				.Where(v => !String.IsNullOrWhiteSpace(v?.Identifier))
-				.ToDictionary(v => v.Identifier, StringComparer.InvariantCultureIgnoreCase);
-			var serviceProfilesById = sdmHelper.ServiceInventory.ServiceProfiles
-				.Read(new TRUEFilterElement<SdmModels.ServiceProfile>())
-				.Where(p => !String.IsNullOrWhiteSpace(p?.Identifier))
-				.ToDictionary(p => p.Identifier, StringComparer.InvariantCultureIgnoreCase);
-			var profilesById = sdmHelper.ServiceCatalog.Profiles
-				.Read(new TRUEFilterElement<ConfigModels.Profile>())
-				.Where(p => !String.IsNullOrWhiteSpace(p?.Identifier))
-				.ToDictionary(p => p.Identifier, StringComparer.InvariantCultureIgnoreCase);
-			var configParameterValuesById = sdmHelper.ServiceCatalog.ConfigurationParameterValues
-				.Read(new TRUEFilterElement<ConfigModels.ConfigurationParameterValue>())
-				.Where(v => !String.IsNullOrWhiteSpace(v?.Identifier))
-				.ToDictionary(v => v.Identifier, StringComparer.InvariantCultureIgnoreCase);
-
+			var duplicationData = LoadConfigurationDuplicationData(sdmHelper, sourceConfigVersionIds);
 			var duplicatedVersionIds = new List<string>();
-			foreach (var sourceVersion in serviceConfigurationVersions.OrderBy(v => v.VersionName))
+
+			foreach (var sourceVersion in duplicationData.ServiceConfigurationVersions.OrderBy(v => v.VersionName))
 			{
-				var configParamValueIdMap = new Dictionary<string, string>(StringComparer.InvariantCultureIgnoreCase);
-				var serviceProfileIdMap = new Dictionary<string, string>(StringComparer.InvariantCultureIgnoreCase);
-				var profileIdMap = new Dictionary<string, string>(StringComparer.InvariantCultureIgnoreCase);
-				var duplicatedConfigParameterValues = new List<ConfigModels.ConfigurationParameterValue>();
-
-				var duplicatedParameterRefs = new List<SdmObjectReference<SdmModels.ServiceConfigurationValue>>();
-				foreach (var sourceParameterRef in sourceVersion.Parameters ?? new List<SdmObjectReference<SdmModels.ServiceConfigurationValue>>())
+				if (sourceVersion == null || String.IsNullOrWhiteSpace(sourceVersion.Identifier))
 				{
-					if (sourceParameterRef == null || String.IsNullOrWhiteSpace(sourceParameterRef.Identifier))
-					{
-						continue;
-					}
-
-					if (!serviceConfigurationValuesById.TryGetValue(sourceParameterRef.Identifier, out var sourceParameter))
-					{
-						continue;
-					}
-
-					var duplicatedConfigParameterValueId = DuplicateConfigurationParameterValue(
-						sdmHelper,
-						sourceParameter.ConfigurationParameterId.Identifier,
-						configParameterValuesById,
-						configParamValueIdMap,
-						duplicatedConfigParameterValues);
-					if (String.IsNullOrWhiteSpace(duplicatedConfigParameterValueId))
-					{
-						continue;
-					}
-
-					var duplicatedParameterId = Guid.NewGuid().ToString();
-					var duplicatedParameter = new SdmModels.ServiceConfigurationValue
-					{
-						Identifier = duplicatedParameterId,
-						Mandatory = sourceParameter.Mandatory,
-						ConfigurationParameterId = new SdmObjectReference<ConfigModels.ConfigurationParameter>(duplicatedConfigParameterValueId),
-					};
-
-					sdmHelper.ServiceInventory.ServiceConfigurationValues.Create(duplicatedParameter);
-					duplicatedParameterRefs.Add(new SdmObjectReference<SdmModels.ServiceConfigurationValue>(duplicatedParameterId));
+					continue;
 				}
 
-				var duplicatedProfileRefs = new List<SdmObjectReference<SdmModels.ServiceProfile>>();
-				foreach (var sourceServiceProfileRef in sourceVersion.Profiles ?? new List<SdmObjectReference<SdmModels.ServiceProfile>>())
-				{
-					if (sourceServiceProfileRef == null || String.IsNullOrWhiteSpace(sourceServiceProfileRef.Identifier))
-					{
-						continue;
-					}
+				var state = new VersionDuplicationState();
 
-					var duplicatedServiceProfileId = DuplicateServiceProfile(
-						sdmHelper,
-						sourceServiceProfileRef.Identifier,
-						newServiceId,
-						serviceProfilesById,
-						profilesById,
-						configParameterValuesById,
-						serviceProfileIdMap,
-						profileIdMap,
-						configParamValueIdMap,
-						duplicatedConfigParameterValues);
+				var duplicatedParameterRefs = DuplicateVersionParameters(
+					sdmHelper,
+					sourceVersion,
+					duplicationData.ServiceConfigurationValuesById,
+					duplicationData.ConfigParameterValuesById,
+					state.ConfigParamValueIdMap,
+					state.DuplicatedConfigParameterValues);
 
-					if (!String.IsNullOrWhiteSpace(duplicatedServiceProfileId))
-					{
-						duplicatedProfileRefs.Add(new SdmObjectReference<SdmModels.ServiceProfile>(duplicatedServiceProfileId));
-					}
-				}
+				var duplicatedProfileRefs = DuplicateVersionProfiles(
+					sdmHelper,
+					sourceVersion,
+					newServiceId,
+					duplicationData.ServiceProfilesById,
+					duplicationData.ProfilesById,
+					duplicationData.ConfigParameterValuesById,
+					state.ServiceProfileIdMap,
+					state.ProfileIdMap,
+					state.ConfigParamValueIdMap,
+					state.DuplicatedConfigParameterValues);
 
-				RemapDuplicatedLinkedConsumers(sdmHelper, duplicatedConfigParameterValues, configParamValueIdMap);
+				RemapDuplicatedLinkedConsumers(sdmHelper, state.DuplicatedConfigParameterValues, state.ConfigParamValueIdMap);
 
-				var duplicatedVersionId = Guid.NewGuid().ToString();
-				var duplicatedVersion = new SdmModels.ServiceConfigurationVersion
-				{
-					Identifier = duplicatedVersionId,
-					VersionName = $"{sourceVersion.VersionName} (Copy)",
-					Description = sourceVersion.Description,
-					StartDate = sourceVersion.StartDate,
-					EndDate = sourceVersion.EndDate,
-					Parameters = duplicatedParameterRefs,
-					Profiles = duplicatedProfileRefs,
-				};
-
-				sdmHelper.ServiceInventory.ServiceConfigurationVersions.Create(duplicatedVersion);
+				var duplicatedVersionId = CreateDuplicatedConfigurationVersion(sdmHelper, sourceVersion, duplicatedParameterRefs, duplicatedProfileRefs);
 				configurationVersionMap[sourceVersion.Identifier] = duplicatedVersionId;
 				duplicatedVersionIds.Add(duplicatedVersionId);
 			}
 
 			return duplicatedVersionIds;
+		}
+
+		private ConfigurationDuplicationData LoadConfigurationDuplicationData(
+			IServiceManagementApiHelper sdmHelper,
+			HashSet<string> sourceConfigVersionIds)
+		{
+			return new ConfigurationDuplicationData
+			{
+				ServiceConfigurationVersions = sdmHelper.ServiceInventory.ServiceConfigurationVersions
+					.Read(new TRUEFilterElement<SdmModels.ServiceConfigurationVersion>())
+					.Where(v => v != null && !String.IsNullOrWhiteSpace(v.Identifier) && sourceConfigVersionIds.Contains(v.Identifier))
+					.ToList(),
+				ServiceConfigurationValuesById = sdmHelper.ServiceInventory.ServiceConfigurationValues
+					.Read(new TRUEFilterElement<SdmModels.ServiceConfigurationValue>())
+					.Where(v => !String.IsNullOrWhiteSpace(v?.Identifier))
+					.ToDictionary(v => v.Identifier, StringComparer.InvariantCultureIgnoreCase),
+				ServiceProfilesById = sdmHelper.ServiceInventory.ServiceProfiles
+					.Read(new TRUEFilterElement<SdmModels.ServiceProfile>())
+					.Where(p => !String.IsNullOrWhiteSpace(p?.Identifier))
+					.ToDictionary(p => p.Identifier, StringComparer.InvariantCultureIgnoreCase),
+				ProfilesById = sdmHelper.ServiceCatalog.Profiles
+					.Read(new TRUEFilterElement<ConfigModels.Profile>())
+					.Where(p => !String.IsNullOrWhiteSpace(p?.Identifier))
+					.ToDictionary(p => p.Identifier, StringComparer.InvariantCultureIgnoreCase),
+				ConfigParameterValuesById = sdmHelper.ServiceCatalog.ConfigurationParameterValues
+					.Read(new TRUEFilterElement<ConfigModels.ConfigurationParameterValue>())
+					.Where(v => !String.IsNullOrWhiteSpace(v?.Identifier))
+					.ToDictionary(v => v.Identifier, StringComparer.InvariantCultureIgnoreCase),
+			};
+		}
+
+		private List<SdmObjectReference<SdmModels.ServiceConfigurationValue>> DuplicateVersionParameters(
+			IServiceManagementApiHelper sdmHelper,
+			SdmModels.ServiceConfigurationVersion sourceVersion,
+			Dictionary<string, SdmModels.ServiceConfigurationValue> serviceConfigurationValuesById,
+			Dictionary<string, ConfigModels.ConfigurationParameterValue> configParameterValuesById,
+			Dictionary<string, string> configParamValueIdMap,
+			List<ConfigModels.ConfigurationParameterValue> duplicatedConfigParameterValues)
+		{
+			var duplicatedParameterRefs = new List<SdmObjectReference<SdmModels.ServiceConfigurationValue>>();
+
+			foreach (var sourceParameterRef in sourceVersion.Parameters ?? new List<SdmObjectReference<SdmModels.ServiceConfigurationValue>>())
+			{
+				if (sourceParameterRef == null || String.IsNullOrWhiteSpace(sourceParameterRef.Identifier))
+				{
+					continue;
+				}
+
+				if (!serviceConfigurationValuesById.TryGetValue(sourceParameterRef.Identifier, out var sourceParameter))
+				{
+					continue;
+				}
+
+				var duplicatedConfigParameterValueId = DuplicateConfigurationParameterValue(
+					sdmHelper,
+					sourceParameter.ConfigurationParameterId.Identifier,
+					configParameterValuesById,
+					configParamValueIdMap,
+					duplicatedConfigParameterValues);
+
+				if (String.IsNullOrWhiteSpace(duplicatedConfigParameterValueId))
+				{
+					continue;
+				}
+
+				var duplicatedParameterId = Guid.NewGuid().ToString();
+				var duplicatedParameter = new SdmModels.ServiceConfigurationValue
+				{
+					Identifier = duplicatedParameterId,
+					Mandatory = sourceParameter.Mandatory,
+					ConfigurationParameterId = new SdmObjectReference<ConfigModels.ConfigurationParameter>(duplicatedConfigParameterValueId),
+				};
+
+				sdmHelper.ServiceInventory.ServiceConfigurationValues.Create(duplicatedParameter);
+				duplicatedParameterRefs.Add(new SdmObjectReference<SdmModels.ServiceConfigurationValue>(duplicatedParameterId));
+			}
+
+			return duplicatedParameterRefs;
+		}
+
+		private List<SdmObjectReference<SdmModels.ServiceProfile>> DuplicateVersionProfiles(
+			IServiceManagementApiHelper sdmHelper,
+			SdmModels.ServiceConfigurationVersion sourceVersion,
+			string newServiceId,
+			Dictionary<string, SdmModels.ServiceProfile> serviceProfilesById,
+			Dictionary<string, ConfigModels.Profile> profilesById,
+			Dictionary<string, ConfigModels.ConfigurationParameterValue> configParameterValuesById,
+			Dictionary<string, string> serviceProfileIdMap,
+			Dictionary<string, string> profileIdMap,
+			Dictionary<string, string> configParamValueIdMap,
+			List<ConfigModels.ConfigurationParameterValue> duplicatedConfigParameterValues)
+		{
+			var duplicatedProfileRefs = new List<SdmObjectReference<SdmModels.ServiceProfile>>();
+
+			foreach (var sourceServiceProfileRef in sourceVersion.Profiles ?? new List<SdmObjectReference<SdmModels.ServiceProfile>>())
+			{
+				if (sourceServiceProfileRef == null || String.IsNullOrWhiteSpace(sourceServiceProfileRef.Identifier))
+				{
+					continue;
+				}
+
+				var duplicatedServiceProfileId = DuplicateServiceProfile(
+					sdmHelper,
+					sourceServiceProfileRef.Identifier,
+					newServiceId,
+					serviceProfilesById,
+					profilesById,
+					configParameterValuesById,
+					serviceProfileIdMap,
+					profileIdMap,
+					configParamValueIdMap,
+					duplicatedConfigParameterValues);
+
+				if (!String.IsNullOrWhiteSpace(duplicatedServiceProfileId))
+				{
+					duplicatedProfileRefs.Add(new SdmObjectReference<SdmModels.ServiceProfile>(duplicatedServiceProfileId));
+				}
+			}
+
+			return duplicatedProfileRefs;
+		}
+
+		private string CreateDuplicatedConfigurationVersion(
+			IServiceManagementApiHelper sdmHelper,
+			SdmModels.ServiceConfigurationVersion sourceVersion,
+			List<SdmObjectReference<SdmModels.ServiceConfigurationValue>> duplicatedParameterRefs,
+			List<SdmObjectReference<SdmModels.ServiceProfile>> duplicatedProfileRefs)
+		{
+			var duplicatedVersionId = Guid.NewGuid().ToString();
+			var duplicatedVersion = new SdmModels.ServiceConfigurationVersion
+			{
+				Identifier = duplicatedVersionId,
+				VersionName = $"{sourceVersion.VersionName} (Copy)",
+				Description = sourceVersion.Description,
+				StartDate = sourceVersion.StartDate,
+				EndDate = sourceVersion.EndDate,
+				Parameters = duplicatedParameterRefs,
+				Profiles = duplicatedProfileRefs,
+			};
+
+			sdmHelper.ServiceInventory.ServiceConfigurationVersions.Create(duplicatedVersion);
+			return duplicatedVersionId;
 		}
 
 		private string DuplicateServiceProfile(
@@ -391,12 +496,51 @@ namespace SLC_SM_Create_Service_Inventory_Item
 				return alreadyDuplicatedProfileId;
 			}
 
-			if (!profilesById.TryGetValue(sourceProfileId, out var sourceProfile))
+			if (!profilesById.TryGetValue(sourceProfileId, out var sourceProfile) || sourceProfile == null)
 			{
 				return null;
 			}
 
+			var duplicatedChildProfiles = DuplicateChildProfiles(
+				sdmHelper,
+				sourceProfile,
+				newServiceId,
+				profilesById,
+				configParameterValuesById,
+				profileIdMap,
+				configParamValueIdMap,
+				duplicatedConfigParameterValues);
+
+			var duplicatedConfigurationParameterValues = DuplicateProfileConfigurationParameterValues(
+				sdmHelper,
+				sourceProfile,
+				configParameterValuesById,
+				configParamValueIdMap,
+				duplicatedConfigParameterValues);
+
+			var duplicatedProfileId = CreateDuplicatedProfile(
+				sdmHelper,
+				sourceProfile,
+				newServiceId,
+				duplicatedChildProfiles,
+				duplicatedConfigurationParameterValues);
+
+			profileIdMap[sourceProfileId] = duplicatedProfileId;
+			return duplicatedProfileId;
+		}
+
+		private List<SdmObjectReference<ConfigModels.Profile>> DuplicateChildProfiles(
+			IServiceManagementApiHelper sdmHelper,
+			ConfigModels.Profile sourceProfile,
+			string newServiceId,
+			Dictionary<string, ConfigModels.Profile> profilesById,
+			Dictionary<string, ConfigModels.ConfigurationParameterValue> configParameterValuesById,
+			Dictionary<string, string> profileIdMap,
+			Dictionary<string, string> configParamValueIdMap,
+			List<ConfigModels.ConfigurationParameterValue> duplicatedConfigParameterValues)
+		{
 			var duplicatedChildProfiles = new List<SdmObjectReference<ConfigModels.Profile>>();
+
 			foreach (var sourceChildRef in sourceProfile.Profiles ?? new List<SdmObjectReference<ConfigModels.Profile>>())
 			{
 				if (sourceChildRef == null || String.IsNullOrWhiteSpace(sourceChildRef.Identifier))
@@ -413,13 +557,25 @@ namespace SLC_SM_Create_Service_Inventory_Item
 					profileIdMap,
 					configParamValueIdMap,
 					duplicatedConfigParameterValues);
+
 				if (!String.IsNullOrWhiteSpace(duplicatedChildProfileId))
 				{
 					duplicatedChildProfiles.Add(new SdmObjectReference<ConfigModels.Profile>(duplicatedChildProfileId));
 				}
 			}
 
+			return duplicatedChildProfiles;
+		}
+
+		private List<SdmObjectReference<ConfigModels.ConfigurationParameterValue>> DuplicateProfileConfigurationParameterValues(
+			IServiceManagementApiHelper sdmHelper,
+			ConfigModels.Profile sourceProfile,
+			Dictionary<string, ConfigModels.ConfigurationParameterValue> configParameterValuesById,
+			Dictionary<string, string> configParamValueIdMap,
+			List<ConfigModels.ConfigurationParameterValue> duplicatedConfigParameterValues)
+		{
 			var duplicatedConfigurationParameterValues = new List<SdmObjectReference<ConfigModels.ConfigurationParameterValue>>();
+
 			foreach (var sourceConfigParamValueRef in sourceProfile.ConfigurationParameterValues ?? new List<SdmObjectReference<ConfigModels.ConfigurationParameterValue>>())
 			{
 				if (sourceConfigParamValueRef == null || String.IsNullOrWhiteSpace(sourceConfigParamValueRef.Identifier))
@@ -433,12 +589,23 @@ namespace SLC_SM_Create_Service_Inventory_Item
 					configParameterValuesById,
 					configParamValueIdMap,
 					duplicatedConfigParameterValues);
+
 				if (!String.IsNullOrWhiteSpace(duplicatedConfigParameterValueId))
 				{
 					duplicatedConfigurationParameterValues.Add(new SdmObjectReference<ConfigModels.ConfigurationParameterValue>(duplicatedConfigParameterValueId));
 				}
 			}
 
+			return duplicatedConfigurationParameterValues;
+		}
+
+		private string CreateDuplicatedProfile(
+			IServiceManagementApiHelper sdmHelper,
+			ConfigModels.Profile sourceProfile,
+			string newServiceId,
+			List<SdmObjectReference<ConfigModels.Profile>> duplicatedChildProfiles,
+			List<SdmObjectReference<ConfigModels.ConfigurationParameterValue>> duplicatedConfigurationParameterValues)
+		{
 			var duplicatedProfileId = Guid.NewGuid().ToString();
 			var duplicatedProfile = new ConfigModels.Profile
 			{
@@ -455,7 +622,6 @@ namespace SLC_SM_Create_Service_Inventory_Item
 			};
 
 			sdmHelper.ServiceCatalog.Profiles.Create(duplicatedProfile);
-			profileIdMap[sourceProfileId] = duplicatedProfileId;
 			return duplicatedProfileId;
 		}
 
@@ -514,12 +680,14 @@ namespace SLC_SM_Create_Service_Inventory_Item
 			return duplicatedId;
 		}
 
-		private void RemapDuplicatedLinkedConsumers(
-			IServiceManagementApiHelper sdmHelper,
-			List<ConfigModels.ConfigurationParameterValue> duplicatedConfigParameterValues,
-			Dictionary<string, string> configParamValueIdMap)
+		private static Dictionary<Guid, Guid> BuildGuidMap(Dictionary<string, string> configParamValueIdMap)
 		{
 			var guidMap = new Dictionary<Guid, Guid>();
+			if (configParamValueIdMap == null || configParamValueIdMap.Count == 0)
+			{
+				return guidMap;
+			}
+
 			foreach (var mapping in configParamValueIdMap)
 			{
 				if (Guid.TryParse(mapping.Key, out var oldId) && Guid.TryParse(mapping.Value, out var newId))
@@ -528,33 +696,30 @@ namespace SLC_SM_Create_Service_Inventory_Item
 				}
 			}
 
-			if (guidMap.Count == 0)
+			return guidMap;
+		}
+
+		private static bool HasLinkedConsumers(ConfigModels.ConfigurationParameterValue duplicated)
+		{
+			return duplicated != null
+				&& duplicated.LinkedConsumers != null
+				&& duplicated.LinkedConsumers.Count > 0;
+		}
+
+		private static bool RemapLinkedConsumers(List<Guid> linkedConsumers, Dictionary<Guid, Guid> guidMap)
+		{
+			var changed = false;
+
+			for (int i = 0; i < linkedConsumers.Count; i++)
 			{
-				return;
+				if (guidMap.TryGetValue(linkedConsumers[i], out var newConsumerId))
+				{
+					linkedConsumers[i] = newConsumerId;
+					changed = true;
+				}
 			}
 
-			foreach (var duplicated in duplicatedConfigParameterValues)
-			{
-				if (duplicated.LinkedConsumers == null || duplicated.LinkedConsumers.Count == 0)
-				{
-					continue;
-				}
-
-				bool changed = false;
-				for (int i = 0; i < duplicated.LinkedConsumers.Count; i++)
-				{
-					if (guidMap.TryGetValue(duplicated.LinkedConsumers[i], out var newConsumerId))
-					{
-						duplicated.LinkedConsumers[i] = newConsumerId;
-						changed = true;
-					}
-				}
-
-				if (changed)
-				{
-					sdmHelper.ServiceCatalog.ConfigurationParameterValues.Update(duplicated);
-				}
-			}
+			return changed;
 		}
 
 		private static void UpdateServiceInfoViaSdm(IServiceManagementApiHelper sdmHelper, Guid domId, SdmModels.Service source)
@@ -583,8 +748,6 @@ namespace SLC_SM_Create_Service_Inventory_Item
 				return null;
 			}
 
-			bool workflowTypeAvailable = _engine.DomModelExists(SlcWorkflowIds.ModuleId, new[] { SlcWorkflowIds.Sections.WorkflowInfo.Id.Id });
-			bool srmBookingTypeAvailable = _engine.IsSrmInstalled();
 			var sanitized = new List<SdmModels.ServiceItem>(items.Count);
 
 			for (int i = 0; i < items.Count; i++)
@@ -595,7 +758,6 @@ namespace SLC_SM_Create_Service_Inventory_Item
 					continue;
 				}
 
-				var sanitizedType = EnsureValidServiceItemType(item.Type, workflowTypeAvailable, srmBookingTypeAvailable);
 				sanitized.Add(new SdmModels.ServiceItem
 				{
 					ServiceItemID = item.ServiceItemID,
@@ -603,6 +765,7 @@ namespace SLC_SM_Create_Service_Inventory_Item
 					Script = item.Script,
 					DefinitionReference = item.DefinitionReference,
 					ImplementationReference = item.ImplementationReference,
+
 					// Workaround: avoid setting GenericEnum field explicitly.
 					// The "Service Item Type" field is optional and setting it can fail with
 					// DomInstanceSectionInvalidFieldValueTypes on some systems.
@@ -613,33 +776,6 @@ namespace SLC_SM_Create_Service_Inventory_Item
 
 			return sanitized;
 		}
-
-		private static SlcServicemanagementIds.Enums.ServiceitemtypesEnum EnsureValidServiceItemType(SlcServicemanagementIds.Enums.ServiceitemtypesEnum? type, bool workflowTypeAvailable, bool srmBookingTypeAvailable)
-		{
-			if (!type.HasValue)
-			{
-				return SlcServicemanagementIds.Enums.ServiceitemtypesEnum.Service;
-			}
-
-			var value = type.Value;
-			if (value == SlcServicemanagementIds.Enums.ServiceitemtypesEnum.Service)
-			{
-				return value;
-			}
-
-			if (value == SlcServicemanagementIds.Enums.ServiceitemtypesEnum.Workflow && workflowTypeAvailable)
-			{
-				return value;
-			}
-
-			if (value == SlcServicemanagementIds.Enums.ServiceitemtypesEnum.SRMBooking && srmBookingTypeAvailable)
-			{
-				return value;
-			}
-
-			return SlcServicemanagementIds.Enums.ServiceitemtypesEnum.Service;
-		}
-
 
 		private void TryCreateDmsService(string serviceName, string serviceIcon)
 		{
@@ -869,6 +1005,38 @@ namespace SLC_SM_Create_Service_Inventory_Item
 
 			_engine.PerformanceLogger("Create New Service Inventory Item + Link to Order", () => CreateNewServiceAndLinkItToServiceOrder(sdmHelper, serviceOrderItem));
 			throw new ScriptAbortException("OK");
+		}
+
+		private sealed class ConfigurationDuplicationData
+		{
+			public List<SdmModels.ServiceConfigurationVersion> ServiceConfigurationVersions { get; set; }
+
+			public Dictionary<string, SdmModels.ServiceConfigurationValue> ServiceConfigurationValuesById { get; set; }
+
+			public Dictionary<string, SdmModels.ServiceProfile> ServiceProfilesById { get; set; }
+
+			public Dictionary<string, ConfigModels.Profile> ProfilesById { get; set; }
+
+			public Dictionary<string, ConfigModels.ConfigurationParameterValue> ConfigParameterValuesById { get; set; }
+		}
+
+		private sealed class VersionDuplicationState
+		{
+			public VersionDuplicationState()
+			{
+				ConfigParamValueIdMap = new Dictionary<string, string>(StringComparer.InvariantCultureIgnoreCase);
+				ServiceProfileIdMap = new Dictionary<string, string>(StringComparer.InvariantCultureIgnoreCase);
+				ProfileIdMap = new Dictionary<string, string>(StringComparer.InvariantCultureIgnoreCase);
+				DuplicatedConfigParameterValues = new List<ConfigModels.ConfigurationParameterValue>();
+			}
+
+			public Dictionary<string, string> ConfigParamValueIdMap { get; }
+
+			public Dictionary<string, string> ServiceProfileIdMap { get; }
+
+			public Dictionary<string, string> ProfileIdMap { get; }
+
+			public List<ConfigModels.ConfigurationParameterValue> DuplicatedConfigParameterValues { get; }
 		}
 	}
 }
