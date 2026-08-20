@@ -36,6 +36,7 @@
     <Project Path="SLC_SM_DS_GetServiceDetails/SLC_SM_DS_GetServiceDetails.csproj" />
     <Project Path="SLC_SM_DS_GetServicesByCharacteristic/SLC_SM_DS_GetServicesByCharacteristic.csproj" />
     <Project Path="SLC_SM_DS_GetTopologyNodes/SLC_SM_DS_GetTopologyNodes.csproj" />
+    <Project Path="SLC_SM_DS_GetDocumentHubLogos/SLC_SM_DS_GetDocumentHubLogos.csproj" />
     <Project Path="SLC_SM_DS_GetWorkflows/SLC_SM_DS_GetWorkflows.csproj" />
     <Project Path="SLC_SM_DS_TopologySelectedItems/SLC_SM_DS_TopologySelectedItems.csproj" />
     <Project Path="SLC_SM_GQIDS_Get Service Item Infos/SLC_SM_GQIDS_Get Service Item Infos.csproj" />
