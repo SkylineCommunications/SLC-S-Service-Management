@@ -110,6 +110,11 @@
 				BuildUI(this.showDetails);
 			};
 
+			view.BtnDeleteConfiguration.Pressed += (sender, args) =>
+			{
+				DeleteSelectedConfiguration();
+			};
+
 			view.ConfigurationVersions.Changed += (sender, args) =>
 			{
 				serviceEditLogs.Clear();
@@ -761,10 +766,11 @@
 
 			view.AddWidget(new Label("Version:") { Style = TextStyle.Heading, MaxWidth = 150 }, row, 0, HorizontalAlignment.Right);
 			view.AddWidget(view.ConfigurationVersions, row, 1);
-			view.AddWidget(view.BtnCopyConfiguration, row, 2);
+			view.AddWidget(view.BtnCopyConfiguration, row, 2, HorizontalAlignment.Right);
+			view.AddWidget(view.BtnDeleteConfiguration, row, 3, HorizontalAlignment.Left);
 
-			view.AddWidget(lblCreateAt, row, 3, HorizontalAlignment.Center);
-			view.AddWidget(createdAt, row, 4, 1, 2);
+			view.AddWidget(lblCreateAt, row, 4, HorizontalAlignment.Center);
+			view.AddWidget(createdAt, row, 5, 1, 2);
 
 			return row;
 		}
@@ -789,7 +795,11 @@
 				view.ConfigurationVersions.Selected = configuration.ServiceConfigurationVersion;
 			}
 
-			view.BtnCopyConfiguration.IsVisible = view.ConfigurationVersions.Selected != null && instanceService.ConfigurationVersions?.Exists(cv => cv.ID == view.ConfigurationVersions.Selected.ID) == true;
+			var selectedConfiguration = view.ConfigurationVersions.Selected;
+			bool isExistingSelected = selectedConfiguration != null && instanceService.ConfigurationVersions?.Exists(cv => cv.ID == selectedConfiguration.ID) == true;
+
+			view.BtnCopyConfiguration.IsVisible = isExistingSelected;
+			view.BtnDeleteConfiguration.IsVisible = isExistingSelected && instanceService.ServiceConfiguration?.ID != selectedConfiguration.ID;
 		}
 
 		private int BuildGeneralSettingsUI(int row)
@@ -1996,6 +2006,60 @@
 							 && p.Profile.IsReusable
 							 && !IsChildProfile(p))
 					.Select(p => p.Profile.ID));
+		}
+
+		private void DeleteSelectedConfiguration()
+		{
+			var selectedConfiguration = view.ConfigurationVersions.Selected;
+			if (selectedConfiguration == null)
+			{
+				return;
+			}
+
+			if (instanceService.ServiceConfiguration?.ID == selectedConfiguration.ID)
+			{
+				return;
+			}
+
+			if (instanceService.ConfigurationVersions == null || !instanceService.ConfigurationVersions.Exists(cv => cv.ID == selectedConfiguration.ID))
+			{
+				return;
+			}
+
+			repoService.ServiceConfigurationVersions.TryDelete(selectedConfiguration);
+			instanceService.ConfigurationVersions.RemoveAll(cv => cv.ID == selectedConfiguration.ID);
+			repoService.Services.CreateOrUpdate(instanceService);
+
+			serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(
+				instanceService.ServiceID,
+				"Edit",
+				$"Deleted configuration version '{selectedConfiguration.VersionName ?? selectedConfiguration.ID.ToString()}'"));
+
+			var configParams = repoConfig.ConfigurationParameters.Read();
+			var nextConfiguration = instanceService.ServiceConfiguration;
+
+			if (nextConfiguration == null || nextConfiguration.ID == selectedConfiguration.ID)
+			{
+				nextConfiguration = instanceService.ConfigurationVersions.FirstOrDefault();
+			}
+
+			if (nextConfiguration == null)
+			{
+				configuration = ConfigurationDataRecord.BuildConfigurationDataRecordRecord(
+					engine,
+					HelperMethods.CreateNewServiceConfigurationVersion(serviceSpecification, instanceService),
+					configParams,
+					State.Create);
+
+				instanceService.ServiceConfiguration = configuration.ServiceConfigurationVersion;
+			}
+			else
+			{
+				configuration = ConfigurationDataRecord.BuildConfigurationDataRecordRecord(engine, nextConfiguration, configParams);
+				ObtainMissingNestedProfiles(configParams);
+			}
+
+			BuildUI(showDetails);
 		}
 
 		private sealed class ScriptContext
