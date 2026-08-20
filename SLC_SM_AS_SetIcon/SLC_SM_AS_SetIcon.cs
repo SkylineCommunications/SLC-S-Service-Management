@@ -111,7 +111,7 @@ namespace SLCSMASSetIcon
 				return webPath;
 			}
 
-			return webPath.StartsWith("/") ? webPath : $"/{webPath}";
+			return webPath.StartsWith("/", StringComparison.Ordinal) ? webPath : $"/{webPath}";
 		}
 
 		private static bool TryConvertToPublicWebPath(string input, out string webPath)

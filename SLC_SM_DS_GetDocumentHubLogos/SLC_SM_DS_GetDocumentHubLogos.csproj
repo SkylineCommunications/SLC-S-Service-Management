@@ -21,4 +21,7 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
   </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\SLC_SM_Common\SLC_SM_Common.csproj" />
+  </ItemGroup>
 </Project>

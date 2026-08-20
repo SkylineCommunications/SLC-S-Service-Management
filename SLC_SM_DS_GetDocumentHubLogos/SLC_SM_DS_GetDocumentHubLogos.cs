@@ -23,6 +23,7 @@ namespace SLCSMDSGetDocumentHubLogos
 	using Skyline.DataMiner.Solutions.DocumentHub.SDM.Exposers;
 	using Skyline.DataMiner.Solutions.DocumentHub.SDM.Helpers;
 	using Skyline.DataMiner.Solutions.DocumentHub.SDM.Models;
+	using SLC_SM_Common.Extensions;
 
 	/// <summary>
 	/// Returns logo files from a specific Document Hub bucket.
@@ -87,8 +88,9 @@ namespace SLCSMDSGetDocumentHubLogos
 
 				return new GQIPage(rows);
 			}
-			catch
+			catch (Exception e)
 			{
+				_dms.GenerateInformationMessage($"GQIDS|{DataSourceName}|Exception: {e}");
 				return new GQIPage(Array.Empty<GQIRow>());
 			}
 		}
@@ -128,13 +130,10 @@ namespace SLCSMDSGetDocumentHubLogos
 
 		private static string NormalizePath(string webPath, string filePath)
 		{
-			if (!String.IsNullOrWhiteSpace(webPath))
+			if (!String.IsNullOrWhiteSpace(webPath) &&
+				Uri.TryCreate(webPath, UriKind.Absolute, out Uri uri) &&
+				(uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
 			{
-				if (Uri.TryCreate(webPath, UriKind.Absolute, out Uri _))
-				{
-					return webPath;
-				}
-
 				return webPath.StartsWith("/", StringComparison.Ordinal) ? webPath : $"/{webPath}";
 			}
 
