@@ -130,14 +130,31 @@ namespace SLCSMDSGetDocumentHubLogos
 
 		private static string NormalizePath(string webPath, string filePath)
 		{
-			if (!String.IsNullOrWhiteSpace(webPath) &&
-				Uri.TryCreate(webPath, UriKind.Absolute, out Uri uri) &&
-				(uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
+			if (!String.IsNullOrWhiteSpace(webPath))
 			{
+				if (Uri.TryCreate(webPath, UriKind.Absolute, out Uri uri) &&
+					(uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
+				{
+					return uri.AbsolutePath ?? String.Empty;
+				}
+
 				return webPath.StartsWith("/", StringComparison.Ordinal) ? webPath : $"/{webPath}";
 			}
 
-			return filePath ?? String.Empty;
+			if (String.IsNullOrWhiteSpace(filePath))
+			{
+				return String.Empty;
+			}
+
+			var marker = $"{Path.DirectorySeparatorChar}Public{Path.DirectorySeparatorChar}";
+			var index = filePath.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+			if (index >= 0)
+			{
+				var publicPart = filePath.Substring(index).Replace('\\', '/');
+				return publicPart.StartsWith("/", StringComparison.Ordinal) ? publicPart : $"/{publicPart}";
+			}
+
+			return filePath.Replace('\\', '/');
 		}
 
 		private static DocumentBucket GetBucketByName(IDocumentHubApiHelper helper, string bucketName)

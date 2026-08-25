@@ -137,7 +137,7 @@ namespace SLCSMASSetIcon
 			}
 
 			var afterPublic = normalizedInput.Substring(publicIndex + "public".Length).Replace('\\', '/');
-			webPath = NormalizeWebPath($"{PublicPathPrefix}{afterPublic}");
+			webPath = NormalizeWebPath($"{PublicPathPrefix.Remove(PublicPathPrefix.Length - 1, 1)}{afterPublic}");
 			return true;
 		}
 
