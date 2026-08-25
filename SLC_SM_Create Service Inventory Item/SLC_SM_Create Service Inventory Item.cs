@@ -501,6 +501,12 @@ namespace SLC_SM_Create_Service_Inventory_Item
 				return null;
 			}
 
+			if (sourceProfile.IsReusable)
+			{
+				profileIdMap[sourceProfileId] = sourceProfile.Identifier;
+				return sourceProfile.Identifier;
+			}
+
 			var duplicatedChildProfiles = DuplicateChildProfiles(
 				sdmHelper,
 				sourceProfile,

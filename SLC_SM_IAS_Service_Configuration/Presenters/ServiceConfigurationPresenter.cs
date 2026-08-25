@@ -1260,15 +1260,17 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 
 			view.Details[profile.Profile.Name] = new Section();
 
-			var profileLabel = new TextBox { Text = profile.Profile.Name };
-			if (profile.Profile.IsReusable)
-			{
-				profileLabel.IsReadOnly = true;
-			}
+			var profileLabel = new TextBox { Text = profile.Profile.Name, IsEnabled = !profile.Profile.IsReusable, IsReadOnly = profile.Profile.IsReusable };
 
 			profileLabel.Changed += (sender, args) =>
 			{
-				if (String.IsNullOrEmpty(args.Value))
+				if (profile.Profile.IsReusable)
+				{
+					((TextBox)sender).Text = profile.Profile.Name;
+					return;
+				}
+
+				if (String.IsNullOrWhiteSpace(args.Value) || String.Equals(args.Value, args.Previous, StringComparison.Ordinal))
 				{
 					((TextBox)sender).Text = args.Previous;
 					return;
@@ -1289,8 +1291,6 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 					view.Details[profile.Profile.Name] = view.Details[oldName];
 					view.Details.Remove(oldName);
 				}
-
-				serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(instanceService.ServiceID, "Edit", $"Changed profile name from '{args.Previous}' to '{profile.Profile.Name}'"));
 			};
 			view.AddWidget(profileLabel, ++row, 1);
 
@@ -2542,6 +2542,12 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 				return null;
 			}
 
+			if (sourceProfile.IsReusable)
+			{
+				profileIdMap[sourceProfileId] = sourceProfile.Identifier;
+				return sourceProfile.Identifier;
+			}
+
 			var duplicatedProfileId = Guid.NewGuid().ToString();
 			profileIdMap[sourceProfileId] = duplicatedProfileId;
 
@@ -2632,27 +2638,35 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 					continue;
 				}
 
-				var duplicatedProfile = new Profile
-				{
-					Identifier = Guid.NewGuid().ToString(),
-					Name = sourceProfile.Name,
-					ProfileDefinitionId = String.IsNullOrEmpty(sourceProfile.ProfileDefinitionId.Identifier) ? default : new SdmObjectReference<ProfileDefinition>(sourceProfile.ProfileDefinitionId.Identifier),
-					Profiles = sourceProfile.Profiles?.Select(reference => new SdmObjectReference<Profile>(reference.Identifier)).ToList() ?? new List<SdmObjectReference<Profile>>(),
-					ConfigurationParameterValues = new List<SdmObjectReference<ConfigurationParameterValue>>(),
-					IsReusable = sourceProfile.IsReusable,
-				};
+				string profileIdToUse = sourceProfile.Identifier;
 
-				foreach (var parameterReference in sourceProfile.ConfigurationParameterValues ?? new List<SdmObjectReference<ConfigurationParameterValue>>())
+				if (!sourceProfile.IsReusable)
 				{
-					var sourceParameterValue = GetValue(configurationParameterValuesById, parameterReference.Identifier);
-					if (sourceParameterValue == null)
+					var duplicatedProfile = new Profile
 					{
-						continue;
+						Identifier = Guid.NewGuid().ToString(),
+						Name = sourceProfile.Name,
+						ProfileDefinitionId = String.IsNullOrEmpty(sourceProfile.ProfileDefinitionId.Identifier) ? default : new SdmObjectReference<ProfileDefinition>(sourceProfile.ProfileDefinitionId.Identifier),
+						Profiles = sourceProfile.Profiles?.Select(reference => new SdmObjectReference<Profile>(reference.Identifier)).ToList() ?? new List<SdmObjectReference<Profile>>(),
+						ConfigurationParameterValues = new List<SdmObjectReference<ConfigurationParameterValue>>(),
+						IsReusable = false,
+					};
+
+					foreach (var parameterReference in sourceProfile.ConfigurationParameterValues ?? new List<SdmObjectReference<ConfigurationParameterValue>>())
+					{
+						var sourceParameterValue = GetValue(configurationParameterValuesById, parameterReference.Identifier);
+						if (sourceParameterValue == null)
+						{
+							continue;
+						}
+
+						var duplicatedParameterValue = CloneConfigurationParameterValue(sourceParameterValue, null);
+						configurationParameterValuesById[duplicatedParameterValue.Identifier] = duplicatedParameterValue;
+						duplicatedProfile.ConfigurationParameterValues.Add(new SdmObjectReference<ConfigurationParameterValue>(duplicatedParameterValue.Identifier));
 					}
 
-					var duplicatedParameterValue = CloneConfigurationParameterValue(sourceParameterValue, null);
-					configurationParameterValuesById[duplicatedParameterValue.Identifier] = duplicatedParameterValue;
-					duplicatedProfile.ConfigurationParameterValues.Add(new SdmObjectReference<ConfigurationParameterValue>(duplicatedParameterValue.Identifier));
+					profilesById[duplicatedProfile.Identifier] = duplicatedProfile;
+					profileIdToUse = duplicatedProfile.Identifier;
 				}
 
 				var serviceProfile = new ServiceProfile
@@ -2660,10 +2674,9 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 					Identifier = Guid.NewGuid().ToString(),
 					Mandatory = specificationProfile.MandatoryAtService,
 					ProfileDefinitionId = String.IsNullOrEmpty(specificationProfile.ProfileDefinitionId.Identifier) ? default : new SdmObjectReference<ProfileDefinition>(specificationProfile.ProfileDefinitionId.Identifier),
-					ProfileId = new SdmObjectReference<Profile>(duplicatedProfile.Identifier),
+					ProfileId = new SdmObjectReference<Profile>(profileIdToUse),
 				};
 
-				profilesById[duplicatedProfile.Identifier] = duplicatedProfile;
 				serviceProfilesById[serviceProfile.Identifier] = serviceProfile;
 				targetVersion.Profiles.Add(new SdmObjectReference<ServiceProfile>(serviceProfile.Identifier));
 			}
