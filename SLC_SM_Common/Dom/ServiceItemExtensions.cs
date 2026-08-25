@@ -14,8 +14,8 @@
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.Relationship;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
-	using Skyline.DataMiner.Utils.MediaOps.Common.IOData.Scheduling.Scripts.JobHandler;
-	using Skyline.DataMiner.Utils.MediaOps.Helpers.Scheduling;
+	//using Skyline.DataMiner.Utils.MediaOps.Common.IOData.Scheduling.Scripts.JobHandler;
+	//using Skyline.DataMiner.Utils.MediaOps.Helpers.Scheduling;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
 	using SLC_SM_Common.Extensions;
 	using static DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Service_Behavior;
@@ -198,11 +198,11 @@
 				return false;
 			}
 
-			if (serviceItem.Type == SlcServicemanagementIds.Enums.ServiceitemtypesEnum.Workflow)
-			{
-				// Check job
-				return LinkedJobStillActive(engine, refId);
-			}
+			//if (serviceItem.Type == SlcServicemanagementIds.Enums.ServiceitemtypesEnum.Workflow)
+			//{
+			//	// Check job
+			//	return LinkedJobStillActive(engine, refId);
+			//}
 
 			if (serviceItem.Type == SlcServicemanagementIds.Enums.ServiceitemtypesEnum.SRMBooking)
 			{
@@ -278,50 +278,50 @@
 			return false;
 		}
 
-		private static bool LinkedJobStillActive(IEngine engine, Guid refId)
-		{
-			if (!engine.DomModelExists(SlcWorkflowIds.ModuleId, new[] {SlcWorkflowIds.Sections.JobInfo.Id.Id}))
-			{
-				return false;
-			}
+		//private static bool LinkedJobStillActive(IEngine engine, Guid refId)
+		//{
+		//	if (!engine.DomModelExists(SlcWorkflowIds.ModuleId, new[] {SlcWorkflowIds.Sections.JobInfo.Id.Id}))
+		//	{
+		//	return false;
+		//	}
 
-			var schedulingHelper = new SchedulingHelper(engine);
-			var job = schedulingHelper.GetJob(refId);
-			if (job == null)
-			{
-				return false; // If job doesn't exist, then it can't be active.
-			}
+		//	var schedulingHelper = new SchedulingHelper(engine);
+		//	var job = schedulingHelper.GetJob(refId);
+		//	if (job == null)
+		//	{
+		//		return false; // If job doesn't exist, then it can't be active.
+		//	}
 
-			if (job.Start < DateTime.UtcNow || job.End > DateTime.UtcNow)
-			{
-				var cancelJobInputData = new ExecuteJobAction
-				{
-					DomJobId = job.Id,
-					JobAction = Skyline.DataMiner.Utils.MediaOps.Common.IOData.Scheduling.Scripts.JobHandler.JobAction.CancelJob,
-				};
+		//	if (job.Start < DateTime.UtcNow || job.End > DateTime.UtcNow)
+		//	{
+		//		var cancelJobInputData = new ExecuteJobAction
+		//		{
+		//			DomJobId = job.Id,
+		//			JobAction = Skyline.DataMiner.Utils.MediaOps.Common.IOData.Scheduling.Scripts.JobHandler.JobAction.CancelJob,
+		//		};
 
-				var cancelOutputData = cancelJobInputData.SendToJobHandler(engine, true);
-				if (!cancelOutputData.TraceData.HasSucceeded())
-				{
-					throw new InvalidOperationException($"Could not cancel Job '{refId}' due to : {JsonConvert.SerializeObject(cancelOutputData.TraceData)}");
-				}
+		//		var cancelOutputData = cancelJobInputData.SendToJobHandler(engine, true);
+		//		if (!cancelOutputData.TraceData.HasSucceeded())
+		//		{
+		//			throw new InvalidOperationException($"Could not cancel Job '{refId}' due to : {JsonConvert.SerializeObject(cancelOutputData.TraceData)}");
+		//		}
 
-				var deleteJobInputData = new ExecuteJobAction
-				{
-					DomJobId = job.Id,
-					JobAction = Skyline.DataMiner.Utils.MediaOps.Common.IOData.Scheduling.Scripts.JobHandler.JobAction.DeleteJob,
-				};
-				var deleteOutputData = deleteJobInputData.SendToJobHandler(engine, true);
+		//		var deleteJobInputData = new ExecuteJobAction
+		//		{
+		//			DomJobId = job.Id,
+		//			JobAction = Skyline.DataMiner.Utils.MediaOps.Common.IOData.Scheduling.Scripts.JobHandler.JobAction.DeleteJob,
+		//		};
+		//		var deleteOutputData = deleteJobInputData.SendToJobHandler(engine, true);
 
-				if (!deleteOutputData.TraceData.HasSucceeded())
-				{
-					throw new InvalidOperationException($"Could not delete Job '{refId}' due to : {JsonConvert.SerializeObject(deleteOutputData.TraceData)}");
-				}
+		//		if (!deleteOutputData.TraceData.HasSucceeded())
+		//		{
+		//			throw new InvalidOperationException($"Could not delete Job '{refId}' due to : {JsonConvert.SerializeObject(deleteOutputData.TraceData)}");
+		//		}
 
-				return false;
-			}
+		//		return false;
+		//	}
 
-			throw new InvalidOperationException($"Job '{refId}' still active on the system. Please finish this job first before removing the service item from the inventory.");
-		}
+		//	throw new InvalidOperationException($"Job '{refId}' still active on the system. Please finish this job first before removing the service item from the inventory.");
+		//}
 	}
 }
