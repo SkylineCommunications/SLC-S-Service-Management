@@ -89,7 +89,7 @@ namespace SLCSMASSetIcon
 
 		private static void SetServiceItemIcon()
 		{
-			throw new NotImplementedException();
+			throw new InvalidOperationException("Setting an icon for ServiceItem is not supported.");
 		}
 
 		private static bool IsWebPathOrUrl(string value)
@@ -129,7 +129,7 @@ namespace SLCSMASSetIcon
 			{
 				if (normalizedInput.StartsWith("webfilemanager\\", StringComparison.OrdinalIgnoreCase))
 				{
-					webPath = NormalizeWebPath($"/Public/{normalizedInput.Replace('\\', '/')}");
+					webPath = NormalizeWebPath($"{PublicPathPrefix}{normalizedInput.Replace('\\', '/')}");
 					return true;
 				}
 
@@ -137,7 +137,7 @@ namespace SLCSMASSetIcon
 			}
 
 			var afterPublic = normalizedInput.Substring(publicIndex + "public".Length).Replace('\\', '/');
-			webPath = NormalizeWebPath($"/Public{afterPublic}");
+			webPath = NormalizeWebPath($"{PublicPathPrefix}{afterPublic}");
 			return true;
 		}
 

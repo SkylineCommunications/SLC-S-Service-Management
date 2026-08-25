@@ -147,14 +147,22 @@ namespace SLCSMDSGetDocumentHubLogos
 				return null;
 			}
 
-			var allBuckets = helper.DocumentBuckets
-				.Read(DocumentBucketExposers.Name.Contains(String.Empty))
-				.ToList();
+			var normalizedName = bucketName.Trim();
 
-			return allBuckets
-				.OrderByDescending(bucket => bucket.IsDefault)
-				.ThenBy(bucket => bucket.Name ?? String.Empty, StringComparer.OrdinalIgnoreCase)
-				.FirstOrDefault(bucket => String.Equals((bucket.Name ?? String.Empty).Trim(), bucketName.Trim(), StringComparison.OrdinalIgnoreCase));
+			var bucket = helper.DocumentBuckets
+				.Read(DocumentBucketExposers.Name.Equal(normalizedName))
+				.FirstOrDefault();
+
+			if (bucket != null)
+			{
+				return bucket;
+			}
+
+			return helper.DocumentBuckets
+				.Read(new TRUEFilterElement<DocumentBucket>())
+				.OrderByDescending(b => b.IsDefault)
+				.ThenBy(b => b.Name ?? String.Empty, StringComparer.OrdinalIgnoreCase)
+				.FirstOrDefault();
 		}
 
 		private static string GetDirectory(string filePath, string webPath)
