@@ -221,9 +221,20 @@ namespace SLC_SM_IAS_Service_Spec_Configuration.Presenters
 						var captured = child;
 						++row;
 
-						var nameBox = new TextBox(child.Profile.Name);
+						var nameBox = new TextBox(child.Profile.Name)
+						{
+							IsEnabled = !child.Profile.IsReusable,
+							IsReadOnly = child.Profile.IsReusable,
+						};
+
 						nameBox.Changed += (s, a) =>
 						{
+							if (captured.Profile.IsReusable)
+							{
+								((TextBox)s).Text = captured.Profile.Name;
+								return;
+							}
+
 							if (String.IsNullOrWhiteSpace(a.Value))
 							{
 								((TextBox)s).Text = a.Previous;
@@ -232,6 +243,7 @@ namespace SLC_SM_IAS_Service_Spec_Configuration.Presenters
 
 							captured.Profile.Name = a.Value;
 						};
+
 						view.AddWidget(nameBox, row, 0);
 						view.AddWidget(new TextBox(child.ProfileDefinition?.Name ?? "-") { IsEnabled = false }, row, 1);
 						view.AddWidget(BuildEditButton(child, childAncestors), row, 8);

@@ -784,18 +784,25 @@ namespace SLC_SM_IAS_Service_Spec_Configuration.Presenters
 			view.Details[profileKey] = new Section();
 			view.LifeCycleDetails[profileKey] = new Section();
 
-			var profileLabel = new TextBox { Text = profile.Profile.Name };
-
-			if (profile.Profile.IsReusable)
-			{
-				profileLabel.IsReadOnly = true;
-			}
+			var profileLabel = new TextBox { Text = profile.Profile.Name, IsEnabled = !profile.Profile.IsReusable, IsReadOnly = profile.Profile.IsReusable };
 
 			profileLabel.Changed += (sender, args) =>
 			{
+				if (profile.Profile.IsReusable)
+				{
+					((TextBox)sender).Text = profile.Profile.Name;
+					return;
+				}
+
+				if (String.IsNullOrWhiteSpace(args.Value))
+				{
+					((TextBox)sender).Text = args.Previous;
+					return;
+				}
+
 				profile.Profile.Name = args.Value;
-				BuildUI(this.showDetails, this.showLifeCycleDetails);
 			};
+
 			view.AddWidget(profileLabel, ++row, 1);
 
 			view.AddWidget(collapseButton, row, 0, HorizontalAlignment.Center);
