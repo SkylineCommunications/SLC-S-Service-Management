@@ -541,8 +541,8 @@
 			}
 
 			bool hasValue = record.ConfigurationParamValue.DoubleValue.HasValue || record.NumberOptions.DefaultValue.HasValue;
-			double minimum = record.NumberOptions.MinRange ?? -10_000;
-			double maximum = record.NumberOptions.MaxRange ?? 10_000;
+			double minimum = record.NumberOptions.MinRange ?? double.MinValue;
+			double maximum = record.NumberOptions.MaxRange ?? double.MaxValue;
 			int decimalVal = Convert.ToInt32(record.NumberOptions.Decimals);
 			double stepSize = record.NumberOptions.StepSize ?? 1;
 			bool widgetEnabled = (isFixed.IsChecked && !hasValue) || hasValue;
