@@ -1877,8 +1877,8 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 				throw new InvalidOperationException($"NumberOptions is null for parameter: {record.ConfigurationParam?.Name ?? "Unknown"}");
 			}
 
-			double minimum = record.NumberOptions.MinRange ?? double.MinValue;
-			double maximum = record.NumberOptions.MaxRange ?? double.MaxValue;
+			double minimum = record.NumberOptions.MinRange ?? int.MinValue;
+			double maximum = record.NumberOptions.MaxRange ?? int.MaxValue;
 			int decimalVal = Convert.ToInt32(record.NumberOptions.Decimals ?? 0);
 			double stepSize = record.NumberOptions.StepSize ?? 1;
 			Numeric value = new Numeric(isLinked && record.ConfigurationParamValue.DoubleValue == null ? 0 : record.ConfigurationParamValue.DoubleValue ?? record.NumberOptions.DefaultValue ?? 0)

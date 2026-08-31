@@ -93,8 +93,8 @@ namespace SLC_SM_IAS_Service_Spec_Configuration.Views
 		private void AddNumericWidget(IParameterDataRecord record, int row, bool isDisabled, bool showDetails)
 		{
 			var numOptions = record.NumberOptions;
-			double min = numOptions?.MinRange ?? double.MinValue;
-			double max = numOptions?.MaxRange ?? double.MaxValue;
+			double min = numOptions?.MinRange ?? int.MinValue;
+			double max = numOptions?.MaxRange ?? int.MaxValue;
 			int decimals = Convert.ToInt32(numOptions?.Decimals ?? 0);
 			double step = numOptions?.StepSize ?? 1;
 
