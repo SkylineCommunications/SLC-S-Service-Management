@@ -131,6 +131,42 @@ namespace SLC_SM_IAS_Add_Service_Item
 			       ?? throw new InvalidOperationException($"No Service Item with label '{label}' exists.");
 		}
 
+		private static void NormalizeOptionalSpecificationCollections(Models.ServiceSpecification specification)
+		{
+			if (specification == null)
+			{
+				return;
+			}
+
+			if (specification.ConfigurationProfiles != null)
+			{
+				specification.ConfigurationProfiles = specification.ConfigurationProfiles
+					.Where(profile =>
+						profile != null &&
+						!String.IsNullOrWhiteSpace(profile.Identifier))
+					.ToList();
+
+				if (specification.ConfigurationProfiles.Count == 0)
+				{
+					specification.ConfigurationProfiles = null;
+				}
+			}
+
+			if (specification.ConfigurationParameters != null)
+			{
+				specification.ConfigurationParameters = specification.ConfigurationParameters
+					.Where(parameter =>
+						parameter != null &&
+						!String.IsNullOrWhiteSpace(parameter.Identifier))
+					.ToList();
+
+				if (specification.ConfigurationParameters.Count == 0)
+				{
+					specification.ConfigurationParameters = null;
+				}
+			}
+		}
+
 		private void AddOrUpdateServiceItemToInstance(IServiceManagementApiHelper helper, Models.Service instance, Models.ServiceItem newSection, string oldLabel)
 		{
 			if (instance == null)
@@ -186,6 +222,7 @@ namespace SLC_SM_IAS_Add_Service_Item
 
 			newSection.Type = null;
 			instance.ServiceItems.Add(newSection);
+			NormalizeOptionalSpecificationCollections(instance);
 			helper.ServiceCatalog.ServiceSpecifications.Update(instance);
 		}
 
