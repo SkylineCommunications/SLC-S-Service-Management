@@ -743,6 +743,14 @@ namespace SLC_SM_Create_Service_Inventory_Item
 			service.Icon = source.Icon;
 			service.CategoryId = source.CategoryId;
 			service.ServiceSpecificationId = source.ServiceSpecificationId;
+			service.ServiceConfigurationId = source.ServiceConfigurationId != null
+				? new SdmObjectReference<SdmModels.ServiceConfigurationVersion>(source.ServiceConfigurationId.Identifier)
+				: null;
+			service.ConfigurationVersions = source.ConfigurationVersions?
+				.Where(reference => reference != null && !String.IsNullOrWhiteSpace(reference.Identifier))
+				.Select(reference => new SdmObjectReference<SdmModels.ServiceConfigurationVersion>(reference.Identifier))
+				.ToList()
+				?? new List<SdmObjectReference<SdmModels.ServiceConfigurationVersion>>();
 
 			sdmHelper.ServiceInventory.Services.Update(service);
 		}

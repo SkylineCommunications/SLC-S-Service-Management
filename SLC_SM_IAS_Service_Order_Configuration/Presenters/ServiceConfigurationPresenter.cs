@@ -77,7 +77,10 @@
 						continue;
 					}
 
-					var configurationParameterValueId = currentConfig.ConfigurationParameterValueId.Identifier;
+					var configurationParameterValueId = currentConfig.ConfigurationParameterValueId == null
+						? String.Empty
+						: currentConfig.ConfigurationParameterValueId.Identifier;
+
 					if (String.IsNullOrEmpty(configurationParameterValueId) ||
 						!configParamValues.TryGetValue(configurationParameterValueId, out var configurationParameterValue))
 					{
@@ -137,10 +140,23 @@
 
 				CreateOrUpdateOptions(configuration);
 				repoService.ServiceCatalog.ConfigurationParameterValues.CreateOrUpdate(new[] { configuration.ConfigurationParamValue });
-				repoService.ServiceOrder.ServiceOrderItemConfigurationValues.CreateOrUpdate(new[] { configuration.ServiceConfig });
+				UpsertServiceOrderItemConfigurationValue(configuration.ServiceConfig);
 			}
 
-			repoService.ServiceOrder.ServiceOrderItems.CreateOrUpdate(new[] { instance });
+			var updatedReferences = configurations
+				.Where(c => c.State != State.Delete && c.ServiceConfig != null && !String.IsNullOrWhiteSpace(c.ServiceConfig.Identifier))
+				.Select(c => new SdmObjectReference<ServiceOrderItemConfigurationValue>(c.ServiceConfig.Identifier))
+				.GroupBy(reference => reference.Identifier, StringComparer.OrdinalIgnoreCase)
+				.Select(group => group.First())
+				.ToList();
+
+			if (instance.ServiceInfo == null)
+			{
+				instance.ServiceInfo = new ServiceOrderItemServiceInfo();
+			}
+
+			instance.ServiceInfo.Configurations = updatedReferences;
+			repoService.ServiceOrder.ServiceOrderItems.Update(instance);
 		}
 
 		private static void OnCancelButtonPressed(object sender, EventArgs e)
@@ -152,6 +168,21 @@
 		{
 			StoreModels();
 			throw new ScriptAbortException("OK");
+		}
+
+		private void UpsertServiceOrderItemConfigurationValue(ServiceOrderItemConfigurationValue value)
+		{
+			var existing = repoService.ServiceOrder.ServiceOrderItemConfigurationValues
+				.Read(ServiceOrderItemConfigurationValueExposers.Identifier.Equal(value.Identifier))
+				.FirstOrDefault();
+
+			if (existing == null)
+			{
+				repoService.ServiceOrder.ServiceOrderItemConfigurationValues.Create(value);
+				return;
+			}
+
+			repoService.ServiceOrder.ServiceOrderItemConfigurationValues.Update(value);
 		}
 
 		private void AddConfigModel(ConfigurationParameter selectedParameter)
