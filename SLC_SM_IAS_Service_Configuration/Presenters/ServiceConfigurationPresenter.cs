@@ -1100,58 +1100,59 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 		{
 			return selectedConfiguration != null
 				&& !string.IsNullOrWhiteSpace(selectedConfiguration.Identifier)
-				&& this.instanceService.ConfigurationVersions?.Any(reference => reference != null
-					&& string.Equals(reference.Identifier, selectedConfiguration.Identifier, StringComparison.OrdinalIgnoreCase)) == true;
+				&& instanceService.ConfigurationVersions != null
+				&& instanceService.ConfigurationVersions.Any(reference => reference != null
+					&& string.Equals(reference.Identifier, selectedConfiguration.Identifier, StringComparison.OrdinalIgnoreCase));
 		}
 
 		private void DeleteSelectedConfiguration()
 		{
-			var selectedConfiguration = this.view.ConfigurationVersions.Selected;
-			if (!this.IsPersistedConfigurationVersion(selectedConfiguration)
-				|| string.Equals(this.instanceService.ServiceConfigurationId.Identifier, selectedConfiguration.Identifier, StringComparison.OrdinalIgnoreCase))
+			var selectedConfiguration = view.ConfigurationVersions.Selected;
+			if (!IsPersistedConfigurationVersion(selectedConfiguration)
+				|| string.Equals(instanceService.ServiceConfigurationId.Identifier, selectedConfiguration.Identifier, StringComparison.OrdinalIgnoreCase))
 			{
 				return;
 			}
 
 			string selectedIdentifier = selectedConfiguration.Identifier;
-			this.sdmHelper.ServiceInventory.ServiceConfigurationVersions.Delete(selectedConfiguration);
+			sdmHelper.ServiceInventory.ServiceConfigurationVersions.Delete(selectedConfiguration);
 
-			this.EnsureServiceCollections();
-			this.instanceService.ConfigurationVersions.RemoveAll(reference => reference != null
+			EnsureServiceCollections();
+			instanceService.ConfigurationVersions.RemoveAll(reference => reference != null
 				&& string.Equals(reference.Identifier, selectedIdentifier, StringComparison.OrdinalIgnoreCase));
-			this.serviceConfigurationVersionsById.Remove(selectedIdentifier);
-			this.sdmHelper.ServiceInventory.Services.CreateOrUpdate(new[] { this.instanceService });
+			serviceConfigurationVersionsById.Remove(selectedIdentifier);
+			sdmHelper.ServiceInventory.Services.CreateOrUpdate(new[] { instanceService });
 
 			string deletedVersionName = selectedConfiguration.VersionName ?? selectedIdentifier;
 			string deletionLog = ServiceManagementLogHelper.GenerateLogMessage(
-				this.instanceService.ServiceID,
+				instanceService.ServiceID,
 				"Edit",
 				$"Deleted configuration version '{deletedVersionName}'");
-			this.serviceManagementLogHelper.LogInfo(new List<string> { deletionLog });
-			this.serviceEditLogs.Clear();
+			serviceManagementLogHelper.LogInfo(new List<string> { deletionLog });
+			serviceEditLogs.Clear();
 
-			var nextConfiguration = this.GetNextPersistedConfigurationVersion();
-			this.configuration = nextConfiguration == null
-				? this.BuildConfigurationDataRecord(this.CreateNewServiceConfigurationVersion(), State.Create)
-				: this.BuildConfigurationDataRecord(nextConfiguration);
+			var nextConfiguration = GetNextPersistedConfigurationVersion();
+			configuration = nextConfiguration == null
+				? BuildConfigurationDataRecord(CreateNewServiceConfigurationVersion(), State.Create)
+				: BuildConfigurationDataRecord(nextConfiguration);
 
-			this.BuildUI(this.showDetails);
+			BuildUI(showDetails);
 		}
 
 		private ServiceConfigurationVersion GetNextPersistedConfigurationVersion()
 		{
-			string activeConfigurationId = this.instanceService.ServiceConfigurationId.Identifier;
+			string activeConfigurationId = instanceService.ServiceConfigurationId.Identifier;
 			if (!string.IsNullOrWhiteSpace(activeConfigurationId)
-				&& this.instanceService.ConfigurationVersions.Any(reference => reference != null
+				&& instanceService.ConfigurationVersions.Any(reference => reference != null
 					&& string.Equals(reference.Identifier, activeConfigurationId, StringComparison.OrdinalIgnoreCase))
-				&& this.serviceConfigurationVersionsById.TryGetValue(activeConfigurationId, out var activeConfiguration))
+				&& serviceConfigurationVersionsById.TryGetValue(activeConfigurationId, out var activeConfiguration))
 			{
 				return activeConfiguration;
 			}
 
-			return this.instanceService.ConfigurationVersions
+			return instanceService.ConfigurationVersions
 				.Where(reference => reference != null && !string.IsNullOrWhiteSpace(reference.Identifier))
-				.Select(reference => GetValue(this.serviceConfigurationVersionsById, reference.Identifier))
+				.Select(reference => GetValue(serviceConfigurationVersionsById, reference.Identifier))
 				.FirstOrDefault(version => version != null);
 		}
 
