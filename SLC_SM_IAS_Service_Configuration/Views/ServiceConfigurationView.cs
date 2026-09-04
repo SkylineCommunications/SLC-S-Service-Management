@@ -32,6 +32,8 @@ namespace SLC_SM_IAS_Service_Configuration.Views
 
 		public Button BtnCopyConfiguration { get; } = new Button("Copy") { IsVisible = true, MaxWidth = 100 };
 
+		public Button BtnDeleteConfiguration { get; } = new Button("Delete") { IsVisible = false, MaxWidth = 100, Tooltip = "Delete Configuration" };
+
 		public CollapseButton StandaloneParameters { get; } = new CollapseButton(true) { ExpandText = "+", CollapseText = "-", Tooltip = _standaloneParameterCollapseButtonTitle };
 
 		public CollapseButton GeneralSettings { get; } = new CollapseButton(true) { ExpandText = "+", CollapseText = "-", Tooltip = _generalSettingsCollapseButtonTitle };

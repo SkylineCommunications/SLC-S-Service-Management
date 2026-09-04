@@ -12,6 +12,7 @@ DATE		VERSION		AUTHOR			COMMENTS
 26/05/2026	1.0.0.3		SKA, Skyline	Implemented logic for calculated service parameters
 10/07/2026	1.0.0.4		SKA, Skyline	Added support for nested profiles
 14/07/2026	1.0.0.5		SKA, Skyline	Fixed issue with profile parameter references when duplicating a configuration
+30/08/2026	1.0.0.6		SKA, Skyline	Implemented logic to delete a specific configuration version
 ****************************************************************************
 */
 namespace SLC_SM_IAS_Service_Configuration
