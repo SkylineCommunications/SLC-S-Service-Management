@@ -1,9 +1,8 @@
-﻿namespace SLC_SM_IAS_Service_Configuration.Views
+namespace SLC_SM_IAS_Service_Configuration.Views
 {
 	using System.Collections.Generic;
 	using Library;
 	using Skyline.DataMiner.Automation;
-	using Skyline.DataMiner.Net.Profiles;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
 
 	using SLC_SM_IAS_Service_Configuration.Model;
@@ -33,6 +32,8 @@
 
 		public Button BtnCopyConfiguration { get; } = new Button("Copy") { IsVisible = true, MaxWidth = 100 };
 
+		public Button BtnDeleteConfiguration { get; } = new Button("Delete") { IsVisible = false, MaxWidth = 100, Tooltip = "Delete Configuration" };
+
 		public CollapseButton StandaloneParameters { get; } = new CollapseButton(true) { ExpandText = "+", CollapseText = "-", Tooltip = _standaloneParameterCollapseButtonTitle };
 
 		public CollapseButton GeneralSettings { get; } = new CollapseButton(true) { ExpandText = "+", CollapseText = "-", Tooltip = _generalSettingsCollapseButtonTitle };
@@ -41,8 +42,8 @@
 
 		public Dictionary<string, Section> Details { get; } = new Dictionary<string, Section>();
 
-		public DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter> StandaloneParametersToAdd { get; set; }
-			= new DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter>();
+		public DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.Configurations.ConfigurationParameter> StandaloneParametersToAdd { get; set; }
+			= new DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.Configurations.ConfigurationParameter>();
 
 		public DropDown<ProfileOption> ProfileDefinitionToAdd { get; set; }
 			= new DropDown<ProfileOption>
@@ -53,8 +54,8 @@
 		public DropDown<ProfileOption> ReusableProfileToAdd { get; set; }
 			= new DropDown<ProfileOption> { IsDisplayFilterShown = false, };
 
-		public DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement.Models.ServiceConfigurationVersion> ConfigurationVersions { get; } =
-			new DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement.Models.ServiceConfigurationVersion>();
+		public DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement.ServiceConfigurationVersion> ConfigurationVersions { get; } =
+			new DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement.ServiceConfigurationVersion>();
 
 		public CheckBox ConfirmExceedNumberOfVersions { get; } = new CheckBox { MaxWidth = 25 };
 

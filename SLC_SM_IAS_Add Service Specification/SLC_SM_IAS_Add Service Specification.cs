@@ -1,4 +1,4 @@
-/*
+﻿/*
 ****************************************************************************
 *  Copyright (c),  Skyline Communications NV  All Rights Reserved.    *
 ****************************************************************************
@@ -17,13 +17,14 @@ namespace SLC_SM_IAS_Add_Service_Specification
 	using System.Linq;
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.IAS;
 	using SLC_SM_IAS_Add_Service_Specification.Presenters;
 	using SLC_SM_IAS_Add_Service_Specification.Views;
+	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 
 	/// <summary>
 	///     Represents a DataMiner Automation script.
@@ -86,6 +87,52 @@ namespace SLC_SM_IAS_Add_Service_Specification
 			}
 		}
 
+		private static void EnsureRequiredSections(ServiceSpecification specification)
+		{
+			if (specification == null)
+			{
+				throw new ArgumentNullException(nameof(specification));
+			}
+
+			if (specification.ServiceItems == null)
+			{
+				specification.ServiceItems = new List<ServiceItem>();
+			}
+
+			if (specification.ServiceItemsRelationships == null)
+			{
+				specification.ServiceItemsRelationships = new List<ServiceItemRelationship>();
+			}
+
+			if (specification.ServiceItems.Count == 0)
+			{
+				specification.ServiceItems.Add(new ServiceItem());
+			}
+
+			if (specification.ServiceItemsRelationships.Count == 0)
+			{
+				specification.ServiceItemsRelationships.Add(new ServiceItemRelationship());
+			}
+		}
+
+		private static void NormalizeOptionalCollections(ServiceSpecification specification)
+		{
+			if (specification == null)
+			{
+				throw new ArgumentNullException(nameof(specification));
+			}
+
+			if (specification.ConfigurationProfiles != null && specification.ConfigurationProfiles.Count == 0)
+			{
+				specification.ConfigurationProfiles = null;
+			}
+
+			if (specification.ConfigurationParameters != null && specification.ConfigurationParameters.Count == 0)
+			{
+				specification.ConfigurationParameters = null;
+			}
+		}
+
 		private void RunSafe()
 		{
 			string actionRaw = _engine.ReadScriptParamFromApp("Action");
@@ -94,8 +141,8 @@ namespace SLC_SM_IAS_Add_Service_Specification
 				throw new InvalidOperationException("No Action provided as input to the script");
 			}
 
-			var dataHelperServiceSpec = new DataHelperServiceSpecification(_engine.GetUserConnection());
-			List<Models.ServiceSpecification> serviceSpecifications = dataHelperServiceSpec.ReadBasicDetails();
+			var api = _engine.GetUserConnection().GetServiceManagementApiHelper("Service Catalog");
+			List<Models.ServiceSpecification> serviceSpecifications = api.ServiceCatalog.ServiceSpecifications.Read(new TRUEFilterElement<Models.ServiceSpecification>()).ToList();
 
 			var usedOrderItemLabels = serviceSpecifications.Select(x => x.Name).ToList();
 
@@ -109,23 +156,49 @@ namespace SLC_SM_IAS_Add_Service_Specification
 			{
 				if (presenter.Validate())
 				{
-					dataHelperServiceSpec.CreateOrUpdate(presenter.GetData);
+					ServiceSpecification specificationToSave = presenter.GetData;
+					EnsureRequiredSections(specificationToSave);
+					NormalizeOptionalCollections(specificationToSave);
+
+					switch (action)
+					{
+						case Action.Add:
+							specificationToSave.Identifier = Guid.NewGuid().ToString();
+							api.ServiceCatalog.ServiceSpecifications.Create(specificationToSave);
+							break;
+
+						case Action.Edit:
+							api.ServiceCatalog.ServiceSpecifications.Update(specificationToSave);
+							break;
+
+						default:
+							throw new InvalidOperationException($"Unsupported action '{action}'.");
+					}
+
 					throw new ScriptAbortException("OK");
 				}
 			};
 
-			if (action == Action.Add)
+			switch (action)
 			{
-				presenter.LoadFromModel();
-			}
-			else
-			{
-				Guid domId = _engine.ReadScriptParamFromApp<Guid>("DOM ID");
-				var specification = serviceSpecifications.Find(x => x.ID == domId)
-				                     ?? throw new InvalidOperationException($"No Service Specification with ID '{domId}' found on the system!");
+				case Action.Add:
+					presenter.LoadFromModel();
+					break;
 
-				var specificationToEdit = dataHelperServiceSpec.Read(ServiceSpecificationExposers.Guid.Equal(specification.ID)).FirstOrDefault();
-				presenter.LoadFromModel(specificationToEdit);
+				case Action.Edit:
+					Guid domId = _engine.ReadScriptParamFromApp<Guid>("DOM ID");
+					var specification = serviceSpecifications.Find(x => String.Equals(x.Identifier, domId.ToString(), StringComparison.OrdinalIgnoreCase))
+										 ?? throw new InvalidOperationException($"No Service Specification with ID '{domId}' found on the system!");
+
+					var specificationToEdit = api.ServiceCatalog.ServiceSpecifications
+						.Read(ServiceSpecificationExposers.Identifier.Equal(specification.Identifier))
+						.FirstOrDefault();
+
+					presenter.LoadFromModel(specificationToEdit);
+					break;
+
+				default:
+					throw new InvalidOperationException($"Unsupported action '{action}'.");
 			}
 
 			// Run interactive

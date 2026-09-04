@@ -1,18 +1,15 @@
-﻿namespace SLC_SM_IAS_Service_Spec_Configuration.Views
+namespace SLC_SM_IAS_Service_Spec_Configuration.Views
 {
 	using System.Collections.Generic;
-
 	using Library;
-
 	using Skyline.DataMiner.Automation;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.Configurations;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
-
 	using SLC_SM_IAS_Service_Spec_Configuration.Model;
 
 	public class ServiceConfigurationView : Dialog
 	{
-		private const string _standaloneParameterCollapseButtonTitle = "Standalone Parameters";
+		private const string StandaloneParameterCollapseButtonTitleValue = "Standalone Parameters";
 
 		public ServiceConfigurationView(IEngine engine) : base(engine)
 		{
@@ -20,7 +17,7 @@
 			MinWidth = Defaults.DialogMinWidth;
 		}
 
-		public static string StandaloneCollapseButtonTitle { get => _standaloneParameterCollapseButtonTitle; }
+		public static string StandaloneCollapseButtonTitle => StandaloneParameterCollapseButtonTitleValue;
 
 		public Label TitleDetails { get; } = new Label("Service Configuration Details") { Style = TextStyle.Bold };
 
@@ -36,11 +33,11 @@
 
 		public Dictionary<string, Section> LifeCycleDetails { get; } = new Dictionary<string, Section>();
 
-		public DropDown<Models.ConfigurationParameter> AddParameter { get; } = new DropDown<Models.ConfigurationParameter> { IsDisplayFilterShown = true };
+		public DropDown<ConfigurationParameter> AddParameter { get; } = new DropDown<ConfigurationParameter> { IsDisplayFilterShown = true };
 
 		public DropDown<ProfileOption> AddProfile { get; } = new DropDown<ProfileOption> { IsDisplayFilterShown = true };
 
-		public CollapseButton StandaloneParameters { get; } = new CollapseButton(true) { ExpandText = Defaults.SymbolPlus, CollapseText = Defaults.SymbolMin, Tooltip = _standaloneParameterCollapseButtonTitle };
+		public CollapseButton StandaloneParameters { get; } = new CollapseButton(true) { ExpandText = Defaults.SymbolPlus, CollapseText = Defaults.SymbolMin, Tooltip = StandaloneParameterCollapseButtonTitleValue };
 
 		public Dictionary<string, CollapseButton> ProfileCollapseButtons { get; } = new Dictionary<string, CollapseButton>();
 	}

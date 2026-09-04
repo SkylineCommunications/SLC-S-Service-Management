@@ -17,8 +17,8 @@ namespace SLC_SM_IAS_Service_Order_Configuration
 	using System.Linq;
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.IAS;
@@ -83,7 +83,8 @@ namespace SLC_SM_IAS_Service_Order_Configuration
 			// Input
 			Guid domId = _engine.ReadScriptParamFromApp<Guid>("DOM ID");
 
-			var instance = new DataHelperServiceOrderItem(_engine.GetUserConnection()).Read(ServiceOrderItemExposers.Guid.Equal(domId)).FirstOrDefault()
+			var serviceManagementApi = new ServiceManagementApiHelper(_engine.GetUserConnection(), "Service Ordering");
+			var instance = serviceManagementApi.ServiceOrder.ServiceOrderItems.Read(ServiceOrderItemExposers.Identifier.Equal(domId.ToString())).FirstOrDefault()
 				?? throw new InvalidOperationException($"Instance with ID '{domId}' does not exist");
 
 			// Model-View-Presenter

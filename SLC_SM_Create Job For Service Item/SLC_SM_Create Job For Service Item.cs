@@ -3,17 +3,19 @@ namespace SLCSMCreateJobForServiceItem
 	using System;
 	using System.Linq;
 	using DomHelpers.SlcWorkflow;
-	using Library.Dom;
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Net.Apps.DataMinerObjectModel;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 	using Skyline.DataMiner.Utils.MediaOps.Common.IOData.Scheduling.Scripts.JobHandler;
 	using Skyline.DataMiner.Utils.MediaOps.Helpers.Relationships;
 	using Skyline.DataMiner.Utils.MediaOps.Helpers.Workflows;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.IAS;
+	using static DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Service_Behavior;
+	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 
 	/// <summary>
 	///     Represents a DataMiner Automation script.
@@ -65,23 +67,28 @@ namespace SLCSMCreateJobForServiceItem
 			}
 		}
 
-		private void AddOrUpdateServiceItemToInstance(DataHelperService helper, Models.Service instance, Models.ServiceItem newSection, string oldLabel)
+		private void AddOrUpdateServiceItemToInstance(IServiceManagementApiHelper helper, Models.Service instance, Models.ServiceItem newSection, string oldLabel)
 		{
 			var oldItem = instance.ServiceItems.FirstOrDefault(x => x.Label == oldLabel);
 			if (oldItem != null)
 			{
 				instance.ServiceItems.Remove(oldItem);
+				newSection.ServiceItemID = oldItem.ServiceItemID;
 			}
 			else
 			{
-				long[] ids = instance.ServiceItems.Select(x => x.ID).OrderBy(x => x).ToArray();
-				newSection.ID = ids.Any() ? ids.Max() + 1 : 0;
+				long[] ids = instance.ServiceItems
+					.Where(x => x.ServiceItemID.HasValue)
+					.Select(x => x.ServiceItemID.Value)
+					.OrderBy(x => x)
+					.ToArray();
+				newSection.ServiceItemID = ids.Any() ? ids.Max() + 1 : 0;
 			}
 
 			instance.ServiceItems.Add(newSection);
-			helper.CreateOrUpdate(instance);
+			helper.ServiceInventory.Services.Update(instance);
 
-			instance.UpdateStatusOnServiceItem(engine.GetUserConnection());
+			UpdateServiceStatusOnServiceItem(instance);
 		}
 
 		private CreateJobAction CreateJobConfiguration(Models.Service instance, Models.ServiceItem serviceItemsSection, Workflow workflow)
@@ -89,7 +96,7 @@ namespace SLCSMCreateJobForServiceItem
 			return new CreateJobAction
 			{
 				Name = $"{instance.Name} | {serviceItemsSection.Label}",
-				Description = $"{instance.ID} | {serviceItemsSection.Label}",
+				Description = $"{instance.ServiceID} | {serviceItemsSection.Label}",
 				DomWorkflowId = workflow.Id,
 				Source = "Scheduling",
 				DesiredJobStatus = DesiredJobStatus.Tentative,
@@ -116,7 +123,7 @@ namespace SLCSMCreateJobForServiceItem
 				Child = new LinkDetailsConfiguration
 				{
 					DomObjectTypeId = serviceObjectType,
-					ObjectId = instance.ID.ToString(),
+					ObjectId = instance.Identifier,
 					ObjectName = instance.Name,
 					URL = "Link to open the service panel on service inventory app",
 				},
@@ -168,9 +175,11 @@ namespace SLCSMCreateJobForServiceItem
 
 			string label = engine.ReadScriptParamFromApp("Service Item Label");
 
-			var dataHelperService = new DataHelperService(engine.GetUserConnection());
-			var instance = dataHelperService.Read(ServiceExposers.Guid.Equal(domId)).FirstOrDefault()
-			               ?? throw new InvalidOperationException($"No Service exists with ID '{domId}'");
+			var serviceHelper = engine.GetUserConnection().GetServiceManagementApiHelper("Service Inventory");
+			var instance = serviceHelper.ServiceInventory.Services
+				.Read(ServiceExposers.Identifier.Equal(domId.ToString()))
+				.FirstOrDefault() ?? throw new InvalidOperationException($"No Service exists with ID '{domId}'");
+
 			var serviceItemsSection = instance.ServiceItems.SingleOrDefault(s => s.Label == label)
 			                          ?? throw new InvalidOperationException($"Could not find the service item section with label '{label}'");
 
@@ -239,7 +248,34 @@ namespace SLCSMCreateJobForServiceItem
 			job.Save(domWorkflowHelper);
 
 			serviceItemsSection.ImplementationReference = jobId.ToString();
-			AddOrUpdateServiceItemToInstance(dataHelperService, instance, serviceItemsSection, label);
+			AddOrUpdateServiceItemToInstance(serviceHelper, instance, serviceItemsSection, label);
+		}
+
+		private void UpdateServiceStatusOnServiceItem(Models.Service instance)
+		{
+			if (instance?.ServiceItems == null
+				|| !instance.ServiceItems.All(x => !String.IsNullOrEmpty(x.ImplementationReference) && Guid.TryParse(x.ImplementationReference, out Guid _))
+				|| !Guid.TryParse(instance.Identifier, out var serviceGuid))
+			{
+				return;
+			}
+
+			var legacyServiceHelper = new DataHelperService(engine.GetUserConnection());
+			var legacyService = legacyServiceHelper.Read(Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceExposers.Guid.Equal(serviceGuid)).FirstOrDefault();
+			if (legacyService == null)
+			{
+				return;
+			}
+
+			if (legacyService.Status == StatusesEnum.New)
+			{
+				legacyService = legacyServiceHelper.UpdateState(legacyService, TransitionsEnum.New_To_Designed);
+			}
+
+			if (legacyService.Status == StatusesEnum.Designed)
+			{
+				legacyServiceHelper.UpdateState(legacyService, TransitionsEnum.Designed_To_Reserved);
+			}
 		}
 
 		private void TrySetMonitoringSettingsForJob(JobsInstance job)

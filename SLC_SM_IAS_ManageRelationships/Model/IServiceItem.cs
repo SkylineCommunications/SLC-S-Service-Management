@@ -2,7 +2,7 @@
 {
 	using System;
 	using System.Collections.Generic;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
+	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 
 	public interface IServiceItem
 	{
@@ -10,7 +10,7 @@
 
 		List<Models.ServiceItem> ServiceItems { get; set; }
 
-		List<Models.ServiceItemRelationShip> ServiceItemRelationShips { get; set; }
+		List<Models.ServiceItemRelationship> ServiceItemRelationships { get; set; }
 	}
 
 	public class ScriptServiceItem : IServiceItem
@@ -19,6 +19,6 @@
 
 		public List<Models.ServiceItem> ServiceItems { get; set; }
 
-		public List<Models.ServiceItemRelationShip> ServiceItemRelationShips { get; set; }
+		public List<Models.ServiceItemRelationship> ServiceItemRelationships { get; set; }
 	}
 }

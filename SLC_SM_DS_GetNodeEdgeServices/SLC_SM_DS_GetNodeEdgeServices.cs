@@ -21,6 +21,7 @@ namespace SLCSMDSGetNodeEdgeServices
 	using Skyline.DataMiner.Analytics.GenericInterface;
 	using Skyline.DataMiner.Net.Apps.DataMinerObjectModel;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
 	using SLC_SM_Common.Extensions;
 
 	/// <summary>
@@ -35,6 +36,7 @@ namespace SLCSMDSGetNodeEdgeServices
 		private IGQILogger _logger;
 		private DomHelper _serviceMangerDomHelper;
 		private DomHelper _configurationDomHelper;
+		private IServiceManagementApiHelper _serviceManagementHelper;
 		private string _serviceType;
 		private GQIDMS _dms;
 
@@ -74,6 +76,7 @@ namespace SLCSMDSGetNodeEdgeServices
 			_dms = args.DMS;
 			_logger = args.Logger;
 			_logger.MinimumLogLevel = GQILogLevel.Debug;
+			_serviceManagementHelper = new ServiceManagementApiHelper(_dms.GetConnection(), "Service Inventory");
 			_serviceMangerDomHelper = new DomHelper(args.DMS.SendMessages, SlcServicemanagementIds.ModuleId);
 			_configurationDomHelper = new DomHelper(args.DMS.SendMessages, SlcConfigurationsIds.ModuleId);
 			return new OnInitOutputArgs();
@@ -345,6 +348,14 @@ namespace SLCSMDSGetNodeEdgeServices
 		private bool TryGetServiceByDomId(Guid domId, out ServicesInstance service)
 		{
 			service = null;
+
+			var existingService = _serviceManagementHelper.ServiceInventory.Services
+				.Read(Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement.ServiceExposers.Identifier.Equal(domId.ToString()))
+				.SingleOrDefault();
+			if (existingService == null)
+			{
+				return false;
+			}
 
 			var domService = _serviceMangerDomHelper.DomInstances
 				.Read(DomInstanceExposers.Id.Equal(domId))

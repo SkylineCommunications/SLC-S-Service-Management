@@ -4,7 +4,6 @@ namespace SLC_SM_GQIDS_Get_Service_Items
 	using System;
 	using System.Collections.Generic;
 	using System.Linq;
-	using System.Security.Policy;
 	using DomHelpers.SlcServicemanagement;
 	using DomHelpers.SlcWorkflow;
 	using Skyline.DataMiner.Analytics.GenericInterface;
@@ -12,10 +11,10 @@ namespace SLC_SM_GQIDS_Get_Service_Items
 	using Skyline.DataMiner.Net.Messages;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.Net.ResourceManager.Objects;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
 	using SLC_SM_Common.Extensions;
 	using SLDataGateway.API.Querying;
+	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 
 	// Required to mark the interface as a GQI data source
 	[GQIMetaData(Name = DataSourceName)]
@@ -31,6 +30,7 @@ namespace SLC_SM_GQIDS_Get_Service_Items
 		private GQIDMS _dms;
 		private IGQILogger _logger;
 		private IGQIUpdater _updater;
+		private IServiceManagementApiHelper _serviceManagementApiHelper;
 		private Guid instanceDomId; // variable where input argument will be stored
 		private Models.Service _service;
 
@@ -88,6 +88,7 @@ namespace SLC_SM_GQIDS_Get_Service_Items
 			_dms = args.DMS;
 			_logger = args.Logger;
 			_logger.MinimumLogLevel = GQILogLevel.Debug;
+			_serviceManagementApiHelper = new ServiceManagementApiHelper(_dms.GetConnection(), "Service Inventory");
 			return default;
 		}
 
@@ -111,13 +112,15 @@ namespace SLC_SM_GQIDS_Get_Service_Items
 
 		private GQIRow BuildRow(Models.ServiceItem item)
 		{
-			var implementationRef = GetImplementationDetails(item.Type, item.ImplementationReference, item.DefinitionReference);
+			var itemType = item.Type ?? SlcServicemanagementIds.Enums.ServiceitemtypesEnum.Service;
+			var implementationRef = GetImplementationDetails(itemType, item.ImplementationReference, item.DefinitionReference);
+			int serviceItemId = item.ServiceItemID.HasValue ? (int)item.ServiceItemID.Value : -1;
 			GQICell[] columns = new[]
 				{
 					new GQICell { Value = String.Empty }, // Actions - used to define buttons without needing concat or rename actions within the query! Required to have real-time updates!!
 					new GQICell { Value = item.Label },
-					new GQICell { Value = (int)item.ID },
-					new GQICell { Value = SlcServicemanagementIds.Enums.Serviceitemtypes.ToValue(item.Type) },
+					new GQICell { Value = serviceItemId },
+					new GQICell { Value = SlcServicemanagementIds.Enums.Serviceitemtypes.ToValue(itemType) },
 					new GQICell { Value = item.DefinitionReference ?? String.Empty },
 					new GQICell { Value = item.Script ?? String.Empty },
 					new GQICell { Value = item.ImplementationReference ?? String.Empty },
@@ -133,7 +136,7 @@ namespace SLC_SM_GQIDS_Get_Service_Items
 					new GQICell { Value = implementationRef.MonServiceDmaIdSid },
 					new GQICell { Value = implementationRef.LogLocation },
 				};
-			return new GQIRow($"{item.Label}_{item.ID}_{item.Type}", columns);
+			return new GQIRow($"{item.Label}_{serviceItemId}_{itemType}", columns);
 		}
 
 		private GQIPage BuildupRows()
@@ -177,7 +180,9 @@ namespace SLC_SM_GQIDS_Get_Service_Items
 			}
 			else if (type == SlcServicemanagementIds.Enums.ServiceitemtypesEnum.Service)
 			{
-				var serv = new DataHelperService(_dms.GetConnection()).Read(ServiceExposers.Guid.Equal(id)).FirstOrDefault();
+				var serv = _serviceManagementApiHelper.ServiceInventory.Services
+					.Read(Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement.ServiceExposers.Identifier.Equal(id.ToString()))
+					.FirstOrDefault();
 				if (serv == null)
 				{
 					return new ImplementationItemInfo();
@@ -253,16 +258,24 @@ namespace SLC_SM_GQIDS_Get_Service_Items
 				return Array.Empty<GQIRow>();
 			}
 
-			_service = _service ?? _logger.PerformanceLogger("Get Service", () => new DataHelperService(_dms.GetConnection()).Read(ServiceExposers.Guid.Equal(instanceDomId)).FirstOrDefault());
+			_service = _service ?? _logger.PerformanceLogger(
+				"Get Service",
+				() => _serviceManagementApiHelper.ServiceInventory.Services
+					.Read(Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement.ServiceExposers.Identifier.Equal(instanceDomId.ToString()))
+					.FirstOrDefault());
 			if (_service != null)
 			{
-				return _logger.PerformanceLogger("Build Service Rows", () => _service.ServiceItems.OrderBy(x => x.ID).Select(BuildRow).ToArray());
+				return _logger.PerformanceLogger("Build Service Rows", () => _service.ServiceItems.OrderBy(x => x.ServiceItemID).Select(BuildRow).ToArray());
 			}
 
-			var spec = _logger.PerformanceLogger("Get Specification", () => new DataHelperServiceSpecification(_dms.GetConnection()).Read(ServiceSpecificationExposers.Guid.Equal(instanceDomId)).FirstOrDefault());
+			var spec = _logger.PerformanceLogger(
+				"Get Specification",
+				() => _serviceManagementApiHelper.ServiceCatalog.ServiceSpecifications
+					.Read(Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement.ServiceSpecificationExposers.Identifier.Equal(instanceDomId.ToString()))
+					.FirstOrDefault());
 			if (spec != null)
 			{
-				return _logger.PerformanceLogger("Build Specification Rows", () => spec.ServiceItems.OrderBy(x => x.ID).Select(BuildRow).ToArray());
+				return _logger.PerformanceLogger("Build Specification Rows", () => spec.ServiceItems.OrderBy(x => x.ServiceItemID).Select(BuildRow).ToArray());
 			}
 
 			return Array.Empty<GQIRow>();

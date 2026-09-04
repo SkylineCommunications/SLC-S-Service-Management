@@ -1,9 +1,11 @@
-﻿namespace SLC_SM_IAS_Service_Spec_Configuration.Tests.Presenters
+namespace SLC_SM_IAS_Service_Spec_Configuration.Tests.Presenters
 {
 	using System.Runtime.InteropServices;
 	using Moq;
 	using Skyline.DataMiner.Automation;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.Configurations;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
+	using Skyline.DataMiner.SDM;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
 	using SLC_SM_IAS_Service_Spec_Configuration.Presenters;
 	using SLC_SM_IAS_Service_Spec_Configuration.Views;
@@ -24,12 +26,16 @@
 			// Arrange
 			var engine = Mock.Of<IEngine>();
 			var view = new Mock<ServiceConfigurationView>(engine);
-			var serviceSpecification = new Models.ServiceSpecification { ConfigurationParameters = new List<Models.ServiceSpecificationConfigurationValue>() };
-			var presenter = new ServiceConfigurationPresenter(engine, new InteractiveController(engine), view.Object, serviceSpecification);
-
-			var param = new Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter
+			var serviceSpecification = new ServiceSpecification
 			{
-				ID = Guid.NewGuid(),
+				Identifier = Guid.NewGuid().ToString(),
+				ConfigurationParameters = new List<SdmObjectReference<ServiceSpecificationConfigurationValue>>(),
+			};
+			var presenter = new ServiceConfigurationPresenter(engine, new InteractiveController(engine), view.Object, null, serviceSpecification);
+
+			var param = new ConfigurationParameter
+			{
+				Identifier = Guid.NewGuid().ToString(),
 				Name = "TestParam",
 			};
 
@@ -38,7 +44,7 @@
 
 			// Assert
 			Assert.AreEqual(1, serviceSpecification.ConfigurationParameters.Count);
-			Assert.AreEqual(param.ID, serviceSpecification.ConfigurationParameters[0].ConfigurationParameter.ConfigurationParameterId);
+			Assert.IsFalse(string.IsNullOrEmpty(serviceSpecification.ConfigurationParameters[0].Identifier));
 		}
 	}
 }

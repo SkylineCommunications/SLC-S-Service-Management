@@ -16,9 +16,9 @@ namespace SLC_SM_AS_DeleteServiceCategory
 	using System.Linq;
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.IAS;
+	using ServiceCategoryExposers = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement.ServiceCategoryExposers;
 
 	/// <summary>
 	///     Represents a DataMiner Automation script.
@@ -80,10 +80,13 @@ namespace SLC_SM_AS_DeleteServiceCategory
 		{
 			_scriptData = new ScriptData(engine);
 
-			var dataHelper = new DataHelperServiceCategory(engine.GetUserConnection());
-			var serviceCategory = dataHelper.Read(ServiceCategoryExposers.Guid.Equal(_scriptData.DomId)).FirstOrDefault()
-			                      ?? throw new InvalidOperationException($"Could not find instance with ID {_scriptData.DomId}");
-			dataHelper.TryDelete(serviceCategory);
+			var serviceManagementHelper = new ServiceManagementApiHelper(engine.GetUserConnection(), "Service Inventory");
+			var serviceCategory = serviceManagementHelper.ServiceCatalog.ServiceCategories
+				.Read(ServiceCategoryExposers.Identifier.Equal(_scriptData.DomId.ToString()))
+				.FirstOrDefault()
+				?? throw new InvalidOperationException($"Could not find instance with ID {_scriptData.DomId}");
+
+			serviceManagementHelper.ServiceCatalog.ServiceCategories.Delete(serviceCategory);
 		}
 	}
 }

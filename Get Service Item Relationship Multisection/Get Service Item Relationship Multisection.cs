@@ -20,9 +20,10 @@ namespace GetServiceItemRelationshipMultisection
 	using Skyline.DataMiner.Analytics.GenericInterface;
 	using Skyline.DataMiner.Net.Apps.DataMinerObjectModel;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 	using SLC_SM_Common.Extensions;
+	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 
 	/// <summary>
 	///     Represents a data source.
@@ -36,6 +37,7 @@ namespace GetServiceItemRelationshipMultisection
 		private Guid _specificationId;
 		private Models.Service _serviceInstance;
 		private Models.ServiceSpecification _serviceSpecificationInstance;
+		private IServiceManagementApiHelper _serviceManagementHelper;
 		private DomHelper _wfDomHelper;
 		private GQIDMS _dms;
 		private WorkflowsInstance[] _workflows;
@@ -86,6 +88,7 @@ namespace GetServiceItemRelationshipMultisection
 			_dms = args.DMS;
 			_logger = args.Logger;
 			_logger.MinimumLogLevel = GQILogLevel.Debug;
+			_serviceManagementHelper = new ServiceManagementApiHelper(_dms.GetConnection(), "Service Inventory");
 			return default;
 		}
 
@@ -106,8 +109,8 @@ namespace GetServiceItemRelationshipMultisection
 					return EmptyPage();
 				}
 
-				var items = _serviceInstance?.ServiceItems.Select(i => i.ID.ToString()).ToArray()
-							?? _serviceSpecificationInstance?.ServiceItems.Select(i => i.ID.ToString()).ToArray();
+				var items = _serviceInstance?.ServiceItems.Where(i => i.ServiceItemID.HasValue).Select(i => i.ServiceItemID.Value.ToString()).ToArray()
+							?? _serviceSpecificationInstance?.ServiceItems.Where(i => i.ServiceItemID.HasValue).Select(i => i.ServiceItemID.Value.ToString()).ToArray();
 				if (items == null)
 				{
 					return EmptyPage();
@@ -127,7 +130,7 @@ namespace GetServiceItemRelationshipMultisection
 			}
 		}
 
-		private GQIRow BuildRow(Models.ServiceItemRelationShip r)
+		private GQIRow BuildRow(Models.ServiceItemRelationship r)
 		{
 			return new GQIRow(
 				new[]
@@ -152,8 +155,8 @@ namespace GetServiceItemRelationshipMultisection
 
 		private string GetInterfaceName(string serviceItemId, string interfaceId)
 		{
-			var serviceItem = _serviceInstance?.ServiceItems.FirstOrDefault(item => item.ID.ToString() == serviceItemId)
-								?? _serviceSpecificationInstance?.ServiceItems.FirstOrDefault(item => item.ID.ToString() == serviceItemId)
+			var serviceItem = _serviceInstance?.ServiceItems.FirstOrDefault(item => item.ServiceItemID.HasValue && item.ServiceItemID.Value.ToString() == serviceItemId)
+								?? _serviceSpecificationInstance?.ServiceItems.FirstOrDefault(item => item.ServiceItemID.HasValue && item.ServiceItemID.Value.ToString() == serviceItemId)
 								?? throw new InvalidOperationException($"No Service Item found on the system with ID '{serviceItemId}'");
 
 			var type = serviceItem.Type;
@@ -180,10 +183,10 @@ namespace GetServiceItemRelationshipMultisection
 		private string GetReferencedObjectName(string serviceItemId)
 		{
 			return _serviceInstance?.ServiceItems
-					   .FirstOrDefault(i => i.ID.ToString() == serviceItemId)
+					   .FirstOrDefault(i => i.ServiceItemID.HasValue && i.ServiceItemID.Value.ToString() == serviceItemId)
 					   ?.DefinitionReference
 				   ?? _serviceSpecificationInstance?.ServiceItems
-					   .FirstOrDefault(i => i.ID.ToString() == serviceItemId)
+					   .FirstOrDefault(i => i.ServiceItemID.HasValue && i.ServiceItemID.Value.ToString() == serviceItemId)
 					   ?.DefinitionReference
 				   ?? String.Empty;
 		}
@@ -215,10 +218,14 @@ namespace GetServiceItemRelationshipMultisection
 				_workflows = Array.Empty<WorkflowsInstance>();
 			}
 
-			_serviceInstance = new DataHelperService(_dms.GetConnection()).Read(ServiceExposers.Guid.Equal(_specificationId)).FirstOrDefault();
+			_serviceInstance = _serviceManagementHelper.ServiceInventory.Services
+				.Read(ServiceExposers.Identifier.Equal(_specificationId.ToString()))
+				.FirstOrDefault();
 			if (_serviceInstance == null)
 			{
-				_serviceSpecificationInstance = new DataHelperServiceSpecification(_dms.GetConnection()).Read(ServiceSpecificationExposers.Guid.Equal(_specificationId)).FirstOrDefault();
+				_serviceSpecificationInstance = _serviceManagementHelper.ServiceCatalog.ServiceSpecifications
+					.Read(ServiceSpecificationExposers.Identifier.Equal(_specificationId.ToString()))
+					.FirstOrDefault();
 			}
 		}
 	}

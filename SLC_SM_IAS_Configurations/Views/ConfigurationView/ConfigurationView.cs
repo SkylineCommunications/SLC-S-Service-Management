@@ -1,7 +1,6 @@
 ﻿namespace SLC_SM_IAS_Profiles.Views
 {
 	using System.Collections.Generic;
-	using System.IO;
 	using System.Linq;
 	using Library;
 	using Skyline.DataMiner.Automation;

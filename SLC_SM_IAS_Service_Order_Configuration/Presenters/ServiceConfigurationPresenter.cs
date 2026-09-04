@@ -7,8 +7,11 @@
 	using DomHelpers.SlcConfigurations;
 	using Library;
 	using Skyline.DataMiner.Automation;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
+	using Skyline.DataMiner.Net.Messages.SLDataGateway;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.Configurations;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
+	using Skyline.DataMiner.SDM;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
 	using SLC_SM_IAS_Service_Order_Configuration.Views;
 
@@ -17,12 +20,11 @@
 		private readonly List<DataRecord> configurations = new List<DataRecord>();
 		private readonly IEngine engine;
 		private readonly InteractiveController controller;
-		private readonly Models.ServiceOrderItem instance;
+		private readonly ServiceOrderItem instance;
 		private readonly ServiceConfigurationView view;
-		private DataHelpersConfigurations repoConfig;
-		private DataHelpersServiceManagement repoService;
+		private ServiceManagementApiHelper repoService;
 
-		public ServiceConfigurationPresenter(IEngine engine, InteractiveController controller, ServiceConfigurationView view, Models.ServiceOrderItem instance)
+		public ServiceConfigurationPresenter(IEngine engine, InteractiveController controller, ServiceConfigurationView view, ServiceOrderItem instance)
 		{
 			this.engine = engine;
 			this.controller = controller;
@@ -52,28 +54,67 @@
 
 		public void LoadFromModel()
 		{
-			repoService = new DataHelpersServiceManagement(engine.GetUserConnection());
-			repoConfig = new DataHelpersConfigurations(engine.GetUserConnection());
+			repoService = new ServiceManagementApiHelper(engine.GetUserConnection(), "SLC_SM_IAS_Service_Order_Configuration");
+			var configParams = ReadAll(repoService.ServiceCatalog.ConfigurationParameters);
+			var configParamValues = ReadAll(repoService.ServiceCatalog.ConfigurationParameterValues).ToDictionary(x => x.Identifier);
+			var numberOptions = ReadAll(repoService.ServiceCatalog.NumberParameterOptions).ToDictionary(x => x.Identifier);
+			var discreteOptions = ReadAll(repoService.ServiceCatalog.DiscreteParameterOptions).ToDictionary(x => x.Identifier);
+			var textOptions = ReadAll(repoService.ServiceCatalog.TextParameterOptions).ToDictionary(x => x.Identifier);
+			var units = ReadAll(repoService.ServiceCatalog.ConfigurationUnits).ToDictionary(x => x.Identifier);
+			var discreteValues = ReadAll(repoService.ServiceCatalog.DiscreteValues).ToDictionary(x => x.Identifier);
 
-			var configParams = repoConfig.ConfigurationParameters.Read();
+			var configurationReferences = instance.ServiceInfo?.Configurations;
 
-			if (instance.Configurations != null)
+			if (configurationReferences != null)
 			{
-				foreach (var currentConfig in instance.Configurations)
+				foreach (var currentConfigReference in configurationReferences)
 				{
-					var configParam = configParams.Find(x => x.ID == currentConfig?.ConfigurationParameter?.ConfigurationParameterId);
+					var currentConfig = repoService.ServiceOrder.ServiceOrderItemConfigurationValues
+						.Read(ServiceOrderItemConfigurationValueExposers.Identifier.Equal(currentConfigReference.Identifier))
+						.FirstOrDefault();
+					if (currentConfig == null)
+					{
+						continue;
+					}
+
+					var configurationParameterValueId = currentConfig.ConfigurationParameterValueId == null
+						? String.Empty
+						: currentConfig.ConfigurationParameterValueId.Identifier;
+
+					if (String.IsNullOrEmpty(configurationParameterValueId) ||
+						!configParamValues.TryGetValue(configurationParameterValueId, out var configurationParameterValue))
+					{
+						continue;
+					}
+
+					ConfigurationParameter configParam = null;
+					var configurationParameterId = configurationParameterValue.ConfigurationParameterId.Identifier;
+					if (!String.IsNullOrEmpty(configurationParameterId))
+					{
+						configParam = configParams.Find(x => x.Identifier == configurationParameterId);
+					}
+
 					if (configParam == null)
 					{
 						continue;
 					}
 
-					DataRecord dataRecord = BuildDataRecord(currentConfig, configParam);
+					DataRecord dataRecord = BuildDataRecord(
+						currentConfig,
+						configurationParameterValue,
+						configParam,
+						numberOptions,
+						discreteOptions,
+						textOptions,
+						units,
+						discreteValues);
+
 					configurations.Add(dataRecord);
 				}
 			}
 
-			var parameterOptions = repoConfig.ConfigurationParameters.Read().Select(x => new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter>(x.Name, x)).OrderBy(x => x.DisplayValue).ToList();
-			parameterOptions.Insert(0, new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter>("- Parameter -", null));
+			var parameterOptions = configParams.Select(x => new Option<ConfigurationParameter>(x.Name, x)).OrderBy(x => x.DisplayValue).ToList();
+			parameterOptions.Insert(0, new Option<ConfigurationParameter>("- Parameter -", null));
 			view.AddParameter.SetOptions(parameterOptions);
 
 			BuildUI(false, false);
@@ -85,11 +126,37 @@
 			{
 				if (configuration.State == State.Delete)
 				{
-					repoService.ServiceOrderItemConfigurationValues.TryDelete(configuration.ServiceConfig);
+					DeleteConfiguration(configuration);
+					continue;
 				}
+
+				configuration.ConfigurationParamValue.ConfigurationParameterId =
+					new SdmObjectReference<ConfigurationParameter>(
+				configuration.ConfigurationParam.Identifier);
+
+				configuration.ServiceConfig.ConfigurationParameterValueId =
+					new SdmObjectReference<ConfigurationParameterValue>(
+						configuration.ConfigurationParamValue.Identifier);
+
+				CreateOrUpdateOptions(configuration);
+				repoService.ServiceCatalog.ConfigurationParameterValues.CreateOrUpdate(new[] { configuration.ConfigurationParamValue });
+				UpsertServiceOrderItemConfigurationValue(configuration.ServiceConfig);
 			}
 
-			repoService.ServiceOrderItems.CreateOrUpdate(instance);
+			var updatedReferences = configurations
+				.Where(c => c.State != State.Delete && c.ServiceConfig != null && !String.IsNullOrWhiteSpace(c.ServiceConfig.Identifier))
+				.Select(c => new SdmObjectReference<ServiceOrderItemConfigurationValue>(c.ServiceConfig.Identifier))
+				.GroupBy(reference => reference.Identifier, StringComparer.OrdinalIgnoreCase)
+				.Select(group => group.First())
+				.ToList();
+
+			if (instance.ServiceInfo == null)
+			{
+				instance.ServiceInfo = new ServiceOrderItemServiceInfo();
+			}
+
+			instance.ServiceInfo.Configurations = updatedReferences;
+			repoService.ServiceOrder.ServiceOrderItems.Update(instance);
 		}
 
 		private static void OnCancelButtonPressed(object sender, EventArgs e)
@@ -103,52 +170,113 @@
 			throw new ScriptAbortException("OK");
 		}
 
-		private void AddConfigModel(Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter selectedParameter)
+		private void UpsertServiceOrderItemConfigurationValue(ServiceOrderItemConfigurationValue value)
 		{
-			var configurationParameterInstance = selectedParameter ?? new Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter();
-			var config = new Models.ServiceOrderItemConfigurationValue
+			var existing = repoService.ServiceOrder.ServiceOrderItemConfigurationValues
+				.Read(ServiceOrderItemConfigurationValueExposers.Identifier.Equal(value.Identifier))
+				.FirstOrDefault();
+
+			if (existing == null)
 			{
-				ID = Guid.NewGuid(),
-				Mandatory = true,
-				ConfigurationParameter = new Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameterValue
-				{
-					Label = String.Empty,
-					Type = configurationParameterInstance.Type,
-					ConfigurationParameterId = configurationParameterInstance.ID,
-					NumberOptions = configurationParameterInstance.NumberOptions,
-					DiscreteOptions = configurationParameterInstance.DiscreteOptions,
-					TextOptions = configurationParameterInstance.TextOptions,
-				},
-			};
-			if (config.ConfigurationParameter.NumberOptions != null)
-			{
-				config.ConfigurationParameter.NumberOptions.ID = Guid.NewGuid();
+				repoService.ServiceOrder.ServiceOrderItemConfigurationValues.Create(value);
+				return;
 			}
 
-			if (config.ConfigurationParameter.DiscreteOptions != null)
-			{
-				config.ConfigurationParameter.DiscreteOptions.ID = Guid.NewGuid();
-			}
-
-			if (config.ConfigurationParameter.TextOptions != null)
-			{
-				config.ConfigurationParameter.TextOptions.ID = Guid.NewGuid();
-			}
-
-			instance.Configurations.Add(config);
-
-			configurations.Add(BuildDataRecord(config, configurationParameterInstance));
+			repoService.ServiceOrder.ServiceOrderItemConfigurationValues.Update(value);
 		}
 
-		private DataRecord BuildDataRecord(Models.ServiceOrderItemConfigurationValue currentConfig, Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter configParam)
+		private void AddConfigModel(ConfigurationParameter selectedParameter)
 		{
+			var configurationParameterValue = new ConfigurationParameterValue
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				Label = String.Empty,
+				Type = selectedParameter.Type,
+				ConfigurationParameterId =
+					new SdmObjectReference<ConfigurationParameter>(selectedParameter.Identifier),
+			};
+
+			var config = new ServiceOrderItemConfigurationValue
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				Mandatory = true,
+				ConfigurationParameterValueId =
+					new SdmObjectReference<ConfigurationParameterValue>(
+						configurationParameterValue.Identifier),
+			};
+
+			if (instance.ServiceInfo == null)
+			{
+				instance.ServiceInfo = new ServiceOrderItemServiceInfo();
+			}
+
+			if (instance.ServiceInfo.Configurations == null)
+			{
+				instance.ServiceInfo.Configurations =
+					new List<SdmObjectReference<ServiceOrderItemConfigurationValue>>();
+			}
+
+			instance.ServiceInfo.Configurations.Add(
+				new SdmObjectReference<ServiceOrderItemConfigurationValue>(config.Identifier));
+
+			configurations.Add(BuildDataRecord(
+				config,
+				configurationParameterValue,
+				selectedParameter,
+				ReadAll(repoService.ServiceCatalog.NumberParameterOptions).ToDictionary(x => x.Identifier),
+				ReadAll(repoService.ServiceCatalog.DiscreteParameterOptions).ToDictionary(x => x.Identifier),
+				ReadAll(repoService.ServiceCatalog.TextParameterOptions).ToDictionary(x => x.Identifier),
+				ReadAll(repoService.ServiceCatalog.ConfigurationUnits).ToDictionary(x => x.Identifier),
+				ReadAll(repoService.ServiceCatalog.DiscreteValues).ToDictionary(x => x.Identifier)));
+		}
+
+		private DataRecord BuildDataRecord(
+			ServiceOrderItemConfigurationValue currentConfig,
+			ConfigurationParameterValue configurationParameterValue,
+			ConfigurationParameter configParam,
+			IReadOnlyDictionary<string, NumberParameterOptions> numberOptions,
+			IReadOnlyDictionary<string, DiscreteParameterOptions> discreteOptions,
+			IReadOnlyDictionary<string, TextParameterOptions> textOptions,
+			IReadOnlyDictionary<string, ConfigurationUnit> units,
+			IReadOnlyDictionary<string, DiscreteValue> discreteValues)
+		{
+			var numberOptionsId = FirstIdentifier(configurationParameterValue.NumberOptionsId, configParam.NumberOptionsId);
+			var discreteOptionsId = FirstIdentifier(configurationParameterValue.DiscreteOptionsId, configParam.DiscreteOptionsId);
+			var textOptionsId = FirstIdentifier(configurationParameterValue.TextOptionsId, configParam.TextOptionsId);
 			var dataRecord = new DataRecord
 			{
 				State = State.Update,
 				ServiceConfig = currentConfig,
-				ConfigurationParamValue = currentConfig.ConfigurationParameter,
+				ConfigurationParamValue = configurationParameterValue,
 				ConfigurationParam = configParam,
+				NumberOptionsPersisted = !String.IsNullOrEmpty(configurationParameterValue.NumberOptionsId.Identifier),
+				DiscreteOptionsPersisted = !String.IsNullOrEmpty(configurationParameterValue.DiscreteOptionsId.Identifier),
+				TextOptionsPersisted = !String.IsNullOrEmpty(configurationParameterValue.TextOptionsId.Identifier),
+				NumberOptions = GetValue(numberOptions, numberOptionsId),
+				DiscreteOptions = GetValue(discreteOptions, discreteOptionsId),
+				TextOptions = GetValue(textOptions, textOptionsId),
 			};
+
+			if (String.IsNullOrEmpty(configurationParameterValue.NumberOptionsId.Identifier) && dataRecord.NumberOptions != null)
+			{
+				dataRecord.NumberOptions = Clone(dataRecord.NumberOptions);
+				configurationParameterValue.NumberOptionsId = new SdmObjectReference<NumberParameterOptions>(dataRecord.NumberOptions.Identifier);
+			}
+
+			if (String.IsNullOrEmpty(configurationParameterValue.DiscreteOptionsId.Identifier) && dataRecord.DiscreteOptions != null)
+			{
+				dataRecord.DiscreteOptions = Clone(dataRecord.DiscreteOptions);
+				configurationParameterValue.DiscreteOptionsId = new SdmObjectReference<DiscreteParameterOptions>(dataRecord.DiscreteOptions.Identifier);
+			}
+
+			if (String.IsNullOrEmpty(configurationParameterValue.TextOptionsId.Identifier) && dataRecord.TextOptions != null)
+			{
+				dataRecord.TextOptions = Clone(dataRecord.TextOptions);
+				configurationParameterValue.TextOptionsId = new SdmObjectReference<TextParameterOptions>(dataRecord.TextOptions.Identifier);
+			}
+
+			dataRecord.Units = Resolve(dataRecord.NumberOptions?.Units, units);
+			dataRecord.DiscreteValues = Resolve(dataRecord.DiscreteOptions?.DiscreteValues, discreteValues);
 			return dataRecord;
 		}
 
@@ -245,15 +373,15 @@
 		{
 			// Init
 			var label = new TextBox(record.ConfigurationParamValue.Label);
-			var parameter = new DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter>(
-				new[] { new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter>(record.ConfigurationParam.Name, record.ConfigurationParam) })
+			var parameter = new DropDown<ConfigurationParameter>(
+				new[] { new Option<ConfigurationParameter>(record.ConfigurationParam.Name, record.ConfigurationParam) })
 			{
 				IsEnabled = false,
 			};
 			var isFixed = new CheckBox { IsChecked = record.ConfigurationParamValue.ValueFixed, IsEnabled = false };
 			var link = new CheckBox { IsChecked = record.ConfigurationParamValue.LinkedConfigurationReference != null, IsEnabled = !isFixed.IsChecked };
-			var unit = new DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationUnit>(
-				new[] { new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationUnit>("-", null) })
+			var unit = new DropDown<ConfigurationUnit>(
+				new[] { new Option<ConfigurationUnit>("-", null) })
 			{ IsEnabled = false, MaxWidth = 80 };
 			var start = new Numeric { IsEnabled = false, MaxWidth = 100 };
 			var end = new Numeric { IsEnabled = false, MaxWidth = 100 };
@@ -271,7 +399,7 @@
 			delete.Pressed += (sender, args) =>
 			{
 				record.State = State.Delete;
-				instance.Configurations.Remove(record.ServiceConfig);
+				instance.Configurations.RemoveAll(reference => reference.Identifier == record.ServiceConfig.Identifier);
 				BuildUI(!view.BtnShowValueDetails.IsCollapsed, !view.BtnShowLifeCycleDetails.IsCollapsed);
 			};
 			link.Changed += (sender, args) =>
@@ -334,23 +462,23 @@
 		private void AddTextParam(DataRecord record, int row, CheckBox isFixed)
 		{
 			bool hasValue = !String.IsNullOrEmpty(record.ConfigurationParamValue.StringValue);
-			var value = new TextBox(record.ConfigurationParamValue.StringValue ?? record.ConfigurationParamValue.TextOptions?.Default ?? String.Empty)
+			var value = new TextBox(record.ConfigurationParamValue.StringValue ?? record.TextOptions?.Default ?? String.Empty)
 			{
-				Tooltip = record.ConfigurationParamValue.TextOptions?.UserMessage ?? String.Empty,
+				Tooltip = record.TextOptions?.UserMessage ?? String.Empty,
 				IsEnabled = (isFixed.IsChecked && !hasValue) || hasValue,
 			};
 			value.Changed += (sender, args) =>
 			{
-				if (record.ConfigurationParamValue.TextOptions?.Regex != null && !Regex.IsMatch(args.Value, record.ConfigurationParamValue.TextOptions.Regex))
+				if (record.TextOptions?.Regex != null && !Regex.IsMatch(args.Value, record.TextOptions.Regex))
 				{
 					value.ValidationState = UIValidationState.Invalid;
-					value.ValidationText = $"Input did not match Regex '{record.ConfigurationParamValue.TextOptions.Regex}' - reverted to previous value";
+					value.ValidationText = $"Input did not match Regex '{record.TextOptions.Regex}' - reverted to previous value";
 					value.Text = args.Previous;
 					return;
 				}
 
 				value.ValidationState = UIValidationState.Valid;
-				value.ValidationText = record.ConfigurationParamValue.TextOptions?.UserMessage;
+				value.ValidationText = record.TextOptions?.UserMessage;
 				record.ConfigurationParamValue.StringValue = args.Value;
 			};
 
@@ -367,23 +495,21 @@
 			view.AddWidget(value, row, 4);
 		}
 
-		private void AddDiscreteParam(DataRecord record, int row, DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter> parameter, CheckBox isFixed, Button values)
+		private void AddDiscreteParam(DataRecord record, int row, DropDown<ConfigurationParameter> parameter, CheckBox isFixed, Button values)
 		{
-			if (record.ConfigurationParamValue.DiscreteOptions == null)
+			if (record.DiscreteOptions == null)
 			{
-				record.ConfigurationParamValue.DiscreteOptions = parameter.Selected?.DiscreteOptions ?? throw new InvalidOperationException($"DiscreteOptions is null for parameter: {record.ConfigurationParam?.Name ?? "Unknown"}");
-				record.ConfigurationParamValue.DiscreteOptions.ID = Guid.NewGuid();
+				throw new InvalidOperationException($"DiscreteOptions is null for parameter: {record.ConfigurationParam?.Name ?? "Unknown"}");
 			}
 
-			var allDiscretes = record.ConfigurationParam.DiscreteOptions.DiscreteValues
-				.Select(x => new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.DiscreteValue>(x.Value, x))
+			var allDiscretes = record.DiscreteValues
+				.Select(x => new Option<DiscreteValue>(x.Value, x))
 				.OrderBy(x => x.DisplayValue)
 				.ToList();
-			var discretes = allDiscretes.Where(d => record.ConfigurationParamValue.DiscreteOptions.DiscreteValues.Any(r => d.Value.Equals(r))).ToList();
 
-			bool hasValue = record.ConfigurationParamValue.StringValue != null && discretes.Any(x => x.DisplayValue == record.ConfigurationParamValue.StringValue);
+			bool hasValue = record.ConfigurationParamValue.StringValue != null && allDiscretes.Any(x => x.DisplayValue == record.ConfigurationParamValue.StringValue);
 			bool widgetEnabled = (isFixed.IsChecked && !hasValue) || hasValue;
-			var value = new DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.DiscreteValue>(discretes)
+			var value = new DropDown<DiscreteValue>(allDiscretes)
 			{
 				IsEnabled = widgetEnabled,
 			};
@@ -415,7 +541,10 @@
 				{
 					value.SetOptions(optionsView.Options.CheckedOptions);
 					record.ConfigurationParamValue.StringValue = value.Selected?.Value;
-					record.ConfigurationParamValue.DiscreteOptions.DiscreteValues = optionsView.Options.Checked.ToList();
+					record.DiscreteValues = optionsView.Options.Checked.ToList();
+					record.DiscreteOptions.DiscreteValues = record.DiscreteValues
+						.Select(x => new SdmObjectReference<DiscreteValue>(x.Identifier))
+						.ToList();
 					controller.ShowDialog(view);
 				};
 				optionsView.BtnCancel.Pressed += (o, eventArgs) => controller.ShowDialog(view);
@@ -435,21 +564,20 @@
 			view.AddWidget(value, row, 4);
 		}
 
-		private void AddNumericParam(DataRecord record, int row, DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter> parameter, CheckBox isFixed, DropDown<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationUnit> unit, Numeric start, Numeric end, Numeric step, Numeric decimals)
+		private void AddNumericParam(DataRecord record, int row, DropDown<ConfigurationParameter> parameter, CheckBox isFixed, DropDown<ConfigurationUnit> unit, Numeric start, Numeric end, Numeric step, Numeric decimals)
 		{
-			if (record.ConfigurationParamValue.NumberOptions == null)
+			if (record.NumberOptions == null)
 			{
-				record.ConfigurationParamValue.NumberOptions = parameter.Selected?.NumberOptions ?? throw new InvalidOperationException($"NumberOptions is null for parameter: {record.ConfigurationParam?.Name ?? "Unknown"}");
-				record.ConfigurationParamValue.NumberOptions.ID = Guid.NewGuid();
+				throw new InvalidOperationException($"NumberOptions is null for parameter: {record.ConfigurationParam?.Name ?? "Unknown"}");
 			}
 
-			bool hasValue = record.ConfigurationParamValue.DoubleValue.HasValue || record.ConfigurationParamValue.NumberOptions.DefaultValue.HasValue;
-			double minimum = record.ConfigurationParamValue.NumberOptions.MinRange ?? -10_000;
-			double maximum = record.ConfigurationParamValue.NumberOptions.MaxRange ?? 10_000;
-			int decimalVal = Convert.ToInt32(record.ConfigurationParamValue.NumberOptions.Decimals);
-			double stepSize = record.ConfigurationParamValue.NumberOptions.StepSize ?? 1;
+			bool hasValue = record.ConfigurationParamValue.DoubleValue.HasValue || record.NumberOptions.DefaultValue.HasValue;
+			double minimum = record.NumberOptions.MinRange ?? int.MinValue;
+			double maximum = record.NumberOptions.MaxRange ?? int.MaxValue;
+			int decimalVal = Convert.ToInt32(record.NumberOptions.Decimals);
+			double stepSize = record.NumberOptions.StepSize ?? 1;
 			bool widgetEnabled = (isFixed.IsChecked && !hasValue) || hasValue;
-			Numeric value = new Numeric(record.ConfigurationParamValue.DoubleValue ?? record.ConfigurationParamValue.NumberOptions.DefaultValue ?? 0)
+			Numeric value = new Numeric(record.ConfigurationParamValue.DoubleValue ?? record.NumberOptions.DefaultValue ?? 0)
 			{
 				Minimum = minimum,
 				Maximum = maximum,
@@ -457,8 +585,8 @@
 				Decimals = decimalVal,
 				IsEnabled = widgetEnabled,
 			};
-			unit.SetOptions(GetUnits(record.ConfigurationParamValue.NumberOptions, parameter.Selected));
-			unit.Selected = GetDefaultUnit(record.ConfigurationParamValue.NumberOptions, parameter.Selected);
+			unit.SetOptions(GetUnits(record));
+			unit.Selected = GetDefaultUnit(record);
 			unit.IsEnabled = widgetEnabled;
 			start.Value = minimum;
 			start.IsEnabled = widgetEnabled;
@@ -474,12 +602,12 @@
 			start.Changed += (sender, args) =>
 			{
 				value.Minimum = args.Value;
-				record.ConfigurationParamValue.NumberOptions.MinRange = args.Value;
+				record.NumberOptions.MinRange = args.Value;
 			};
 			end.Changed += (sender, args) =>
 			{
 				value.Maximum = args.Value;
-				record.ConfigurationParamValue.NumberOptions.MaxRange = args.Value;
+				record.NumberOptions.MaxRange = args.Value;
 			};
 			decimals.Changed += (sender, args) =>
 			{
@@ -488,14 +616,17 @@
 				double newStepsize = 1 / Math.Pow(10, args.Value);
 				value.StepSize = newStepsize;
 				step.StepSize = newStepsize;
-				record.ConfigurationParamValue.NumberOptions.Decimals = Convert.ToInt32(args.Value);
+				record.NumberOptions.Decimals = Convert.ToInt32(args.Value);
 			};
 			step.Changed += (sender, args) =>
 			{
 				value.StepSize = args.Value;
-				record.ConfigurationParamValue.NumberOptions.StepSize = args.Value;
+				record.NumberOptions.StepSize = args.Value;
 			};
-			unit.Changed += (sender, args) => record.ConfigurationParamValue.NumberOptions.DefaultUnit = args.Selected;
+			unit.Changed += (sender, args) =>
+				record.NumberOptions.DefaultUnitId = args.Selected == null
+					? default
+					: new SdmObjectReference<ConfigurationUnit>(args.Selected.Identifier);
 			value.Changed += (sender, args) => { record.ConfigurationParamValue.DoubleValue = args.Value; };
 
 			var na = new CheckBox { IsChecked = !widgetEnabled };
@@ -511,52 +642,163 @@
 			view.AddWidget(value, row, 4);
 		}
 
-		private Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationUnit GetDefaultUnit(
-			Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.NumberParameterOptions numberValueOptions,
-			Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter parameter)
+		private static ConfigurationUnit GetDefaultUnit(DataRecord record)
 		{
-			if (numberValueOptions != null)
-			{
-				return numberValueOptions.DefaultUnit;
-			}
-
-			if (parameter.NumberOptions != null)
-			{
-				return parameter.NumberOptions.DefaultUnit;
-			}
-
-			return null;
+			return record.Units.Find(x => x.Identifier == record.NumberOptions?.DefaultUnitId.Identifier);
 		}
 
-		private List<Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationUnit>> GetUnits(
-			Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.NumberParameterOptions numberValueOptions,
-			Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter parameter)
+		private static List<Option<ConfigurationUnit>> GetUnits(DataRecord record)
 		{
-			var units = new List<Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationUnit>>();
-			if (numberValueOptions?.DefaultUnit != null)
-			{
-				units.AddRange(numberValueOptions.Units.Select(x => new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationUnit>(x.Name, x)));
-			}
-			else if (parameter.NumberOptions?.DefaultUnit != null)
-			{
-				units.AddRange(parameter.NumberOptions.Units.Select(x => new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationUnit>(x.Name, x)));
-			}
-
-			units = units.OrderBy(x => x.DisplayValue).ToList();
-
-			units.Insert(0, new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationUnit>("-", null));
+			var units = record.Units
+				.Select(x => new Option<ConfigurationUnit>(x.Name, x))
+				.OrderBy(x => x.DisplayValue)
+				.ToList();
+			units.Insert(0, new Option<ConfigurationUnit>("-", null));
 			return units;
+		}
+
+		private static List<T> ReadAll<T>(IBulkRepository<T> repository)
+			where T : SdmObject<T>
+		{
+			return repository.Read(new TRUEFilterElement<T>()).ToList();
+		}
+
+		private static string FirstIdentifier<T>(SdmObjectReference<T> preferred, SdmObjectReference<T> fallback)
+			where T : SdmObject<T>
+		{
+			return String.IsNullOrEmpty(preferred.Identifier) ? fallback.Identifier : preferred.Identifier;
+		}
+
+		private static T GetValue<T>(IReadOnlyDictionary<string, T> values, string identifier)
+			where T : class
+		{
+			return !String.IsNullOrEmpty(identifier) && values.TryGetValue(identifier, out var value) ? value : null;
+		}
+
+		private static List<T> Resolve<T>(IEnumerable<SdmObjectReference<T>> references, IReadOnlyDictionary<string, T> values)
+			where T : SdmObject<T>
+		{
+			return references?
+				.Select(reference => GetValue(values, reference.Identifier))
+				.Where(value => value != null)
+				.ToList() ?? new List<T>();
+		}
+
+		private static NumberParameterOptions Clone(NumberParameterOptions source)
+		{
+			return new NumberParameterOptions
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				Units = source.Units.ToList(),
+				DefaultUnitId = source.DefaultUnitId,
+				MinRange = source.MinRange,
+				MaxRange = source.MaxRange,
+				Decimals = source.Decimals,
+				StepSize = source.StepSize,
+				DefaultValue = source.DefaultValue,
+			};
+		}
+
+		private static DiscreteParameterOptions Clone(DiscreteParameterOptions source)
+		{
+			return new DiscreteParameterOptions
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				DiscreteValues = source.DiscreteValues.ToList(),
+				DefaultDiscreteValueId = source.DefaultDiscreteValueId,
+			};
+		}
+
+		private static TextParameterOptions Clone(TextParameterOptions source)
+		{
+			return new TextParameterOptions
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				Regex = source.Regex,
+				UserMessage = source.UserMessage,
+				Default = source.Default,
+			};
+		}
+
+		private void CreateOrUpdateOptions(DataRecord record)
+		{
+			if (record.NumberOptions != null)
+			{
+				repoService.ServiceCatalog.NumberParameterOptions.CreateOrUpdate(new[] { record.NumberOptions });
+			}
+
+			if (record.DiscreteOptions != null)
+			{
+				repoService.ServiceCatalog.DiscreteParameterOptions.CreateOrUpdate(new[] { record.DiscreteOptions });
+			}
+
+			if (record.TextOptions != null)
+			{
+				repoService.ServiceCatalog.TextParameterOptions.CreateOrUpdate(new[] { record.TextOptions });
+			}
+		}
+
+		private void DeleteOptions(DataRecord record)
+		{
+			if (record.NumberOptionsPersisted && record.NumberOptions != null)
+			{
+				repoService.ServiceCatalog.NumberParameterOptions.Delete(record.NumberOptions);
+			}
+
+			if (record.DiscreteOptionsPersisted && record.DiscreteOptions != null)
+			{
+				repoService.ServiceCatalog.DiscreteParameterOptions.Delete(record.DiscreteOptions);
+			}
+
+			if (record.TextOptionsPersisted && record.TextOptions != null)
+			{
+				repoService.ServiceCatalog.TextParameterOptions.Delete(record.TextOptions);
+			}
+		}
+
+		private void DeleteConfiguration(DataRecord record)
+		{
+			string configurationParameterValueId = record.ConfigurationParamValue.Identifier;
+			bool isShared = ReadAll(repoService.ServiceOrder.ServiceOrderItemConfigurationValues)
+				.Any(configuration =>
+					configuration.Identifier != record.ServiceConfig.Identifier &&
+					configuration.ConfigurationParameterValueId.Identifier == configurationParameterValueId);
+
+			repoService.ServiceOrder.ServiceOrderItemConfigurationValues.Delete(record.ServiceConfig);
+			if (isShared)
+			{
+				return;
+			}
+
+			repoService.ServiceCatalog.ConfigurationParameterValues.Delete(record.ConfigurationParamValue);
+			DeleteOptions(record);
 		}
 
 		private sealed class DataRecord
 		{
 			public State State { get; set; }
 
-			public Models.ServiceOrderItemConfigurationValue ServiceConfig { get; set; }
+			public ServiceOrderItemConfigurationValue ServiceConfig { get; set; }
 
-			public Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameterValue ConfigurationParamValue { get; set; }
+			public ConfigurationParameterValue ConfigurationParamValue { get; set; }
 
-			public Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter ConfigurationParam { get; set; }
+			public ConfigurationParameter ConfigurationParam { get; set; }
+
+			public NumberParameterOptions NumberOptions { get; set; }
+
+			public DiscreteParameterOptions DiscreteOptions { get; set; }
+
+			public TextParameterOptions TextOptions { get; set; }
+
+			public bool NumberOptionsPersisted { get; set; }
+
+			public bool DiscreteOptionsPersisted { get; set; }
+
+			public bool TextOptionsPersisted { get; set; }
+
+			public List<ConfigurationUnit> Units { get; set; } = new List<ConfigurationUnit>();
+
+			public List<DiscreteValue> DiscreteValues { get; set; } = new List<DiscreteValue>();
 		}
 	}
 }

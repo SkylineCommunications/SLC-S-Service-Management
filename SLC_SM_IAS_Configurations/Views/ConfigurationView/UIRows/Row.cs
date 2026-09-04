@@ -2,7 +2,6 @@
 {
 	using System;
 	using DomHelpers.SlcConfigurations;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
 	using SLC_SM_IAS_Profiles.Presenters;
 
