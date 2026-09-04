@@ -1,0 +1,21 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<DMSScript options="272" xmlns="http://www.skyline.be/automation">
+	<Name>SLC_SM_Clear Import Data</Name>
+	<Description>Clears Service Orders/Items, Services and Service Specifications before import.</Description>
+	<Type>Automation</Type>
+	<Author>SKA</Author>
+	<CheckSets>FALSE</CheckSets>
+	<Folder>Service Management/Import Scripts</Folder>
+	<Protocols>
+	</Protocols>
+	<Memory>
+	</Memory>
+	<Parameters>
+	</Parameters>
+	<Script>
+		<Exe id="1" type="csharp">
+			<Value><![CDATA[[Project:SLC_SM_Clear Import Data]]]></Value>
+			<Message />
+		</Exe>
+	</Script>
+</DMSScript>

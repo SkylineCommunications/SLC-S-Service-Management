@@ -1,0 +1,27 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<DMSScript options="272" xmlns="http://www.skyline.be/automation">
+	<Name>SLC_SM_Import Configuration Studio</Name>
+	<Description>Imports configuration parameters, profile definitions, and reusable profiles from JSON.</Description>
+	<Type>Automation</Type>
+	<Author>SKA</Author>
+	<CheckSets>FALSE</CheckSets>
+	<Folder>Service Management/Import Scripts</Folder>
+	<Protocols>
+	</Protocols>
+	<Memory>
+	</Memory>
+	<Parameters>
+		<ScriptParameter id="2" type="string" values="">
+			<Description>JSON File Path</Description>
+		</ScriptParameter>
+		<ScriptParameter id="3" type="string" values="">
+			<Description>Parameter ID</Description>
+		</ScriptParameter>
+	</Parameters>
+	<Script>
+		<Exe id="1" type="csharp">
+			<Value><![CDATA[[Project:SLC_SM_Import Configuration Studio]]]></Value>
+			<Message />
+		</Exe>
+	</Script>
+</DMSScript>

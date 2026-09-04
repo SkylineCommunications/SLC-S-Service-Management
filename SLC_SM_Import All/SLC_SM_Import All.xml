@@ -1,0 +1,21 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<DMSScript options="272" xmlns="http://www.skyline.be/automation">
+	<Name>SLC_SM_Import All</Name>
+	<Description>Runs every Service Management / MediaOps import script in the required dependency order (Categories, Configuration Studio, Service Catalog, Resource Studio, Workflows, Service Inventory, Service Orders, Jobs). Takes no parameters; each sub-script resolves its JSON from the DMA common documents folder.</Description>
+	<Type>Automation</Type>
+	<Author>SKA</Author>
+	<CheckSets>FALSE</CheckSets>
+	<Folder>Service Management/Import Scripts</Folder>
+	<Protocols>
+	</Protocols>
+	<Memory>
+	</Memory>
+	<Parameters>
+	</Parameters>
+	<Script>
+		<Exe id="1" type="csharp">
+			<Value><![CDATA[[Project:SLC_SM_Import All]]]></Value>
+			<Message />
+		</Exe>
+	</Script>
+</DMSScript>
