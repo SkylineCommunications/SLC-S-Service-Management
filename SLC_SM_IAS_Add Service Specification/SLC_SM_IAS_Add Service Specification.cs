@@ -87,6 +87,52 @@ namespace SLC_SM_IAS_Add_Service_Specification
 			}
 		}
 
+		private static void EnsureRequiredSections(ServiceSpecification specification)
+		{
+			if (specification == null)
+			{
+				throw new ArgumentNullException(nameof(specification));
+			}
+
+			if (specification.ServiceItems == null)
+			{
+				specification.ServiceItems = new List<ServiceItem>();
+			}
+
+			if (specification.ServiceItemsRelationships == null)
+			{
+				specification.ServiceItemsRelationships = new List<ServiceItemRelationship>();
+			}
+
+			if (specification.ServiceItems.Count == 0)
+			{
+				specification.ServiceItems.Add(new ServiceItem());
+			}
+
+			if (specification.ServiceItemsRelationships.Count == 0)
+			{
+				specification.ServiceItemsRelationships.Add(new ServiceItemRelationship());
+			}
+		}
+
+		private static void NormalizeOptionalCollections(ServiceSpecification specification)
+		{
+			if (specification == null)
+			{
+				throw new ArgumentNullException(nameof(specification));
+			}
+
+			if (specification.ConfigurationProfiles != null && specification.ConfigurationProfiles.Count == 0)
+			{
+				specification.ConfigurationProfiles = null;
+			}
+
+			if (specification.ConfigurationParameters != null && specification.ConfigurationParameters.Count == 0)
+			{
+				specification.ConfigurationParameters = null;
+			}
+		}
+
 		private void RunSafe()
 		{
 			string actionRaw = _engine.ReadScriptParamFromApp("Action");
@@ -111,6 +157,8 @@ namespace SLC_SM_IAS_Add_Service_Specification
 				if (presenter.Validate())
 				{
 					ServiceSpecification specificationToSave = presenter.GetData;
+					EnsureRequiredSections(specificationToSave);
+					NormalizeOptionalCollections(specificationToSave);
 
 					switch (action)
 					{

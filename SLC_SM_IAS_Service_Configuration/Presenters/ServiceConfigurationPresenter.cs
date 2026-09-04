@@ -417,6 +417,16 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 			serviceManagementLogHelper.LogInfo(serviceEditLogs);
 		}
 
+		private static string GetVersionDisplayName(ServiceConfigurationVersion version)
+		{
+			if (version == null)
+			{
+				return "unknown";
+			}
+
+			return String.IsNullOrWhiteSpace(version.VersionName) ? version.Identifier : version.VersionName;
+		}
+
 		private void EnforceMaximumConfigurationVersions()
 		{
 			if (configuration.State != State.Create)
@@ -424,22 +434,14 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 				return;
 			}
 
-			var persistedVersions = (instanceService.ConfigurationVersions ?? new List<SdmObjectReference<ServiceConfigurationVersion>>())
-				.Where(cv => cv != null
-					&& !String.IsNullOrWhiteSpace(cv.Identifier)
-					&& !String.Equals(cv.Identifier, configuration.ServiceConfigurationVersion.Identifier, StringComparison.OrdinalIgnoreCase))
-				.Select(cv => GetValue(serviceConfigurationVersionsById, cv.Identifier))
-				.Where(cv => cv != null)
-				.ToList();
+			var persistedVersions = GetPersistedVersionsExceptCurrent().ToList();
 
 			if (persistedVersions.Count < 2)
 			{
 				return;
 			}
 
-			var versionToDelete = persistedVersions
-				.FirstOrDefault(cv => !String.Equals(cv.Identifier, instanceService.ServiceConfigurationId.Identifier, StringComparison.OrdinalIgnoreCase))
-				?? persistedVersions.FirstOrDefault();
+			var versionToDelete = GetVersionToDelete(persistedVersions);
 			if (versionToDelete == null)
 			{
 				return;
@@ -448,7 +450,7 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 			sdmHelper.ServiceInventory.ServiceConfigurationVersions.Delete(versionToDelete);
 			instanceService.ConfigurationVersions.RemoveAll(reference => String.Equals(reference.Identifier, versionToDelete.Identifier, StringComparison.OrdinalIgnoreCase));
 			serviceConfigurationVersionsById.Remove(versionToDelete.Identifier);
-			serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(instanceService.ServiceID, "Edit", $"Deleted configuration version '{versionToDelete.VersionName}' due to max version limit"));
+			serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(instanceService.ServiceID, "Edit", $"Deleted configuration version '{GetVersionDisplayName(versionToDelete)}' due to max version limit"));
 		}
 
 		private void DeleteRemovedStandaloneParameters()
@@ -533,6 +535,9 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 
 		private void SaveConfigurationVersion()
 		{
+			string previousActiveConfigurationId = instanceService.ServiceConfigurationId.Identifier;
+			string selectedConfigurationVersionId = configuration.ServiceConfigurationVersion?.Identifier;
+
 			EnsureConfigurationCollections(configuration.ServiceConfigurationVersion);
 			configuration.ServiceConfigurationVersion.Parameters = configuration.ServiceParameterConfigs
 				.Where(p => p.State != State.Delete)
@@ -551,7 +556,17 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 				instanceService.ConfigurationVersions.Add(new SdmObjectReference<ServiceConfigurationVersion>(configuration.ServiceConfigurationVersion.Identifier));
 			}
 
-			instanceService.ServiceConfigurationId = new SdmObjectReference<ServiceConfigurationVersion>(configuration.ServiceConfigurationVersion.Identifier);
+			if (configuration.State == State.Update
+				&& !String.IsNullOrWhiteSpace(selectedConfigurationVersionId)
+				&& instanceService.ConfigurationVersions.Any(reference => String.Equals(reference.Identifier, selectedConfigurationVersionId, StringComparison.OrdinalIgnoreCase)))
+			{
+				instanceService.ServiceConfigurationId = new SdmObjectReference<ServiceConfigurationVersion>(selectedConfigurationVersionId);
+			}
+			else if (configuration.State == State.Create && !String.IsNullOrWhiteSpace(previousActiveConfigurationId))
+			{
+				instanceService.ServiceConfigurationId = new SdmObjectReference<ServiceConfigurationVersion>(previousActiveConfigurationId);
+			}
+
 			sdmHelper.ServiceInventory.Services.CreateOrUpdate(new[] { instanceService });
 
 			if (configuration.State == State.Create)
@@ -1014,18 +1029,29 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 
 		private int BuildExceedNumberOfVersionUI(int row)
 		{
-			var versionToBeDelete = (instanceService.ConfigurationVersions ?? new List<SdmObjectReference<ServiceConfigurationVersion>>())
-				.Where(cv => cv != null
-					&& !String.IsNullOrWhiteSpace(cv.Identifier)
-					&& !String.Equals(cv.Identifier, configuration.ServiceConfigurationVersion.Identifier, StringComparison.OrdinalIgnoreCase)
-					&& !String.Equals(cv.Identifier, instanceService.ServiceConfigurationId.Identifier, StringComparison.OrdinalIgnoreCase))
-				.Select(cv => GetValue(serviceConfigurationVersionsById, cv.Identifier))
-				.FirstOrDefault();
+			var versionToBeDelete = GetVersionToDelete(GetPersistedVersionsExceptCurrent().ToList());
 			view.AddWidget(view.ConfirmExceedNumberOfVersions, ++row, 0, HorizontalAlignment.Right);
-			view.ConfirmExceedNumberOfVersionsLabel.Text = $"You have reached the maximum number of allowed versions.\nProceeding will delete the version '{versionToBeDelete?.VersionName}'.";
+			view.ConfirmExceedNumberOfVersionsLabel.Text = $"You have reached the maximum number of allowed versions.\nProceeding will delete the version '{GetVersionDisplayName(versionToBeDelete)}'.";
 			view.AddWidget(view.ConfirmExceedNumberOfVersionsLabel, row, 1, 1, 10);
 			view.BtnUpdate.IsEnabled = view.ConfirmExceedNumberOfVersions.IsChecked;
 			return row;
+		}
+
+		private IEnumerable<ServiceConfigurationVersion> GetPersistedVersionsExceptCurrent()
+		{
+			return (instanceService.ConfigurationVersions ?? new List<SdmObjectReference<ServiceConfigurationVersion>>())
+				.Where(cv => cv != null
+					&& !String.IsNullOrWhiteSpace(cv.Identifier)
+					&& !String.Equals(cv.Identifier, configuration.ServiceConfigurationVersion.Identifier, StringComparison.OrdinalIgnoreCase))
+				.Select(cv => GetValue(serviceConfigurationVersionsById, cv.Identifier))
+				.Where(cv => cv != null);
+		}
+
+		private ServiceConfigurationVersion GetVersionToDelete(IList<ServiceConfigurationVersion> persistedVersions)
+		{
+			return persistedVersions
+				.FirstOrDefault(cv => !String.Equals(cv.Identifier, instanceService.ServiceConfigurationId.Identifier, StringComparison.OrdinalIgnoreCase))
+				?? persistedVersions.FirstOrDefault();
 		}
 
 		private int GetPersistedConfigurationVersionCount()
