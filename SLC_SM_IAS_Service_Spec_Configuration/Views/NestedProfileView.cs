@@ -59,8 +59,15 @@ namespace SLC_SM_IAS_Service_Spec_Configuration.Views
 					break;
 
 				default:
-					var textBox = new TextBox(record.ConfigurationParamValue.StringValue ?? String.Empty) { IsEnabled = !isDisabled };
-					textBox.Changed += (s, a) => record.ConfigurationParamValue.StringValue = a.Value;
+					var textBox = new TextBox(record.ConfigurationParamValue.StringValue ?? record.TextOptions?.Default ?? String.Empty) { IsEnabled = !isDisabled };
+					textBox.Changed += (s, a) =>
+					{
+						record.ConfigurationParamValue.StringValue = a.Value;
+						if (record.TextOptions != null)
+						{
+							record.TextOptions.Default = a.Value;
+						}
+					};
 					AddWidget(textBox, row, ValueColumnIndex);
 					break;
 			}
@@ -85,8 +92,18 @@ namespace SLC_SM_IAS_Service_Spec_Configuration.Views
 			{
 				dropDown.Selected = options.First(o => o.DisplayValue == currentValue).Value;
 			}
+			else if (!String.IsNullOrEmpty(record.DiscreteOptions.DefaultDiscreteValueId.Identifier))
+			{
+				dropDown.Selected = options.FirstOrDefault(o => o.Value.Identifier == record.DiscreteOptions.DefaultDiscreteValueId.Identifier)?.Value;
+			}
 
-			dropDown.Changed += (s, a) => record.ConfigurationParamValue.StringValue = a.SelectedOption.DisplayValue;
+			dropDown.Changed += (s, a) =>
+			{
+				record.ConfigurationParamValue.StringValue = a.SelectedOption.DisplayValue;
+				record.DiscreteOptions.DefaultDiscreteValueId = a.Selected == null
+					? default
+					: new SdmObjectReference<DiscreteValue>(a.Selected.Identifier);
+			};
 			AddWidget(dropDown, row, ValueColumnIndex);
 		}
 
@@ -106,7 +123,14 @@ namespace SLC_SM_IAS_Service_Spec_Configuration.Views
 				StepSize = step,
 				IsEnabled = !isDisabled,
 			};
-			numericWidget.Changed += (s, a) => record.ConfigurationParamValue.DoubleValue = a.Value;
+			numericWidget.Changed += (s, a) =>
+			{
+				record.ConfigurationParamValue.DoubleValue = a.Value;
+				if (numOptions != null)
+				{
+					numOptions.DefaultValue = a.Value;
+				}
+			};
 			AddWidget(numericWidget, row, ValueColumnIndex);
 
 			var unitOptions = (record.Units ?? new List<ConfigurationUnit>())

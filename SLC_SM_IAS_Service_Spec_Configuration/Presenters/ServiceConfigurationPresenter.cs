@@ -50,6 +50,7 @@ namespace SLC_SM_IAS_Service_Spec_Configuration.Presenters
 		private Dictionary<string, ProfileDefinition> profileDefinitionsById = new Dictionary<string, ProfileDefinition>();
 		private Dictionary<string, ReferencedConfigurationParameter> referencedConfigurationParametersById = new Dictionary<string, ReferencedConfigurationParameter>();
 		private readonly Dictionary<string, bool> collapsedProfileStatesById = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+		private readonly Dictionary<IParameterDataRecord, Numeric> numericWidgetsByRecord = new Dictionary<IParameterDataRecord, Numeric>();
 		private bool standaloneParametersCollapsed;
 		private bool showDetails;
 		private bool showLifeCycleDetails;
@@ -117,6 +118,7 @@ namespace SLC_SM_IAS_Service_Spec_Configuration.Presenters
 				throw new InvalidOperationException("ServiceManagementApiHelper is required to store the model.");
 			}
 
+			SynchronizeNumericValuesFromUi();
 			DeleteRemovedItems();
 
 			StoreStandaloneConfigurations();
@@ -148,27 +150,13 @@ namespace SLC_SM_IAS_Service_Spec_Configuration.Presenters
 
 		private void StoreStandaloneConfigurations()
 		{
-			var standaloneParameterValuesToStore = new List<ConfigurationParameterValue>();
-			var standaloneConfigurationsToStore = new List<ServiceSpecificationConfigurationValue>();
-
 			foreach (var configuration in standaloneConfigurations.Where(x => x.State != State.Delete))
 			{
 				configuration.ConfigurationParamValue.ConfigurationParameterId = new SdmObjectReference<ConfigurationParameter>(configuration.ConfigurationParam.Identifier);
 				configuration.ServiceConfig.ConfigurationParameterId = new SdmObjectReference<ConfigurationParameter>(configuration.ConfigurationParamValue.Identifier);
 				CreateOrUpdateOptions(configuration);
-
-				standaloneParameterValuesToStore.Add(configuration.ConfigurationParamValue);
-				standaloneConfigurationsToStore.Add(configuration.ServiceConfig);
-			}
-
-			if (standaloneParameterValuesToStore.Count > 0)
-			{
-				apiHelper.ServiceCatalog.ConfigurationParameterValues.CreateOrUpdate(standaloneParameterValuesToStore);
-			}
-
-			if (standaloneConfigurationsToStore.Count > 0)
-			{
-				apiHelper.ServiceCatalog.ServiceSpecificationConfigurationValues.CreateOrUpdate(standaloneConfigurationsToStore);
+				apiHelper.ServiceCatalog.ConfigurationParameterValues.CreateOrUpdate(new[] { configuration.ConfigurationParamValue });
+				apiHelper.ServiceCatalog.ServiceSpecificationConfigurationValues.CreateOrUpdate(new[] { configuration.ServiceConfig });
 			}
 		}
 
@@ -178,10 +166,6 @@ namespace SLC_SM_IAS_Service_Spec_Configuration.Presenters
 				.Where(x => x.State != State.Delete)
 				.OrderByDescending(GetProfileDepth)
 				.ToList();
-
-			var profileParameterValuesToStore = new List<ConfigurationParameterValue>();
-			var profilesToStore = new List<Profile>();
-			var serviceProfilesToStore = new List<ServiceSpecificationProfile>();
 
 			foreach (var profile in activeProfiles)
 			{
@@ -201,28 +185,13 @@ namespace SLC_SM_IAS_Service_Spec_Configuration.Presenters
 					{
 						profileParameter.ConfigurationParamValue.ConfigurationParameterId = new SdmObjectReference<ConfigurationParameter>(profileParameter.ConfigurationParam.Identifier);
 						CreateOrUpdateOptions(profileParameter);
-						profileParameterValuesToStore.Add(profileParameter.ConfigurationParamValue);
+						apiHelper.ServiceCatalog.ConfigurationParameterValues.CreateOrUpdate(new[] { profileParameter.ConfigurationParamValue });
 					}
 
-					profilesToStore.Add(profile.Profile);
+					apiHelper.ServiceCatalog.Profiles.CreateOrUpdate(new[] { profile.Profile });
 				}
 
-				serviceProfilesToStore.Add(profile.ServiceProfileConfig);
-			}
-
-			if (profileParameterValuesToStore.Count > 0)
-			{
-				apiHelper.ServiceCatalog.ConfigurationParameterValues.CreateOrUpdate(profileParameterValuesToStore);
-			}
-
-			if (profilesToStore.Count > 0)
-			{
-				apiHelper.ServiceCatalog.Profiles.CreateOrUpdate(profilesToStore);
-			}
-
-			if (serviceProfilesToStore.Count > 0)
-			{
-				apiHelper.ServiceCatalog.ServiceSpecificationProfiles.CreateOrUpdate(serviceProfilesToStore);
+				apiHelper.ServiceCatalog.ServiceSpecificationProfiles.CreateOrUpdate(new[] { profile.ServiceProfileConfig });
 			}
 		}
 
@@ -578,6 +547,7 @@ namespace SLC_SM_IAS_Service_Spec_Configuration.Presenters
 			CaptureCollapseStates();
 			this.showDetails = showDetails;
 			this.showLifeCycleDetails = showLifeCycleDetails;
+			numericWidgetsByRecord.Clear();
 			view.Clear();
 			view.Details.Clear();
 			view.LifeCycleDetails.Clear();
@@ -1060,7 +1030,7 @@ namespace SLC_SM_IAS_Service_Spec_Configuration.Presenters
 
 				value.ValidationState = UIValidationState.Valid;
 				value.ValidationText = record.TextOptions?.UserMessage;
-				record.ConfigurationParamValue.StringValue = args.Value;
+				SetTextParameterValue(record, args.Value);
 			};
 			view.AddWidget(value, row, parameterValueColumnIndex);
 
@@ -1072,7 +1042,7 @@ namespace SLC_SM_IAS_Service_Spec_Configuration.Presenters
 				value.IsEnabled = !args.IsChecked;
 				if (args.IsChecked)
 				{
-					record.ConfigurationParamValue.StringValue = null;
+					SetTextParameterValue(record, null);
 				}
 			};
 
@@ -1110,7 +1080,7 @@ namespace SLC_SM_IAS_Service_Spec_Configuration.Presenters
 			{
 				if (args.Selected != args.Previous)
 				{
-					record.ConfigurationParamValue.StringValue = args.SelectedOption.DisplayValue;
+					SetDiscreteParameterValue(record, args.Selected);
 				}
 			};
 			values.Pressed += (sender, args) =>
@@ -1128,7 +1098,7 @@ namespace SLC_SM_IAS_Service_Spec_Configuration.Presenters
 				optionsView.BtnApply.Pressed += (o, eventArgs) =>
 				{
 					value.SetOptions(optionsView.Options.CheckedOptions);
-					record.ConfigurationParamValue.StringValue = value.Selected?.Value;
+					SetDiscreteParameterValue(record, value.Selected);
 					record.DiscreteValues = optionsView.Options.Checked.ToList();
 					record.DiscreteOptions.DiscreteValues = record.DiscreteValues
 						.Select(x => new SdmObjectReference<DiscreteValue>(x.Identifier))
@@ -1148,7 +1118,7 @@ namespace SLC_SM_IAS_Service_Spec_Configuration.Presenters
 				value.IsEnabled = !args.IsChecked;
 				if (args.IsChecked)
 				{
-					record.ConfigurationParamValue.StringValue = null;
+					SetDiscreteParameterValue(record, null);
 				}
 			};
 
@@ -1238,9 +1208,10 @@ namespace SLC_SM_IAS_Service_Spec_Configuration.Presenters
 			{
 				if (args.Value != args.Previous)
 				{
-					record.ConfigurationParamValue.DoubleValue = args.Value;
+					SetNumericParameterValue(record, args.Value);
 				}
 			};
+			numericWidgetsByRecord[record] = value;
 			view.AddWidget(value, row, parameterValueColumnIndex);
 
 			bool hasValue = record.ConfigurationParamValue.DoubleValue.HasValue;
@@ -1251,10 +1222,56 @@ namespace SLC_SM_IAS_Service_Spec_Configuration.Presenters
 				value.IsEnabled = !args.IsChecked;
 				if (args.IsChecked)
 				{
-					record.ConfigurationParamValue.DoubleValue = null;
+					SetNumericParameterValue(record, null);
 				}
 			};
 			return value;
+		}
+
+		private void SynchronizeNumericValuesFromUi()
+		{
+			foreach (var entry in numericWidgetsByRecord)
+			{
+				var record = entry.Key;
+				var widget = entry.Value;
+				if (record?.ConfigurationParamValue == null || record.ConfigurationParam?.Type != SlcConfigurationsIds.Enums.Type.Number || widget == null)
+				{
+					continue;
+				}
+
+				if (!widget.IsEnabled)
+				{
+					continue;
+				}
+
+				SetNumericParameterValue(record, widget.Value);
+			}
+		}
+
+		private static void SetTextParameterValue(IParameterDataRecord record, string value)
+		{
+			record.ConfigurationParamValue.StringValue = value;
+			if (record.TextOptions != null)
+			{
+				record.TextOptions.Default = value;
+			}
+		}
+
+		private static void SetDiscreteParameterValue(IParameterDataRecord record, DiscreteValue selected)
+		{
+			SetTextParameterValue(record, selected?.Value);
+			record.DiscreteOptions.DefaultDiscreteValueId = selected == null
+				? default
+				: new SdmObjectReference<DiscreteValue>(selected.Identifier);
+		}
+
+		private static void SetNumericParameterValue(IParameterDataRecord record, double? value)
+		{
+			record.ConfigurationParamValue.DoubleValue = value;
+			if (record.NumberOptions != null)
+			{
+				record.NumberOptions.DefaultValue = value;
+			}
 		}
 
 		private static ConfigurationUnit GetDefaultUnit(IParameterDataRecord record)
