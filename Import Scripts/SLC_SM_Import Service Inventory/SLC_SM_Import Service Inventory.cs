@@ -7,7 +7,7 @@ Revision History:
 
 DATE        VERSION        AUTHOR            COMMENTS
 
-31/08/2026  1.0.0.1        Copilot           Initial version
+31/08/2026  1.0.0.1        SKA           Initial version
 ****************************************************************************
 */
 namespace SLC_SM_Import_Service_Inventory

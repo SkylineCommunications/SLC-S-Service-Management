@@ -22,6 +22,7 @@
     </PackageReference>
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\..\SLC_SM_Common\SLC_SM_Common.csproj" />
     <ProjectReference Include="..\SLC_SM_Common\SLC_SM_Common.csproj" />
   </ItemGroup>
 </Project>
