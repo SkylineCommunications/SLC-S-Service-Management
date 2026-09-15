@@ -89,7 +89,7 @@ namespace SLC_SM_IAS_Service_Order_Configuration
 
 			// Model-View-Presenter
 			var view = new ServiceConfigurationView(_engine);
-			var presenter = new ServiceConfigurationPresenter(_engine, _controller, view, instance);
+			var presenter = new ServiceConfigurationPresenter(_engine, _controller, view, instance, serviceManagementApi);
 
 			presenter.LoadFromModel();
 

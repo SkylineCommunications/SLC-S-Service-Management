@@ -22,14 +22,15 @@
 		private readonly InteractiveController controller;
 		private readonly ServiceOrderItem instance;
 		private readonly ServiceConfigurationView view;
-		private ServiceManagementApiHelper repoService;
+		private readonly ServiceManagementApiHelper repoService;
 
-		public ServiceConfigurationPresenter(IEngine engine, InteractiveController controller, ServiceConfigurationView view, ServiceOrderItem instance)
+		public ServiceConfigurationPresenter(IEngine engine, InteractiveController controller, ServiceConfigurationView view, ServiceOrderItem instance, ServiceManagementApiHelper repoService)
 		{
 			this.engine = engine;
 			this.controller = controller;
 			this.view = view;
 			this.instance = instance;
+			this.repoService = repoService ?? throw new ArgumentNullException(nameof(repoService));
 
 			view.BtnCancel.Pressed += OnCancelButtonPressed;
 			view.BtnUpdate.Pressed += OnUpdateButtonPressed;
@@ -54,7 +55,6 @@
 
 		public void LoadFromModel()
 		{
-			repoService = new ServiceManagementApiHelper(engine.GetUserConnection(), "SLC_SM_IAS_Service_Order_Configuration");
 			var configParams = ReadAll(repoService.ServiceCatalog.ConfigurationParameters);
 			var configParamValues = ReadAll(repoService.ServiceCatalog.ConfigurationParameterValues).ToDictionary(x => x.Identifier);
 			var numberOptions = ReadAll(repoService.ServiceCatalog.NumberParameterOptions).ToDictionary(x => x.Identifier);
@@ -389,10 +389,10 @@
 			var decimals = new Numeric { StepSize = 1, Minimum = 0, Maximum = 6, IsEnabled = false, MaxWidth = 80 };
 			var values = new Button("...") { IsEnabled = false };
 			var mandatoryAtService = new CheckBox { IsChecked = record.ServiceConfig.Mandatory, IsEnabled = false };
-			var delete = new Button(Defaults.SymbolCross) { IsEnabled = !record.ServiceConfig.Mandatory };
+			var delete = new Button(Defaults.SymbolCross);
 			if (record.ServiceConfig.Mandatory)
 			{
-				delete.Tooltip = "This parameter is marked as mandatory on Service Specification level and cannot be deleted.";
+				delete.Tooltip = "This parameter is marked as mandatory at service-order level.";
 			}
 
 			label.Changed += (sender, args) => record.ConfigurationParamValue.Label = args.Value;
