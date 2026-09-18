@@ -1,0 +1,27 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<DMSScript options="272" xmlns="http://www.skyline.be/automation">
+	<Name>SLC_SM_CO_RenameColumn</Name>
+	<Description></Description>
+	<Type>Automation</Type>
+	<Author>SKYLINE2\SKA</Author>
+	<CheckSets>FALSE</CheckSets>
+	<Folder>GQI/Operators</Folder>
+
+	<Protocols>
+	</Protocols>
+
+	<Memory>
+	</Memory>
+
+	<Parameters>
+	</Parameters>
+
+	<Script>
+		<Exe id="2" type="csharp">
+			<Value><![CDATA[[Project:SLC_SM_CO_RenameColumn]]]></Value>
+			<Param type="preCompile">true</Param>
+			<Param type="libraryName">RenameOperator</Param>
+			<Message></Message>
+		</Exe>
+	</Script>
+</DMSScript>
