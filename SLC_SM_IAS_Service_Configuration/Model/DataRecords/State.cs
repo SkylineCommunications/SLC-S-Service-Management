@@ -1,4 +1,4 @@
-﻿namespace SLC_SM_IAS_Service_Configuration.Presenters
+namespace SLC_SM_IAS_Service_Configuration.Presenters
 {
 	public partial class ServiceConfigurationPresenter
 	{

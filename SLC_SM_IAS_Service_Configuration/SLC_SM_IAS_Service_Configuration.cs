@@ -12,6 +12,7 @@ DATE		VERSION		AUTHOR			COMMENTS
 26/05/2026	1.0.0.3		SKA, Skyline	Implemented logic for calculated service parameters
 10/07/2026	1.0.0.4		SKA, Skyline	Added support for nested profiles
 14/07/2026	1.0.0.5		SKA, Skyline	Fixed issue with profile parameter references when duplicating a configuration
+30/08/2026	1.0.0.6		SKA, Skyline	Implemented logic to delete a specific configuration version
 ****************************************************************************
 */
 namespace SLC_SM_IAS_Service_Configuration
@@ -20,8 +21,8 @@ namespace SLC_SM_IAS_Service_Configuration
 	using System.Linq;
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.IAS;
@@ -85,13 +86,14 @@ namespace SLC_SM_IAS_Service_Configuration
 
 			// Input
 			Guid domId = _engine.ReadScriptParamFromApp<Guid>("DOM ID");
+			var sdmHelper = new ServiceManagementApiHelper(_engine.GetUserConnection(), "Service Inventory");
 
-			var instance = new DataHelperService(_engine.GetUserConnection()).Read(ServiceExposers.Guid.Equal(domId)).FirstOrDefault()
-			               ?? throw new InvalidOperationException($"Instance with ID '{domId}' does not exist");
+			var sdmInstance = sdmHelper.ServiceInventory.Services.Read(ServiceExposers.Identifier.Equal(domId.ToString())).FirstOrDefault()
+						   ?? throw new InvalidOperationException($"Instance with ID '{domId}' does not exist");
 
 			// Model-View-Presenter
 			var view = new ServiceConfigurationView(_engine);
-			var presenter = new ServiceConfigurationPresenter(_engine, _controller, view, instance);
+			var presenter = new ServiceConfigurationPresenter(_engine, _controller, view, sdmInstance);
 
 			presenter.LoadFromModel();
 

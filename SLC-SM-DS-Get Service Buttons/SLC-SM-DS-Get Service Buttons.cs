@@ -5,10 +5,10 @@ namespace SLCSMDSGetServiceButtons
 	using System.Linq;
 	using Skyline.DataMiner.Analytics.GenericInterface;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
 	using SLC_SM_Common.Extensions;
 	using static DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Service_Behavior;
+	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 
 	/// <summary>
 	///     Represents a data source.
@@ -44,6 +44,7 @@ namespace SLCSMDSGetServiceButtons
 		private Guid serviceReference;
 		private GQIDMS _dms;
 		private IGQILogger _logger;
+		private IServiceManagementApiHelper _serviceManagementApiHelper;
 
 		public GQIColumn[] GetColumns()
 		{
@@ -85,6 +86,7 @@ namespace SLCSMDSGetServiceButtons
 			_dms = args.DMS;
 			_logger = args.Logger;
 			_logger.MinimumLogLevel = GQILogLevel.Debug;
+			_serviceManagementApiHelper = new ServiceManagementApiHelper(_dms.GetConnection(), "Service Inventory");
 			return default;
 		}
 
@@ -100,7 +102,9 @@ namespace SLCSMDSGetServiceButtons
 				var service = _logger.PerformanceLogger(
 					"Get Service",
 					() =>
-						new DataHelperService(_dms.GetConnection()).Read(ServiceExposers.Guid.Equal(serviceReference)).FirstOrDefault()
+						_serviceManagementApiHelper.ServiceInventory.Services
+							.Read(Models.ServiceExposers.Identifier.Equal(serviceReference.ToString()))
+							.FirstOrDefault()
 						?? throw new NotSupportedException($"Could not find a service with ID {serviceReference}"));
 				StatusesEnum currentState = service.Status;
 

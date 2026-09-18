@@ -1,4 +1,4 @@
-/*
+﻿/*
 ****************************************************************************
 *  Copyright (c),  Skyline Communications NV  All Rights Reserved.    *
 ****************************************************************************
@@ -14,14 +14,13 @@ namespace SLC_SM_Delete_Service_Item
 {
 	using System;
 	using System.Linq;
-	using Library.Dom;
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.IAS;
-	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement.Models;
+	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 
 	/// <summary>
 	///     Represents a DataMiner Automation script.
@@ -72,7 +71,7 @@ namespace SLC_SM_Delete_Service_Item
 			}
 		}
 
-		private void DeleteServiceItemFromInstance(DataHelperService helper, Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement.Models.Service service, string label)
+		private void DeleteServiceItemFromInstance(IServiceManagementApiHelper helper, Models.Service service, string label)
 		{
 			var serviceItemToRemove = service.ServiceItems.FirstOrDefault(x => x.Label == label);
 			if (serviceItemToRemove == null)
@@ -80,24 +79,24 @@ namespace SLC_SM_Delete_Service_Item
 				return;
 			}
 
-			if (serviceItemToRemove.LinkedReferenceStillActive(_engine))
+			if (HasActiveLinkedReference(helper, serviceItemToRemove))
 			{
 				return;
 			}
 
 			service.ServiceItems.Remove(serviceItemToRemove);
 
-			var id = serviceItemToRemove.ID.ToString();
+			var id = serviceItemToRemove.ServiceItemID.ToString();
 			var relationships = service.ServiceItemsRelationships.Where(r => r.ParentServiceItem == id || r.ChildServiceItem == id).ToList();
 			foreach (var r in relationships)
 			{
 				service.ServiceItemsRelationships.Remove(r);
 			}
 
-			helper.CreateOrUpdate(service);
+			helper.ServiceInventory.Services.Update(service);
 		}
 
-		private void DeleteServiceItemFromInstance(DataHelperServiceSpecification helper, Models.ServiceSpecification spec, string label)
+		private void DeleteServiceItemFromInstance(IServiceManagementApiHelper helper, Models.ServiceSpecification spec, string label)
 		{
 			var serviceItemToRemove = spec.ServiceItems.FirstOrDefault(x => x.Label == label);
 			if (serviceItemToRemove == null)
@@ -105,21 +104,39 @@ namespace SLC_SM_Delete_Service_Item
 				return;
 			}
 
-			if (serviceItemToRemove.LinkedReferenceStillActive(_engine))
+			if (HasActiveLinkedReference(helper, serviceItemToRemove))
 			{
 				return;
 			}
 
 			spec.ServiceItems.Remove(serviceItemToRemove);
 
-			var id = serviceItemToRemove.ID.ToString();
+			var id = serviceItemToRemove.ServiceItemID.ToString();
 			var relationships = spec.ServiceItemsRelationships.Where(r => r.ParentServiceItem == id || r.ChildServiceItem == id).ToList();
 			foreach (var r in relationships)
 			{
 				spec.ServiceItemsRelationships.Remove(r);
 			}
 
-			helper.CreateOrUpdate(spec);
+			helper.ServiceCatalog.ServiceSpecifications.Update(spec);
+		}
+
+		private static bool HasActiveLinkedReference(IServiceManagementApiHelper helper, Models.ServiceItem serviceItem)
+		{
+			if (!Guid.TryParse(serviceItem.ImplementationReference, out Guid referenceId) || referenceId == Guid.Empty)
+			{
+				return false;
+			}
+
+			var itemType = serviceItem.Type?.ToString();
+			if (!String.Equals(itemType, "Service", StringComparison.OrdinalIgnoreCase))
+			{
+				return false;
+			}
+
+			return helper.ServiceInventory.Services
+				.Read(Models.ServiceExposers.Identifier.Equal(referenceId.ToString()))
+				.Any();
 		}
 
 		private void RunSafe()
@@ -134,19 +151,18 @@ namespace SLC_SM_Delete_Service_Item
 
 			string serviceItemLabel = _engine.ReadScriptParamFromApp("Service Item Label");
 
-			var dataHelperService = new DataHelperService(_engine.GetUserConnection());
-			var service = dataHelperService.Read(ServiceExposers.Guid.Equal(domId)).FirstOrDefault();
+			var api = _engine.GetUserConnection().GetServiceManagementApiHelper("Service Inventory");
+			var service = api.ServiceInventory.Services.Read(ServiceExposers.Identifier.Equal(domId.ToString())).FirstOrDefault();
 			if (service != null)
 			{
-				DeleteServiceItemFromInstance(dataHelperService, service, serviceItemLabel);
+				DeleteServiceItemFromInstance(api, service, serviceItemLabel);
 				return;
 			}
 
-			var dataHelperServiceSpecification = new DataHelperServiceSpecification(_engine.GetUserConnection());
-			var spec = dataHelperServiceSpecification.Read(ServiceSpecificationExposers.Guid.Equal(domId)).FirstOrDefault();
+			var spec = api.ServiceCatalog.ServiceSpecifications.Read(ServiceSpecificationExposers.Identifier.Equal(domId.ToString())).FirstOrDefault();
 			if (spec != null)
 			{
-				DeleteServiceItemFromInstance(dataHelperServiceSpecification, spec, serviceItemLabel);
+				DeleteServiceItemFromInstance(api, spec, serviceItemLabel);
 				return;
 			}
 

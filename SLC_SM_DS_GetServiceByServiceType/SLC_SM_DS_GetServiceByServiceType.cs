@@ -14,16 +14,17 @@ DATE		VERSION		AUTHOR			COMMENTS
 namespace SLCSMDSGetServiceByServiceType
 {
 	using System;
+	using System.Collections.Generic;
 	using System.Linq;
 	using Skyline.DataMiner.Analytics.GenericInterface;
 	using Skyline.DataMiner.Core.DataMinerSystem.Common;
 	using Skyline.DataMiner.Net.Apps.DataMinerObjectModel;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 	using SLC_SM_Common.Extensions;
-	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement.Models;
+	using ConfigurationModels = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.Configurations;
+	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 
 	/// <summary>
 	///     Represents a data source.
@@ -54,6 +55,7 @@ namespace SLCSMDSGetServiceByServiceType
 		private Skyline.DataMiner.Net.IConnection _connection;
 		private IDms _dms;
 		private GQIDMS _gqiDms;
+		private IServiceManagementApiHelper _serviceManagementApiHelper;
 
 		private Guid configID_ServiceType;
 		private Guid configID_ReceptionType;
@@ -93,6 +95,7 @@ namespace SLCSMDSGetServiceByServiceType
 			_gqiDms = args.DMS;
 			_connection = _gqiDms.GetConnection();
 			_dms = _connection.GetDms();
+			_serviceManagementApiHelper = new ServiceManagementApiHelper(_connection, "Service Inventory");
 
 			return new OnInitOutputArgs();
 		}
@@ -101,14 +104,10 @@ namespace SLCSMDSGetServiceByServiceType
 		{
 			try
 			{
-				FilterElement<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter> filterConfigParams = new ORFilterElement<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter>();
-				foreach (string configurationParameterName in ConfigurationParameterNames)
-				{
-					filterConfigParams = filterConfigParams.OR(ConfigurationParameterExposers.Name.Equal(configurationParameterName));
-				}
-
-				var configurationHelper = new DataHelperConfigurationParameter(_gqiDms.GetConnection());
-				var configurationParameters = configurationHelper.Read(filterConfigParams).ToDictionary(p => p.Name, p => p.ID);
+				var configurationParameters = _serviceManagementApiHelper.ServiceCatalog.ConfigurationParameters
+					.Read(new TRUEFilterElement<ConfigurationModels.ConfigurationParameter>())
+					.Where(parameter => ConfigurationParameterNames.Contains(parameter.Name))
+					.ToDictionary(p => p.Name, p => Guid.Parse(p.Identifier));
 
 				configurationParameters.TryGetValue(ConfigParamNameServiceType, out configID_ServiceType);
 				configurationParameters.TryGetValue(ConfigParamNameReceptionType, out configID_ReceptionType);
@@ -117,11 +116,9 @@ namespace SLCSMDSGetServiceByServiceType
 				configurationParameters.TryGetValue(ConfigParamNameDistributionType, out configID_DistType);
 				configurationParameters.TryGetValue(ConfigParamNameRegion, out configID_Region);
 
-				var serviceHelper = new DataHelperService(_gqiDms.GetConnection());
-				var services = configurationParameters
-					.SelectMany(cp => serviceHelper.GetServicesByCharacteristic(cp.Key))
-					.GroupBy(s => s.ID)
-					.Select(g => g.First())
+				var services = _serviceManagementApiHelper.ServiceInventory.Services
+					.Read(new TRUEFilterElement<Models.Service>())
+					.Where(service => ServiceMatchesCharacteristic(service, configurationParameters.Keys))
 					.ToList();
 
 				return new GQIPage(
@@ -141,16 +138,12 @@ namespace SLCSMDSGetServiceByServiceType
 		{
 			int alarmLevel = _logger.PerformanceLogger("Get Alarm Level", () => (int)TryGetAlarmLevel(service));
 
-			var configs = service.ServiceConfiguration.Parameters
-				.GroupBy(p => p.ConfigurationParameter.ConfigurationParameterId)
-				.ToDictionary(
-					g => g.Key,
-					g => g.First().ConfigurationParameter.StringValue); // If multiples of same parameter found, assume the first.
+			var configs = GetConfigurationValuesByParameterId(service);
 
 			return new GQIRow(
 				new[]
 				{
-					new GQICell { Value = service.ID.ToString() },
+					new GQICell { Value = service.Identifier ?? String.Empty },
 					new GQICell { Value = service.Name },
 					new GQICell { Value = service.Icon ?? String.Empty },
 					new GQICell { Value = service.Status.ToString() },
@@ -164,7 +157,7 @@ namespace SLCSMDSGetServiceByServiceType
 				});
 		}
 
-		private AlarmLevel TryGetAlarmLevel(Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement.Models.Service service)
+		private AlarmLevel TryGetAlarmLevel(Models.Service service)
 		{
 			if (_dms.ServiceExistsSafe(service.Name, out IDmsService srv))
 			{
@@ -172,6 +165,82 @@ namespace SLCSMDSGetServiceByServiceType
 			}
 
 			return AlarmLevel.Undefined;
+		}
+
+		private Dictionary<Guid, string> GetConfigurationValuesByParameterId(Models.Service service)
+		{
+			var configurationVersionId = service.ServiceConfigurationId.Identifier;
+
+			if (String.IsNullOrWhiteSpace(configurationVersionId))
+			{
+				return new Dictionary<Guid, string>();
+			}
+
+			var configurationVersion = _serviceManagementApiHelper.ServiceInventory.ServiceConfigurationVersions
+				.Read(ServiceConfigurationVersionExposers.Identifier.Equal(configurationVersionId))
+				.FirstOrDefault();
+
+			if (configurationVersion?.Parameters == null || configurationVersion.Parameters.Count == 0)
+			{
+				return new Dictionary<Guid, string>();
+			}
+
+			var configurationValueIds = configurationVersion.Parameters
+				.Where(parameter => !String.IsNullOrWhiteSpace(parameter.Identifier))
+				.Select(parameter => parameter.Identifier)
+				.Distinct()
+				.ToHashSet();
+
+			if (configurationValueIds.Count == 0)
+			{
+				return new Dictionary<Guid, string>();
+			}
+
+			var serviceConfigurationValues = _serviceManagementApiHelper.ServiceInventory.ServiceConfigurationValues
+				.Read(new TRUEFilterElement<Models.ServiceConfigurationValue>())
+				.Where(value => configurationValueIds.Contains(value.Identifier))
+				.ToList();
+
+			var configurationParameterValueIds = serviceConfigurationValues
+				.Where(value => value.ConfigurationParameterId != null && !String.IsNullOrWhiteSpace(value.ConfigurationParameterId.Identifier))
+				.Select(value => value.ConfigurationParameterId.Identifier)
+				.Distinct()
+				.ToHashSet();
+
+			if (configurationParameterValueIds.Count == 0)
+			{
+				return new Dictionary<Guid, string>();
+			}
+
+			return _serviceManagementApiHelper.ServiceCatalog.ConfigurationParameterValues
+				.Read(new TRUEFilterElement<ConfigurationModels.ConfigurationParameterValue>())
+				.Where(value => value.ConfigurationParameterId != null
+					&& Guid.TryParse(value.ConfigurationParameterId.Identifier, out Guid parameterId)
+					&& configurationParameterValueIds.Contains(value.Identifier))
+				.GroupBy(value => Guid.Parse(value.ConfigurationParameterId.Identifier))
+				.ToDictionary(group => group.Key, group => group.First().StringValue);
+		}
+
+		private bool ServiceMatchesCharacteristic(Models.Service service, IEnumerable<string> characteristicNames)
+		{
+			if (service?.ServiceID == null)
+			{
+				return false;
+			}
+
+			var configValues = GetConfigurationValuesByParameterId(service);
+			if (configValues.Count == 0)
+			{
+				return false;
+			}
+
+			return characteristicNames.Any(name =>
+				(String.Equals(name, ConfigParamNameServiceType, StringComparison.OrdinalIgnoreCase) && configValues.ContainsKey(configID_ServiceType))
+				|| (String.Equals(name, ConfigParamNameReceptionType, StringComparison.OrdinalIgnoreCase) && configValues.ContainsKey(configID_ReceptionType))
+				|| (String.Equals(name, ConfigParamNameChannelId, StringComparison.OrdinalIgnoreCase) && configValues.ContainsKey(configID_ChannelId))
+				|| (String.Equals(name, ConfigParamNameVideoFormat, StringComparison.OrdinalIgnoreCase) && configValues.ContainsKey(configID_VideoFormat))
+				|| (String.Equals(name, ConfigParamNameDistributionType, StringComparison.OrdinalIgnoreCase) && configValues.ContainsKey(configID_DistType))
+				|| (String.Equals(name, ConfigParamNameRegion, StringComparison.OrdinalIgnoreCase) && configValues.ContainsKey(configID_Region)));
 		}
 	}
 }

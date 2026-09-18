@@ -16,9 +16,8 @@ namespace SLC_SM_Delete_Service_Order_Item_1
 
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.IAS;
 
@@ -71,21 +70,23 @@ namespace SLC_SM_Delete_Service_Order_Item_1
 			}
 		}
 
-		private static void DeleteServiceItemFromInstance(DataHelpersServiceManagement repo, Models.ServiceOrder domInstance, Guid serviceOrderItemId)
+		private static void DeleteServiceItemFromInstance(IServiceManagementApiHelper api, ServiceOrder order, Guid serviceOrderItemId)
 		{
-			var itemToRemove = domInstance.OrderItems.FirstOrDefault(x => x.ServiceOrderItem.ID == serviceOrderItemId);
+			var itemToRemove = order.OrderItems.FirstOrDefault(x => String.Equals(x.ServiceOrderItemId.Identifier, serviceOrderItemId.ToString(), StringComparison.OrdinalIgnoreCase));
 			if (itemToRemove == null)
 			{
 				throw new InvalidOperationException($"No Service order item exists with ID '{serviceOrderItemId}' to remove");
 			}
 
-			if (!repo.ServiceOrderItems.TryDelete(itemToRemove.ServiceOrderItem))
-			{
-				throw new InvalidOperationException("Failed to remove the Service Order item");
-			}
+			// Remove the reference first so the Service Order Item is no longer linked when it is deleted.
+			order.OrderItems.Remove(itemToRemove);
+			api.ServiceOrder.ServiceOrders.Update(order);
 
-			domInstance.OrderItems.Remove(itemToRemove);
-			repo.ServiceOrders.CreateOrUpdate(domInstance);
+			var serviceOrderItem = api.ServiceOrder.ServiceOrderItems.Read(ServiceOrderItemExposers.Identifier.Equal(serviceOrderItemId.ToString())).FirstOrDefault();
+			if (serviceOrderItem != null)
+			{
+				api.ServiceOrder.ServiceOrderItems.Delete(serviceOrderItem);
+			}
 		}
 
 		private void RunSafe()
@@ -100,14 +101,14 @@ namespace SLC_SM_Delete_Service_Order_Item_1
 				return;
 			}
 
-			var repo = new DataHelpersServiceManagement(_engine.GetUserConnection());
-			var orderItemInstance = repo.ServiceOrders.Read(ServiceOrderExposers.Guid.Equal(domId)).FirstOrDefault();
-			if (orderItemInstance == null)
+			var api = _engine.GetUserConnection().GetServiceManagementApiHelper("Service Ordering");
+			var order = api.ServiceOrder.ServiceOrders.Read(ServiceOrderExposers.Identifier.Equal(domId.ToString())).FirstOrDefault();
+			if (order == null)
 			{
 				return;
 			}
 
-			DeleteServiceItemFromInstance(repo, orderItemInstance, serviceOrderItemId);
+			DeleteServiceItemFromInstance(api, order, serviceOrderItemId);
 		}
 	}
 }

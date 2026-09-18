@@ -18,12 +18,12 @@ namespace SLCSMASAddServiceItem
 	using System.Linq;
 	using DomHelpers.SlcServicemanagement;
 	using Skyline.DataMiner.Automation;
-	using Skyline.DataMiner.Net.Apps.DataMinerObjectModel;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.IAS;
+	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 
 	/// <summary>
 	/// Represents a DataMiner Automation script.
@@ -70,26 +70,42 @@ namespace SLCSMASAddServiceItem
 			var serviceItemSection = CreateServiceItemSection();
 			SaveUpdatedServiceItem(serviceItemSection);
 
-			engine.AddOrUpdateScriptOutput("ServiceItemId", serviceItemSection.ID.ToString());
+			engine.AddOrUpdateScriptOutput("ServiceItemId", serviceItemSection.ServiceItemID.ToString());
 		}
 
-		private void SaveUpdatedServiceItem(Models.ServiceItem newSection)
+		private void SaveUpdatedServiceItem(ServiceItem newSection)
 		{
-			var dataHelperService = new DataHelperService(_engine.GetUserConnection());
-			Models.Service service = dataHelperService.Read(ServiceExposers.Guid.Equal(_domId)).FirstOrDefault();
+			var api = _engine.GetUserConnection().GetServiceManagementApiHelper("Service Inventory");
+
+			Models.Service service = api.ServiceInventory.Services
+				.Read(ServiceExposers.Identifier.Equal(_domId.ToString()))
+				.FirstOrDefault();
+
 			if (service != null)
 			{
+				if (service.ServiceItems == null)
+				{
+					service.ServiceItems = new List<ServiceItem>();
+				}
+
 				HandleServiceItemUpdate(service.ServiceItems, newSection);
-				dataHelperService.CreateOrUpdate(service);
+				api.ServiceInventory.Services.Update(service);
 				return;
 			}
 
-			var dataHelperSpec = new DataHelperServiceSpecification(_engine.GetUserConnection());
-			Models.ServiceSpecification spec = dataHelperSpec.Read(ServiceSpecificationExposers.Guid.Equal(_domId)).FirstOrDefault();
+			ServiceSpecification spec = api.ServiceCatalog.ServiceSpecifications
+				.Read(ServiceSpecificationExposers.Identifier.Equal(_domId.ToString()))
+				.FirstOrDefault();
+
 			if (spec != null)
 			{
+				if (spec.ServiceItems == null)
+				{
+					spec.ServiceItems = new List<Models.ServiceItem>();
+				}
+
 				HandleServiceItemUpdate(spec.ServiceItems, newSection);
-				dataHelperSpec.CreateOrUpdate(spec);
+				api.ServiceCatalog.ServiceSpecifications.Update(spec);
 				return;
 			}
 
@@ -131,12 +147,13 @@ namespace SLCSMASAddServiceItem
 		private void SetServiceItemId(IList<Models.ServiceItem> items, Models.ServiceItem newItem)
 		{
 			var ids = items
-				.Select(x => x.ID)
+				.Where(x => x.ServiceItemID.HasValue)
+				.Select(x => x.ServiceItemID.Value)
 				.OrderBy(x => x)
 				.ToArray();
 
 			var itemId = ids.Any() ? ids.Max() + 1 : 0;
-			newItem.ID = itemId;
+			newItem.ServiceItemID = itemId;
 		}
 
 		private void LoadParameters(IEngine engine)

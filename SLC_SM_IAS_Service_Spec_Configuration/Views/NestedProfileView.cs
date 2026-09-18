@@ -1,17 +1,14 @@
-﻿namespace SLC_SM_IAS_Service_Spec_Configuration.Views
+namespace SLC_SM_IAS_Service_Spec_Configuration.Views
 {
 	using System;
 	using System.Collections.Generic;
 	using System.Linq;
-
 	using DomHelpers.SlcConfigurations;
-
 	using Skyline.DataMiner.Automation;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.Configurations;
+	using Skyline.DataMiner.SDM;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
-
 	using SLC_SM_IAS_Service_Spec_Configuration.Model.DataRecords;
-
-	using static Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models;
 
 	public class NestedProfileView : Dialog
 	{
@@ -62,8 +59,15 @@
 					break;
 
 				default:
-					var textBox = new TextBox(record.ConfigurationParamValue.StringValue ?? String.Empty) { IsEnabled = !isDisabled };
-					textBox.Changed += (s, a) => record.ConfigurationParamValue.StringValue = a.Value;
+					var textBox = new TextBox(record.ConfigurationParamValue.StringValue ?? record.TextOptions?.Default ?? String.Empty) { IsEnabled = !isDisabled };
+					textBox.Changed += (s, a) =>
+					{
+						record.ConfigurationParamValue.StringValue = a.Value;
+						if (record.TextOptions != null)
+						{
+							record.TextOptions.Default = a.Value;
+						}
+					};
 					AddWidget(textBox, row, ValueColumnIndex);
 					break;
 			}
@@ -71,13 +75,12 @@
 
 		private void AddDiscreteWidget(IParameterDataRecord record, int row, bool isDisabled)
 		{
-			var discreteOptions = record.ConfigurationParamValue.DiscreteOptions;
-			if (discreteOptions == null)
+			if (record.DiscreteOptions == null)
 			{
 				return;
 			}
 
-			var options = discreteOptions.DiscreteValues
+			var options = record.DiscreteValues
 				.Select(x => new Option<DiscreteValue>(x.Value, x))
 				.OrderBy(x => x.DisplayValue)
 				.ToList();
@@ -89,16 +92,26 @@
 			{
 				dropDown.Selected = options.First(o => o.DisplayValue == currentValue).Value;
 			}
+			else if (!String.IsNullOrEmpty(record.DiscreteOptions.DefaultDiscreteValueId.Identifier))
+			{
+				dropDown.Selected = options.FirstOrDefault(o => o.Value.Identifier == record.DiscreteOptions.DefaultDiscreteValueId.Identifier)?.Value;
+			}
 
-			dropDown.Changed += (s, a) => record.ConfigurationParamValue.StringValue = a.SelectedOption.DisplayValue;
+			dropDown.Changed += (s, a) =>
+			{
+				record.ConfigurationParamValue.StringValue = a.SelectedOption.DisplayValue;
+				record.DiscreteOptions.DefaultDiscreteValueId = a.Selected == null
+					? default
+					: new SdmObjectReference<DiscreteValue>(a.Selected.Identifier);
+			};
 			AddWidget(dropDown, row, ValueColumnIndex);
 		}
 
 		private void AddNumericWidget(IParameterDataRecord record, int row, bool isDisabled, bool showDetails)
 		{
-			var numOptions = record.ConfigurationParamValue.NumberOptions;
-			double min = numOptions?.MinRange ?? -10_000;
-			double max = numOptions?.MaxRange ?? 10_000;
+			var numOptions = record.NumberOptions;
+			double min = numOptions?.MinRange ?? int.MinValue;
+			double max = numOptions?.MaxRange ?? int.MaxValue;
 			int decimals = Convert.ToInt32(numOptions?.Decimals ?? 0);
 			double step = numOptions?.StepSize ?? 1;
 
@@ -110,25 +123,35 @@
 				StepSize = step,
 				IsEnabled = !isDisabled,
 			};
-			numericWidget.Changed += (s, a) => record.ConfigurationParamValue.DoubleValue = a.Value;
+			numericWidget.Changed += (s, a) =>
+			{
+				record.ConfigurationParamValue.DoubleValue = a.Value;
+				if (numOptions != null)
+				{
+					numOptions.DefaultValue = a.Value;
+				}
+			};
 			AddWidget(numericWidget, row, ValueColumnIndex);
 
-			var unitOptions = (numOptions?.Units ?? new List<ConfigurationUnit>())
+			var unitOptions = (record.Units ?? new List<ConfigurationUnit>())
 				.Select(u => new Option<ConfigurationUnit>(u.Name, u))
 				.ToList();
 			unitOptions.Insert(0, new Option<ConfigurationUnit>("-", null));
 
 			var unitDropDown = new DropDown<ConfigurationUnit>(unitOptions) { IsEnabled = !isDisabled, MaxWidth = 80 };
-			if (numOptions?.DefaultUnit != null && unitOptions.Any(o => o.Value?.ID == numOptions.DefaultUnit.ID))
+			var defaultUnit = record.Units?.FirstOrDefault(u => u.Identifier == numOptions?.DefaultUnitId.Identifier);
+			if (defaultUnit != null && unitOptions.Any(o => o.Value?.Identifier == defaultUnit.Identifier))
 			{
-				unitDropDown.Selected = numOptions.DefaultUnit;
+				unitDropDown.Selected = defaultUnit;
 			}
 
 			unitDropDown.Changed += (s, a) =>
 			{
 				if (numOptions != null)
 				{
-					numOptions.DefaultUnit = a.Selected;
+					numOptions.DefaultUnitId = a.Selected == null
+						? default
+						: new SdmObjectReference<ConfigurationUnit>(a.Selected.Identifier);
 				}
 			};
 			AddWidget(unitDropDown, row, 4);

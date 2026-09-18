@@ -25,10 +25,10 @@ namespace SLCSMDSGetTopologyNodes
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.Net.Sections;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.Relationship;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
 	using SLC_SM_Common.Extensions;
-	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement.Models;
+	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 
 	/// <summary>
 	///     Represents a data source.
@@ -43,6 +43,7 @@ namespace SLCSMDSGetTopologyNodes
 		private Guid _domId;
 		private GQIDMS _dms;
 		private IGQILogger _logger;
+		private IServiceManagementApiHelper _serviceManagementApiHelper;
 
 		public GQIColumn[] GetColumns()
 		{
@@ -87,6 +88,7 @@ namespace SLCSMDSGetTopologyNodes
 			_dms = args.DMS;
 			_logger = args.Logger;
 			_logger.MinimumLogLevel = GQILogLevel.Debug;
+			_serviceManagementApiHelper = new ServiceManagementApiHelper(_dms.GetConnection(), "Service Inventory");
 			return default;
 		}
 
@@ -94,7 +96,7 @@ namespace SLCSMDSGetTopologyNodes
 		{
 			GQICell[] columns = new[]
 				{
-					new GQICell { Value = serviceItem.ID.ToString() },
+					new GQICell { Value = serviceItem.ServiceItemID.HasValue ? serviceItem.ServiceItemID.Value.ToString() : String.Empty },
 					new GQICell { Value = serviceItem.Type.ToString() },
 					new GQICell { Value = serviceItem.Label ?? String.Empty },
 					new GQICell { Value = serviceItem.DefinitionReference ?? String.Empty },
@@ -111,8 +113,8 @@ namespace SLCSMDSGetTopologyNodes
 				var serviceItems = _logger.PerformanceLogger(
 					"Get Service Items",
 					() =>
-						new DataHelperService(_dms.GetConnection()).Read(ServiceExposers.Guid.Equal(_domId)).FirstOrDefault()?.ServiceItems.Where(i => !String.IsNullOrEmpty(i.Label)).ToList()
-						?? new DataHelperServiceSpecification(_dms.GetConnection()).Read(ServiceSpecificationExposers.Guid.Equal(_domId)).FirstOrDefault()?.ServiceItems.Where(i => !String.IsNullOrEmpty(i.Label)).ToList()
+						_serviceManagementApiHelper.ServiceInventory.Services.Read(Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement.ServiceExposers.Identifier.Equal(_domId.ToString())).FirstOrDefault()?.ServiceItems.Where(i => !String.IsNullOrEmpty(i.Label)).ToList()
+						?? _serviceManagementApiHelper.ServiceCatalog.ServiceSpecifications.Read(Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement.ServiceSpecificationExposers.Identifier.Equal(_domId.ToString())).FirstOrDefault()?.ServiceItems.Where(i => !String.IsNullOrEmpty(i.Label)).ToList()
 						?? new List<Models.ServiceItem>());
 
 				var workflowPropertyValues = _logger.PerformanceLogger(

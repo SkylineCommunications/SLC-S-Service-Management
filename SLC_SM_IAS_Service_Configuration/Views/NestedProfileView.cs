@@ -1,16 +1,14 @@
-﻿namespace SLC_SM_IAS_Service_Configuration.Views
+namespace SLC_SM_IAS_Service_Configuration.Views
 {
 	using System;
 	using System.Collections.Generic;
 	using System.Linq;
-
 	using DomHelpers.SlcConfigurations;
-
 	using Skyline.DataMiner.Automation;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.Configurations;
+	using Skyline.DataMiner.SDM;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
-
 	using SLC_SM_IAS_Service_Configuration.Presenters;
-	using static Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models;
 
 	public class NestedProfileView : Dialog
 	{
@@ -36,7 +34,9 @@
 			AddWidget(new Label("Unit") { Style = TextStyle.Heading, MaxWidth = 80 }, row, 4);
 
 			if (!showDetails)
+			{
 				return;
+			}
 
 			AddWidget(new Label("Start") { Style = TextStyle.Heading, MaxWidth = 100 }, row, 6);
 			AddWidget(new Label("End") { Style = TextStyle.Heading, MaxWidth = 100 }, row, 7);
@@ -59,7 +59,7 @@
 					break;
 
 				default:
-					var textBox = new TextBox(record.ConfigurationParamValue.StringValue ?? string.Empty) { IsEnabled = !isDisabled };
+					var textBox = new TextBox(record.ConfigurationParamValue.StringValue ?? String.Empty) { IsEnabled = !isDisabled };
 					textBox.Changed += (s, a) => record.ConfigurationParamValue.StringValue = a.Value;
 					AddWidget(textBox, row, ValueColumnIndex);
 					break;
@@ -68,11 +68,12 @@
 
 		private void AddDiscreteWidget(IParameterDataRecord record, int row, bool isDisabled)
 		{
-			var discreteOptions = record.ConfigurationParamValue.DiscreteOptions;
-			if (discreteOptions == null)
+			if (record.DiscreteOptions == null)
+			{
 				return;
+			}
 
-			var options = discreteOptions.DiscreteValues
+			var options = record.DiscreteValues
 				.Select(x => new Option<DiscreteValue>(x.Value, x))
 				.OrderBy(x => x.DisplayValue)
 				.ToList();
@@ -81,7 +82,9 @@
 
 			string currentValue = record.ConfigurationParamValue.StringValue;
 			if (currentValue != null && options.Any(o => o.DisplayValue == currentValue))
+			{
 				dropDown.Selected = options.First(o => o.DisplayValue == currentValue).Value;
+			}
 
 			dropDown.Changed += (s, a) => record.ConfigurationParamValue.StringValue = a.SelectedOption.DisplayValue;
 			AddWidget(dropDown, row, ValueColumnIndex);
@@ -89,9 +92,9 @@
 
 		private void AddNumericWidget(IParameterDataRecord record, int row, bool isDisabled, bool showDetails)
 		{
-			var numOptions = record.ConfigurationParamValue.NumberOptions;
-			double min = numOptions?.MinRange ?? -10_000;
-			double max = numOptions?.MaxRange ?? 10_000;
+			var numOptions = record.NumberOptions;
+			double min = numOptions?.MinRange ?? int.MinValue;
+			double max = numOptions?.MaxRange ?? int.MaxValue;
 			int decimals = Convert.ToInt32(numOptions?.Decimals ?? 0);
 			double step = numOptions?.StepSize ?? 1;
 
@@ -106,31 +109,42 @@
 			numericWidget.Changed += (s, a) => record.ConfigurationParamValue.DoubleValue = a.Value;
 			AddWidget(numericWidget, row, ValueColumnIndex);
 
-			var unitOptions = (numOptions?.Units ?? new List<ConfigurationUnit>())
+			var unitOptions = (record.Units ?? new List<ConfigurationUnit>())
 				.Select(u => new Option<ConfigurationUnit>(u.Name, u))
 				.ToList();
 			unitOptions.Insert(0, new Option<ConfigurationUnit>("-", null));
 
 			var unitDropDown = new DropDown<ConfigurationUnit>(unitOptions) { IsEnabled = !isDisabled, MaxWidth = 80 };
-			if (numOptions?.DefaultUnit != null && unitOptions.Any(o => o.Value?.ID == numOptions.DefaultUnit.ID))
-				unitDropDown.Selected = numOptions.DefaultUnit;
+			var defaultUnit = record.Units?.FirstOrDefault(u => u.Identifier == numOptions?.DefaultUnitId.Identifier);
+			if (defaultUnit != null && unitOptions.Any(o => o.Value?.Identifier == defaultUnit.Identifier))
+			{
+				unitDropDown.Selected = defaultUnit;
+			}
 
 			unitDropDown.Changed += (s, a) =>
 			{
 				if (numOptions != null)
-					numOptions.DefaultUnit = a.Selected;
+				{
+					numOptions.DefaultUnitId = a.Selected == null
+						? default
+						: new SdmObjectReference<ConfigurationUnit>(a.Selected.Identifier);
+				}
 			};
 			AddWidget(unitDropDown, row, 4);
 
 			if (!showDetails)
+			{
 				return;
+			}
 
 			var startWidget = new Numeric(min) { IsEnabled = !isDisabled, MaxWidth = 100 };
 			startWidget.Changed += (s, a) =>
 			{
 				numericWidget.Minimum = a.Value;
 				if (numOptions != null)
+				{
 					numOptions.MinRange = a.Value;
+				}
 			};
 			AddWidget(startWidget, row, 6);
 
@@ -139,7 +153,9 @@
 			{
 				numericWidget.Maximum = a.Value;
 				if (numOptions != null)
+				{
 					numOptions.MaxRange = a.Value;
+				}
 			};
 			AddWidget(endWidget, row, 7);
 
@@ -156,7 +172,9 @@
 			{
 				numericWidget.StepSize = a.Value;
 				if (numOptions != null)
+				{
 					numOptions.StepSize = a.Value;
+				}
 			};
 			AddWidget(stepWidget, row, 8);
 
@@ -175,7 +193,9 @@
 				stepWidget.Decimals = d;
 				stepWidget.StepSize = 1 / Math.Pow(10, d);
 				if (numOptions != null)
+				{
 					numOptions.Decimals = d;
+				}
 			};
 			AddWidget(decimalsWidget, row, 9);
 		}

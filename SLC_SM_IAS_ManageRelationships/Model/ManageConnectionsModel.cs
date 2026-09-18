@@ -8,22 +8,24 @@
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Net.Apps.DataMinerObjectModel;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
 
 	using SLC_SM_IAS_ManageRelationships.Controller;
-	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement.Models;
+	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 
 	internal class ManageConnectionsModel
 	{
 		private readonly IEngine _engine;
 		private readonly DomHelper _wfDomHelper;
+		private readonly IServiceManagementApiHelper _serviceManagementApi;
 		private bool _workflowAvailable;
 
 		public ManageConnectionsModel(IEngine engine)
 		{
 			_engine = engine;
+			_serviceManagementApi = _engine.GetUserConnection().GetServiceManagementApiHelper("Service Inventory");
 
 			_workflowAvailable = _engine.DomModelExists(SlcWorkflowIds.ModuleId, null);
 
@@ -83,13 +85,18 @@
 			}
 		}
 
-		public List<Models.ServiceItemRelationShip> FindRelationshipsBetweenPair(
+		public List<Models.ServiceItemRelationship> FindRelationshipsBetweenPair(
 			IServiceItem instance,
 			(Models.ServiceItem, Models.ServiceItem) pair)
 		{
-			var relationships = instance.ServiceItemRelationShips;
-			var parentId = pair.Item1.ID.ToString();
-			var childId = pair.Item2.ID.ToString();
+			if (!pair.Item1.ServiceItemID.HasValue || !pair.Item2.ServiceItemID.HasValue)
+			{
+				throw new InvalidOperationException("Cannot resolve relationships for service items without a ServiceItemID.");
+			}
+
+			var relationships = instance.ServiceItemRelationships;
+			var parentId = pair.Item1.ServiceItemID.Value.ToString();
+			var childId = pair.Item2.ServiceItemID.Value.ToString();
 
 			return relationships.Where(r =>
 				r.ParentServiceItem == parentId &&
@@ -98,25 +105,25 @@
 
 		public IServiceItem GetInstance(Guid domId)
 		{
-			Models.Service service = new DataHelperService(_engine.GetUserConnection()).Read(ServiceExposers.Guid.Equal(domId)).FirstOrDefault();
+			Models.Service service = _serviceManagementApi.ServiceInventory.Services.Read(ServiceExposers.Identifier.Equal(domId.ToString())).FirstOrDefault();
 			if (service != null)
 			{
 				return new ScriptServiceItem
 				{
-					Guid = service.ID,
+					Guid = Guid.Parse(service.Identifier),
 					ServiceItems = service.ServiceItems,
-					ServiceItemRelationShips = service.ServiceItemsRelationships,
+					ServiceItemRelationships = service.ServiceItemsRelationships ?? new List<Models.ServiceItemRelationship>(),
 				};
 			}
 
-			Models.ServiceSpecification spec = new DataHelperServiceSpecification(_engine.GetUserConnection()).Read(ServiceSpecificationExposers.Guid.Equal(domId)).FirstOrDefault();
+			Models.ServiceSpecification spec = _serviceManagementApi.ServiceCatalog.ServiceSpecifications.Read(ServiceSpecificationExposers.Identifier.Equal(domId.ToString())).FirstOrDefault();
 			if (spec != null)
 			{
 				return new ScriptServiceItem
 				{
-					Guid = spec.ID,
+					Guid = Guid.Parse(spec.Identifier),
 					ServiceItems = spec.ServiceItems,
-					ServiceItemRelationShips = spec.ServiceItemsRelationships,
+					ServiceItemRelationships = spec.ServiceItemsRelationships ?? new List<Models.ServiceItemRelationship>(),
 				};
 			}
 
@@ -127,12 +134,12 @@
 			IServiceItem instance,
 			IEnumerable<string> serviceItemIds)
 		{
-			return instance.ServiceItems.Where(x => serviceItemIds.Contains(x.ID.ToString()));
+			return instance.ServiceItems.Where(x => x.ServiceItemID.HasValue && serviceItemIds.Contains(x.ServiceItemID.Value.ToString()));
 		}
 
 		public void Update(List<ServiceItemLinkMap> linkMap, IServiceItem instance)
 		{
-			var relationships = instance.ServiceItemRelationShips;
+			var relationships = instance.ServiceItemRelationships;
 
 			foreach (var link in linkMap.SelectMany(pair => pair.Links))
 			{
@@ -148,21 +155,19 @@
 					relationships.Add(link);
 			}
 
-			var dataHelperService = new DataHelperService(_engine.GetUserConnection());
-			Models.Service service = dataHelperService.Read(ServiceExposers.Guid.Equal(instance.Guid)).SingleOrDefault();
+			Models.Service service = _serviceManagementApi.ServiceInventory.Services.Read(ServiceExposers.Identifier.Equal(instance.Guid.ToString())).SingleOrDefault();
 			if (service != null)
 			{
 				service.ServiceItemsRelationships = relationships;
-				dataHelperService.CreateOrUpdate(service);
+				_serviceManagementApi.ServiceInventory.Services.Update(service);
 				return;
 			}
 
-			var dataHelperServiceSpecification = new DataHelperServiceSpecification(_engine.GetUserConnection());
-			Models.ServiceSpecification spec = dataHelperServiceSpecification.Read(ServiceSpecificationExposers.Guid.Equal(instance.Guid)).SingleOrDefault();
+			Models.ServiceSpecification spec = _serviceManagementApi.ServiceCatalog.ServiceSpecifications.Read(ServiceSpecificationExposers.Identifier.Equal(instance.Guid.ToString())).SingleOrDefault();
 			if (spec != null)
 			{
 				spec.ServiceItemsRelationships = relationships;
-				dataHelperServiceSpecification.CreateOrUpdate(spec);
+				_serviceManagementApi.ServiceCatalog.ServiceSpecifications.Update(spec);
 			}
 		}
 
@@ -186,12 +191,12 @@
 		{
 			if (serviceItem.Type == SlcServicemanagementIds.Enums.ServiceitemtypesEnum.Workflow)
 			{
-				return new WorkflowsInstanceAdapter(serviceItem, GetWorkflowbyName(serviceItem.DefinitionReference), instance.ServiceItemRelationShips);
+				return new WorkflowsInstanceAdapter(serviceItem, GetWorkflowbyName(serviceItem.DefinitionReference), instance.ServiceItemRelationships);
 			}
 
 			if (serviceItem.Type == SlcServicemanagementIds.Enums.ServiceitemtypesEnum.SRMBooking)
 			{
-				return new SRMBooking(serviceItem, instance.ServiceItemRelationShips);
+				return new SRMBooking(serviceItem, instance.ServiceItemRelationships);
 			}
 
 			if (serviceItem.Type == SlcServicemanagementIds.Enums.ServiceitemtypesEnum.Service)
