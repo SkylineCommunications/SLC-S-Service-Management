@@ -8,17 +8,22 @@ Revision History:
 DATE		VERSION		AUTHOR			COMMENTS
 
 28/08/2025	1.0.0.1		RCA, Skyline	Initial version
+20/08/2026	1.0.0.2		SKA, Skyline	Integration with Document Hub
 ****************************************************************************
 */
 
 namespace SLCSMASSetIcon
 {
 	using System;
+	using System.Collections;
+	using System.IO;
 	using System.Linq;
 	using DomHelpers.SlcServicemanagement;
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Net.Apps.DataMinerObjectModel;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
+	using Skyline.DataMiner.Solutions.DocumentHub.Automation;
+	using Skyline.DataMiner.Solutions.DocumentHub.SDM.Models;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.IAS;
 	using SLC_SM_AS_SetIcon;
 
@@ -27,8 +32,11 @@ namespace SLCSMASSetIcon
 	/// </summary>
 	public class Script
 	{
+		private const string PublicPathPrefix = "/Public/";
+
 		private ScriptData _scriptData;
 		private DomHelper _domHelper;
+		private IEngine _engine;
 
 		/// <summary>
 		/// The script entry point.
@@ -79,8 +87,63 @@ namespace SLCSMASSetIcon
 			}
 		}
 
+		private static void SetServiceItemIcon()
+		{
+			throw new InvalidOperationException("Setting an icon for ServiceItem is not supported.");
+		}
+
+		private static bool IsWebPathOrUrl(string value)
+		{
+			if (value.StartsWith(PublicPathPrefix, StringComparison.OrdinalIgnoreCase))
+			{
+				return true;
+			}
+
+			return Uri.TryCreate(value, UriKind.Absolute, out Uri uri) &&
+				(uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
+		}
+
+		private static string NormalizeWebPath(string webPath)
+		{
+			if (Uri.TryCreate(webPath, UriKind.Absolute, out Uri uri) &&
+				(uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
+			{
+				return webPath;
+			}
+
+			return webPath.StartsWith("/", StringComparison.Ordinal) ? webPath : $"/{webPath}";
+		}
+
+		private static bool TryConvertToPublicWebPath(string input, out string webPath)
+		{
+			webPath = String.Empty;
+			if (String.IsNullOrWhiteSpace(input))
+			{
+				return false;
+			}
+
+			const string marker = "public\\";
+			var normalizedInput = input.Replace('/', '\\');
+			var publicIndex = normalizedInput.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+			if (publicIndex < 0)
+			{
+				if (normalizedInput.StartsWith("webfilemanager\\", StringComparison.OrdinalIgnoreCase))
+				{
+					webPath = NormalizeWebPath($"{PublicPathPrefix}{normalizedInput.Replace('\\', '/')}");
+					return true;
+				}
+
+				return false;
+			}
+
+			var afterPublic = normalizedInput.Substring(publicIndex + "public".Length).Replace('\\', '/');
+			webPath = NormalizeWebPath($"{PublicPathPrefix.Remove(PublicPathPrefix.Length - 1, 1)}{afterPublic}");
+			return true;
+		}
+
 		private void RunSafe(IEngine engine)
 		{
+			_engine = engine;
 			_scriptData = new ScriptData(engine);
 			_domHelper = new DomHelper(engine.SendSLNetMessages, SlcServicemanagementIds.ModuleId);
 
@@ -105,11 +168,6 @@ namespace SLCSMASSetIcon
 			}
 		}
 
-		private void SetServiceItemIcon()
-		{
-			throw new NotImplementedException();
-		}
-
 		private void SetServiceIcon()
 		{
 			var filter = DomInstanceExposers.DomDefinitionId.Equal(SlcServicemanagementIds.Definitions.Services.Id)
@@ -121,10 +179,11 @@ namespace SLCSMASSetIcon
 				throw new Exception($"Could not find instance with id {_scriptData.DomId}");
 			}
 
-			var serviceCategory = new ServicesInstance(instance);
+			var service = new ServicesInstance(instance);
+			var icon = ResolveIconWebPath(_scriptData.Name);
 
-			serviceCategory.ServiceInfo.Icon = _scriptData.Name;
-			serviceCategory.Save(_domHelper);
+			service.ServiceInfo.Icon = icon;
+			service.Save(_domHelper);
 		}
 
 		private void SetServiceCategoryIcon()
@@ -140,8 +199,85 @@ namespace SLCSMASSetIcon
 
 			var serviceCategory = new ServiceCategoryInstance(instance);
 
-			serviceCategory.ServiceCategoryInfo.Icon = _scriptData.Name;
+			serviceCategory.ServiceCategoryInfo.Icon = ResolveIconWebPath(_scriptData.Name);
 			serviceCategory.Save(_domHelper);
+		}
+
+		private string ResolveIconWebPath(string value)
+		{
+			if (String.IsNullOrWhiteSpace(value))
+			{
+				return String.Empty;
+			}
+
+			var trimmedValue = value.Trim();
+			if (IsWebPathOrUrl(trimmedValue))
+			{
+				return NormalizeWebPath(trimmedValue);
+			}
+
+			if (TryConvertToPublicWebPath(trimmedValue, out string webPath))
+			{
+				return webPath;
+			}
+
+			if (TryResolveDocumentHubPathByFileName(trimmedValue, out string resolvedPath))
+			{
+				return resolvedPath;
+			}
+
+			return trimmedValue;
+		}
+
+		private bool TryResolveDocumentHubPathByFileName(string input, out string resolvedPath)
+		{
+			resolvedPath = String.Empty;
+			var fileName = Path.GetFileName(input);
+			if (String.IsNullOrWhiteSpace(fileName))
+			{
+				return false;
+			}
+
+			try
+			{
+				dynamic documentHubHelper = _engine.GetDocumentHubApiHelper();
+				var docHubClient = _engine.GetDocHubClient();
+				var buckets = ((IEnumerable)documentHubHelper.DocumentBuckets.Read(null))
+					.Cast<DocumentBucket>()
+					.OrderByDescending(bucket => bucket.IsDefault)
+					.ThenBy(bucket => bucket.Name ?? String.Empty)
+					.ToList();
+
+				if (buckets.Count == 0)
+				{
+					return false;
+				}
+
+				foreach (DocumentBucket bucket in buckets)
+				{
+					var files = docHubClient.Files.ReadFiles(bucket, null);
+					var match = files.FirstOrDefault(file => String.Equals(file.GetName(), fileName, StringComparison.OrdinalIgnoreCase));
+					if (match == null)
+					{
+						continue;
+					}
+
+					var webPath = match.GetWebPath();
+					if (String.IsNullOrWhiteSpace(webPath))
+					{
+						continue;
+					}
+
+					resolvedPath = NormalizeWebPath(webPath);
+					return true;
+				}
+			}
+			catch
+			{
+				// Ignore lookup failures and fall back to input value.
+			}
+
+			return false;
 		}
 	}
 }

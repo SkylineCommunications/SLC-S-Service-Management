@@ -1,0 +1,27 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<DMSScript options="272" xmlns="http://www.skyline.be/automation">
+	<Name>SLC_SM_DS_GetDocumentHubLogos</Name>
+	<Description></Description>
+	<Type>Automation</Type>
+	<Author>SKA</Author>
+	<CheckSets>FALSE</CheckSets>
+	<Folder>Service Management</Folder>
+
+	<Protocols>
+	</Protocols>
+
+	<Memory>
+	</Memory>
+
+	<Parameters>
+	</Parameters>
+
+	<Script>
+		<Exe id="1" type="csharp">
+			<Value><![CDATA[[Project:SLC_SM_DS_GetDocumentHubLogos]]]></Value>
+			<Param type="preCompile">true</Param>
+			<Param type="libraryName">SLCSMDSGetDocumentHubLogos</Param>
+			<Message></Message>
+		</Exe>
+	</Script>
+</DMSScript>

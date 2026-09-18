@@ -31,6 +31,9 @@
     <Project Path="SLC-SM-DS-Get Service Buttons/SLC-SM-DS-Get Service Buttons.csproj" />
     <Project Path="SLC-SM-DS-Get Service Order Buttons/SLC-SM-DS-Get Service Order Buttons.csproj" />
     <Project Path="SLC-SM-DS-Get Service Order Item Buttons/SLC-SM-DS-Get Service Order Item Buttons.csproj" />
+    <Project Path="SLC_SM_DS_GetDocumentHubLogos/SLC_SM_DS_GetDocumentHubLogos.csproj">
+      <Build Solution="Debug|*" Project="false" />
+    </Project>
     <Project Path="SLC_SM_DS_GetNodeEdgeServices/SLC_SM_DS_GetNodeEdgeServices.csproj" />
     <Project Path="SLC_SM_DS_GetServiceByServiceType/SLC_SM_DS_GetServiceByServiceType.csproj" />
     <Project Path="SLC_SM_DS_GetServiceDetails/SLC_SM_DS_GetServiceDetails.csproj" />
