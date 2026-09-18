@@ -1,10 +1,11 @@
-﻿namespace SLC_SM_IAS_Service_Spec_Configuration.Model.DataRecords
+namespace SLC_SM_IAS_Service_Spec_Configuration.Model.DataRecords
 {
+	using System;
 	using System.Collections.Generic;
 	using System.Linq;
-
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.Configurations;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
+	using Skyline.DataMiner.SDM;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
 
 	public partial class ServiceConfigurationPresenter
@@ -13,69 +14,112 @@
 		{
 			public State State { get; set; }
 
-			public Models.ServiceSpecificationProfile ServiceProfileConfig { get; set; }
+			public ServiceSpecificationProfile ServiceProfileConfig { get; set; }
 
-			public List<ProfileParameterDataRecord> ProfileParameterConfigs { get; set; }
+			public List<ProfileParameterDataRecord> ProfileParameterConfigs { get; set; } = new List<ProfileParameterDataRecord>();
 
-			public Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.Profile Profile { get; set; }
+			public Profile Profile { get; set; }
 
-			public Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ProfileDefinition ProfileDefinition { get; set; }
+			public ProfileDefinition ProfileDefinition { get; set; }
 
-			internal static ProfileDataRecord BuildProfileRecord(Models.ServiceSpecificationProfile currentConfig, List<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter> configParams)
+			public List<ReferencedConfigurationParameter> ResolvedReferencedConfigurationParameters { get; set; } = new List<ReferencedConfigurationParameter>();
+
+			public List<ConfigurationParameter> DefinitionConfigurationParameters { get; set; } = new List<ConfigurationParameter>();
+
+			internal static ProfileDataRecord BuildProfileRecord(
+				ServiceSpecificationProfile currentConfig,
+				Profile currentProfile,
+				ProfileDefinition currentProfileDefinition,
+				IReadOnlyDictionary<string, ConfigurationParameterValue> configParamValues,
+				IReadOnlyDictionary<string, ConfigurationParameter> configParams,
+				IReadOnlyDictionary<string, ReferencedConfigurationParameter> referencedConfigurationParameters,
+				IReadOnlyDictionary<string, NumberParameterOptions> numberOptions,
+				IReadOnlyDictionary<string, DiscreteParameterOptions> discreteOptions,
+				IReadOnlyDictionary<string, TextParameterOptions> textOptions,
+				IReadOnlyDictionary<string, ConfigurationUnit> units,
+				IReadOnlyDictionary<string, DiscreteValue> discreteValues)
 			{
 				var dataRecord = new ProfileDataRecord
 				{
 					State = State.Update,
 					ServiceProfileConfig = currentConfig,
-					ProfileParameterConfigs = new List<ProfileParameterDataRecord>(),
-					Profile = currentConfig.Profile,
-					ProfileDefinition = currentConfig.ProfileDefinition,
+					Profile = currentProfile,
+					ProfileDefinition = currentProfileDefinition,
+					ResolvedReferencedConfigurationParameters = Resolve(currentProfileDefinition?.ConfigurationParameters, referencedConfigurationParameters),
 				};
 
-				foreach (var currentParameterConfig in currentConfig.Profile.ConfigurationParameterValues)
+				dataRecord.DefinitionConfigurationParameters = dataRecord.ResolvedReferencedConfigurationParameters
+					.Select(refConfigParam => GetValue(configParams, refConfigParam.ConfigurationParameterId.Identifier))
+					.Where(configParam => configParam != null)
+					.ToList();
+
+				foreach (var currentParameterConfigRef in currentProfile?.ConfigurationParameterValues ?? new List<SdmObjectReference<ConfigurationParameterValue>>())
 				{
-					var configParam = configParams.Find(x => x.ID == currentParameterConfig?.ConfigurationParameterId);
+					var currentParameterConfig = GetValue(configParamValues, currentParameterConfigRef.Identifier);
+					if (currentParameterConfig == null)
+					{
+						continue;
+					}
+
+					var configParam = GetValue(configParams, currentParameterConfig.ConfigurationParameterId.Identifier);
 					if (configParam == null)
 					{
 						continue;
 					}
 
-					var refConfigParam = currentConfig.ProfileDefinition.ConfigurationParameters.Find(x => x.ConfigurationParameter == currentParameterConfig?.ConfigurationParameterId);
+					var refConfigParam = dataRecord.ResolvedReferencedConfigurationParameters
+						.FirstOrDefault(reference => String.Equals(reference.ConfigurationParameterId.Identifier, configParam.Identifier, StringComparison.Ordinal));
 
-					if (refConfigParam == null && currentConfig.Profile.IsReusable)
+					if (refConfigParam == null && currentProfile.IsReusable)
 					{
 						continue;
 					}
 
-					ProfileParameterDataRecord dataParameterRecord = ProfileParameterDataRecord.BuildParameterDataRecord(currentParameterConfig, configParam, refConfigParam);
-					dataRecord.ProfileParameterConfigs.Add(dataParameterRecord);
+					dataRecord.ProfileParameterConfigs.Add(ProfileParameterDataRecord.BuildParameterDataRecord(
+						currentParameterConfig,
+						configParam,
+						refConfigParam,
+						numberOptions,
+						discreteOptions,
+						textOptions,
+						units,
+						discreteValues));
 				}
 
 				return dataRecord;
 			}
 
-			internal List<Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter>> GetAvailableProfileParameters(DataHelpersConfigurations repoConfig)
+			internal List<Option<ConfigurationParameter>> GetAvailableProfileParameters()
 			{
-				var configParams = DomExtensions.GetConfigParameters(repoConfig, ProfileDefinition.ConfigurationParameters);
-
-				var parameterOptions = ProfileDefinition.ConfigurationParameters
-				.Select(refConfigParam =>
-				{
-					var configParam = configParams.FirstOrDefault(cp => cp.ID == refConfigParam.ConfigurationParameter);
-					return new
+				var parameterOptions = ResolvedReferencedConfigurationParameters
+					.Select(refConfigParam => new
 					{
 						RefConfigParam = refConfigParam,
-						ConfigParam = configParam,
-					};
-				})
-				.Where(x => x.ConfigParam != null &&
-				(x.RefConfigParam.AllowMultiple || !ProfileParameterConfigs.Any(pp => pp.State != State.Delete && pp.ConfigurationParam.ID == x.ConfigParam.ID)))
-				.Select(x => new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter>(x.ConfigParam.Name, x.ConfigParam))
-				.OrderBy(opt => opt.DisplayValue)
-				.ToList();
+						ConfigParam = DefinitionConfigurationParameters.FirstOrDefault(cp => cp.Identifier == refConfigParam.ConfigurationParameterId.Identifier),
+					})
+					.Where(x => x.ConfigParam != null &&
+						(x.RefConfigParam.AllowMultiple || !ProfileParameterConfigs.Any(pp => pp.State != State.Delete && pp.ConfigurationParam.Identifier == x.ConfigParam.Identifier)))
+					.Select(x => new Option<ConfigurationParameter>(x.ConfigParam.Name, x.ConfigParam))
+					.OrderBy(opt => opt.DisplayValue)
+					.ToList();
 
-				parameterOptions.Insert(0, new Option<Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameter>("- Parameter -", null));
+				parameterOptions.Insert(0, new Option<ConfigurationParameter>("- Parameter -", null));
 				return parameterOptions;
+			}
+
+			private static T GetValue<T>(IReadOnlyDictionary<string, T> values, string identifier)
+				where T : class
+			{
+				return !String.IsNullOrEmpty(identifier) && values.TryGetValue(identifier, out var value) ? value : null;
+			}
+
+			private static List<T> Resolve<T>(IEnumerable<SdmObjectReference<T>> references, IReadOnlyDictionary<string, T> values)
+				where T : SdmObject<T>
+			{
+				return references?
+					.Select(reference => GetValue(values, reference.Identifier))
+					.Where(value => value != null)
+					.ToList() ?? new List<T>();
 			}
 		}
 	}

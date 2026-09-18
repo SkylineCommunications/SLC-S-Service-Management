@@ -5,14 +5,13 @@ namespace SLC_SM_GQIDS_Get_Service_Order_Items_1
 	using System.Linq;
 	using DomHelpers.SlcServicemanagement;
 	using Skyline.DataMiner.Analytics.GenericInterface;
-	using Skyline.DataMiner.Net;
 	using Skyline.DataMiner.Net.Apps.DataMinerObjectModel;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
 	using SLC_SM_Common.Extensions;
 	using static DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Serviceorderitem_Behavior;
+	using SdmModels = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 
 	// Required to mark the interface as a GQI data source
 	[GQIMetaData(Name = DataSourceName)]
@@ -25,6 +24,7 @@ namespace SLC_SM_GQIDS_Get_Service_Order_Items_1
 
 		private GQIDMS _dms;
 		private IGQILogger _logger;
+		private IServiceManagementApiHelper _serviceManagementApiHelper;
 
 		// variable where input argument will be stored
 		private Guid _instanceDomId;
@@ -76,37 +76,48 @@ namespace SLC_SM_GQIDS_Get_Service_Order_Items_1
 			_dms = args.DMS;
 			_logger = args.Logger;
 			_logger.MinimumLogLevel = GQILogLevel.Debug;
+			_serviceManagementApiHelper = new ServiceManagementApiHelper(_dms.GetConnection(), "Service Ordering");
 			return default;
 		}
 
-		private static GQIRow BuildRow(Models.ServiceOrderItems item, List<Models.ServiceCategory> categories, List<Models.ServiceSpecification> specifications, List<Models.Service> services)
+		private static GQIRow BuildRow(
+			SdmModels.ServiceOrderItem item,
+			Dictionary<Guid, string> categories,
+			Dictionary<Guid, string> specifications,
+			Dictionary<Guid, string> services)
 		{
+			Guid categoryId;
+			Guid specificationId;
+			Guid serviceId;
+
+			var serviceIdentifier = item.ServiceInfo?.ServiceId != null ? item.ServiceInfo.ServiceId.Identifier : String.Empty;
+
 			GQICell[] columns = new[]
 				{
-					new GQICell { Value = item.ServiceOrderItem.ID.ToString() },
-					new GQICell { Value = item.ServiceOrderItem.Name },
-					new GQICell { Value = item.ServiceOrderItem.StartTime.HasValue ? item.ServiceOrderItem.StartTime.ToString() : "No Start Time" },
-					new GQICell { Value = item.ServiceOrderItem.EndTime.HasValue ? item.ServiceOrderItem.EndTime.ToString() : "No End Time" },
-					new GQICell { Value = item.ServiceOrderItem.Action },
+					new GQICell { Value = item.Identifier ?? String.Empty },
+					new GQICell { Value = item.Name },
+					new GQICell { Value = item.StartTime.HasValue ? item.StartTime.ToString() : "No Start Time" },
+					new GQICell { Value = item.EndTime.HasValue ? item.EndTime.ToString() : "No End Time" },
+					new GQICell { Value = item.Action },
 					new GQICell
 					{
-						Value = item.ServiceOrderItem.ServiceCategoryId.HasValue
-							? categories.FirstOrDefault(x => x.ID == item.ServiceOrderItem.ServiceCategoryId)?.Name ?? String.Empty
+						Value = item.ServiceInfo?.ServiceCategoryId != null && Guid.TryParse(item.ServiceInfo.ServiceCategoryId.Identifier, out categoryId)
+							? categories.TryGetValue(categoryId, out var categoryName) ? categoryName : String.Empty
 							: String.Empty,
 					},
 					new GQICell
 					{
-						Value = item.ServiceOrderItem.SpecificationId.HasValue
-							? specifications.FirstOrDefault(x => x.ID == item.ServiceOrderItem.SpecificationId)?.Name ?? String.Empty
+						Value = item.ServiceInfo?.SpecificationId != null && Guid.TryParse(item.ServiceInfo.SpecificationId.Identifier, out specificationId)
+							? specifications.TryGetValue(specificationId, out var specificationName) ? specificationName : String.Empty
 							: String.Empty,
 					},
 					new GQICell
 					{
-						Value = item.ServiceOrderItem.ServiceId.HasValue
-							? services.FirstOrDefault(x => x.ID == item.ServiceOrderItem.ServiceId)?.Name ?? String.Empty
+						Value = item.ServiceInfo?.ServiceId != null && Guid.TryParse(item.ServiceInfo.ServiceId.Identifier, out serviceId)
+							? services.TryGetValue(serviceId, out var serviceName) ? serviceName : String.Empty
 							: String.Empty,
 					},
-					new GQICell { Value = item.ServiceOrderItem.ServiceId?.ToString() ?? String.Empty },
+					new GQICell { Value = serviceIdentifier ?? String.Empty },
 					new GQICell
 					{
 						Value = String.Empty, // Property has been removed
@@ -115,11 +126,21 @@ namespace SLC_SM_GQIDS_Get_Service_Order_Items_1
 					{
 						Value = String.Empty, // Config has been replaced by multiple
 					},
-					new GQICell { Value = item.ServiceOrderItem.Status.GetDescription() },
-					new GQICell { Value = Statuses.ToValue(item.ServiceOrderItem.Status) },
-					new GQICell { Value = item.ServiceOrderItem.Description ?? String.Empty },
+					new GQICell { Value = item.Status.GetDescription() },
+					new GQICell { Value = Statuses.ToValue(item.Status) },
+					new GQICell { Value = item.Description ?? String.Empty },
 				};
-			return new GQIRow(item.ServiceOrderItem.ID.ToString(), columns) { Metadata = new GenIfRowMetadata(new[] { new ObjectRefMetadata { Object = new DomInstanceId(item.ServiceOrderItem.ID) { ModuleId = SlcServicemanagementIds.ModuleId } } }) };
+
+			Guid domId;
+			if (!Guid.TryParse(item.Identifier, out domId))
+			{
+				domId = Guid.Empty;
+			}
+
+			return new GQIRow(item.Identifier ?? String.Empty, columns)
+			{
+				Metadata = new GenIfRowMetadata(new[] { new ObjectRefMetadata { Object = new DomInstanceId(domId) { ModuleId = SlcServicemanagementIds.ModuleId } } }),
+			};
 		}
 
 		private GQIPage BuildupRows()
@@ -147,45 +168,70 @@ namespace SLC_SM_GQIDS_Get_Service_Order_Items_1
 				return Array.Empty<GQIRow>();
 			}
 
-			IConnection connection = _dms.GetConnection();
-			var order = _logger.PerformanceLogger("Get Order", () => new DataHelperServiceOrder(connection).Read(ServiceOrderExposers.Guid.Equal(_instanceDomId)).FirstOrDefault());
+			var order = _logger.PerformanceLogger(
+				"Get Order",
+				() => _serviceManagementApiHelper.ServiceOrder.ServiceOrders
+					.Read(SdmModels.ServiceOrderExposers.Identifier.Equal(_instanceDomId.ToString()))
+					.FirstOrDefault());
 			if (order == null)
 			{
 				return Array.Empty<GQIRow>();
 			}
 
-			var serviceOrderItems = order.OrderItems.Where(x => x?.ServiceOrderItem != null).ToList();
+			var serviceOrderItemIds = order.OrderItems
+				.Where(x => x?.ServiceOrderItemId != null && !String.IsNullOrWhiteSpace(x.ServiceOrderItemId.Identifier))
+				.Select(x => x.ServiceOrderItemId.Identifier)
+				.Distinct()
+				.ToList();
 
-			FilterElement<Models.ServiceCategory> filterCategory = new ORFilterElement<Models.ServiceCategory>();
-			FilterElement<Models.ServiceSpecification> filterSpecification = new ORFilterElement<Models.ServiceSpecification>();
-			FilterElement<Models.Service> filterService = new ORFilterElement<Models.Service>();
-			foreach (var serviceOrderItem in serviceOrderItems)
+			if (!serviceOrderItemIds.Any())
 			{
-				if (serviceOrderItem.ServiceOrderItem.ServiceCategoryId.HasValue && serviceOrderItem.ServiceOrderItem.ServiceCategoryId != Guid.Empty)
-				{
-					filterCategory = filterCategory.OR(ServiceCategoryExposers.Guid.Equal(serviceOrderItem.ServiceOrderItem.ServiceCategoryId.Value));
-				}
-
-				if (serviceOrderItem.ServiceOrderItem.SpecificationId.HasValue && serviceOrderItem.ServiceOrderItem.SpecificationId != Guid.Empty)
-				{
-					filterSpecification = filterSpecification.OR(ServiceSpecificationExposers.Guid.Equal(serviceOrderItem.ServiceOrderItem.SpecificationId.Value));
-				}
-
-				if (serviceOrderItem.ServiceOrderItem.ServiceId.HasValue && serviceOrderItem.ServiceOrderItem.ServiceId != Guid.Empty)
-				{
-					filterService = filterService.OR(ServiceExposers.Guid.Equal(serviceOrderItem.ServiceOrderItem.ServiceId.Value));
-				}
+				return Array.Empty<GQIRow>();
 			}
 
-			var categories = _logger.PerformanceLogger("Get Categories", () => !filterCategory.isEmpty()
-				? new DataHelperServiceCategory(connection).Read(filterCategory)
-				: new List<Models.ServiceCategory>());
-			var specifications = _logger.PerformanceLogger("Get Specifications", () => !filterSpecification.isEmpty()
-				? new DataHelperServiceSpecification(connection).Read(filterSpecification)
-				: new List<Models.ServiceSpecification>());
-			var services = _logger.PerformanceLogger("Get Services", () => !filterService.isEmpty()
-				? new DataHelperService(connection).Read(filterService)
-				: new List<Models.Service>());
+			var serviceOrderItems = _serviceManagementApiHelper.ServiceOrder.ServiceOrderItems
+				.Read(new TRUEFilterElement<SdmModels.ServiceOrderItem>())
+				.Where(x => serviceOrderItemIds.Contains(x.Identifier))
+				.ToList();
+
+			var categoryIds = serviceOrderItems
+				.Where(x => x.ServiceInfo?.ServiceCategoryId != null && Guid.TryParse(x.ServiceInfo.ServiceCategoryId.Identifier, out var _))
+				.Select(x => Guid.Parse(x.ServiceInfo.ServiceCategoryId.Identifier))
+				.Distinct()
+				.ToList();
+
+			var specificationIds = serviceOrderItems
+				.Where(x => x.ServiceInfo?.SpecificationId != null && Guid.TryParse(x.ServiceInfo.SpecificationId.Identifier, out var _))
+				.Select(x => Guid.Parse(x.ServiceInfo.SpecificationId.Identifier))
+				.Distinct()
+				.ToList();
+
+			var serviceIds = serviceOrderItems
+				.Where(x => x.ServiceInfo?.ServiceId != null && Guid.TryParse(x.ServiceInfo.ServiceId.Identifier, out var _))
+				.Select(x => Guid.Parse(x.ServiceInfo.ServiceId.Identifier))
+				.Distinct()
+				.ToList();
+
+			var categories = _logger.PerformanceLogger(
+				"Get Categories",
+				() => _serviceManagementApiHelper.ServiceCatalog.ServiceCategories
+					.Read(new TRUEFilterElement<SdmModels.ServiceCategory>())
+					.Where(x => Guid.TryParse(x.Identifier, out var id) && categoryIds.Contains(id))
+					.ToDictionary(x => Guid.Parse(x.Identifier), x => x.Name ?? String.Empty));
+
+			var specifications = _logger.PerformanceLogger(
+				"Get Specifications",
+				() => _serviceManagementApiHelper.ServiceCatalog.ServiceSpecifications
+					.Read(new TRUEFilterElement<SdmModels.ServiceSpecification>())
+					.Where(x => Guid.TryParse(x.Identifier, out var id) && specificationIds.Contains(id))
+					.ToDictionary(x => Guid.Parse(x.Identifier), x => x.Name ?? String.Empty));
+
+			var services = _logger.PerformanceLogger(
+				"Get Services",
+				() => _serviceManagementApiHelper.ServiceInventory.Services
+					.Read(new TRUEFilterElement<SdmModels.Service>())
+					.Where(x => Guid.TryParse(x.Identifier, out var id) && serviceIds.Contains(id))
+					.ToDictionary(x => Guid.Parse(x.Identifier), x => x.Name ?? String.Empty));
 
 			return _logger.PerformanceLogger(
 				"Build Rows",

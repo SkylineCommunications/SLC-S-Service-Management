@@ -1,49 +1,34 @@
-﻿namespace SLC_SM_IAS_Service_Configuration.Presenters
+namespace SLC_SM_IAS_Service_Configuration.Presenters
 {
 	using System;
 	using System.Collections.Generic;
 	using System.Linq;
-
-	using Skyline.DataMiner.Automation;
-	using Skyline.DataMiner.Net.Messages.SLDataGateway;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.Logger;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.Configurations;
+	using Skyline.DataMiner.SDM;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
-
 	using SLC_SM_IAS_Service_Configuration.Model;
 	using SLC_SM_IAS_Service_Configuration.Views;
-
-	using static Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models;
 
 	public partial class ServiceConfigurationPresenter
 	{
 		private void OpenNestedProfileEditPage(
 			ProfileDataRecord child,
 			int depth,
-			HashSet<Guid> ancestorDefinitionIds,
+			HashSet<string> ancestorDefinitionIds,
 			string parentName = null)
 		{
 			var editView = new NestedProfileView(engine);
-			string childProfileName = child.Profile?.Name ?? child.ProfileDefinition.Name;
+			string childProfileName = child.Profile?.Name ?? child.ProfileDefinition?.Name;
 			string updatedParentName = string.IsNullOrEmpty(parentName)
 				? childProfileName
 				: $"{parentName} > {childProfileName}";
 
 			var helper = new NestedProfileEditHelper(
-				engine,
-				controller,
+				this,
 				editView,
 				previousView: view,
-				onBack: null,
 				profile: child,
-				repoConfig: repoConfig,
-				profileDefinitions: profileDefinitions,
-				reusableProfiles: reusableProfiles,
-				configuration: configuration,
-				serviceEditLogs: serviceEditLogs,
-				serviceId: instanceService.ServiceID,
 				depth: depth,
 				ancestorDefinitionIds: ancestorDefinitionIds,
 				parentName: updatedParentName,
@@ -59,63 +44,39 @@
 			private const int ButtonWidth = 200;
 			private const int AddButtonWidth = 70;
 
-			private readonly IEngine engine;
-			private readonly InteractiveController controller;
+			private readonly ServiceConfigurationPresenter presenter;
 			private readonly NestedProfileView view;
 			private readonly Dialog previousView;
-			private readonly Action onBack;
 			private readonly ProfileDataRecord profile;
-			private readonly DataHelpersConfigurations repoConfig;
-			private readonly List<ProfileDefinition> profileDefinitions;
-			private readonly List<Profile> reusableProfiles;
-			private readonly ConfigurationDataRecord configuration;
-			private readonly List<string> serviceEditLogs;
-			private readonly string serviceId;
 			private readonly int depth;
-			private readonly HashSet<Guid> ancestorDefinitionIds;
+			private readonly HashSet<string> ancestorDefinitionIds;
 			private readonly Action onSaved;
 			private readonly string parentName;
 
 			private bool showDetails;
 
 			public NestedProfileEditHelper(
-				IEngine engine,
-				InteractiveController controller,
+				ServiceConfigurationPresenter presenter,
 				NestedProfileView view,
 				Dialog previousView,
-				Action onBack,
 				ProfileDataRecord profile,
-				DataHelpersConfigurations repoConfig,
-				List<ProfileDefinition> profileDefinitions,
-				List<Profile> reusableProfiles,
-				ConfigurationDataRecord configuration,
-				List<string> serviceEditLogs,
-				string serviceId,
 				int depth,
-				HashSet<Guid> ancestorDefinitionIds,
+				HashSet<string> ancestorDefinitionIds,
 				string parentName,
 				bool initialShowDetails = false,
 				Action onSaved = null)
 			{
-				this.engine = engine;
-				this.controller = controller;
+				this.presenter = presenter;
 				this.view = view;
 				this.previousView = previousView;
-				this.onBack = onBack;
 				this.profile = profile;
-				this.repoConfig = repoConfig;
-				this.profileDefinitions = profileDefinitions;
-				this.reusableProfiles = reusableProfiles;
-				this.configuration = configuration;
-				this.serviceEditLogs = serviceEditLogs;
-				this.serviceId = serviceId;
 				this.depth = depth;
 				this.ancestorDefinitionIds = ancestorDefinitionIds;
 				this.onSaved = onSaved;
 				this.showDetails = initialShowDetails;
 				this.parentName = parentName;
 
-				ButtonActions();
+				WireButtons();
 			}
 
 			public void BuildView()
@@ -134,7 +95,9 @@
 				row = BuildSubNestedProfilesTable(row);
 
 				if (!profile.ServiceProfileConfig.Mandatory && !profile.Profile.IsReusable)
+				{
 					RenderAddParameter(ref row);
+				}
 
 				view.AddWidget(new WhiteSpace(), ++row, 0);
 				view.AddWidget(view.BackButton, ++row, 0);
@@ -148,7 +111,7 @@
 				button.IsVisible = visible;
 			}
 
-			private void ButtonActions()
+			private void WireButtons()
 			{
 				view.ShowValueDetails.Text = showDetails ? "Hide Value Details" : "Show Value Details";
 				view.ShowValueDetails.Pressed += (s, a) =>
@@ -159,18 +122,14 @@
 				};
 
 				view.BackButton.MaxWidth = ButtonWidth;
-				view.BackButton.Pressed += (s, a) =>
-				{
-					onBack?.Invoke();
-					controller.ShowDialog(previousView);
-				};
+				view.BackButton.Pressed += (s, a) => presenter.controller.ShowDialog(previousView);
 
 				view.SaveButton.MaxWidth = ButtonWidth;
 				view.SaveButton.Pressed += (s, a) =>
 				{
-					serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(serviceId, "Edit", $"Saved nested profile '{profile.Profile.Name}'"));
+					presenter.serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(presenter.instanceService.ServiceID, "Edit", $"Saved nested profile '{profile.Profile.Name}'"));
 					onSaved?.Invoke();
-					controller.ShowDialog(previousView);
+					presenter.controller.ShowDialog(previousView);
 				};
 			}
 
@@ -190,11 +149,11 @@
 
 					bool isMandatory = profile.ServiceProfileConfig.Mandatory || param.Mandatory || isReusable;
 
-					var labelBox = new TextBox(param.ConfigurationParamValue.Label ?? string.Empty) { IsEnabled = !isReusable };
+					var labelBox = new TextBox(param.ConfigurationParamValue.Label ?? String.Empty) { IsEnabled = !isReusable };
 					labelBox.Changed += (s, a) =>
 					{
 						captured.ConfigurationParamValue.Label = a.Value;
-						serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(serviceId, "Edit", $"Changed nested parameter label from '{a.Previous}' to '{a.Value}'"));
+						presenter.serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(presenter.instanceService.ServiceID, "Edit", $"Changed nested parameter label from '{a.Previous}' to '{a.Value}'"));
 					};
 
 					view.AddWidget(labelBox, row, 0);
@@ -202,13 +161,16 @@
 					view.AddParameterValueWidget(captured, row, isReusable, showDetails);
 
 					if (isMandatory)
+					{
 						continue;
+					}
 
 					var deleteBtn = new Button("🚫");
 					deleteBtn.Pressed += (s, a) =>
 					{
 						captured.State = State.Delete;
-						serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(serviceId, "Edit", $"Deleted nested parameter '{captured.ConfigurationParam?.Name}'"));
+						profile.Profile?.ConfigurationParameterValues?.RemoveAll(reference => reference.Identifier == captured.ConfigurationParamValue.Identifier);
+						presenter.serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(presenter.instanceService.ServiceID, "Edit", $"Deleted nested parameter '{captured.ConfigurationParam?.Name}'"));
 						BuildView();
 					};
 					view.AddWidget(deleteBtn, row, 5);
@@ -220,24 +182,21 @@
 				view.AddWidget(new WhiteSpace(), ++row, 0);
 				view.AddWidget(new Label("Add Parameter:") { Style = TextStyle.Heading }, ++row, 0, HorizontalAlignment.Right);
 
-				var paramDropDown = new DropDown<ConfigurationParameter>(profile.GetAvailableProfileParameters(repoConfig));
+				var paramDropDown = new DropDown<ConfigurationParameter>(profile.GetAvailableProfileParameters());
 				view.AddWidget(paramDropDown, row, 1);
 
-				var addButton = new Button("Add") { MaxWidth = AddButtonWidth };
-				addButton.Pressed += (s, a) =>
+				var addBtn = new Button("Add") { MaxWidth = AddButtonWidth };
+				addBtn.Pressed += (s, a) =>
 				{
 					if (paramDropDown.Selected == null)
+					{
 						return;
+					}
 
-					var selected = paramDropDown.Selected;
-					var configParamValue = HelperMethods.BuildConfigurationParameter(selected);
-					var defParam = profile.ProfileDefinition?.ConfigurationParameters?.FirstOrDefault(p => p.ConfigurationParameter == selected.ID);
-					profile.ProfileParameterConfigs.Add(ProfileParameterDataRecord.BuildParameterDataRecord(configParamValue, selected, defParam, State.Create));
-					profile.Profile.ConfigurationParameterValues.Add(configParamValue);
-					serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(serviceId, "Edit", $"Added nested parameter '{selected.Name}'"));
+					presenter.AddProfileParameterConfigModel(profile, paramDropDown.Selected);
 					BuildView();
 				};
-				view.AddWidget(addButton, row, 2);
+				view.AddWidget(addBtn, row, 2);
 			}
 
 			private int BuildSubNestedProfilesTable(int row)
@@ -245,13 +204,17 @@
 				bool canAddDeeper = depth < MaxNestedProfileDepth;
 
 				if (profile.ServiceProfileConfig.Mandatory || profile.Profile.IsReusable)
+				{
 					return row;
+				}
 
 				var childAncestors = BuildChildAncestors();
-				var children = GetChildProfileRecords(profile);
+				var children = presenter.GetChildProfileRecords(profile);
 
 				if (!children.Any() && !canAddDeeper)
+				{
 					return row;
+				}
 
 				view.AddWidget(new WhiteSpace(), ++row, 0);
 
@@ -265,18 +228,33 @@
 						var captured = child;
 						++row;
 
-						var nameBox = new TextBox(child.Profile.Name);
+						var nameBox = new TextBox(child.Profile.Name)
+						{
+							IsEnabled = !child.Profile.IsReusable,
+							IsReadOnly = child.Profile.IsReusable,
+						};
+
 						nameBox.Changed += (s, a) =>
 						{
-							if (string.IsNullOrWhiteSpace(a.Value))
+							if (captured.Profile.IsReusable)
+							{
+								((TextBox)s).Text = captured.Profile.Name;
+								return;
+							}
+
+							if (String.IsNullOrWhiteSpace(a.Value))
 							{
 								((TextBox)s).Text = a.Previous;
 								return;
 							}
 
 							captured.Profile.Name = a.Value;
-							serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(serviceId, "Edit", $"Changed nested profile name from '{a.Previous}' to '{a.Value}'"));
+							presenter.serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(
+								presenter.instanceService.ServiceID,
+								"Edit",
+								$"Changed nested profile name from '{a.Previous}' to '{a.Value}'"));
 						};
+
 						view.AddWidget(nameBox, row, 0);
 						view.AddWidget(new TextBox(child.ProfileDefinition?.Name ?? "-") { IsEnabled = false }, row, 1);
 						view.AddWidget(BuildEditButton(child, childAncestors), row, 8);
@@ -285,46 +263,43 @@
 				}
 
 				if (canAddDeeper)
+				{
 					RenderAddChildProfile(ref row, childAncestors);
+				}
 
 				return row;
 			}
 
-			private HashSet<Guid> BuildChildAncestors()
+			private HashSet<string> BuildChildAncestors()
 			{
-				var childAncestors = new HashSet<Guid>(ancestorDefinitionIds);
-				if (profile.ProfileDefinition?.ID != null)
-					childAncestors.Add(profile.ProfileDefinition.ID);
+				var childAncestors = new HashSet<string>(ancestorDefinitionIds);
+				if (profile.ProfileDefinition?.Identifier != null)
+				{
+					childAncestors.Add(profile.ProfileDefinition.Identifier);
+				}
+
 				return childAncestors;
 			}
 
-			private Button BuildEditButton(ProfileDataRecord child, HashSet<Guid> childAncestors)
+			private Button BuildEditButton(ProfileDataRecord child, HashSet<string> childAncestors)
 			{
 				var editButton = new Button("✏️");
 				editButton.Pressed += (s, a) =>
 				{
-					var childEditView = new NestedProfileView(engine);
+					var childEditView = new NestedProfileView(presenter.engine);
 					string childProfileName = child.Profile?.Name ?? child.ProfileDefinition?.Name;
 					var helper = new NestedProfileEditHelper(
-						engine,
-						controller,
+						presenter,
 						childEditView,
 						previousView: view,
-						onBack: BuildView,
 						profile: child,
-						repoConfig: repoConfig,
-						profileDefinitions: profileDefinitions,
-						reusableProfiles: reusableProfiles,
-						configuration: configuration,
-						serviceEditLogs: serviceEditLogs,
-						serviceId: serviceId,
 						depth: depth + 1,
 						ancestorDefinitionIds: childAncestors,
 						parentName: $"{parentName} > {childProfileName}",
 						initialShowDetails: showDetails,
 						onSaved: BuildView);
 					helper.BuildView();
-					controller.ShowDialog(childEditView);
+					presenter.controller.ShowDialog(childEditView);
 				};
 				return editButton;
 			}
@@ -334,20 +309,20 @@
 				var deleteButton = new Button("🚫") { IsEnabled = !child.ServiceProfileConfig.Mandatory };
 				deleteButton.Pressed += (s, a) =>
 				{
-					DeleteProfileAndDescendants(child, profile);
+					presenter.DeleteProfileAndDescendants(child, profile);
 					BuildView();
 				};
 				return deleteButton;
 			}
 
-			private void RenderAddChildProfile(ref int row, HashSet<Guid> childAncestors)
+			private void RenderAddChildProfile(ref int row, HashSet<string> childAncestors)
 			{
 				view.AddWidget(new WhiteSpace(), ++row, 0);
 				view.AddWidget(new Label("Add Profile:") { Style = TextStyle.Heading }, ++row, 0, HorizontalAlignment.Right);
 
-				var definitionOptions = profileDefinitions
-					.Where(pd => !childAncestors.Contains(pd.ID))
-					.Select(pd => new Option<ProfileOption>(pd.Name, new ProfileOption(pd.ID, pd.Name, true)))
+				var definitionOptions = presenter.profileDefinitions
+					.Where(pd => !childAncestors.Contains(pd.Identifier))
+					.Select(pd => new Option<ProfileOption>(pd.Name, new ProfileOption(pd.Identifier, pd.Name, true)))
 					.OrderBy(x => x.DisplayValue)
 					.ToList();
 				definitionOptions.Insert(0, new Option<ProfileOption>("- Profile Definition -", null));
@@ -359,9 +334,11 @@
 				addDefinitionBtn.Pressed += (s, a) =>
 				{
 					if (definitionDropDown.Selected == null)
+					{
 						return;
+					}
 
-					AddChildProfileConfigModel(profile, definitionDropDown.Selected);
+					presenter.AddChildProfileConfigModel(profile, definitionDropDown.Selected);
 					BuildView();
 				};
 				view.AddWidget(addDefinitionBtn, row, 2);
@@ -386,14 +363,14 @@
 					}
 
 					var existingChildIds = profile.Profile?.Profiles != null
-						? new HashSet<Guid>(profile.Profile.Profiles)
-						: new HashSet<Guid>();
+						? new HashSet<string>(profile.Profile.Profiles.Select(reference => reference.Identifier))
+						: new HashSet<string>();
 
-					var matchingReusable = (reusableProfiles ?? new List<Profile>())
-						.Where(p => p.ProfileDefinitionReference == a.Selected.Id
-								 && !childAncestors.Contains(p.ProfileDefinitionReference)
-								 && !existingChildIds.Contains(p.ID))
-						.Select(p => new Option<ProfileOption>(p.Name, new ProfileOption(p.ID, p.Name, false)))
+					var matchingReusable = (presenter.reusableProfiles ?? new List<Profile>())
+						.Where(p => p.ProfileDefinitionId.Identifier == a.Selected.Id
+								 && !childAncestors.Contains(p.ProfileDefinitionId.Identifier)
+								 && !existingChildIds.Contains(p.Identifier))
+						.Select(p => new Option<ProfileOption>(p.Name, new ProfileOption(p.Identifier, p.Name, false)))
 						.OrderBy(x => x.DisplayValue)
 						.ToList();
 
@@ -411,123 +388,13 @@
 				addReusableButton.Pressed += (s, a) =>
 				{
 					if (reusableDropDown.Selected == null)
+					{
 						return;
+					}
 
-					AddChildProfileConfigModel(profile, reusableDropDown.Selected);
+					presenter.AddChildProfileConfigModel(profile, reusableDropDown.Selected);
 					BuildView();
 				};
-			}
-
-			private List<ProfileDataRecord> GetChildProfileRecords(ProfileDataRecord parent)
-			{
-				if (parent.Profile?.Profiles == null || !parent.Profile.Profiles.Any())
-					return new List<ProfileDataRecord>();
-
-				return configuration.ServiceProfileConfigs
-					.Where(x => x.State != State.Delete && parent.Profile.Profiles.Contains(x.Profile.ID))
-					.ToList();
-			}
-
-			private void DeleteProfileAndDescendants(ProfileDataRecord record, ProfileDataRecord parent)
-			{
-				foreach (var child in GetChildProfileRecords(record))
-					DeleteProfileAndDescendants(child, record);
-
-				record.State = State.Delete;
-				configuration.ServiceConfigurationVersion.Profiles.Remove(record.ServiceProfileConfig);
-				parent?.Profile?.Profiles?.Remove(record.Profile.ID);
-				serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(serviceId, "Edit", $"Deleted profile '{record.Profile.Name}'"));
-			}
-
-			private void AddChildProfileConfigModel(ProfileDataRecord parent, ProfileOption childOption)
-			{
-				if (childOption == null)
-					return;
-
-				if (parent.Profile.Profiles == null)
-					parent.Profile.Profiles = new List<Guid>();
-
-				if (childOption.IsProfileDefinition)
-					AddChildProfileFromDefinition(parent, childOption);
-				else
-					AddChildProfileFromReusable(parent, childOption);
-			}
-
-			private void AddChildProfileFromDefinition(ProfileDataRecord parent, ProfileOption childOption)
-			{
-				var childDefinition = profileDefinitions.Find(pd => pd.ID == childOption.Id);
-				if (childDefinition == null)
-					return;
-
-				var configParams = HelperMethods.GetConfigParameters(repoConfig, childDefinition.ConfigurationParameters);
-
-				var parameterValues = childDefinition.ConfigurationParameters
-					.Select(refParam => configParams.FirstOrDefault(p => p.ID == refParam.ConfigurationParameter))
-					.Where(configParam => configParam != null)
-					.Select(configParam => HelperMethods.BuildConfigurationParameter(configParam))
-					.ToList();
-
-				var childProfile = new Profile
-				{
-					ID = Guid.NewGuid(),
-					Name = childOption.Name,
-					ProfileDefinitionReference = childDefinition.ID,
-					ConfigurationParameterValues = parameterValues,
-				};
-
-				var childProfileConfig = new Models.ServiceProfile
-				{
-					ID = Guid.NewGuid(),
-					Mandatory = false,
-					ProfileDefinition = childDefinition,
-					Profile = childProfile,
-				};
-
-				parent.Profile.Profiles.Add(childProfile.ID);
-				configuration.ServiceConfigurationVersion.Profiles.Add(childProfileConfig);
-				configuration.ServiceProfileConfigs.Add(ProfileDataRecord.BuildProfileRecord(engine, childProfileConfig, configParams, State.Create));
-				serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(serviceId, "Edit", $"Added nested profile '{childProfile.Name}' under '{parent.Profile.Name}'"));
-			}
-
-			private void AddChildProfileFromReusable(ProfileDataRecord parent, ProfileOption childOption)
-			{
-				var profileInstance = reusableProfiles.Find(p => p.ID == childOption.Id);
-				if (profileInstance == null)
-					return;
-
-				if (parent.Profile.Profiles == null)
-					parent.Profile.Profiles = new List<Guid>();
-
-				if (parent.Profile.Profiles.Contains(profileInstance.ID))
-					return;
-
-				bool alreadyTracked = configuration.ServiceProfileConfigs
-					.Any(x => x.State != State.Delete && x.Profile?.ID == profileInstance.ID);
-
-				if (!alreadyTracked)
-				{
-					var profileDefinitionInstance = repoConfig.ProfileDefinitions
-						.Read(ProfileDefinitionExposers.Guid.Equal(profileInstance.ProfileDefinitionReference))
-						.FirstOrDefault();
-
-					if (profileDefinitionInstance == null)
-						return;
-
-					var childProfileConfig = new Models.ServiceProfile
-					{
-						ID = Guid.NewGuid(),
-						Mandatory = false,
-						Profile = profileInstance,
-						ProfileDefinition = profileDefinitionInstance,
-					};
-
-					var configParams = HelperMethods.GetConfigParameters(repoConfig, profileInstance);
-					configuration.ServiceConfigurationVersion.Profiles.Add(childProfileConfig);
-					configuration.ServiceProfileConfigs.Add(ProfileDataRecord.BuildProfileRecord(engine, childProfileConfig, configParams, State.Create));
-				}
-
-				parent.Profile.Profiles.Add(profileInstance.ID);
-				serviceEditLogs.Add(ServiceManagementLogHelper.GenerateLogMessage(serviceId, "Edit", $"Added reusable nested profile '{profileInstance.Name}' under '{parent.Profile.Name}'"));
 			}
 		}
 	}

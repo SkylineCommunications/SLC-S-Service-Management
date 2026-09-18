@@ -3,7 +3,7 @@
 	using Library;
 
 	using Skyline.DataMiner.Automation;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.Configurations;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
 
 	public class ServiceConfigurationView : Dialog
@@ -24,7 +24,7 @@
 
 		public CollapseButton BtnShowLifeCycleDetails { get; } = new CollapseButton { IsCollapsed = false, ExpandText = "Show Lifecycle Details", CollapseText = "Hide Lifecycle Details" };
 
-		public DropDown<Models.ConfigurationParameter> AddParameter { get; } = new DropDown<Models.ConfigurationParameter> { IsDisplayFilterShown = true };
+		public DropDown<ConfigurationParameter> AddParameter { get; } = new DropDown<ConfigurationParameter> { IsDisplayFilterShown = true };
 
 		public Button BtnAddParameter { get; } = new Button("Add") { MaxWidth = 70 };
 	}

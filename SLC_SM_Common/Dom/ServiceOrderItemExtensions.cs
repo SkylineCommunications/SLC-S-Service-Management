@@ -5,11 +5,12 @@
 	using DomHelpers.SlcServicemanagement;
 	using Skyline.DataMiner.Net;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 	using SLC_SM_Common.Dom;
 	using SLC_SM_Common.Extensions;
 	using static DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Serviceorderitem_Behavior;
+	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 
 	public static class ServiceOrderItemExtensions
 	{
@@ -41,11 +42,11 @@
 				return false;
 			}
 
+			var api = connection.GetServiceManagementApiHelper("Service Ordering");
 			connection.GenerateInformationMessage($"[SMS] Status Transition: {orderItem.Name} → {transition}");
-			orderItem = new DataHelperServiceOrderItem(connection).UpdateState(orderItem, transition);
+			orderItem = api.ServiceOrder.ServiceOrderItems.TransitionStatus(orderItem, transition);
 
-			var orderHelper = new DataHelperServiceOrder(connection);
-			var order = orderHelper.Read(ServiceOrderExposers.ServiceOrderItemsExposers.ServiceOrderItem.Equal(orderItem)).FirstOrDefault();
+			var order = FindParentOrder(api, orderItem);
 			order?.StatusUpdateToInProgress(connection);
 
 			return orderItem?.Status == StatusesEnum.InProgress;
@@ -74,11 +75,11 @@
 				return false;
 			}
 
+			var api = connection.GetServiceManagementApiHelper("Service Ordering");
 			connection.GenerateInformationMessage($"[SMS] Status Transition: {orderItem.Name} → {transition}");
-			orderItem = new DataHelperServiceOrderItem(connection).UpdateState(orderItem, transition);
+			orderItem = api.ServiceOrder.ServiceOrderItems.TransitionStatus(orderItem, transition);
 
-			var orderHelper = new DataHelperServiceOrder(connection);
-			var order = orderHelper.Read(ServiceOrderExposers.ServiceOrderItemsExposers.ServiceOrderItem.Equal(orderItem)).FirstOrDefault();
+			var order = FindParentOrder(api, orderItem);
 			order?.UpdateStatusToAcknowledged(connection);
 
 			return orderItem?.Status == StatusesEnum.Acknowledged;
@@ -107,11 +108,11 @@
 				return;
 			}
 
+			var api = connection.GetServiceManagementApiHelper("Service Ordering");
 			connection.GenerateInformationMessage($"[SMS] Status Transition: {orderItem.Name} → {transition}");
-			orderItem = new DataHelperServiceOrderItem(connection).UpdateState(orderItem, transition);
+			orderItem = api.ServiceOrder.ServiceOrderItems.TransitionStatus(orderItem, transition);
 
-			var orderHelper = new DataHelperServiceOrder(connection);
-			var order = orderHelper.Read(ServiceOrderExposers.ServiceOrderItemsExposers.ServiceOrderItem.Equal(orderItem)).FirstOrDefault();
+			var order = FindParentOrder(api, orderItem);
 			order?.StatusUpdateToCompleted(connection);
 		}
 
@@ -148,14 +149,16 @@
 				return orderItem;
 			}
 
-			var itemHelper = new DataHelperServiceOrderItem(connection);
+			var orderingApi = connection.GetServiceManagementApiHelper("Service Ordering");
 			connection.GenerateInformationMessage($"[SMS] Status Transition: {orderItem.Name} → {transition}");
-			orderItem = itemHelper.UpdateState(orderItem, transition);
+			orderItem = orderingApi.ServiceOrder.ServiceOrderItems.TransitionStatus(orderItem, transition);
 
-			if (orderItem.ServiceId.HasValue)
+			var linkedServiceId = GetLinkedServiceIdentifier(orderItem);
+			if (!String.IsNullOrWhiteSpace(linkedServiceId)
+				&& Guid.TryParse(linkedServiceId, out Guid _))
 			{
-				var srvHelper = new DataHelperService(connection);
-				var srv = srvHelper.Read(ServiceExposers.Guid.Equal(orderItem.ServiceId.Value)).FirstOrDefault();
+				var inventoryApi = connection.GetServiceManagementApiHelper("Service Inventory");
+				var srv = inventoryApi.ServiceInventory.Services.Read(ServiceExposers.Identifier.Equal(linkedServiceId)).FirstOrDefault();
 				srv?.UpdateStatusToRetired(connection);
 			}
 
@@ -176,12 +179,15 @@
 				return false;
 			}
 
-			if (!orderItem.ServiceId.HasValue)
+			var linkedServiceId = GetLinkedServiceIdentifier(orderItem);
+			if (String.IsNullOrWhiteSpace(linkedServiceId) || !Guid.TryParse(linkedServiceId, out Guid _))
 			{
 				return true;
 			}
 
-			var linkedService = new DataHelperService(connection).Read(ServiceExposers.Guid.Equal(orderItem.ServiceId.Value)).FirstOrDefault();
+			var linkedService = connection.GetServiceManagementApiHelper("Service Inventory")
+				.ServiceInventory.Services.Read(ServiceExposers.Identifier.Equal(linkedServiceId))
+				.FirstOrDefault();
 			if (linkedService == null)
 			{
 				return true;
@@ -194,6 +200,29 @@
 			}
 
 			return true;
+		}
+
+		private static Models.ServiceOrder FindParentOrder(IServiceManagementApiHelper api, Models.ServiceOrderItem orderItem)
+		{
+			if (orderItem == null || String.IsNullOrWhiteSpace(orderItem.Identifier))
+			{
+				return null;
+			}
+
+			return api.ServiceOrder.ServiceOrders.Read(new TRUEFilterElement<Models.ServiceOrder>())
+				.FirstOrDefault(order => order.OrderItems.Any(entry =>
+					entry?.ServiceOrderItemId != null
+					&& String.Equals(entry.ServiceOrderItemId.Identifier, orderItem.Identifier, StringComparison.OrdinalIgnoreCase)));
+		}
+
+		private static string GetLinkedServiceIdentifier(Models.ServiceOrderItem orderItem)
+		{
+			if (orderItem?.ServiceInfo == null)
+			{
+				return String.Empty;
+			}
+
+			return orderItem.ServiceInfo.ServiceId.Identifier ?? String.Empty;
 		}
 	}
 }

@@ -1,7 +1,7 @@
 ﻿namespace SLC_SM_IAS_Service_Order_Configuration.Views
 {
 	using Skyline.DataMiner.Automation;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.Configurations;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
 
 	public class DiscreteValuesView : Dialog
@@ -15,7 +15,7 @@
 			AddWidget(BtnCancel, 1, 1);
 		}
 
-		public CheckBoxList<Models.DiscreteValue> Options { get; } = new CheckBoxList<Models.DiscreteValue>();
+		public CheckBoxList<DiscreteValue> Options { get; } = new CheckBoxList<DiscreteValue>();
 
 		public Button BtnApply { get; } = new Button("Apply Selection") { Style = ButtonStyle.CallToAction };
 

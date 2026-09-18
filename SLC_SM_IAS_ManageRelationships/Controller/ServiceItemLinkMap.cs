@@ -4,7 +4,7 @@
 	using System.Collections.Generic;
 	using System.Linq;
 	using DomHelpers.SlcWorkflow;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
+	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 
 	public class ServiceItemLinkMap
 	{
@@ -16,7 +16,7 @@
 
 		public IEnumerable<NodesSection> AvailableDestinations { get; set; }
 
-		public List<Models.ServiceItemRelationShip> Links { get; set; }
+		public List<Models.ServiceItemRelationship> Links { get; set; }
 
 		public bool HasSources => AvailableSources.Any();
 
@@ -35,23 +35,28 @@
 
 		public void AddLink(string sourceInterface, string destinationInterface)
 		{
-			Links.Add(new Models.ServiceItemRelationShip
+			if (!SourceNode.ServiceItemID.HasValue || !DestinationNode.ServiceItemID.HasValue)
+			{
+				throw new InvalidOperationException("Cannot create a link for service items without a ServiceItemID.");
+			}
+
+			Links.Add(new Models.ServiceItemRelationship
 			{
 				Id = Guid.NewGuid().ToString(),
 				Type = "Connection",
-				ParentServiceItem = SourceNode.ID.ToString(),
+				ParentServiceItem = SourceNode.ServiceItemID.Value.ToString(),
 				ParentServiceItemInterfaceId = sourceInterface,
-				ChildServiceItem = DestinationNode.ID.ToString(),
+				ChildServiceItem = DestinationNode.ServiceItemID.Value.ToString(),
 				ChildServiceItemInterfaceId = destinationInterface,
 			});
 		}
 
-		public Models.ServiceItemRelationShip FindLinkBySource(string sourceInterface)
+		public Models.ServiceItemRelationship FindLinkBySource(string sourceInterface)
 		{
 			return Links.FirstOrDefault(l => l.ParentServiceItemInterfaceId == sourceInterface);
 		}
 
-		public void RemoveLink(Models.ServiceItemRelationShip link)
+		public void RemoveLink(Models.ServiceItemRelationship link)
 		{
 			Links.Remove(link);
 		}

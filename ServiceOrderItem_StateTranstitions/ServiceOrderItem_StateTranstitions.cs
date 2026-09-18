@@ -6,11 +6,12 @@
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Net.Apps.DataMinerObjectModel;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.IAS;
 	using static DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Serviceorderitem_Behavior;
+	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 
 	/// <summary>
 	///     Represents a DataMiner Automation script.
@@ -86,8 +87,8 @@
 				.FirstOrDefault(t => t.ToString().Equals($"{previousState}_to_{nextState}", StringComparison.OrdinalIgnoreCase))
 				?? throw new NotSupportedException($"The provided previousState '{previousState}' is not supported for nextState '{nextState}'");
 
-			var orderItemHelper = new DataHelperServiceOrderItem(engine.GetUserConnection());
-			var orderItem = orderItemHelper.Read(ServiceOrderItemExposers.Guid.Equal(domInstanceId)).FirstOrDefault()
+			var api = engine.GetUserConnection().GetServiceManagementApiHelper("Service Ordering");
+			var orderItem = api.ServiceOrder.ServiceOrderItems.Read(ServiceOrderItemExposers.Identifier.Equal(domInstanceId.ToString())).FirstOrDefault()
 						  ?? throw new NotSupportedException($"No Order Item with ID '{domInstanceId}' exists on the system");
 
 			switch (transition)
@@ -115,7 +116,7 @@
 
 				default:
 					engine.GenerateInformation($"[SMS] Status Transition: {orderItem.Name} → {transition}");
-					orderItemHelper.UpdateState(orderItem, transition);
+					api.ServiceOrder.ServiceOrderItems.TransitionStatus(orderItem, transition);
 					break;
 			}
 		}

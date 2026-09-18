@@ -21,21 +21,23 @@ namespace SLC_SM_Create_Service_Inventory_Item
 	using System.Linq;
 	using System.Threading;
 	using DomHelpers.SlcServicemanagement;
+	using DomHelpers.SlcWorkflow;
 	using Library;
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Core.DataMinerSystem.Automation;
 	using Skyline.DataMiner.Core.DataMinerSystem.Common;
 	using Skyline.DataMiner.Net.Apps.DataMinerObjectModel;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
+	using Skyline.DataMiner.SDM;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.IAS;
 	using SLC_SM_Common.Extensions;
 	using SLC_SM_Create_Service_Inventory_Item.Presenters;
 	using SLC_SM_Create_Service_Inventory_Item.Views;
+	using ConfigModels = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.Configurations;
+	using SdmModels = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 
 	/// <summary>
 	///     Represents a DataMiner Automation script.
@@ -94,318 +96,714 @@ namespace SLC_SM_Create_Service_Inventory_Item
 			}
 		}
 
-		private static Guid CreateServiceItemFromOrderItem(DataHelpersServiceManagement repo, Models.ServiceOrderItem serviceOrderItem)
-		{
-			var category = serviceOrderItem.ServiceCategoryId.HasValue ?
-				repo.ServiceCategories
-					.Read(ServiceCategoryExposers.Guid.Equal(serviceOrderItem.ServiceCategoryId.Value))
-					.FirstOrDefault()
-				: null;
-
-			Models.Service newService = new Models.Service
-			{
-				ServiceID = repo.Services.UniqueServiceId(),
-				Name = serviceOrderItem.Name,
-				Description = serviceOrderItem.Name,
-				StartTime = serviceOrderItem.StartTime,
-				EndTime = serviceOrderItem.EndTime,
-				ServiceSpecificationId = serviceOrderItem.SpecificationId,
-				Category = category,
-				Icon = category?.Icon ?? string.Empty,
-				ServiceItems = new List<Models.ServiceItem>(),
-				ServiceItemsRelationships = new List<Models.ServiceItemRelationShip>(),
-				ServiceConfiguration = new Models.ServiceConfigurationVersion
-				{
-					ID = Guid.NewGuid(),
-					CreatedAt = DateTime.UtcNow,
-					VersionName = "Default",
-					Description = "Default",
-					Parameters = new List<Models.ServiceConfigurationValue>(),
-					Profiles = new List<Models.ServiceProfile>(),
-				},
-			};
-
-			if (serviceOrderItem.Configurations != null)
-			{
-				newService.ServiceConfiguration.Parameters = serviceOrderItem.Configurations
-					.Where(x => x?.ConfigurationParameter != null)
-					.Select(
-						x =>
-						{
-							var scv = new Models.ServiceConfigurationValue
-							{
-								ConfigurationParameter = x.ConfigurationParameter,
-								Mandatory = x.Mandatory,
-							};
-							scv.ConfigurationParameter.ID = Guid.NewGuid();
-							RemoveServiceParameterOptionsLinks(scv);
-							return scv;
-						})
-					.ToList();
-			}
-
-			var spec = serviceOrderItem.SpecificationId.HasValue ? repo.ServiceSpecifications.Read(ServiceSpecificationExposers.Guid.Equal(serviceOrderItem.SpecificationId.Value)).FirstOrDefault() : null;
-			if (spec != null)
-			{
-				if (spec.ServiceItemsRelationships != null)
-				{
-					foreach (var relationship in spec.ServiceItemsRelationships)
-					{
-						if (newService.ServiceItemsRelationships.All(r => r.Id != relationship.Id))
-						{
-							newService.ServiceItemsRelationships.Add(relationship);
-						}
-					}
-				}
-
-				if (spec.ServiceItems != null)
-				{
-					foreach (var item in spec.ServiceItems)
-					{
-						if (newService.ServiceItems.Any(x => x.ID == item.ID))
-						{
-							item.ID = newService.ServiceItems.Max(x => x.ID) + 1;
-						}
-
-						if (String.IsNullOrEmpty(item.Label))
-						{
-							item.Label = $"Service Item #{item.ID:000}";
-						}
-
-						if (String.IsNullOrEmpty(item.DefinitionReference))
-						{
-							item.DefinitionReference = String.Empty;
-						}
-
-						if (String.IsNullOrEmpty(item.Script))
-						{
-							item.Script = String.Empty;
-						}
-
-						newService.ServiceItems.Add(item);
-					}
-				}
-			}
-
-			Guid newServiceId = repo.Services.CreateOrUpdate(newService);
-			return newServiceId;
-		}
-
-		private static Models.Service GetService(DataHelpersServiceManagement repo, Guid domId)
+		private static SdmModels.Service GetService(IServiceManagementApiHelper sdmHelper, Guid domId)
 		{
 			if (domId == Guid.Empty)
 			{
 				throw new InvalidOperationException("No existing DOM ID was provided as script input!");
 			}
 
-			return repo.Services.Read(ServiceExposers.Guid.Equal(domId)).FirstOrDefault()
-				   ?? throw new InvalidOperationException($"No Dom Instance with ID '{domId}' found on the system!");
+			return sdmHelper.ServiceInventory.Services.Read(SdmModels.ServiceExposers.Identifier.Equal(domId.ToString())).FirstOrDefault()
+				?? throw new InvalidOperationException($"No Dom Instance with ID '{domId}' found on the system!");
 		}
 
-		private static void RemoveServiceParameterOptionsLinks(Models.ServiceConfigurationValue config)
+		private static bool ServiceIdExists(IServiceManagementApiHelper sdmHelper, string serviceId)
 		{
-			if (config.ConfigurationParameter.NumberOptions != null)
-			{
-				config.ConfigurationParameter.NumberOptions.ID = Guid.NewGuid();
-			}
-
-			if (config.ConfigurationParameter.DiscreteOptions != null)
-			{
-				config.ConfigurationParameter.DiscreteOptions.ID = Guid.NewGuid();
-			}
-
-			if (config.ConfigurationParameter.TextOptions != null)
-			{
-				config.ConfigurationParameter.TextOptions.ID = Guid.NewGuid();
-			}
+			return sdmHelper.ServiceInventory.Services.Read(SdmModels.ServiceExposers.ServiceID.Equal(serviceId)).Any();
 		}
 
-		private static void RemoveParameterOptionsLinks(Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations.Models.ConfigurationParameterValue config)
+		private static HashSet<string> GetSourceConfigurationVersionIds(SdmModels.Service sourceService)
 		{
-			if (config.NumberOptions != null)
+			if (sourceService.ConfigurationVersions == null || sourceService.ConfigurationVersions.Count == 0)
 			{
-				config.NumberOptions.ID = Guid.NewGuid();
+				return new HashSet<string>(StringComparer.InvariantCultureIgnoreCase);
 			}
 
-			if (config.DiscreteOptions != null)
-			{
-				config.DiscreteOptions.ID = Guid.NewGuid();
-			}
-
-			if (config.TextOptions != null)
-			{
-				config.TextOptions.ID = Guid.NewGuid();
-			}
+			return sourceService.ConfigurationVersions
+				.Where(r => r != null && !String.IsNullOrWhiteSpace(r.Identifier))
+				.Select(r => r.Identifier)
+				.ToHashSet(StringComparer.InvariantCultureIgnoreCase);
 		}
 
-		private static bool ServiceIdExists(DataHelpersServiceManagement repo, string serviceId)
+		private static void RemapDuplicatedLinkedConsumers(
+			IServiceManagementApiHelper sdmHelper,
+			List<ConfigModels.ConfigurationParameterValue> duplicatedConfigParameterValues,
+			Dictionary<string, string> configParamValueIdMap)
 		{
-			return repo.Services.ReadBasicDetails(ServiceExposers.ServiceID.Equal(serviceId)).Any();
-		}
-
-		private void AddOrUpdateService(DataHelpersServiceManagement repo, Models.Service instance)
-		{
-			if (!instance.ServiceSpecificationId.HasValue || instance.ServiceSpecificationId == Guid.Empty)
+			if (duplicatedConfigParameterValues == null || duplicatedConfigParameterValues.Count == 0)
 			{
-				repo.Services.CreateOrUpdate(instance);
 				return;
 			}
 
-			var serviceSpecificationInstance = instance.ServiceSpecificationId.HasValue ? repo.ServiceSpecifications.Read(ServiceSpecificationExposers.Guid.Equal(instance.ServiceSpecificationId.Value)).FirstOrDefault() : null;
-
-			if (serviceSpecificationInstance != null)
+			var guidMap = BuildGuidMap(configParamValueIdMap);
+			if (guidMap.Count == 0)
 			{
-				////instance.Icon = serviceSpecificationInstance.Icon;
-				instance.Description = serviceSpecificationInstance.Description;
+				return;
 			}
 
-			instance.ServiceConfiguration = new Models.ServiceConfigurationVersion
+			foreach (var duplicated in duplicatedConfigParameterValues)
 			{
-				VersionName = serviceSpecificationInstance?.Name,
-				CreatedAt = DateTime.UtcNow,
-				Parameters = new List<Models.ServiceConfigurationValue>(),
-				Profiles = new List<Models.ServiceProfile>(),
+				if (!HasLinkedConsumers(duplicated))
+				{
+					continue;
+				}
+
+				if (RemapLinkedConsumers(duplicated.LinkedConsumers, guidMap))
+				{
+					sdmHelper.ServiceCatalog.ConfigurationParameterValues.Update(duplicated);
+				}
+			}
+		}
+
+		private void AddOrUpdateServiceViaSdm(IServiceManagementApiHelper sdmHelper, SdmModels.Service instance)
+		{
+			if (instance.ServiceSpecificationId != null && !String.IsNullOrWhiteSpace(instance.ServiceSpecificationId.Identifier))
+			{
+				var spec = sdmHelper.ServiceCatalog.ServiceSpecifications
+					.Read(SdmModels.ServiceSpecificationExposers.Identifier.Equal(instance.ServiceSpecificationId.Identifier))
+					.FirstOrDefault();
+
+				if (spec != null)
+				{
+					instance.Description = spec.Description;
+					instance.ServiceItems = spec.ServiceItems != null
+						? spec.ServiceItems.ToList()
+						: new List<SdmModels.ServiceItem>();
+					instance.ServiceItemsRelationships = spec.ServiceItemsRelationships != null
+						? spec.ServiceItemsRelationships.ToList()
+						: new List<SdmModels.ServiceItemRelationship>();
+					instance.ServiceItems = SanitizeServiceItemsForCreate(instance.ServiceItems);
+				}
+			}
+
+			instance.ServiceItems = SanitizeServiceItemsForCreate(instance.ServiceItems);
+
+			sdmHelper.ServiceInventory.Services.Create(instance);
+
+			if ((bool)instance.GenerateMonitoringService)
+			{
+				TryCreateDmsService(instance.Name, instance.Icon);
+			}
+		}
+
+		private void DuplicateServiceViaSdm(IServiceManagementApiHelper sdmHelper, SdmModels.Service source, SdmModels.Service instance)
+		{
+			var configurationVersionMap = new Dictionary<string, string>(StringComparer.InvariantCultureIgnoreCase);
+			var duplicatedConfigurationVersions = DuplicateConfigurationVersions(sdmHelper, source, instance.ServiceID, configurationVersionMap);
+			instance.ConfigurationVersions = duplicatedConfigurationVersions
+				.Select(id => new SdmObjectReference<SdmModels.ServiceConfigurationVersion>(id))
+				.ToList();
+
+			if (source.ServiceConfigurationId != null
+				&& !String.IsNullOrWhiteSpace(source.ServiceConfigurationId.Identifier)
+				&& configurationVersionMap.TryGetValue(source.ServiceConfigurationId.Identifier, out var duplicatedActiveVersionId))
+			{
+				instance.ServiceConfigurationId = new SdmObjectReference<SdmModels.ServiceConfigurationVersion>(duplicatedActiveVersionId);
+			}
+			else
+			{
+				instance.ServiceConfigurationId = null;
+			}
+
+			if (instance.ServiceSpecificationId != null && !String.IsNullOrWhiteSpace(instance.ServiceSpecificationId.Identifier))
+			{
+				var spec = sdmHelper.ServiceCatalog.ServiceSpecifications
+					.Read(SdmModels.ServiceSpecificationExposers.Identifier.Equal(instance.ServiceSpecificationId.Identifier))
+					.FirstOrDefault();
+
+				if (spec != null)
+				{
+					instance.ServiceItems = spec.ServiceItems != null
+						? spec.ServiceItems.ToList()
+						: new List<SdmModels.ServiceItem>();
+					instance.ServiceItemsRelationships = spec.ServiceItemsRelationships != null
+						? spec.ServiceItemsRelationships.ToList()
+						: new List<SdmModels.ServiceItemRelationship>();
+				}
+			}
+
+			instance.ServiceItems = SanitizeServiceItemsForCreate(instance.ServiceItems);
+			sdmHelper.ServiceInventory.Services.Create(instance);
+
+			if ((bool)instance.GenerateMonitoringService)
+			{
+				TryCreateDmsService(instance.Name, instance.Icon);
+			}
+		}
+
+		private List<string> DuplicateConfigurationVersions(
+			IServiceManagementApiHelper sdmHelper,
+			SdmModels.Service sourceService,
+			string newServiceId,
+			Dictionary<string, string> configurationVersionMap)
+		{
+			var sourceConfigVersionIds = GetSourceConfigurationVersionIds(sourceService);
+			if (sourceConfigVersionIds.Count == 0)
+			{
+				return new List<string>();
+			}
+
+			var duplicationData = LoadConfigurationDuplicationData(sdmHelper, sourceConfigVersionIds);
+			var duplicatedVersionIds = new List<string>();
+
+			foreach (var sourceVersion in duplicationData.ServiceConfigurationVersions.OrderBy(v => v.VersionName))
+			{
+				if (sourceVersion == null || String.IsNullOrWhiteSpace(sourceVersion.Identifier))
+				{
+					continue;
+				}
+
+				var state = new VersionDuplicationState();
+
+				var duplicatedParameterRefs = DuplicateVersionParameters(
+					sdmHelper,
+					sourceVersion,
+					duplicationData.ServiceConfigurationValuesById,
+					duplicationData.ConfigParameterValuesById,
+					state.ConfigParamValueIdMap,
+					state.DuplicatedConfigParameterValues);
+
+				var duplicatedProfileRefs = DuplicateVersionProfiles(
+					sdmHelper,
+					sourceVersion,
+					newServiceId,
+					duplicationData.ServiceProfilesById,
+					duplicationData.ProfilesById,
+					duplicationData.ConfigParameterValuesById,
+					state.ServiceProfileIdMap,
+					state.ProfileIdMap,
+					state.ConfigParamValueIdMap,
+					state.DuplicatedConfigParameterValues);
+
+				RemapDuplicatedLinkedConsumers(sdmHelper, state.DuplicatedConfigParameterValues, state.ConfigParamValueIdMap);
+
+				var duplicatedVersionId = CreateDuplicatedConfigurationVersion(sdmHelper, sourceVersion, duplicatedParameterRefs, duplicatedProfileRefs);
+				configurationVersionMap[sourceVersion.Identifier] = duplicatedVersionId;
+				duplicatedVersionIds.Add(duplicatedVersionId);
+			}
+
+			return duplicatedVersionIds;
+		}
+
+		private ConfigurationDuplicationData LoadConfigurationDuplicationData(
+			IServiceManagementApiHelper sdmHelper,
+			HashSet<string> sourceConfigVersionIds)
+		{
+			return new ConfigurationDuplicationData
+			{
+				ServiceConfigurationVersions = sdmHelper.ServiceInventory.ServiceConfigurationVersions
+					.Read(new TRUEFilterElement<SdmModels.ServiceConfigurationVersion>())
+					.Where(v => v != null && !String.IsNullOrWhiteSpace(v.Identifier) && sourceConfigVersionIds.Contains(v.Identifier))
+					.ToList(),
+				ServiceConfigurationValuesById = sdmHelper.ServiceInventory.ServiceConfigurationValues
+					.Read(new TRUEFilterElement<SdmModels.ServiceConfigurationValue>())
+					.Where(v => !String.IsNullOrWhiteSpace(v?.Identifier))
+					.ToDictionary(v => v.Identifier, StringComparer.InvariantCultureIgnoreCase),
+				ServiceProfilesById = sdmHelper.ServiceInventory.ServiceProfiles
+					.Read(new TRUEFilterElement<SdmModels.ServiceProfile>())
+					.Where(p => !String.IsNullOrWhiteSpace(p?.Identifier))
+					.ToDictionary(p => p.Identifier, StringComparer.InvariantCultureIgnoreCase),
+				ProfilesById = sdmHelper.ServiceCatalog.Profiles
+					.Read(new TRUEFilterElement<ConfigModels.Profile>())
+					.Where(p => !String.IsNullOrWhiteSpace(p?.Identifier))
+					.ToDictionary(p => p.Identifier, StringComparer.InvariantCultureIgnoreCase),
+				ConfigParameterValuesById = sdmHelper.ServiceCatalog.ConfigurationParameterValues
+					.Read(new TRUEFilterElement<ConfigModels.ConfigurationParameterValue>())
+					.Where(v => !String.IsNullOrWhiteSpace(v?.Identifier))
+					.ToDictionary(v => v.Identifier, StringComparer.InvariantCultureIgnoreCase),
+			};
+		}
+
+		private List<SdmObjectReference<SdmModels.ServiceConfigurationValue>> DuplicateVersionParameters(
+			IServiceManagementApiHelper sdmHelper,
+			SdmModels.ServiceConfigurationVersion sourceVersion,
+			Dictionary<string, SdmModels.ServiceConfigurationValue> serviceConfigurationValuesById,
+			Dictionary<string, ConfigModels.ConfigurationParameterValue> configParameterValuesById,
+			Dictionary<string, string> configParamValueIdMap,
+			List<ConfigModels.ConfigurationParameterValue> duplicatedConfigParameterValues)
+		{
+			var duplicatedParameterRefs = new List<SdmObjectReference<SdmModels.ServiceConfigurationValue>>();
+
+			foreach (var sourceParameterRef in sourceVersion.Parameters ?? new List<SdmObjectReference<SdmModels.ServiceConfigurationValue>>())
+			{
+				if (sourceParameterRef == null || String.IsNullOrWhiteSpace(sourceParameterRef.Identifier))
+				{
+					continue;
+				}
+
+				if (!serviceConfigurationValuesById.TryGetValue(sourceParameterRef.Identifier, out var sourceParameter))
+				{
+					continue;
+				}
+
+				var duplicatedConfigParameterValueId = DuplicateConfigurationParameterValue(
+					sdmHelper,
+					sourceParameter.ConfigurationParameterId.Identifier,
+					configParameterValuesById,
+					configParamValueIdMap,
+					duplicatedConfigParameterValues);
+
+				if (String.IsNullOrWhiteSpace(duplicatedConfigParameterValueId))
+				{
+					continue;
+				}
+
+				var duplicatedParameterId = Guid.NewGuid().ToString();
+				var duplicatedParameter = new SdmModels.ServiceConfigurationValue
+				{
+					Identifier = duplicatedParameterId,
+					Mandatory = sourceParameter.Mandatory,
+					ConfigurationParameterId = new SdmObjectReference<ConfigModels.ConfigurationParameter>(duplicatedConfigParameterValueId),
+				};
+
+				sdmHelper.ServiceInventory.ServiceConfigurationValues.Create(duplicatedParameter);
+				duplicatedParameterRefs.Add(new SdmObjectReference<SdmModels.ServiceConfigurationValue>(duplicatedParameterId));
+			}
+
+			return duplicatedParameterRefs;
+		}
+
+		private List<SdmObjectReference<SdmModels.ServiceProfile>> DuplicateVersionProfiles(
+			IServiceManagementApiHelper sdmHelper,
+			SdmModels.ServiceConfigurationVersion sourceVersion,
+			string newServiceId,
+			Dictionary<string, SdmModels.ServiceProfile> serviceProfilesById,
+			Dictionary<string, ConfigModels.Profile> profilesById,
+			Dictionary<string, ConfigModels.ConfigurationParameterValue> configParameterValuesById,
+			Dictionary<string, string> serviceProfileIdMap,
+			Dictionary<string, string> profileIdMap,
+			Dictionary<string, string> configParamValueIdMap,
+			List<ConfigModels.ConfigurationParameterValue> duplicatedConfigParameterValues)
+		{
+			var duplicatedProfileRefs = new List<SdmObjectReference<SdmModels.ServiceProfile>>();
+
+			foreach (var sourceServiceProfileRef in sourceVersion.Profiles ?? new List<SdmObjectReference<SdmModels.ServiceProfile>>())
+			{
+				if (sourceServiceProfileRef == null || String.IsNullOrWhiteSpace(sourceServiceProfileRef.Identifier))
+				{
+					continue;
+				}
+
+				var duplicatedServiceProfileId = DuplicateServiceProfile(
+					sdmHelper,
+					sourceServiceProfileRef.Identifier,
+					newServiceId,
+					serviceProfilesById,
+					profilesById,
+					configParameterValuesById,
+					serviceProfileIdMap,
+					profileIdMap,
+					configParamValueIdMap,
+					duplicatedConfigParameterValues);
+
+				if (!String.IsNullOrWhiteSpace(duplicatedServiceProfileId))
+				{
+					duplicatedProfileRefs.Add(new SdmObjectReference<SdmModels.ServiceProfile>(duplicatedServiceProfileId));
+				}
+			}
+
+			return duplicatedProfileRefs;
+		}
+
+		private string CreateDuplicatedConfigurationVersion(
+			IServiceManagementApiHelper sdmHelper,
+			SdmModels.ServiceConfigurationVersion sourceVersion,
+			List<SdmObjectReference<SdmModels.ServiceConfigurationValue>> duplicatedParameterRefs,
+			List<SdmObjectReference<SdmModels.ServiceProfile>> duplicatedProfileRefs)
+		{
+			var duplicatedVersionId = Guid.NewGuid().ToString();
+			var duplicatedVersion = new SdmModels.ServiceConfigurationVersion
+			{
+				Identifier = duplicatedVersionId,
+				VersionName = $"{sourceVersion.VersionName} (Copy)",
+				Description = sourceVersion.Description,
+				StartDate = sourceVersion.StartDate,
+				EndDate = sourceVersion.EndDate,
+				Parameters = duplicatedParameterRefs,
+				Profiles = duplicatedProfileRefs,
 			};
 
-			if (serviceSpecificationInstance?.ConfigurationParameters != null)
-			{
-				instance.ServiceConfiguration.Parameters = serviceSpecificationInstance.ConfigurationParameters
-					.Where(x => x?.ConfigurationParameter != null)
-					.Select(
-						x =>
-						{
-							var scv = new Models.ServiceConfigurationValue
-							{
-								ConfigurationParameter = x.ConfigurationParameter,
-								Mandatory = x.MandatoryAtService,
-							};
-							scv.ConfigurationParameter.ID = Guid.NewGuid();
-							RemoveServiceParameterOptionsLinks(scv);
-							return scv;
-						})
-					.ToList();
-			}
-
-			if (serviceSpecificationInstance?.ConfigurationProfiles != null)
-			{
-				instance.ServiceConfiguration.Profiles = serviceSpecificationInstance.ConfigurationProfiles
-					.Where(x => x?.Profile != null)
-					.Select(
-						x =>
-						{
-							var sp = new Models.ServiceProfile
-							{
-								ProfileDefinition = x.ProfileDefinition,
-								Profile = x.Profile,
-								Mandatory = x.MandatoryAtService,
-							};
-							sp.Profile.ID = Guid.NewGuid();
-							sp.Profile.ConfigurationParameterValues = sp.Profile.ConfigurationParameterValues
-								.Select(cpv =>
-								{
-									cpv.ID = Guid.NewGuid();
-									RemoveParameterOptionsLinks(cpv);
-									return cpv;
-								})
-								.ToList();
-							return sp;
-						})
-					.ToList();
-			}
-
-			if (serviceSpecificationInstance?.ServiceItemsRelationships != null)
-			{
-				foreach (var relationship in serviceSpecificationInstance.ServiceItemsRelationships)
-				{
-					if (!instance.ServiceItemsRelationships.Contains(relationship))
-					{
-						instance.ServiceItemsRelationships.Add(relationship);
-					}
-				}
-			}
-
-			if (serviceSpecificationInstance?.ServiceItems != null)
-			{
-				foreach (var item in serviceSpecificationInstance.ServiceItems)
-				{
-					if (!instance.ServiceItems.Contains(item))
-					{
-						if (instance.ServiceItems.Any(x => x.ID == item.ID))
-						{
-							item.ID = instance.ServiceItems.Max(x => x.ID) + 1;
-						}
-
-						if (String.IsNullOrEmpty(item.Label))
-						{
-							item.Label = $"Service Item #{item.ID:000}";
-						}
-
-						if (String.IsNullOrEmpty(item.DefinitionReference))
-						{
-							item.DefinitionReference = String.Empty;
-						}
-
-						if (String.IsNullOrEmpty(item.Script))
-						{
-							item.Script = String.Empty;
-						}
-
-						item.Icon = instance.Icon; // inherit icon from service
-						instance.ServiceItems.Add(item);
-					}
-				}
-			}
-
-			repo.Services.CreateOrUpdate(instance);
-
-			if (instance.GenerateMonitoringService == true)
-			{
-				TryCreateDmsService(instance);
-			}
+			sdmHelper.ServiceInventory.ServiceConfigurationVersions.Create(duplicatedVersion);
+			return duplicatedVersionId;
 		}
 
-		private void DuplicateService(DataHelpersServiceManagement repo, Models.Service instance)
+		private string DuplicateServiceProfile(
+			IServiceManagementApiHelper sdmHelper,
+			string sourceServiceProfileId,
+			string newServiceId,
+			Dictionary<string, SdmModels.ServiceProfile> serviceProfilesById,
+			Dictionary<string, ConfigModels.Profile> profilesById,
+			Dictionary<string, ConfigModels.ConfigurationParameterValue> configParameterValuesById,
+			Dictionary<string, string> serviceProfileIdMap,
+			Dictionary<string, string> profileIdMap,
+			Dictionary<string, string> configParamValueIdMap,
+			List<ConfigModels.ConfigurationParameterValue> duplicatedConfigParameterValues)
 		{
-			if (instance.ServiceConfiguration != null
-				&& (instance.ConfigurationVersions == null || !instance.ConfigurationVersions.Any(v => v.ID == instance.ServiceConfiguration.ID)))
+			if (serviceProfileIdMap.TryGetValue(sourceServiceProfileId, out var alreadyDuplicatedServiceProfileId))
 			{
-				if (instance.ConfigurationVersions == null)
-				{
-					instance.ConfigurationVersions = new List<Models.ServiceConfigurationVersion>();
-				}
-
-				instance.ConfigurationVersions.Add(instance.ServiceConfiguration);
+				return alreadyDuplicatedServiceProfileId;
 			}
 
-			if (instance.ConfigurationVersions != null)
+			if (!serviceProfilesById.TryGetValue(sourceServiceProfileId, out var sourceServiceProfile))
 			{
-				foreach (var version in instance.ConfigurationVersions)
-				{
-					repo.ServiceConfigurationVersions.CreateOrUpdate(version);
-				}
+				return null;
 			}
 
-			repo.Services.CreateOrUpdate(instance);
-
-			if (instance.GenerateMonitoringService == true)
+			string duplicatedProfileId = null;
+			if (sourceServiceProfile.ProfileId != null && !String.IsNullOrWhiteSpace(sourceServiceProfile.ProfileId.Identifier))
 			{
-				TryCreateDmsService(instance);
+				duplicatedProfileId = DuplicateProfile(
+					sdmHelper,
+					sourceServiceProfile.ProfileId.Identifier,
+					newServiceId,
+					profilesById,
+					configParameterValuesById,
+					profileIdMap,
+					configParamValueIdMap,
+					duplicatedConfigParameterValues);
 			}
+
+			var duplicatedServiceProfileId = Guid.NewGuid().ToString();
+			var duplicatedServiceProfile = new SdmModels.ServiceProfile
+			{
+				Identifier = duplicatedServiceProfileId,
+				Mandatory = sourceServiceProfile.Mandatory,
+				ProfileDefinitionId = sourceServiceProfile.ProfileDefinitionId != null
+					? new SdmObjectReference<ConfigModels.ProfileDefinition>(sourceServiceProfile.ProfileDefinitionId.Identifier)
+					: null,
+				ProfileId = !String.IsNullOrWhiteSpace(duplicatedProfileId)
+					? new SdmObjectReference<ConfigModels.Profile>(duplicatedProfileId)
+					: null,
+			};
+
+			sdmHelper.ServiceInventory.ServiceProfiles.Create(duplicatedServiceProfile);
+			serviceProfileIdMap[sourceServiceProfileId] = duplicatedServiceProfileId;
+			return duplicatedServiceProfileId;
 		}
 
-		private void TryCreateDmsService(Models.Service instance)
+		private string DuplicateProfile(
+			IServiceManagementApiHelper sdmHelper,
+			string sourceProfileId,
+			string newServiceId,
+			Dictionary<string, ConfigModels.Profile> profilesById,
+			Dictionary<string, ConfigModels.ConfigurationParameterValue> configParameterValuesById,
+			Dictionary<string, string> profileIdMap,
+			Dictionary<string, string> configParamValueIdMap,
+			List<ConfigModels.ConfigurationParameterValue> duplicatedConfigParameterValues)
+		{
+			if (profileIdMap.TryGetValue(sourceProfileId, out var alreadyDuplicatedProfileId))
+			{
+				return alreadyDuplicatedProfileId;
+			}
+
+			if (!profilesById.TryGetValue(sourceProfileId, out var sourceProfile) || sourceProfile == null)
+			{
+				return null;
+			}
+
+			if (sourceProfile.IsReusable)
+			{
+				profileIdMap[sourceProfileId] = sourceProfile.Identifier;
+				return sourceProfile.Identifier;
+			}
+
+			var duplicatedChildProfiles = DuplicateChildProfiles(
+				sdmHelper,
+				sourceProfile,
+				newServiceId,
+				profilesById,
+				configParameterValuesById,
+				profileIdMap,
+				configParamValueIdMap,
+				duplicatedConfigParameterValues);
+
+			var duplicatedConfigurationParameterValues = DuplicateProfileConfigurationParameterValues(
+				sdmHelper,
+				sourceProfile,
+				configParameterValuesById,
+				configParamValueIdMap,
+				duplicatedConfigParameterValues);
+
+			var duplicatedProfileId = CreateDuplicatedProfile(
+				sdmHelper,
+				sourceProfile,
+				newServiceId,
+				duplicatedChildProfiles,
+				duplicatedConfigurationParameterValues);
+
+			profileIdMap[sourceProfileId] = duplicatedProfileId;
+			return duplicatedProfileId;
+		}
+
+		private List<SdmObjectReference<ConfigModels.Profile>> DuplicateChildProfiles(
+			IServiceManagementApiHelper sdmHelper,
+			ConfigModels.Profile sourceProfile,
+			string newServiceId,
+			Dictionary<string, ConfigModels.Profile> profilesById,
+			Dictionary<string, ConfigModels.ConfigurationParameterValue> configParameterValuesById,
+			Dictionary<string, string> profileIdMap,
+			Dictionary<string, string> configParamValueIdMap,
+			List<ConfigModels.ConfigurationParameterValue> duplicatedConfigParameterValues)
+		{
+			var duplicatedChildProfiles = new List<SdmObjectReference<ConfigModels.Profile>>();
+
+			foreach (var sourceChildRef in sourceProfile.Profiles ?? new List<SdmObjectReference<ConfigModels.Profile>>())
+			{
+				if (sourceChildRef == null || String.IsNullOrWhiteSpace(sourceChildRef.Identifier))
+				{
+					continue;
+				}
+
+				var duplicatedChildProfileId = DuplicateProfile(
+					sdmHelper,
+					sourceChildRef.Identifier,
+					newServiceId,
+					profilesById,
+					configParameterValuesById,
+					profileIdMap,
+					configParamValueIdMap,
+					duplicatedConfigParameterValues);
+
+				if (!String.IsNullOrWhiteSpace(duplicatedChildProfileId))
+				{
+					duplicatedChildProfiles.Add(new SdmObjectReference<ConfigModels.Profile>(duplicatedChildProfileId));
+				}
+			}
+
+			return duplicatedChildProfiles;
+		}
+
+		private List<SdmObjectReference<ConfigModels.ConfigurationParameterValue>> DuplicateProfileConfigurationParameterValues(
+			IServiceManagementApiHelper sdmHelper,
+			ConfigModels.Profile sourceProfile,
+			Dictionary<string, ConfigModels.ConfigurationParameterValue> configParameterValuesById,
+			Dictionary<string, string> configParamValueIdMap,
+			List<ConfigModels.ConfigurationParameterValue> duplicatedConfigParameterValues)
+		{
+			var duplicatedConfigurationParameterValues = new List<SdmObjectReference<ConfigModels.ConfigurationParameterValue>>();
+
+			foreach (var sourceConfigParamValueRef in sourceProfile.ConfigurationParameterValues ?? new List<SdmObjectReference<ConfigModels.ConfigurationParameterValue>>())
+			{
+				if (sourceConfigParamValueRef == null || String.IsNullOrWhiteSpace(sourceConfigParamValueRef.Identifier))
+				{
+					continue;
+				}
+
+				var duplicatedConfigParameterValueId = DuplicateConfigurationParameterValue(
+					sdmHelper,
+					sourceConfigParamValueRef.Identifier,
+					configParameterValuesById,
+					configParamValueIdMap,
+					duplicatedConfigParameterValues);
+
+				if (!String.IsNullOrWhiteSpace(duplicatedConfigParameterValueId))
+				{
+					duplicatedConfigurationParameterValues.Add(new SdmObjectReference<ConfigModels.ConfigurationParameterValue>(duplicatedConfigParameterValueId));
+				}
+			}
+
+			return duplicatedConfigurationParameterValues;
+		}
+
+		private string CreateDuplicatedProfile(
+			IServiceManagementApiHelper sdmHelper,
+			ConfigModels.Profile sourceProfile,
+			string newServiceId,
+			List<SdmObjectReference<ConfigModels.Profile>> duplicatedChildProfiles,
+			List<SdmObjectReference<ConfigModels.ConfigurationParameterValue>> duplicatedConfigurationParameterValues)
+		{
+			var duplicatedProfileId = Guid.NewGuid().ToString();
+			var duplicatedProfile = new ConfigModels.Profile
+			{
+				Identifier = duplicatedProfileId,
+				Name = (sourceProfile.Name ?? String.Empty).ReplaceTrailingParentesisContent(newServiceId),
+				IsReusable = sourceProfile.IsReusable,
+				ProfileDefinitionId = sourceProfile.ProfileDefinitionId != null
+					? new SdmObjectReference<ConfigModels.ProfileDefinition>(sourceProfile.ProfileDefinitionId.Identifier)
+					: null,
+				Profiles = duplicatedChildProfiles,
+				ConfigurationParameterValues = duplicatedConfigurationParameterValues,
+				TestedProtocols = sourceProfile.TestedProtocols?.Select(tp => new SdmObjectReference<ConfigModels.ProtocolTest>(tp.Identifier)).ToList()
+					?? new List<SdmObjectReference<ConfigModels.ProtocolTest>>(),
+			};
+
+			sdmHelper.ServiceCatalog.Profiles.Create(duplicatedProfile);
+			return duplicatedProfileId;
+		}
+
+		private string DuplicateConfigurationParameterValue(
+			IServiceManagementApiHelper sdmHelper,
+			string sourceConfigParamValueId,
+			Dictionary<string, ConfigModels.ConfigurationParameterValue> configParameterValuesById,
+			Dictionary<string, string> configParamValueIdMap,
+			List<ConfigModels.ConfigurationParameterValue> duplicatedConfigParameterValues)
+		{
+			if (String.IsNullOrWhiteSpace(sourceConfigParamValueId))
+			{
+				return null;
+			}
+
+			if (configParamValueIdMap.TryGetValue(sourceConfigParamValueId, out var alreadyDuplicatedConfigParamValueId))
+			{
+				return alreadyDuplicatedConfigParamValueId;
+			}
+
+			if (!configParameterValuesById.TryGetValue(sourceConfigParamValueId, out var source))
+			{
+				return null;
+			}
+
+			var duplicatedId = Guid.NewGuid().ToString();
+			var duplicated = new ConfigModels.ConfigurationParameterValue
+			{
+				Identifier = duplicatedId,
+				Label = source.Label,
+				Type = source.Type,
+				DoubleValue = source.DoubleValue,
+				StringValue = source.StringValue,
+				ConfigurationParameterId = source.ConfigurationParameterId != null
+					? new SdmObjectReference<ConfigModels.ConfigurationParameter>(source.ConfigurationParameterId.Identifier)
+					: null,
+				NumberOptionsId = source.NumberOptionsId != null
+					? new SdmObjectReference<ConfigModels.NumberParameterOptions>(source.NumberOptionsId.Identifier)
+					: null,
+				DiscreteOptionsId = source.DiscreteOptionsId != null
+					? new SdmObjectReference<ConfigModels.DiscreteParameterOptions>(source.DiscreteOptionsId.Identifier)
+					: null,
+				TextOptionsId = source.TextOptionsId != null
+					? new SdmObjectReference<ConfigModels.TextParameterOptions>(source.TextOptionsId.Identifier)
+					: null,
+				LinkedConfigurationReference = source.LinkedConfigurationReference,
+				ValueFixed = source.ValueFixed,
+				LinkedConsumers = source.LinkedConsumers != null ? new List<Guid>(source.LinkedConsumers) : new List<Guid>(),
+				LinkedScript = source.LinkedScript,
+				IsLinked = source.IsLinked,
+			};
+
+			sdmHelper.ServiceCatalog.ConfigurationParameterValues.Create(duplicated);
+			configParamValueIdMap[sourceConfigParamValueId] = duplicatedId;
+			duplicatedConfigParameterValues.Add(duplicated);
+			return duplicatedId;
+		}
+
+		private static Dictionary<Guid, Guid> BuildGuidMap(Dictionary<string, string> configParamValueIdMap)
+		{
+			var guidMap = new Dictionary<Guid, Guid>();
+			if (configParamValueIdMap == null || configParamValueIdMap.Count == 0)
+			{
+				return guidMap;
+			}
+
+			foreach (var mapping in configParamValueIdMap)
+			{
+				if (Guid.TryParse(mapping.Key, out var oldId) && Guid.TryParse(mapping.Value, out var newId))
+				{
+					guidMap[oldId] = newId;
+				}
+			}
+
+			return guidMap;
+		}
+
+		private static bool HasLinkedConsumers(ConfigModels.ConfigurationParameterValue duplicated)
+		{
+			return duplicated != null
+				&& duplicated.LinkedConsumers != null
+				&& duplicated.LinkedConsumers.Count > 0;
+		}
+
+		private static bool RemapLinkedConsumers(List<Guid> linkedConsumers, Dictionary<Guid, Guid> guidMap)
+		{
+			var changed = false;
+
+			for (int i = 0; i < linkedConsumers.Count; i++)
+			{
+				if (guidMap.TryGetValue(linkedConsumers[i], out var newConsumerId))
+				{
+					linkedConsumers[i] = newConsumerId;
+					changed = true;
+				}
+			}
+
+			return changed;
+		}
+
+		private static void UpdateServiceInfoViaSdm(IServiceManagementApiHelper sdmHelper, Guid domId, SdmModels.Service source)
+		{
+			var service = sdmHelper.ServiceInventory.Services.Read(SdmModels.ServiceExposers.Identifier.Equal(domId.ToString())).FirstOrDefault()
+				?? throw new InvalidOperationException($"No Dom Instance with ID '{domId}' found on the system!");
+
+			service.Name = source.Name;
+			service.ServiceID = source.ServiceID;
+			service.Description = source.Description ?? String.Empty;
+			service.StartTime = source.StartTime;
+			service.EndTime = source.EndTime;
+			service.GenerateMonitoringService = source.GenerateMonitoringService;
+			service.MonitoringService = source.MonitoringService;
+			service.Icon = source.Icon;
+			service.CategoryId = source.CategoryId;
+			service.ServiceSpecificationId = source.ServiceSpecificationId;
+			service.ServiceConfigurationId = source.ServiceConfigurationId != null
+				? new SdmObjectReference<SdmModels.ServiceConfigurationVersion>(source.ServiceConfigurationId.Identifier)
+				: null;
+			service.ConfigurationVersions = source.ConfigurationVersions?
+				.Where(reference => reference != null && !String.IsNullOrWhiteSpace(reference.Identifier))
+				.Select(reference => new SdmObjectReference<SdmModels.ServiceConfigurationVersion>(reference.Identifier))
+				.ToList()
+				?? new List<SdmObjectReference<SdmModels.ServiceConfigurationVersion>>();
+
+			sdmHelper.ServiceInventory.Services.Update(service);
+		}
+
+		private List<SdmModels.ServiceItem> SanitizeServiceItemsForCreate(List<SdmModels.ServiceItem> items)
+		{
+			if (items == null)
+			{
+				return null;
+			}
+
+			var sanitized = new List<SdmModels.ServiceItem>(items.Count);
+
+			for (int i = 0; i < items.Count; i++)
+			{
+				var item = items[i];
+				if (item == null)
+				{
+					continue;
+				}
+
+				sanitized.Add(new SdmModels.ServiceItem
+				{
+					ServiceItemID = item.ServiceItemID,
+					Label = item.Label,
+					Script = item.Script,
+					DefinitionReference = item.DefinitionReference,
+					ImplementationReference = item.ImplementationReference,
+
+					// Workaround: avoid setting GenericEnum field explicitly.
+					// The "Service Item Type" field is optional and setting it can fail with
+					// DomInstanceSectionInvalidFieldValueTypes on some systems.
+					Type = null,
+					Icon = item.Icon,
+				});
+			}
+
+			return sanitized;
+		}
+
+		private void TryCreateDmsService(string serviceName, string serviceIcon)
 		{
 			var dms = _engine.GetDms();
 
-			if (dms.ServiceExistsSafe(instance.Name, out IDmsService _))
+			if (dms.ServiceExistsSafe(serviceName, out IDmsService _))
 			{
-				throw new InvalidOperationException($"A DataMiner service with name {instance.Name} already exists.");
+				throw new InvalidOperationException($"A DataMiner service with name {serviceName} already exists.");
 			}
 
-			var serviceConfiguration = new ServiceConfiguration(dms, instance.Name);
+			var serviceConfiguration = new ServiceConfiguration(dms, serviceName);
 			var serviceId = dms.GetAgents().First().CreateService(serviceConfiguration);
 
-			SetServiceIcon(dms, serviceId, instance.Icon);
+			SetServiceIcon(dms, serviceId, serviceIcon);
 		}
 
 		private IEnumerable<IDmsService> GetDmsServices()
@@ -451,54 +849,66 @@ namespace SLC_SM_Create_Service_Inventory_Item
 			}
 		}
 
-		private void CreateNewServiceAndLinkItToServiceOrder(DataHelpersServiceManagement repo, Models.ServiceOrderItem serviceOrderItem)
+		private Guid CreateServiceItemFromOrderItem(IServiceManagementApiHelper sdmHelper, SdmModels.ServiceOrderItem serviceOrderItem)
 		{
-			if (serviceOrderItem.ServiceId.HasValue && repo.Services.Read(ServiceExposers.Guid.Equal(serviceOrderItem.ServiceId.Value)).Any())
+			var newServiceId = Guid.NewGuid();
+			var serviceIds = sdmHelper.ServiceInventory.Services.Read(new TRUEFilterElement<SdmModels.Service>()).Select(x => x.ServiceID).Where(x => !String.IsNullOrWhiteSpace(x)).ToList();
+			var maxValue = serviceIds
+				.Select(x =>
+				{
+					var parts = x.Split('-');
+					return parts.Length > 1 && Int32.TryParse(parts.Last(), out var number) ? number : 0;
+				})
+				.DefaultIfEmpty(0)
+				.Max();
+
+			var categoryReference = serviceOrderItem.ServiceInfo != null ? serviceOrderItem.ServiceInfo.ServiceCategoryId : null;
+			var specReference = serviceOrderItem.ServiceInfo != null ? serviceOrderItem.ServiceInfo.SpecificationId : null;
+
+			var spec = specReference != null
+				? sdmHelper.ServiceCatalog.ServiceSpecifications.Read(SdmModels.ServiceSpecificationExposers.Identifier.Equal(specReference.Identifier)).FirstOrDefault()
+				: null;
+
+			var category = categoryReference != null
+				? sdmHelper.ServiceCatalog.ServiceCategories.Read(SdmModels.ServiceCategoryExposers.Identifier.Equal(categoryReference.Identifier)).FirstOrDefault()
+				: null;
+
+			var newService = new SdmModels.Service
 			{
-				// Already initialized - don't do anything, safety check
+				Identifier = newServiceId.ToString(),
+				ServiceID = $"SERVICE-{maxValue + 1:00000}",
+				Name = serviceOrderItem.Name,
+				Description = serviceOrderItem.Name,
+				StartTime = serviceOrderItem.StartTime,
+				EndTime = serviceOrderItem.EndTime,
+				ServiceSpecificationId = specReference,
+				CategoryId = categoryReference,
+				Icon = category?.Icon ?? String.Empty,
+				ServiceItems = spec?.ServiceItems != null ? spec.ServiceItems.ToList() : new List<SdmModels.ServiceItem>(),
+				ServiceItemsRelationships = spec?.ServiceItemsRelationships != null ? spec.ServiceItemsRelationships.ToList() : new List<SdmModels.ServiceItemRelationship>(),
+			};
+
+			sdmHelper.ServiceInventory.Services.Create(newService);
+			return newServiceId;
+		}
+
+		private void CreateNewServiceAndLinkItToServiceOrder(IServiceManagementApiHelper sdmHelper, SdmModels.ServiceOrderItem serviceOrderItem)
+		{
+			if (serviceOrderItem.ServiceInfo != null && serviceOrderItem.ServiceInfo.ServiceId != null
+				&& sdmHelper.ServiceInventory.Services.Read(SdmModels.ServiceExposers.Identifier.Equal(serviceOrderItem.ServiceInfo.ServiceId.Identifier)).Any())
+			{
 				return;
 			}
 
-			// Create new service item based on order
-			Guid newServiceId = _engine.PerformanceLogger("Create Service Inventory Item", () => CreateServiceItemFromOrderItem(repo, serviceOrderItem));
+			Guid newServiceId = _engine.PerformanceLogger("Create Service Inventory Item", () => CreateServiceItemFromOrderItem(sdmHelper, serviceOrderItem));
 
-			// Provide link on Service Order
-			serviceOrderItem.ServiceId = newServiceId;
-			_engine.PerformanceLogger("Update Order", () => repo.ServiceOrderItems.CreateOrUpdate(serviceOrderItem));
-
-			// Update state
-			_engine.PerformanceLogger("Update Order Item State", () =>
+			if (serviceOrderItem.ServiceInfo == null)
 			{
-				if (serviceOrderItem.Status == SlcServicemanagementIds.Behaviors.Serviceorderitem_Behavior.StatusesEnum.New)
-				{
-					serviceOrderItem = repo.ServiceOrderItems.UpdateState(serviceOrderItem, SlcServicemanagementIds.Behaviors.Serviceorderitem_Behavior.TransitionsEnum.New_To_Acknowledged);
-					serviceOrderItem = repo.ServiceOrderItems.UpdateState(serviceOrderItem, SlcServicemanagementIds.Behaviors.Serviceorderitem_Behavior.TransitionsEnum.Acknowledged_To_Inprogress);
-				}
+				serviceOrderItem.ServiceInfo = new SdmModels.ServiceOrderItemServiceInfo();
+			}
 
-				if (serviceOrderItem.Status == SlcServicemanagementIds.Behaviors.Serviceorderitem_Behavior.StatusesEnum.Acknowledged)
-				{
-					serviceOrderItem = repo.ServiceOrderItems.UpdateState(serviceOrderItem, SlcServicemanagementIds.Behaviors.Serviceorderitem_Behavior.TransitionsEnum.Acknowledged_To_Inprogress);
-				}
-			});
-
-			// Update state of main Service Order as well
-			_engine.PerformanceLogger("Update Order State", () =>
-			{
-				Models.ServiceOrder order = repo.ServiceOrders.Read(ServiceOrderExposers.ServiceOrderItemsExposers.ServiceOrderItem.Equal(serviceOrderItem)).FirstOrDefault();
-				if (order != null)
-				{
-					if (order.Status == SlcServicemanagementIds.Behaviors.Serviceorder_Behavior.StatusesEnum.New)
-					{
-						order = repo.ServiceOrders.UpdateState(order, SlcServicemanagementIds.Behaviors.Serviceorder_Behavior.TransitionsEnum.New_To_Acknowledged);
-						order = repo.ServiceOrders.UpdateState(order, SlcServicemanagementIds.Behaviors.Serviceorder_Behavior.TransitionsEnum.Acknowledged_To_Inprogress);
-					}
-
-					if (order.Status == SlcServicemanagementIds.Behaviors.Serviceorder_Behavior.StatusesEnum.Acknowledged)
-					{
-						order = repo.ServiceOrders.UpdateState(order, SlcServicemanagementIds.Behaviors.Serviceorder_Behavior.TransitionsEnum.Acknowledged_To_Inprogress);
-					}
-				}
-			});
+			serviceOrderItem.ServiceInfo.ServiceId = new Skyline.DataMiner.SDM.SdmObjectReference<SdmModels.Service>(newServiceId.ToString());
+			_engine.PerformanceLogger("Update Order", () => sdmHelper.ServiceOrder.ServiceOrderItems.Update(serviceOrderItem));
 		}
 
 		private void RunSafe()
@@ -517,24 +927,24 @@ namespace SLC_SM_Create_Service_Inventory_Item
 
 			var dataMinerServices = GetDmsServices();
 
-			var repo = new DataHelpersServiceManagement(_engine.GetUserConnection());
+			var sdmHelper = new ServiceManagementApiHelper(_engine.GetUserConnection(), "Service Inventory");
 
 			// Init views
 			var view = new ServiceView(_engine, action);
-			var presenter = new ServicePresenter(_engine, repo, view, dataMinerServices);
+			var presenter = new ServicePresenter(_engine, sdmHelper, view, dataMinerServices);
 
 			if (action == Defaults.ScriptAction_CreateServiceInventoryItem.AddItem)
 			{
 				var d = new MessageDialog(_engine, "Create Service Inventory Item from the selected service order item?") { Title = "Create Service Inventory Item From Order Item" };
 				d.OkButton.Pressed += (sender, args) =>
 				{
-					AddServiceItemForOrder(domId, repo);
+					AddServiceItemForOrder(domId, sdmHelper);
 				};
 				_controller.ShowDialog(d);
 			}
 			else if (action == Defaults.ScriptAction_CreateServiceInventoryItem.AddItemSilent)
 			{
-				AddServiceItemForOrder(domId, repo);
+				AddServiceItemForOrder(domId, sdmHelper);
 			}
 			else if (action == Defaults.ScriptAction_CreateServiceInventoryItem.Add)
 			{
@@ -546,19 +956,19 @@ namespace SLC_SM_Create_Service_Inventory_Item
 						return;
 					}
 
-					if (ServiceIdExists(repo, presenter.ServiceId))
+					if (ServiceIdExists(sdmHelper, presenter.ServiceId))
 					{
 						presenter.ShowServiceIdExistsError();
 						return;
 					}
 
-					AddOrUpdateService(repo, presenter.Instance);
+					AddOrUpdateServiceViaSdm(sdmHelper, presenter.SdmInstance);
 					throw new ScriptAbortException("OK");
 				};
 			}
 			else if (action == Defaults.ScriptAction_CreateServiceInventoryItem.Duplicate)
 			{
-				var sourceService = GetService(repo, domId);
+				var sourceService = GetService(sdmHelper, domId);
 				presenter.LoadFromModel(sourceService, isDuplication: true);
 				view.BtnAdd.Pressed += (sender, args) =>
 				{
@@ -567,13 +977,13 @@ namespace SLC_SM_Create_Service_Inventory_Item
 						return;
 					}
 
-					if (ServiceIdExists(repo, presenter.ServiceId))
+					if (ServiceIdExists(sdmHelper, presenter.ServiceId))
 					{
 						presenter.ShowServiceIdExistsError();
 						return;
 					}
 
-					DuplicateService(repo, presenter.Instance);
+					DuplicateServiceViaSdm(sdmHelper, sourceService, presenter.SdmInstance);
 					throw new ScriptAbortException("OK");
 				};
 			}
@@ -581,12 +991,12 @@ namespace SLC_SM_Create_Service_Inventory_Item
 			{
 				// EDIT MODE
 				view.BtnAdd.Text = "Save";
-				presenter.LoadFromModel(GetService(repo, domId));
+				presenter.LoadFromModel(GetService(sdmHelper, domId));
 				view.BtnAdd.Pressed += (sender, args) =>
 				{
 					if (presenter.Validate())
 					{
-						repo.Services.CreateOrUpdate(presenter.Instance); // Only update service info
+						UpdateServiceInfoViaSdm(sdmHelper, domId, presenter.SdmInstance);
 						throw new ScriptAbortException("OK");
 					}
 				};
@@ -599,16 +1009,48 @@ namespace SLC_SM_Create_Service_Inventory_Item
 			_controller.ShowDialog(view);
 		}
 
-		private void AddServiceItemForOrder(Guid domId, DataHelpersServiceManagement repo)
+		private void AddServiceItemForOrder(Guid domId, IServiceManagementApiHelper sdmHelper)
 		{
-			var serviceOrderItem = repo.ServiceOrderItems.Read(ServiceOrderItemExposers.Guid.Equal(domId)).FirstOrDefault();
+			var serviceOrderItem = sdmHelper.ServiceOrder.ServiceOrderItems.Read(SdmModels.ServiceOrderItemExposers.Identifier.Equal(domId.ToString())).FirstOrDefault();
 			if (domId == Guid.Empty || serviceOrderItem == null)
 			{
 				throw new InvalidOperationException($"Please select an entry in the service order items table first.{Environment.NewLine}Details: No Service Order Item with ID '{domId}' found on the system!");
 			}
 
-			_engine.PerformanceLogger("Create New Service Inventory Item + Link to Order", () => CreateNewServiceAndLinkItToServiceOrder(repo, serviceOrderItem));
+			_engine.PerformanceLogger("Create New Service Inventory Item + Link to Order", () => CreateNewServiceAndLinkItToServiceOrder(sdmHelper, serviceOrderItem));
 			throw new ScriptAbortException("OK");
+		}
+
+		private sealed class ConfigurationDuplicationData
+		{
+			public List<SdmModels.ServiceConfigurationVersion> ServiceConfigurationVersions { get; set; }
+
+			public Dictionary<string, SdmModels.ServiceConfigurationValue> ServiceConfigurationValuesById { get; set; }
+
+			public Dictionary<string, SdmModels.ServiceProfile> ServiceProfilesById { get; set; }
+
+			public Dictionary<string, ConfigModels.Profile> ProfilesById { get; set; }
+
+			public Dictionary<string, ConfigModels.ConfigurationParameterValue> ConfigParameterValuesById { get; set; }
+		}
+
+		private sealed class VersionDuplicationState
+		{
+			public VersionDuplicationState()
+			{
+				ConfigParamValueIdMap = new Dictionary<string, string>(StringComparer.InvariantCultureIgnoreCase);
+				ServiceProfileIdMap = new Dictionary<string, string>(StringComparer.InvariantCultureIgnoreCase);
+				ProfileIdMap = new Dictionary<string, string>(StringComparer.InvariantCultureIgnoreCase);
+				DuplicatedConfigParameterValues = new List<ConfigModels.ConfigurationParameterValue>();
+			}
+
+			public Dictionary<string, string> ConfigParamValueIdMap { get; }
+
+			public Dictionary<string, string> ServiceProfileIdMap { get; }
+
+			public Dictionary<string, string> ProfileIdMap { get; }
+
+			public List<ConfigModels.ConfigurationParameterValue> DuplicatedConfigParameterValues { get; }
 		}
 	}
 }

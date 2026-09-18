@@ -19,9 +19,9 @@ namespace SLCSMDSGetServiceDetails
 	using Skyline.DataMiner.Core.DataMinerSystem.Common;
 	using Skyline.DataMiner.Net.Apps.DataMinerObjectModel;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
 	using AlarmLevel = Skyline.DataMiner.Core.DataMinerSystem.Common.AlarmLevel;
+	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 
 	/// <summary>
 	/// Represents a data source.
@@ -36,6 +36,7 @@ namespace SLCSMDSGetServiceDetails
 		private GQIDMS _gqiDms;
 		private IDms _dms;
 		private IDma _agent;
+		private IServiceManagementApiHelper _serviceManagementApiHelper;
 
 		public OnInitOutputArgs OnInit(OnInitInputArgs args)
 		{
@@ -43,6 +44,7 @@ namespace SLCSMDSGetServiceDetails
 			// See: https://aka.dataminer.services/igqioninit-oninit
 			_gqiDms = args.DMS;
 			_dms = _gqiDms.GetConnection().GetDms();
+			_serviceManagementApiHelper = new ServiceManagementApiHelper(_gqiDms.GetConnection(), "Service Inventory");
 			_agent = _dms.GetAgents().SingleOrDefault();
 			if (_agent == null)
 			{
@@ -86,8 +88,9 @@ namespace SLCSMDSGetServiceDetails
 
 		public GQIPage GetNextPage(GetNextPageInputArgs args)
 		{
-			var serviceDataHelper = new DataHelperService(_gqiDms.GetConnection());
-			var service = serviceDataHelper.Read(ServiceExposers.Guid.Equal(_arguments.DomId)).SingleOrDefault();
+			var service = _serviceManagementApiHelper.ServiceInventory.Services
+				.Read(Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement.ServiceExposers.Identifier.Equal(_arguments.DomId.ToString()))
+				.SingleOrDefault();
 			if (service == null)
 			{
 				return new GQIPage(Array.Empty<GQIRow>());
@@ -100,25 +103,46 @@ namespace SLCSMDSGetServiceDetails
 		{
 			return new GQIRow(new[]
 			{
-				new GQICell { Value = service.ID.ToString() },
+				new GQICell { Value = service.Identifier ?? String.Empty },
 				new GQICell { Value = service.Name },
 				new GQICell { Value = service.Icon },
 				new GQICell { Value = service.GenerateMonitoringService ?? false },
 				new GQICell { Value = service.StartTime?.ToUniversalTime() },
 				new GQICell { Value = service.EndTime?.ToUniversalTime() },
-				new GQICell { Value = service?.Category?.Name ?? string.Empty },
+				new GQICell { Value = GetCategoryName(service.CategoryId) },
 				new GQICell { Value = GetServiceSpecification(service.ServiceSpecificationId) },
 				new GQICell { Value = (int) TryGetAlarmLevel(service) },
 			});
 		}
 
-		private string GetServiceSpecification(Guid? serviceSpecificationId)
+		private string GetServiceSpecification(Skyline.DataMiner.SDM.SdmObjectReference<Models.ServiceSpecification> serviceSpecificationId)
 		{
-			var helper = new DataHelperServiceSpecification(_gqiDms.GetConnection());
-			var specification = helper.Read(ServiceSpecificationExposers.Guid.Equal(serviceSpecificationId.HasValue ? serviceSpecificationId.Value : Guid.Empty)).SingleOrDefault();
+			if (serviceSpecificationId == null || String.IsNullOrWhiteSpace(serviceSpecificationId.Identifier))
+			{
+				return String.Empty;
+			}
+
+			var specification = _serviceManagementApiHelper.ServiceCatalog.ServiceSpecifications
+				.Read(Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement.ServiceSpecificationExposers.Identifier.Equal(serviceSpecificationId.Identifier))
+				.SingleOrDefault();
+
 			return specification != null ?
 				specification.Name
 				: string.Empty;
+		}
+
+		private string GetCategoryName(Skyline.DataMiner.SDM.SdmObjectReference<Models.ServiceCategory> serviceCategoryId)
+		{
+			if (String.IsNullOrWhiteSpace(serviceCategoryId.Identifier))
+			{
+				return String.Empty;
+			}
+
+			var category = _serviceManagementApiHelper.ServiceCatalog.ServiceCategories
+				.Read(Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement.ServiceCategoryExposers.Identifier.Equal(serviceCategoryId.Identifier))
+				.SingleOrDefault();
+
+			return category?.Name ?? String.Empty;
 		}
 
 		private AlarmLevel TryGetAlarmLevel(Models.Service service)

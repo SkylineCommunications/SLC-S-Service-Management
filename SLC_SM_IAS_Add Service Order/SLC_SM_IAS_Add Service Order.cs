@@ -15,16 +15,15 @@ namespace SLC_SM_IAS_Add_Service_Order_1
 	using System;
 	using System.Collections.Generic;
 	using System.Linq;
-	using Library.Ownership;
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.IAS;
 	using SLC_SM_IAS_Add_Service_Order_1.Presenters;
 	using SLC_SM_IAS_Add_Service_Order_1.Views;
+	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 
 	/// <summary>
 	///     Represents a DataMiner Automation script.
@@ -95,8 +94,8 @@ namespace SLC_SM_IAS_Add_Service_Order_1
 				throw new InvalidOperationException("No Action provided as input to the script");
 			}
 
-			var dataHelperOrders = new DataHelperServiceOrder(_engine.GetUserConnection());
-			List<Models.ServiceOrder> serviceOrders = dataHelperOrders.ReadBasicDetails();
+			var api = _engine.GetUserConnection().GetServiceManagementApiHelper("Service Ordering");
+			List<Models.ServiceOrder> serviceOrders = api.ServiceOrder.ServiceOrders.Read(new TRUEFilterElement<Models.ServiceOrder>()).ToList();
 
 			var usedOrderItemLabels = serviceOrders.Select(o => o.Name).ToList();
 			var usedOrderIds = serviceOrders.Select(o => o.OrderId).ToList();
@@ -116,11 +115,14 @@ namespace SLC_SM_IAS_Add_Service_Order_1
 				Models.ServiceOrder orderToUpdate = presenter.GetData;
 				if (action == Action.Add)
 				{
-					// Take ownership if possible when adding new order
-					orderToUpdate.TakeOwnershipForOrder(_engine);
+					orderToUpdate.Identifier = Guid.NewGuid().ToString();
+					api.ServiceOrder.ServiceOrders.Create(new[] { orderToUpdate });
+				}
+				else
+				{
+					api.ServiceOrder.ServiceOrders.Update(orderToUpdate);
 				}
 
-				dataHelperOrders.CreateOrUpdate(orderToUpdate);
 				throw new ScriptAbortException("OK");
 			};
 
@@ -131,10 +133,9 @@ namespace SLC_SM_IAS_Add_Service_Order_1
 			else
 			{
 				Guid domId = _engine.ReadScriptParamFromApp<Guid>("DOM ID");
-				var ordersInstance = serviceOrders.Find(x => x.ID == domId)
-				                     ?? throw new InvalidOperationException($"No Service Order with ID '{domId}' found on the system!");
-				var ordersToEdit = dataHelperOrders.Read(ServiceOrderExposers.Guid.Equal(ordersInstance.ID)).FirstOrDefault();
-				presenter.LoadFromModel(ordersToEdit);
+				var orderToEdit = serviceOrders.FirstOrDefault(x => String.Equals(x.Identifier, domId.ToString(), StringComparison.OrdinalIgnoreCase))
+								  ?? throw new InvalidOperationException($"No Service Order with ID '{domId}' found on the system!");
+				presenter.LoadFromModel(orderToEdit);
 			}
 
 			// Run interactive
