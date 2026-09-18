@@ -4,9 +4,6 @@
 	using System.Collections.Generic;
 	using System.Linq;
 	using DomHelpers.SlcServicemanagement;
-	using DomHelpers.SlcWorkflow;
-
-	using Newtonsoft.Json;
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Net;
 	using Skyline.DataMiner.Net.Messages;
@@ -16,7 +13,6 @@
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 	//using Skyline.DataMiner.Utils.MediaOps.Common.IOData.Scheduling.Scripts.JobHandler;
 	//using Skyline.DataMiner.Utils.MediaOps.Helpers.Scheduling;
-	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
 	using SLC_SM_Common.Extensions;
 	using static DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Service_Behavior;
 	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
