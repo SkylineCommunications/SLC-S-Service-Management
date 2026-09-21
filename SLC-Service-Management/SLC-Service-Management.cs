@@ -24,7 +24,6 @@ internal class Script
 	private static readonly string[] RequiredMediaOpsRuntimeDlls =
 	{
 		"Skyline.DataMiner.Utils.MediaOps.Temp.Common.dll",
-		"Skyline.DataMiner.Utils.MediaOps.Temp.Helpers.dll",
 	};
 
 	private static readonly FallbackDependency[] SolutionLibraryFallbackDependencies =
