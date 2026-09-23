@@ -5,6 +5,7 @@
 	using System.Linq;
 	using DomHelpers.SlcServicemanagement;
 	using DomHelpers.SlcWorkflow;
+	using Library.Dom;
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Net.Apps.DataMinerObjectModel;
 	using Skyline.DataMiner.Net.Messages;
@@ -12,8 +13,6 @@
 	using Skyline.DataMiner.Net.ResourceManager.Objects;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
-	using Skyline.DataMiner.Utils.MediaOps.Common.IOData.Scheduling.Scripts.JobHandler;
-	using Skyline.DataMiner.Utils.MediaOps.Helpers.Workflows;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
 	using SLC_SM_Common.Extensions;
 	using SLC_SM_IAS_Add_Service_Item.ScriptModels;
@@ -30,7 +29,7 @@
 		private readonly ServiceItemView view;
 		private readonly IServiceManagementApiHelper api;
 		private List<Option<string>> _allScripts;
-		private Workflow[] _workflows;
+		private WorkflowsInstance[] _workflows;
 		private Dictionary<string, List<ServiceReservationInstance>> bookings = new Dictionary<string, List<ServiceReservationInstance>>();
 
 		public ServiceItemPresenter(IEngine engine, ServiceItemView view, string[] getServiceItemLabels, IScriptModel scriptModel)
@@ -108,14 +107,13 @@
 			return SlcServicemanagementIds.Enums.ServiceitemtypesEnum.Service;
 		}
 
-		public Workflow[] WorkFlows
+		public WorkflowsInstance[] WorkFlows
 		{
 			get
 			{
 				if (_workflows == null)
 				{
-					var workflowHelper = new WorkflowHelper(engine);
-					_workflows = workflowHelper.GetAllWorkflows().ToArray();
+					_workflows = WorkflowExtensions.GetWorkflows(engine.SendSLNetMessages).ToArray();
 				}
 
 				return _workflows;
@@ -179,19 +177,16 @@
 				return String.Empty;
 			}
 
-			var action = new EditJobAction
-			{
-				DomJobId = job.ID.Id,
-				End = _scriptModel.End,
-			};
+			job.JobInfo.JobEnd = _scriptModel.End;
 
-			// Only add start update if the job is not already running
+			// Keep existing behavior for start updates.
 			if (job.JobInfo.JobStart <= DateTime.UtcNow)
 			{
-				action.Start = _scriptModel.Start;
+				job.JobInfo.JobStart = _scriptModel.Start;
 			}
 
-			action.SendToJobHandler(engine, true);
+			var domWorkflowHelper = new DomHelper(engine.SendSLNetMessages, SlcWorkflowIds.ModuleId);
+			job.Save(domWorkflowHelper);
 
 			return job.ID.Id.ToString();
 		}

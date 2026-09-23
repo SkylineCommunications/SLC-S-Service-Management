@@ -71,6 +71,9 @@
     <File Path="Internal/Code Analysis/stylecop.json" />
   </Folder>
   <Folder Name="/Operators/">
+    <Project Path="Operators/SLC_SM_CO_RenameColumn/SLC_SM_CO_RenameColumn.csproj">
+      <Build Solution="Debug|*" Project="false" />
+    </Project>
     <Project Path="Service-Management-GQI-CustomOperator-HasValue/Service-Management-GQI-CustomOperator-HasValue.csproj" />
     <Project Path="SLC_SM_CO_GetCharacteristics/SLC_SM_CO_GetCharacteristics.csproj" />
     <Project Path="SLC_SM_CO_GetWorkflowIcon/SLC_SM_CO_GetWorkflowIcon.csproj" />

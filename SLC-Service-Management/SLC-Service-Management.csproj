@@ -7,7 +7,7 @@
   <PropertyGroup>
     <DataMinerType>Package</DataMinerType>
     <GenerateDataMinerPackage>True</GenerateDataMinerPackage>
-    <Version>1.0.14</Version>
+    <Version>1.0.15</Version>
     <VersionComment>Initial Version</VersionComment>
     <!-- Do NOT fill in the Organization Token here. This points to either an Environment Variable skyline__sdk__catalogpublishtoken holding the organization token or a Visual Studio User Secret holding the token. -->
     <CatalogPublishKeyName>skyline:sdk:dataminertoken</CatalogPublishKeyName>
@@ -28,4 +28,43 @@
   <ItemGroup>
     <Folder Include="SetupContent\DOMImportExport\" />
   </ItemGroup>
+  <Target Name="PrepareMediaOpsFallbackDependencies" BeforeTargets="BeforeBuild">
+    <PropertyGroup>
+      <CompanionRoot>$(MSBuildProjectDirectory)\PackageContent\CompanionFiles\Skyline DataMiner\ProtocolScripts\DllImport\SolutionLibraries</CompanionRoot>
+      <SetupDependenciesRoot>$(MSBuildProjectDirectory)\SetupContent\Dependencies</SetupDependenciesRoot>
+      <MediaOpsLiveVersion>0.0.0</MediaOpsLiveVersion>
+      <MediaOpsPlanVersion>1.7.0-alpha003</MediaOpsPlanVersion>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <MediaOpsFallbackDependency Include="Solutions.MediaOps.Live">
+        <PackageId>skyline.dataminer.dev.utils.solutions.mediaops.live</PackageId>
+        <PackageVersion>$(MediaOpsLiveVersion)</PackageVersion>
+        <DllName>Skyline.DataMiner.Dev.Utils.Solutions.MediaOps.Live.dll</DllName>
+      </MediaOpsFallbackDependency>
+      <MediaOpsFallbackDependency Include="Solutions.MediaOps.Plan">
+        <PackageId>skyline.dataminer.dev.utils.solutions.mediaops.plan</PackageId>
+        <PackageVersion>$(MediaOpsPlanVersion)</PackageVersion>
+        <DllName>Skyline.DataMiner.Dev.Utils.Solutions.MediaOps.Plan.dll</DllName>
+      </MediaOpsFallbackDependency>
+
+      <ResolvedMediaOpsFallbackDependency Include="@(MediaOpsFallbackDependency)"
+          Condition="Exists('$(NuGetPackageRoot)%(MediaOpsFallbackDependency.PackageId)\%(MediaOpsFallbackDependency.PackageVersion)\lib\net48\%(MediaOpsFallbackDependency.DllName)')">
+        <SourcePath>$(NuGetPackageRoot)%(MediaOpsFallbackDependency.PackageId)\%(MediaOpsFallbackDependency.PackageVersion)\lib\net48\%(MediaOpsFallbackDependency.DllName)</SourcePath>
+        <SetupTargetDir>$(SetupDependenciesRoot)\%(MediaOpsFallbackDependency.Identity)</SetupTargetDir>
+        <CompanionTargetDir>$(CompanionRoot)\%(MediaOpsFallbackDependency.Identity)</CompanionTargetDir>
+      </ResolvedMediaOpsFallbackDependency>
+    </ItemGroup>
+
+    <MakeDir Directories="@(ResolvedMediaOpsFallbackDependency->'%(SetupTargetDir)')" />
+    <MakeDir Directories="@(ResolvedMediaOpsFallbackDependency->'%(CompanionTargetDir)')" />
+
+    <Copy SourceFiles="%(ResolvedMediaOpsFallbackDependency.SourcePath)"
+          DestinationFolder="%(ResolvedMediaOpsFallbackDependency.SetupTargetDir)"
+          SkipUnchangedFiles="true" />
+
+    <Copy SourceFiles="%(ResolvedMediaOpsFallbackDependency.SourcePath)"
+          DestinationFolder="%(ResolvedMediaOpsFallbackDependency.CompanionTargetDir)"
+          SkipUnchangedFiles="true" />
+  </Target>
 </Project>
