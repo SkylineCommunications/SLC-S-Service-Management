@@ -9,7 +9,7 @@ namespace Skyline.DataMiner.Utils.ServiceManagement.Testing.Reporting
 	/// <summary>
 	/// Publishes the test report by writing its JSON representation to the "report" script output.
 	/// <para>
-	/// This is the mechanism the InfraOps solution uses. The Skyline QAPortal connector launches the
+	/// The Skyline QAPortal connector launches the
 	/// regression test script, reads the "report" script output when the script ends and forwards the
 	/// report to the QA Portal. Nothing else is required from the test script itself.
 	/// </para>

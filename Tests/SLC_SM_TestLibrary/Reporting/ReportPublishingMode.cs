@@ -14,7 +14,6 @@ namespace Skyline.DataMiner.Utils.ServiceManagement.Testing.Reporting
 		/// <summary>
 		/// Writes the raw QA Portal report JSON to the "report" script output.
 		/// The Skyline QAPortal connector reads that output and forwards it to the portal.
-		/// This is how the InfraOps solution publishes its results.
 		/// </summary>
 		QaPortalScriptOutput = 1,
 
