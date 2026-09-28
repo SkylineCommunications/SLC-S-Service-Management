@@ -82,5 +82,38 @@
     <Project Path="SLC_SM_CommonTests/SLC_SM_CommonTests.csproj" />
     <Project Path="SLC_SM_IAS_Service_Spec_ConfigurationTests/SLC_SM_IAS_Service_Spec_ConfigurationTests.csproj" />
   </Folder>
+  <Folder Name="/Tests/Regressions Tests/">
+    <Project Path="Tests/SLC_SM_TestLibrary/SLC_SM_TestLibrary.csproj" />
+  </Folder>
+  <Folder Name="/Tests/Regressions Tests/Service Inventory/">
+    <Project Path="Tests/Regressions Tests/SLC_SM_RT_AddServiceItem/SLC_SM_RT_AddServiceItem.csproj" />
+    <Project Path="Tests/Regressions Tests/SLC_SM_RT_AddServiceItemDuplicateLabel/SLC_SM_RT_AddServiceItemDuplicateLabel.csproj" />
+    <Project Path="Tests/Regressions Tests/SLC_SM_RT_CreateServiceInventoryItem/SLC_SM_RT_CreateServiceInventoryItem.csproj" />
+    <Project Path="Tests/Regressions Tests/SLC_SM_RT_ServiceConfiguration/SLC_SM_RT_ServiceConfiguration.csproj" />
+    <Project Path="Tests/Regressions Tests/SLC_SM_RT_ServiceConfiguration_EditDuplicate/SLC_SM_RT_ServiceConfiguration_EditDuplicate.csproj" />
+    <Project Path="Tests/Regressions Tests/SLC_SM_RT_ServiceConfigurationItem/SLC_SM_RT_ServiceConfigurationItem.csproj" />
+    <Project Path="Tests/Regressions Tests/SLC_SM_RT_ServiceConfigurationItem_EditDuplicate/SLC_SM_RT_ServiceConfigurationItem_EditDuplicate.csproj" />
+    <Project Path="Tests/Regressions Tests/SLC_SM_RT_ServiceStateTransition/SLC_SM_RT_ServiceStateTransition.csproj" />
+    <Project Path="Tests/Regressions Tests/SLC_SM_RT_InvalidServiceTransition/SLC_SM_RT_InvalidServiceTransition.csproj" />
+  </Folder>
+  <Folder Name="/Tests/Regressions Tests/Service Order/">
+    <Project Path="Tests/Regressions Tests/SLC_SM_RT_CreateServiceOrder/SLC_SM_RT_CreateServiceOrder.csproj" />
+    <Project Path="Tests/Regressions Tests/SLC_SM_RT_ServiceOrderItem/SLC_SM_RT_ServiceOrderItem.csproj" />
+    <Project Path="Tests/Regressions Tests/SLC_SM_RT_ServiceOrderItem_Edit/SLC_SM_RT_ServiceOrderItem_Edit.csproj" />
+    <Project Path="Tests/Regressions Tests/SLC_SM_RT_ServiceOrderItemConfiguration/SLC_SM_RT_ServiceOrderItemConfiguration.csproj" />
+    <Project Path="Tests/Regressions Tests/SLC_SM_RT_ServiceOrderItemConfiguration_Edit/SLC_SM_RT_ServiceOrderItemConfiguration_Edit.csproj" />
+    <Project Path="Tests/Regressions Tests/SLC_SM_RT_ServiceOrderItemStateTransition/SLC_SM_RT_ServiceOrderItemStateTransition.csproj" />
+    <Project Path="Tests/Regressions Tests/SLC_SM_RT_ServiceOrderItemLifecycle/SLC_SM_RT_ServiceOrderItemLifecycle.csproj" />
+    <Project Path="Tests/Regressions Tests/SLC_SM_RT_ServiceOrderItemCancellationFlow/SLC_SM_RT_ServiceOrderItemCancellationFlow.csproj" />
+    <Project Path="Tests/Regressions Tests/SLC_SM_RT_ServiceOrderCompletion/SLC_SM_RT_ServiceOrderCompletion.csproj" />
+  </Folder>
+  <Folder Name="/Tests/Regressions Tests/Service Category/">
+    <Project Path="Tests/Regressions Tests/SLC_SM_RT_CreateServiceSpecification/SLC_SM_RT_CreateServiceSpecification.csproj" />
+    <Project Path="Tests/Regressions Tests/SLC_SM_RT_DynamicDeleteSpec/SLC_SM_RT_DynamicDeleteSpec.csproj" />
+    <Project Path="Tests/Regressions Tests/SLC_SM_RT_DeleteServiceCategory/SLC_SM_RT_DeleteServiceCategory.csproj" />
+    <Project Path="Tests/Regressions Tests/SLC_SM_RT_DynamicDeleteService/SLC_SM_RT_DynamicDeleteService.csproj" />
+    <Project Path="Tests/Regressions Tests/SLC_SM_RT_ServiceSpecificationConfiguration/SLC_SM_RT_ServiceSpecificationConfiguration.csproj" />
+    <Project Path="Tests/Regressions Tests/SLC_SM_RT_ServiceSpecificationConfiguration_Edit/SLC_SM_RT_ServiceSpecificationConfiguration_Edit.csproj" />
+  </Folder>
   <Project Path="SLC-Service-Management/SLC-Service-Management.csproj" />
 </Solution>
