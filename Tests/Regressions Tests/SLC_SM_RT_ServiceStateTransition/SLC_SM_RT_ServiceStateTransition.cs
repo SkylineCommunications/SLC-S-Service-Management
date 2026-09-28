@@ -15,8 +15,6 @@ namespace SLC_SM_RT_ServiceStateTransition
 {
 	using System;
 
-	using DomHelpers.SlcServicemanagement;
-
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Utils.ServiceManagement.Testing.Reporting;
 	using Skyline.DataMiner.Utils.ServiceManagement.Testing.Tests;

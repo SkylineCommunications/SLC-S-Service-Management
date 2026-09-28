@@ -20,8 +20,6 @@ namespace SLC_SM_Create_Service_Inventory_Item
 	using System.Collections.Generic;
 	using System.Linq;
 	using System.Threading;
-	using DomHelpers.SlcServicemanagement;
-	using DomHelpers.SlcWorkflow;
 	using Library;
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Core.DataMinerSystem.Automation;
