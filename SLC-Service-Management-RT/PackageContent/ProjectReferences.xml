@@ -1,0 +1,5 @@
+<ProjectReferences xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns="http://www.skyline.be/projectReferences">
+	<!-- Only the regression tests and their shared library. The product itself is installed by SLC-Service-Management. -->
+	<ProjectReference Include="..\Tests\SLC_SM_TestLibrary\SLC_SM_TestLibrary.csproj" />
+	<ProjectReference Include="..\Tests\Regressions Tests\*\*.csproj" />
+</ProjectReferences>

@@ -113,4 +113,5 @@
     <Project Path="Tests/Regressions Tests/SLC_SM_RT_ServiceSpecificationConfiguration_Edit/SLC_SM_RT_ServiceSpecificationConfiguration_Edit.csproj" />
   </Folder>
   <Project Path="SLC-Service-Management/SLC-Service-Management.csproj" />
+  <Project Path="SLC-Service-Management-RT/SLC-Service-Management-RT.csproj" />
 </Solution>

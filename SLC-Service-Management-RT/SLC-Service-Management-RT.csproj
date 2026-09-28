@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project Sdk="Skyline.DataMiner.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+    <CodeAnalysisRuleSet>..\Internal\Code Analysis\qaction-debug.ruleset</CodeAnalysisRuleSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+    <CodeAnalysisRuleSet>..\Internal\Code Analysis\qaction-release.ruleset</CodeAnalysisRuleSet>
+  </PropertyGroup>
+  <PropertyGroup>
+    <DataMinerType>Package</DataMinerType>
+    <GenerateDataMinerPackage>True</GenerateDataMinerPackage>
+    <MinimumRequiredDmVersion>10.3.0.0 - 12752</MinimumRequiredDmVersion>
+    <Version>1.0.0</Version>
+    <VersionComment>Initial Version</VersionComment>
+  </PropertyGroup>
+  <ItemGroup>
+    <AdditionalFiles Include="..\Internal\Code Analysis\stylecop.json">
+      <Link>Properties\stylecop.json</Link>
+    </AdditionalFiles>
+    <Content Include="..\.editorconfig">
+      <Link>Properties\.editorconfig</Link>
+    </Content>
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Skyline.DataMiner.Core.AppPackageInstaller" Version="4.0.0" />
+    <PackageReference Include="Skyline.DataMiner.Core.DataMinerSystem.Automation" Version="1.1.3.8" />
+    <PackageReference Include="Skyline.DataMiner.Core.DataMinerSystem.Common" Version="1.1.3.8" />
+    <PackageReference Include="Skyline.DataMiner.Dev.Automation" Version="10.6.3" />
+    <PackageReference Include="Skyline.DataMiner.Utils.SecureCoding.Analyzers" Version="2.2.3">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+</Project>
