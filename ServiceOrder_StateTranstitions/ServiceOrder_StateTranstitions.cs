@@ -82,8 +82,11 @@
 			subScript.Synchronous = true;
 			subScript.InheritScriptOutput = true;
 
-			// Launch the script
-			subScript.StartScript();
+			using (engine.GetUserConnection().ShareCorrelationWithSubScripts())
+			{
+				subScript.StartScript();
+			}
+
 			if (subScript.HadError)
 			{
 				throw new InvalidOperationException("Script failed");
@@ -172,7 +175,8 @@
 				item.TryUpdateStatusToAcknowledged(connection);
 			}
 
-			order.UpdateStatusToAcknowledged(connection);
+			var latestOrder = api.ServiceOrder.ServiceOrders.Read(ServiceOrderExposers.Identifier.Equal(order.Identifier)).FirstOrDefault();
+			latestOrder?.UpdateStatusToAcknowledged(connection);
 		}
 
 		private void RunSafe()
