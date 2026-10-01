@@ -1,10 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.Linq;
 
 using Skyline.AppInstaller;
 using Skyline.DataMiner.Automation;
 using Skyline.DataMiner.Net.AppPackages;
+using Skyline.DataMiner.Utils.AppInstallerHelper;
 
 /// <summary>
 ///     DataMiner Script Class.
@@ -25,21 +27,34 @@ internal class Script
 		{
 			engine.Timeout = new TimeSpan(0, 10, 0);
 			engine.GenerateInformation("Starting installation");
-			var installer = new AppInstaller(Engine.SLNetRaw, context);
-			installer.InstallDefaultContent();
+			//var installer = new AppInstaller(Engine.SLNetRaw, context);
+			//installer.InstallDefaultContent();
 
+			//installerHelper.GetDomInstaller().InstallDomModules();
 			// string setupContentPath = installer.GetSetupContentDirectory();
-			_setupContentPath = installer.GetSetupContentDirectory();
+			//var installer = new AppInstaller(Engine.SLNetRaw, context);
+			//_setupContentPath = installer.GetSetupContentDirectory();
 
-			// Custom installation logic can be added here for each individual install package.
-			var exceptions = new List<Exception>();
-			installer.Log("Importing DOM...");
-			exceptions.AddRange(ImportDom(engine));
+			//// Custom installation logic can be added here for each individual install package.
+			//var exceptions = new List<Exception>();
+			//installer.Log("Importing DOM...");
+			//exceptions.AddRange(ImportDom(engine));
 
-			if (exceptions.Any())
-			{
-				throw new AggregateException(exceptions);
-			}
+			//if (exceptions.Any())
+			//{
+			//	throw new AggregateException(exceptions);
+			//}
+
+			var installerHelper = new AppInstallerHelper(Engine.SLNetRaw, context);
+			installerHelper.InstallDefaultContent();
+
+			installerHelper.WebApplications.RegisterStaticApp(
+				id: "service-management",
+				name: "Service Management",
+				url: "/public/service-management",
+				icon: "ms-Icon--BuildDefinition",
+				color: Color.FromArgb(220, 38, 38));
+
 		}
 		catch (Exception e)
 		{

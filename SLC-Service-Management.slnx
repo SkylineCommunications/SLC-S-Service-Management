@@ -1,4 +1,10 @@
 <Solution>
+  <Folder Name="/Apps/">
+    <Project Path="Service-Management-App/service-management-app.esproj">
+      <Build Solution="Release|*" />
+      <Deploy Solution="Release|*" />
+    </Project>
+  </Folder>
   <Folder Name="/AS/">
     <Project Path="ServiceOrderItem_StateTranstitions/ServiceOrderItem_StateTranstitions.csproj" />
     <Project Path="ServiceOrder_StateTranstitions/ServiceOrder_StateTranstitions.csproj" />
