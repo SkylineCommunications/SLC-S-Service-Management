@@ -15,6 +15,9 @@ using Skyline.DataMiner.Net.Messages.Advanced;
 internal class Script
 {
 	private const string DomImportExportScriptName = "DOM ImportExport";
+	private const string RegisterSolutionScriptName = "SLC_SM_AS_RegisterSolution";
+	private const string SolutionCatalogId = "97599e37-6da8-4c0a-9c59-11838d130a77";
+	private const string SolutionDisplayName = "Service Management";
 	private const string MediaOpsCatalogId = "1b67a623-4ca6-4d25-8b3d-ed4e39496a75";
 	private const string MediaOpsCatalogName = "MediaOps";
 	private const string FallbackMediaOpsSourceFolder = @"Dependencies\MediaOps";
@@ -54,10 +57,30 @@ internal class Script
 
 			installer.Log("Importing DOM...");
 			ImportDom(engine, installer);
+
+			RegisterSolution(engine, installer, context);
 		}
 		catch (Exception e)
 		{
 			engine.ExitFail($"Exception encountered during installation: {e}");
+		}
+	}
+
+	private static void RegisterSolution(IEngine engine, AppInstaller installer, AppInstallContext context)
+	{
+		installer.Log($"Registering Solution {SolutionDisplayName} [{SolutionCatalogId}] with version {context.AppInfo.Version} in SDM...");
+
+		var subscript = engine.PrepareSubScript(RegisterSolutionScriptName);
+		subscript.SelectScriptParam("Id", SolutionCatalogId);
+		subscript.SelectScriptParam("DisplayName", SolutionDisplayName);
+		subscript.SelectScriptParam("Version", context.AppInfo.Version);
+
+		subscript.Synchronous = true;
+		subscript.StartScript();
+
+		if (subscript.HadError)
+		{
+			throw new InvalidOperationException($"Run Subscript '{RegisterSolutionScriptName}' failed: {String.Join(" -> ", subscript.GetErrorMessages())}");
 		}
 	}
 
