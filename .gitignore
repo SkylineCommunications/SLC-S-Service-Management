@@ -6,6 +6,7 @@
 
 .tsbuildinfo
 Service-Management-App/node_modules/
+Service-Management-App/.vite/
 Service-Management-App/.vscode
 Service-Management-App/vite.config.js
 SLC-Service-Management/PackageContent/CompanionFiles/Skyline DataMiner/Webpages/public/service-management/
