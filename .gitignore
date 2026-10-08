@@ -3,6 +3,13 @@
 ##
 ## Get latest from https://github.com/github/gitignore/blob/master/VisualStudio.gitignore
 
+
+.tsbuildinfo
+Service-Management-App/node_modules/
+Service-Management-App/.vscode
+Service-Management-App/vite.config.js
+SLC-Service-Management/PackageContent/CompanionFiles/Skyline DataMiner/Webpages/public/service-management/
+
 # User-specific files
 *.rsuser
 *.suo
