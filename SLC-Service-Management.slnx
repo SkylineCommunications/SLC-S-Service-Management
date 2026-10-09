@@ -82,5 +82,9 @@
     <Project Path="SLC_SM_CommonTests/SLC_SM_CommonTests.csproj" />
     <Project Path="SLC_SM_IAS_Service_Spec_ConfigurationTests/SLC_SM_IAS_Service_Spec_ConfigurationTests.csproj" />
   </Folder>
+  <Folder Name="/WebAPI/">
+    <Project Path="SLC_SM_Setup_UDAPI/SLC_SM_Setup_UDAPI.csproj" Id="6c4b21f3-fe65-47d1-928e-351755c577f8" />
+    <Project Path="SLC_SM_UDAPI_ServiceInventory/SLC_SM_UDAPI_ServiceInventory.csproj" Id="36909eaf-9414-4066-8c28-44d2798da0ff" />
+  </Folder>
   <Project Path="SLC-Service-Management/SLC-Service-Management.csproj" />
 </Solution>
