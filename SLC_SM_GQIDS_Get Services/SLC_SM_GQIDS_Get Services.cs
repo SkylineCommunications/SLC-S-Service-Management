@@ -3,25 +3,31 @@ namespace SLC_SM_GQIDS_Get_Services
 	using System;
 	using System.Collections.Generic;
 	using System.Linq;
+	using DomHelpers.SlcPeople_Organizations;
 	using DomHelpers.SlcServicemanagement;
 	using Skyline.DataMiner.Analytics.GenericInterface;
-	using Skyline.DataMiner.Core.DataMinerSystem.Common;
 	using Skyline.DataMiner.Net;
 	using Skyline.DataMiner.Net.Apps.DataMinerObjectModel;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.API;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.PeopleAndOrganization;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
 	using SLC_SM_Common.Extensions;
+	using OrganizationExposers = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.OrganizationExposers;
+	using LegacyServiceExposers = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceExposers;
 	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 
 	[GQIMetaData(Name = DataSourceName)]
-	public sealed class GetServices : IGQIDataSource, IGQIOnInit
+	public sealed class GetServices : IGQIDataSource, IGQIInputArguments, IGQIOnInit
 	{
 		private const string DataSourceName = "Get_Services";
+		private readonly GQIStringArgument domIdArg = new GQIStringArgument("DOM ID") { IsRequired = false };
 
 		private GQIDMS _gqiDms;
-		private IDms _dms;
 		private IGQILogger _logger;
 		private IServiceManagementApiHelper _serviceManagementApiHelper;
+		private string _domId;
 
 		public GQIColumn[] GetColumns()
 		{
@@ -38,17 +44,28 @@ namespace SLC_SM_GQIDS_Get_Services
 				new GQIStringColumn("Service Logo"),
 				new GQIStringColumn("Service Specification"),
 				new GQIIntColumn("Alarm Level"),
+				new GQIStringColumn("Service Organization"),
+				new GQIStringColumn("Monitoring Service"),
+				new GQIStringColumn("Related Service Orders"),
+				new GQIIntColumn("Related Service Order Count"),
 			};
 		}
+
+		public GQIArgument[] GetInputArguments() => new[] { domIdArg };
 
 		public OnInitOutputArgs OnInit(OnInitInputArgs args)
 		{
 			_gqiDms = args.DMS;
-			_dms = _gqiDms.GetConnection().GetDms();
 			_logger = args.Logger;
 			_logger.MinimumLogLevel = GQILogLevel.Debug;
 			_serviceManagementApiHelper = new ServiceManagementApiHelper(_gqiDms.GetConnection(), "Service Inventory");
 			return default;
+		}
+
+		public OnArgumentsProcessedOutputArgs OnArgumentsProcessed(OnArgumentsProcessedInputArgs args)
+		{
+			_domId = args.GetArgumentValue(domIdArg);
+			return new OnArgumentsProcessedOutputArgs();
 		}
 
 		public GQIPage GetNextPage(GetNextPageInputArgs args)
@@ -60,14 +77,16 @@ namespace SLC_SM_GQIDS_Get_Services
 		{
 			try
 			{
-				var services = _serviceManagementApiHelper.ServiceInventory.Services
-					.Read(new TRUEFilterElement<Models.Service>())
-					.ToList();
+				var services = ReadServices();
 				_logger.Debug($"GQIDS|{DataSourceName}|Retrieved {services.Count} service inventory records.");
-				var categories = ReadCategories();
-				var specifications = ReadSpecifications();
+				var categories = ReadCategories(services);
+				var specifications = ReadSpecifications(services);
+				var serviceOrganizations = String.IsNullOrWhiteSpace(_domId)
+					? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+					: ReadServiceOrganizations(services);
+				var relatedOrders = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
 
-				return new GQIPage(services.Select(service => BuildRow(service, categories, specifications)).ToArray()) { HasNextPage = false };
+				return new GQIPage(services.Select(service => BuildRow(service, categories, specifications, serviceOrganizations, relatedOrders)).ToArray()) { HasNextPage = false };
 			}
 			catch (Exception exception)
 			{
@@ -77,12 +96,47 @@ namespace SLC_SM_GQIDS_Get_Services
 			}
 		}
 
-		private Dictionary<string, Models.ServiceCategory> ReadCategories()
+		private List<Models.Service> ReadServices()
+		{
+			if (String.IsNullOrWhiteSpace(_domId))
+			{
+				return _serviceManagementApiHelper.ServiceInventory.Services
+					.Read(new TRUEFilterElement<Models.Service>())
+					.ToList();
+			}
+
+			if (!Guid.TryParse(_domId, out var serviceId))
+			{
+				return new List<Models.Service>();
+			}
+
+			return _serviceManagementApiHelper.ServiceInventory.Services
+				.Read(Models.ServiceExposers.Identifier.Equal(serviceId.ToString()))
+				.Take(1)
+				.ToList();
+		}
+
+		private Dictionary<string, Models.ServiceCategory> ReadCategories(IEnumerable<Models.Service> services)
 		{
 			try
 			{
+				FilterElement<Models.ServiceCategory> filter = null;
+				foreach (var categoryId in services
+					.Select(service => service.CategoryId.Identifier)
+					.Where(identifier => !String.IsNullOrWhiteSpace(identifier))
+					.Distinct(StringComparer.OrdinalIgnoreCase))
+				{
+					var categoryFilter = Models.ServiceCategoryExposers.Identifier.Equal(categoryId);
+					filter = filter == null ? categoryFilter : filter.OR(categoryFilter);
+				}
+
+				if (filter == null)
+				{
+					return new Dictionary<string, Models.ServiceCategory>(StringComparer.OrdinalIgnoreCase);
+				}
+
 				return _serviceManagementApiHelper.ServiceCatalog.ServiceCategories
-					.Read(new TRUEFilterElement<Models.ServiceCategory>())
+					.Read(filter)
 					.Where(category => !String.IsNullOrWhiteSpace(category.Identifier))
 					.ToDictionary(category => category.Identifier, StringComparer.OrdinalIgnoreCase);
 			}
@@ -93,12 +147,27 @@ namespace SLC_SM_GQIDS_Get_Services
 			}
 		}
 
-		private Dictionary<string, Models.ServiceSpecification> ReadSpecifications()
+		private Dictionary<string, Models.ServiceSpecification> ReadSpecifications(IEnumerable<Models.Service> services)
 		{
 			try
 			{
+				FilterElement<Models.ServiceSpecification> filter = null;
+				foreach (var specificationId in services
+					.Select(service => service.ServiceSpecificationId.Identifier)
+					.Where(identifier => !String.IsNullOrWhiteSpace(identifier))
+					.Distinct(StringComparer.OrdinalIgnoreCase))
+				{
+					var specificationFilter = Models.ServiceSpecificationExposers.Identifier.Equal(specificationId);
+					filter = filter == null ? specificationFilter : filter.OR(specificationFilter);
+				}
+
+				if (filter == null)
+				{
+					return new Dictionary<string, Models.ServiceSpecification>(StringComparer.OrdinalIgnoreCase);
+				}
+
 				return _serviceManagementApiHelper.ServiceCatalog.ServiceSpecifications
-					.Read(new TRUEFilterElement<Models.ServiceSpecification>())
+					.Read(filter)
 					.Where(specification => !String.IsNullOrWhiteSpace(specification.Identifier))
 					.ToDictionary(specification => specification.Identifier, StringComparer.OrdinalIgnoreCase);
 			}
@@ -112,16 +181,19 @@ namespace SLC_SM_GQIDS_Get_Services
 		private GQIRow BuildRow(
 			Models.Service service,
 			IReadOnlyDictionary<string, Models.ServiceCategory> categories,
-			IReadOnlyDictionary<string, Models.ServiceSpecification> specifications)
+			IReadOnlyDictionary<string, Models.ServiceSpecification> specifications,
+			IReadOnlyDictionary<string, string> serviceOrganizations,
+			IReadOnlyDictionary<string, List<string>> relatedOrders)
 		{
 			var id = service.Identifier ?? String.Empty;
 			var metadata = Guid.TryParse(id, out var domId)
 				? new GenIfRowMetadata(new[] { new ObjectRefMetadata { Object = new DomInstanceId(domId) { ModuleId = SlcServicemanagementIds.ModuleId } } })
 				: null;
 
-			var alarmLevel = _logger.PerformanceLogger("Get Alarm Level", () => TryGetAlarmLevel(service));
+			var alarmLevel = 0;
 			var category = service.CategoryId != null && !String.IsNullOrWhiteSpace(service.CategoryId.Identifier) && categories.TryGetValue(service.CategoryId.Identifier, out var categoryValue) ? categoryValue : null;
 			var specification = service.ServiceSpecificationId != null && !String.IsNullOrWhiteSpace(service.ServiceSpecificationId.Identifier) && specifications.TryGetValue(service.ServiceSpecificationId.Identifier, out var specificationValue) ? specificationValue : null;
+			var related = relatedOrders.TryGetValue(id, out var serviceOrders) ? serviceOrders : new List<string>();
 
 			return new GQIRow(
 				id,
@@ -138,27 +210,48 @@ namespace SLC_SM_GQIDS_Get_Services
 					new GQICell { Value = service.Icon ?? String.Empty },
 					new GQICell { Value = specification?.Name ?? String.Empty },
 					new GQICell { Value = (int)alarmLevel },
+					new GQICell { Value = serviceOrganizations.TryGetValue(id, out var organization) ? organization : String.Empty },
+					new GQICell { Value = service.MonitoringService ?? String.Empty },
+					new GQICell { Value = String.Join(", ", related) },
+					new GQICell { Value = related.Count },
 				})
 			{
 				Metadata = metadata,
 			};
 		}
 
-		private AlarmLevel TryGetAlarmLevel(Models.Service service)
+		private Dictionary<string, string> ReadServiceOrganizations(IEnumerable<Models.Service> services)
 		{
-			try
+			if (!_gqiDms.DomModelExists(SlcPeople_OrganizationsIds.ModuleId))
 			{
-				if (_dms.ServiceExistsSafe(service.Name, out IDmsService dataMinerService))
-				{
-					return dataMinerService.GetState().Level;
-				}
-			}
-			catch (Exception exception)
-			{
-				_logger.Error($"GQIDS|{DataSourceName}|Could not read alarm level for '{service.Name}': {exception}");
+				return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 			}
 
-			return AlarmLevel.Undefined;
+			var serviceId = services
+				.Select(service => service.Identifier)
+				.Select(identifier => Guid.TryParse(identifier, out var parsedId) ? parsedId : Guid.Empty)
+				.FirstOrDefault(identifier => identifier != Guid.Empty);
+			if (serviceId == Guid.Empty)
+			{
+				return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+			}
+
+			var legacyService = new DataHelperService(_gqiDms.GetConnection())
+				.Read(LegacyServiceExposers.Guid.Equal(serviceId))
+				.FirstOrDefault();
+			if (legacyService?.OrganizationId == null)
+			{
+				return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+			}
+
+			var organization = new DataHelpersPeopleAndOrganizations(_gqiDms.GetConnection())
+				.Organizations
+				.Read(OrganizationExposers.Guid.Equal(legacyService.OrganizationId.Value))
+				.FirstOrDefault();
+			return organization == null || String.IsNullOrWhiteSpace(organization.Name)
+				? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+				: new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [serviceId.ToString()] = organization.Name };
 		}
+
 	}
 }

@@ -37,6 +37,7 @@ namespace SLC_SM_GQIDS_Get_Service_Orders
 				new GQIStringColumn("Related Organization"),
 				new GQIStringColumn("State"),
 				new GQIDateTimeColumn("Start"),
+				new GQIDateTimeColumn("Created At"),
 			};
 		}
 
@@ -63,7 +64,10 @@ namespace SLC_SM_GQIDS_Get_Service_Orders
 			return default;
 		}
 
-		private GQIRow BuildRow(Models.ServiceOrder item, List<Skyline.DataMiner.ProjectApi.ServiceManagement.API.PeopleAndOrganization.Models.Organization> organizations)
+		private GQIRow BuildRow(
+			Models.ServiceOrder item,
+			List<Skyline.DataMiner.ProjectApi.ServiceManagement.API.PeopleAndOrganization.Models.Organization> organizations,
+			IReadOnlyDictionary<string, DateTimeOffset> createdAtById)
 		{
 			string id = item.Identifier ?? String.Empty;
 			var metadata = Guid.TryParse(id, out var domId)
@@ -80,6 +84,7 @@ namespace SLC_SM_GQIDS_Get_Service_Orders
 					new GQICell { Value = item.OrganizationId.HasValue ? organizations.Find(x => x.ID == item.OrganizationId)?.Name ?? String.Empty : String.Empty },
 					new GQICell { Value = item.Status.GetDescription() },
 					new GQICell { Value = item.CompletionInfo?.RequestedStartDate?.ToUniversalTime() },
+					new GQICell { Value = createdAtById.TryGetValue(id, out var createdAt) ? createdAt.UtcDateTime : (DateTime?)null },
 				};
 			return new GQIRow(id, columns) { Metadata = metadata };
 		}
@@ -110,10 +115,17 @@ namespace SLC_SM_GQIDS_Get_Service_Orders
 				: new List<Skyline.DataMiner.ProjectApi.ServiceManagement.API.PeopleAndOrganization.Models.Organization>();
 
 			var instances = _logger.PerformanceLogger("Get Orders", () => api.ServiceOrder.ServiceOrders.Read(new TRUEFilterElement<Models.ServiceOrder>()).ToList());
+			var domHelper = new DomHelper(_dms.SendMessages, SlcServicemanagementIds.ModuleId);
+			var createdAtById = domHelper.DomInstances
+				.Read(DomInstanceExposers.DomDefinitionId.Equal(SlcServicemanagementIds.Definitions.ServiceOrders.Id))
+				.Select(instance => new ServiceOrdersInstance(instance))
+				.Where(instance => instance.ID != null && !String.IsNullOrWhiteSpace(instance.ID.Id.ToString()))
+				.GroupBy(instance => instance.ID.Id.ToString(), StringComparer.OrdinalIgnoreCase)
+				.ToDictionary(group => group.Key, group => group.Select(instance => instance.CreatedAt).FirstOrDefault(), StringComparer.OrdinalIgnoreCase);
 			return _logger.PerformanceLogger(
 				"Build Rows",
 				() => instances
-					.Select(item => BuildRow(item, organizations))
+					.Select(item => BuildRow(item, organizations, createdAtById))
 					.ToArray());
 		}
 	}

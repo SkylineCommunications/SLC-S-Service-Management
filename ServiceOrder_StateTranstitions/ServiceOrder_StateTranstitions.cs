@@ -1,4 +1,4 @@
-﻿namespace ServiceOrder_StateTranstitions_1
+namespace ServiceOrder_StateTranstitions_1
 {
 	using System;
 	using System.Collections.Generic;
@@ -47,23 +47,27 @@
 			catch (ScriptAbortException)
 			{
 				// Catch normal abort exceptions (engine.ExitFail or engine.ExitSuccess)
+				throw;
 			}
 			catch (ScriptForceAbortException)
 			{
 				// Catch forced abort exceptions, caused via external maintenance messages.
+				throw;
 			}
 			catch (ScriptTimeoutException)
 			{
 				// Catch timeout exceptions for when a script has been running for too long.
+				throw;
 			}
 			catch (InteractiveUserDetachedException)
 			{
 				// Catch a user detaching from the interactive script by closing the window.
 				// Only applicable for interactive scripts, can be removed for non-interactive scripts.
+				throw;
 			}
 			catch (Exception e)
 			{
-				engine.ShowErrorDialog(e);
+				engine.HandleUnexpectedException(e);
 			}
 		}
 
@@ -90,9 +94,9 @@
 			}
 		}
 
-		private static void TransitionOrderItemsToInit(IEngine engine, Models.ServiceOrder order)
+		private static void TransitionOrderItemsToInit(IEngine engine, Models.ServiceOrder order, bool skipConfirmation)
 		{
-			bool transitionItems = engine.ShowConfirmDialog("Do you wish to transition all Service Order Items to In Progress as well?\r\nNote: this will initialize the items in the Service Inventory Portal.");
+			bool transitionItems = skipConfirmation || engine.ShowConfirmDialog("Do you wish to transition all Service Order Items to In Progress as well?\r\nNote: this will initialize the items in the Service Inventory Portal.");
 			if (!transitionItems)
 			{
 				return;
@@ -110,7 +114,7 @@
 			}
 		}
 
-		private static void TransitionOrderItemsToRejected(IEngine engine, Models.ServiceOrder order)
+		private static void TransitionOrderItemsToRejected(IEngine engine, Models.ServiceOrder order, bool skipConfirmation, string cancellationReason)
 		{
 			var connection = engine.GetUserConnection();
 			var api = connection.GetServiceManagementApiHelper("Service Ordering");
@@ -121,12 +125,12 @@
 				throw new NotSupportedException("Some underlying order items or linked service items are already in progress, it's not possible to reject the order at this point");
 			}
 
-			if (!engine.ShowConfirmDialog("Do you wish to reject the current order?"))
+			if (!skipConfirmation && !engine.ShowConfirmDialog("Do you wish to reject the current order?"))
 			{
 				return;
 			}
 
-			string cancellationReason = engine.ShowFeedbackDialog("Please provide a reason for cancellation");
+			cancellationReason = skipConfirmation ? cancellationReason ?? String.Empty : engine.ShowFeedbackDialog("Please provide a reason for cancellation");
 
 			foreach (var item in orderItems)
 			{
@@ -136,7 +140,7 @@
 			order.StatusUpdateToRejected(connection, cancellationReason);
 		}
 
-		private static void TransitionToCancelled(IEngine engine, Models.ServiceOrder order)
+		private static void TransitionToCancelled(IEngine engine, Models.ServiceOrder order, bool skipConfirmation, string cancellationReason)
 		{
 			var connection = engine.GetUserConnection();
 			var api = connection.GetServiceManagementApiHelper("Service Ordering");
@@ -145,12 +149,12 @@
 				throw new NotSupportedException("Some underlying order items are still in progress, it's not possible to cancel the order at this point");
 			}
 
-			if (!engine.ShowConfirmDialog("Do you wish to cancel the current order?"))
+			if (!skipConfirmation && !engine.ShowConfirmDialog("Do you wish to cancel the current order?"))
 			{
 				return;
 			}
 
-			string cancellationReason = engine.ShowFeedbackDialog("Please provide a reason for cancellation");
+			cancellationReason = skipConfirmation ? cancellationReason ?? String.Empty : engine.ShowFeedbackDialog("Please provide a reason for cancellation");
 
 			order.StatusUpdateToCanceled(connection, cancellationReason);
 		}
@@ -178,8 +182,15 @@
 		private void RunSafe()
 		{
 			var instanceId = engine.ReadScriptParamFromApp<Guid>("ServiceOrderReference");
-			var previousState = engine.ReadScriptParamFromApp("PreviousState").ToLower();
-			var nextState = engine.ReadScriptParamFromApp("NextState").ToLower();
+			var previousState = engine.ReadScriptParamFromApp("PreviousState")?.Trim().ToLowerInvariant();
+			var nextState = engine.ReadScriptParamFromApp("NextState")?.Trim().ToLowerInvariant();
+			if (String.IsNullOrWhiteSpace(previousState) || String.IsNullOrWhiteSpace(nextState))
+			{
+				throw new InvalidOperationException("Both PreviousState and NextState are required.");
+			}
+
+			bool skipConfirmation = engine.ReadBooleanScriptParam("Skip Confirmation");
+			string cancellationReason = engine.ReadScriptParamFromApp("Cancellation Reason");
 
 			TransitionsEnum transition = Enum.GetValues(typeof(TransitionsEnum))
 											 .Cast<TransitionsEnum?>()
@@ -200,15 +211,15 @@
 				case TransitionsEnum.New_To_Rejected:
 				case TransitionsEnum.Acknowledged_To_Rejected:
 					// Transition all items to Rejected as well
-					TransitionOrderItemsToRejected(engine, order);
+					TransitionOrderItemsToRejected(engine, order, skipConfirmation, cancellationReason);
 					break;
 
 				case TransitionsEnum.Pendingcancellation_To_Cancelled:
-					TransitionToCancelled(engine, order);
+					TransitionToCancelled(engine, order, skipConfirmation, cancellationReason);
 					break;
 
 				case TransitionsEnum.Acknowledged_To_Inprogress:
-					TransitionOrderItemsToInit(engine, order);
+					TransitionOrderItemsToInit(engine, order, skipConfirmation);
 					break;
 
 				case TransitionsEnum.Inprogress_To_Completed:
@@ -225,7 +236,7 @@
 		private static List<Models.ServiceOrderItem> GetOrderItems(IServiceManagementApiHelper api, Models.ServiceOrder order)
 		{
 			var itemIds = new HashSet<string>(
-				order.OrderItems
+				(order.OrderItems ?? new List<Models.ServiceOrderEntry>())
 					.Where(x => x?.ServiceOrderItemId != null && !String.IsNullOrWhiteSpace(x.ServiceOrderItemId.Identifier))
 					.Select(x => x.ServiceOrderItemId.Identifier),
 				StringComparer.OrdinalIgnoreCase);

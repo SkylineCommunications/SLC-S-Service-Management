@@ -1,11 +1,15 @@
 // Dev-only DataMiner Web API stand-in for `npm run dev` (apply: 'serve'), so the UI can be previewed live without an
 // Agent. It answers the same Json.asmx / Internal.asmx calls the app makes and is never part of `vite build`.
 const CONNECTION = 'dev-connection';
-const ORDER_COLUMNS = ['Order ID', 'Name', 'Description', 'Priority', 'External ID', 'Related Organization', 'State', 'Start'];
-const ITEM_COLUMNS = ['ID', 'Name', 'Start', 'End', 'Action', 'Category', 'Service Specification', 'Service', 'ServiceId', 'Property', 'Configuration', 'Status', 'StatusId', 'Description'];
-const SERVICE_COLUMNS = ['DOM ID', 'Service ID', 'Service Name', 'Service Status', 'Service Start', 'Service End', 'Service Category', 'Service Category Type', 'Service Logo', 'Service Specification', 'Alarm Level'];
+const ORDER_COLUMNS = ['Order ID', 'Name', 'Description', 'Priority', 'External ID', 'Related Organization', 'State', 'Start', 'Created At'];
+const ITEM_COLUMNS = ['ID', 'Name', 'Start', 'End', 'Action', 'Category', 'Category ID', 'Service Specification', 'Service Specification ID', 'Service', 'ServiceId', 'Property', 'Configuration', 'Status', 'StatusId', 'Description'];
+const SERVICE_COLUMNS = ['DOM ID', 'Service ID', 'Service Name', 'Service Status', 'Service Start', 'Service End', 'Service Category', 'Service Category Type', 'Service Logo', 'Service Specification', 'Alarm Level', 'Service Organization', 'Monitoring Service', 'Related Service Orders', 'Related Service Order Count'];
 const SERVICE_ITEM_COLUMNS = ['Actions', 'Label', 'Service Item ID', 'Service Item Type', 'Definition Reference', 'Service Item Script', 'Implementation Reference', 'Implementation Reference Name', 'Implementation Reference Link', 'Implementation Reference Has Value', 'Implementation Reference Name Has Value', 'Implementation Reference Link Has Value', 'Implementation State', 'Implementation Reference Custom Link', 'Implementation Reference Custom Link Has Value', 'Monitoring Service State', 'Monitoring Service DMA ID/SID', 'Log'];
+const SERVICE_CONFIG_COLUMNS = ['Version ID', 'Version Name', 'Version Description', 'Version Start', 'Version End', 'Is Active', 'Record Type', 'Configuration ID', 'Parameter ID', 'Parameter Value ID', 'Parameter Name', 'Parameter Type', 'Parameter Value', 'Mandatory', 'Profile ID', 'Profile Name', 'Profile Definition ID', 'Profile Definition Name', 'Profile Reusable', 'Profile Mandatory', 'Nested Profile ID', 'Nested Profile Name', 'Nested Profile Definition ID', 'Nested Profile Definition Name'];
 const SPECIFICATION_COLUMNS = ['Specification ID', 'Name', 'Description', 'Created At', 'Created By', 'Last Modified', 'Last Modified By', 'Service Item Count'];
+const ORGANIZATION_COLUMNS = ['Organization ID', 'Organization Name'];
+const MONITORING_SERVICE_COLUMNS = ['Monitoring Service ID', 'Monitoring Service Name'];
+const DOCUMENT_HUB_COLUMNS = ['Bucket', 'File Name', 'Icon', 'Extension', 'Directory'];
 const STATES = ['New', 'Acknowledged', 'In Progress', 'Held', 'Pending', 'Completed', 'Completed', 'Cancelled', 'Rejected', 'Failed', 'Partially Failed', 'Assess Cancellation', 'Pending Cancellation'];
 const PRIORITIES = ['High', 'Medium', 'Low'];
 const ORGANIZATIONS = ['Skyline Broadcast', 'Acme Media', 'Northwind Telecom', 'Fox OTT', ''];
@@ -30,6 +34,7 @@ let ORDERS = Array.from({ length: 42 }, (_, i) => {
         'Related Organization': ORGANIZATIONS[i % ORGANIZATIONS.length],
         State: STATES[i % STATES.length],
         Start: `9/${(i % 9) + 1}/2026 ${String((i % 9) + 1)}:00:00 AM`,
+        'Created At': `8/${(i % 28) + 1}/2026 10:00:00 AM`,
     };
 });
 
@@ -62,10 +67,28 @@ const SPECIFICATIONS = SERVICE_SPECIFICATIONS.map((name, index) => ({
     'Last Modified By': 'Sulejman',
     'Service Item Count': String((index % 3) + 2),
 }));
+let CATEGORY_ROWS = SERVICE_CATEGORIES.map((name, index) => ({
+    'Category ID': guid(4500 + index),
+    'Category Name': name,
+    'Category Type': index % 2 === 0 ? 'Channel' : 'Service',
+    'Category Icon': '',
+}));
+const ORGANIZATION_ROWS = [...new Set(ORGANIZATIONS.filter(Boolean))].map((name, index) => ({
+    'Organization ID': guid(4700 + index),
+    'Organization Name': name,
+}));
+const DOCUMENT_HUB_LOGOS = [
+    { Bucket: 'Default', 'File Name': 'connectivity.svg', Icon: '/Public/DocumentHub/connectivity.svg', Extension: '.svg', Directory: '/Public/DocumentHub' },
+    { Bucket: 'Default', 'File Name': 'production.svg', Icon: '/Public/DocumentHub/production.svg', Extension: '.svg', Directory: '/Public/DocumentHub' },
+];
 
 const EXTRA_ITEMS = new Map();
+const SERVICE_SCRIPT_OVERRIDES = new Map();
+const SERVICE_CONFIGURATION_OVERRIDES = new Map();
+const SERVICE_WITHOUT_CONFIGURATION_ID = SERVICES[SERVICES.length - 1]['DOM ID'];
 
 function serviceItemsFor(serviceId) {
+    if (EXTRA_ITEMS.has(serviceId)) return EXTRA_ITEMS.get(serviceId);
     const service = SERVICES.find(item => item['DOM ID'] === serviceId);
     const specification = SPECIFICATIONS.find(item => item['Specification ID'] === serviceId);
     const name = service?.['Service Name'] || specification?.Name;
@@ -77,17 +100,232 @@ function serviceItemsFor(serviceId) {
     ];
 }
 
+function serviceScriptsFor(serviceId) {
+    if (SERVICE_SCRIPT_OVERRIDES.has(serviceId)) return SERVICE_SCRIPT_OVERRIDES.get(serviceId);
+    return [{ 'Script Name': 'Refresh service', Description: 'Refreshes the service implementation.' }, { 'Script Name': 'Restart service', Description: 'Restarts the service implementation.' }];
+}
+
+function relatedOrdersForService(serviceId) {
+    return ORDERS
+        .filter(order => itemsFor(order['Order ID']).some(item => item.ServiceId === serviceId))
+        .map(order => order.Name || order['Order ID']);
+}
+
+function relatedOrderRowsForService(serviceId) {
+    return ORDERS.flatMap(order => itemsFor(order['Order ID'])
+        .filter(item => item.ServiceId === serviceId)
+        .map(item => ({
+            'Order ID': order['Order ID'],
+            'Order Name': order.Name || order['Order ID'],
+            'Service Order Item ID': item.ID || '',
+            Action: item.Action || '',
+            State: item.Status || '',
+        })));
+}
+
+function serviceConfigurationsFor(serviceId, { includeProfiles = true } = {}) {
+    if (SERVICE_CONFIGURATION_OVERRIDES.has(serviceId)) {
+        const overridden = SERVICE_CONFIGURATION_OVERRIDES.get(serviceId);
+        return includeProfiles ? overridden : overridden.filter(row => !['AvailableProfile', 'AvailableNestedProfile', 'Profile', 'ProfileParameter', 'NestedProfile', 'NestedProfileParameter'].includes(row['Record Type']));
+    }
+    const hasConfigurationVersion = serviceId !== SERVICE_WITHOUT_CONFIGURATION_ID;
+    const versionId = guid(7000 + SERVICES.findIndex(service => service['DOM ID'] === serviceId));
+    const parameters = [
+        ['Bitrate', 'Number', '2500', 'false', 7200],
+        ['Protocol', 'Text', 'SRT', 'true', 7201],
+        ['Redundant', 'Discrete', 'Enabled', 'false', 7203],
+    ];
+    const rows = hasConfigurationVersion ? parameters.map((parameter, index) => ({
+        'Version ID': versionId,
+        'Version Name': 'Current version',
+        'Version Description': 'Current service configuration',
+        'Version Start': '9/1/2026 8:00:00 AM',
+        'Version End': 'No End Time',
+        'Is Active': 'true',
+        'Record Type': 'Parameter',
+        'Configuration ID': guid(7100 + index),
+        'Parameter ID': guid(parameter[4]),
+        'Parameter Value ID': guid(7300 + index),
+        'Parameter Name': parameter[0],
+        'Parameter Type': parameter[1],
+        'Parameter Value': parameter[2],
+        Mandatory: parameter[3],
+        'Profile ID': '',
+        'Profile Name': '',
+        'Profile Definition ID': '',
+        'Profile Definition Name': '',
+        'Profile Reusable': 'false',
+        'Profile Mandatory': 'false',
+    })) : [];
+    rows.push(
+        { 'Version ID': '', 'Record Type': 'AvailableParameter', 'Parameter ID': guid(7200), 'Parameter Name': 'Bitrate', 'Parameter Type': 'Number' },
+        { 'Version ID': '', 'Record Type': 'AvailableParameter', 'Parameter ID': guid(7201), 'Parameter Name': 'Protocol', 'Parameter Type': 'Text' },
+        { 'Version ID': '', 'Record Type': 'AvailableParameter', 'Parameter ID': guid(7202), 'Parameter Name': 'Latency', 'Parameter Type': 'Number' },
+        { 'Version ID': '', 'Record Type': 'AvailableParameter', 'Parameter ID': guid(7203), 'Parameter Name': 'Redundant', 'Parameter Type': 'Discrete' },
+    );
+    if (!includeProfiles) return rows;
+    rows.push(
+        { 'Version ID': '', 'Record Type': 'AvailableProfile', 'Profile Definition ID': guid(7400), 'Profile Definition Name': 'Transport profile' },
+        { 'Version ID': '', 'Record Type': 'AvailableProfile', 'Profile Definition ID': guid(7401), 'Profile Definition Name': 'Encapsulation profile' },
+        { 'Version ID': '', 'Record Type': 'AvailableProfile', 'Profile Definition ID': guid(7402), 'Profile Definition Name': 'Timing profile' },
+        { 'Version ID': '', 'Record Type': 'AvailableProfile', 'Profile Definition ID': guid(7403), 'Profile Definition Name': 'Monitoring profile' },
+        { 'Version ID': '', 'Record Type': 'AvailableNestedProfile', 'Nested Profile ID': guid(7601), 'Nested Profile Name': 'Reusable encapsulation profile', 'Nested Profile Definition ID': guid(7401), 'Nested Profile Definition Name': 'Encapsulation profile', 'Profile Reusable': 'true' },
+        { 'Version ID': '', 'Record Type': 'AvailableNestedProfile', 'Nested Profile ID': guid(7602), 'Nested Profile Name': 'Reusable timing profile', 'Nested Profile Definition ID': guid(7402), 'Nested Profile Definition Name': 'Timing profile', 'Profile Reusable': 'true' },
+        { 'Version ID': '', 'Record Type': 'AvailableNestedProfile', 'Nested Profile ID': guid(7603), 'Nested Profile Name': 'Reusable monitoring profile', 'Nested Profile Definition ID': guid(7403), 'Nested Profile Definition Name': 'Monitoring profile', 'Profile Reusable': 'true' },
+    );
+    if (!hasConfigurationVersion) return rows;
+    const rootProfileId = guid(7600);
+    const childProfileId = guid(7601);
+    const grandchildProfileId = guid(7602);
+    const greatGrandchildProfileId = guid(7603);
+    const profileBase = { 'Version ID': versionId, 'Version Name': 'Current version', 'Version Description': 'Current service configuration', 'Version Start': '9/1/2026 8:00:00 AM', 'Version End': 'No End Time', 'Is Active': 'true', 'Configuration ID': '', 'Parameter ID': '', 'Parameter Value ID': '', 'Parameter Name': '', 'Parameter Type': '', 'Parameter Value': '', Mandatory: 'false', 'Profile ID': '', 'Profile Name': '', 'Profile Definition ID': '', 'Profile Definition Name': '', 'Profile Reusable': 'false', 'Profile Mandatory': 'true', 'Nested Profile ID': '', 'Nested Profile Name': '', 'Nested Profile Definition ID': '', 'Nested Profile Definition Name': '' };
+    rows.push(
+        { ...profileBase, 'Record Type': 'Profile', 'Profile ID': rootProfileId, 'Profile Name': 'Transport profile', 'Profile Definition ID': guid(7400), 'Profile Definition Name': 'Transport profile' },
+        { ...profileBase, 'Record Type': 'NestedProfile', 'Profile ID': rootProfileId, 'Profile Name': 'Transport profile', 'Profile Definition ID': guid(7400), 'Profile Definition Name': 'Transport profile', 'Nested Profile ID': childProfileId, 'Nested Profile Name': 'Reusable encapsulation profile', 'Nested Profile Definition ID': guid(7401), 'Nested Profile Definition Name': 'Encapsulation profile', 'Parameter ID': guid(7202), 'Parameter Value ID': guid(7302), 'Parameter Name': 'Latency', 'Parameter Type': 'Number', 'Parameter Value': '50' },
+        { ...profileBase, 'Record Type': 'NestedProfile', 'Profile ID': childProfileId, 'Profile Name': 'Reusable encapsulation profile', 'Profile Definition ID': guid(7401), 'Profile Definition Name': 'Encapsulation profile', 'Nested Profile ID': grandchildProfileId, 'Nested Profile Name': 'Reusable timing profile', 'Nested Profile Definition ID': guid(7402), 'Nested Profile Definition Name': 'Timing profile', 'Profile Reusable': 'true', 'Parameter ID': guid(7200), 'Parameter Value ID': guid(7300), 'Parameter Name': 'Bitrate', 'Parameter Type': 'Number', 'Parameter Value': '2500' },
+        { ...profileBase, 'Record Type': 'NestedProfile', 'Profile ID': grandchildProfileId, 'Profile Name': 'Reusable timing profile', 'Profile Definition ID': guid(7402), 'Profile Definition Name': 'Timing profile', 'Nested Profile ID': greatGrandchildProfileId, 'Nested Profile Name': 'Reusable monitoring profile', 'Nested Profile Definition ID': guid(7403), 'Nested Profile Definition Name': 'Monitoring profile', 'Profile Reusable': 'true', 'Parameter ID': guid(7203), 'Parameter Value ID': guid(7303), 'Parameter Name': 'Redundant', 'Parameter Type': 'Discrete', 'Parameter Value': 'Enabled' },
+    );
+    return rows;
+}
+
+function configurationRowsFromPayload(serviceId, payload, { includeProfiles = true } = {}) {
+    const existingRows = SERVICE_CONFIGURATION_OVERRIDES.get(serviceId) || serviceConfigurationsFor(serviceId, { includeProfiles });
+    const profileRecordTypes = new Set(['AvailableProfile', 'AvailableNestedProfile', 'Profile', 'ProfileParameter', 'NestedProfile', 'NestedProfileParameter']);
+    const rows = existingRows.filter(row => !row['Version ID'] && (includeProfiles || !profileRecordTypes.has(row['Record Type'])));
+    const versionId = payload.VersionId || guid(7000 + SERVICES.findIndex(service => service['DOM ID'] === serviceId));
+    const field = (value, name) => value?.[name] ?? value?.[`${name[0].toLowerCase()}${name.slice(1)}`];
+    const versionFields = {
+        'Version ID': versionId,
+        'Version Name': payload.VersionName || 'Current version',
+        'Version Description': payload.Description || '',
+        'Version Start': payload.StartDate || '9/1/2026 8:00:00 AM',
+        'Version End': payload.EndDate || 'No End Time',
+        'Is Active': 'true',
+    };
+    let generatedId = 0;
+    const idFor = value => value || guid(9000 + generatedId++);
+    const parameterRow = (recordType, parameter, profileFields = {}) => {
+        const parameterId = field(parameter, 'ParameterId');
+        const available = rows.find(row => row['Record Type'] === 'AvailableParameter' && row['Parameter ID'] === parameterId) || {};
+        return {
+            ...versionFields,
+            'Record Type': recordType,
+            'Configuration ID': recordType === 'Parameter' ? field(parameter, 'ConfigurationId') || idFor('') : '',
+            'Parameter ID': parameterId || available['Parameter ID'] || '',
+            'Parameter Value ID': parameterId ? field(parameter, 'ParameterValueId') || idFor('') : '',
+            'Parameter Name': field(parameter, 'Name') || available['Parameter Name'] || '',
+            'Parameter Type': field(parameter, 'Type') || available['Parameter Type'] || '',
+            'Parameter Value': field(parameter, 'Value') ?? '',
+            Mandatory: String(field(parameter, 'Mandatory') ?? false),
+            'Profile ID': profileFields.profileId || '',
+            'Profile Name': profileFields.profileName || '',
+            'Profile Definition ID': profileFields.profileDefinitionId || '',
+            'Profile Definition Name': profileFields.profileDefinitionName || '',
+            'Profile Reusable': String(profileFields.profileReusable ?? false),
+            'Profile Mandatory': String(profileFields.profileMandatory ?? false),
+            'Nested Profile ID': profileFields.nestedProfileId || '',
+            'Nested Profile Name': profileFields.nestedProfileName || '',
+            'Nested Profile Definition ID': profileFields.nestedProfileDefinitionId || '',
+            'Nested Profile Definition Name': profileFields.nestedProfileDefinitionName || '',
+        };
+    };
+    (payload.Parameters || []).forEach(parameter => rows.push(parameterRow('Parameter', parameter)));
+    const appendNested = (parent, child, parentId) => {
+        const childId = idFor(field(child, 'Id'));
+        const parentFields = {
+            profileId: parentId,
+            profileName: field(parent, 'Name') || '',
+            profileDefinitionId: field(parent, 'DefinitionId') || '',
+            profileDefinitionName: field(parent, 'DefinitionName') || '',
+            profileReusable: Boolean(field(parent, 'Reusable')),
+        };
+        const nestedFields = {
+            ...parentFields,
+            nestedProfileId: childId,
+            nestedProfileName: field(child, 'Name') || '',
+            nestedProfileDefinitionId: field(child, 'DefinitionId') || '',
+            nestedProfileDefinitionName: field(child, 'DefinitionName') || '',
+            profileReusable: Boolean(field(parent, 'Reusable')),
+        };
+        const childParameters = field(child, 'Parameters') || [];
+        if (childParameters.length === 0) rows.push(parameterRow('NestedProfile', {}, nestedFields));
+        else childParameters.forEach(parameter => rows.push(parameterRow('NestedProfile', parameter, nestedFields)));
+        (field(child, 'NestedProfiles') || []).forEach(nested => appendNested(child, nested, childId));
+    };
+    if (includeProfiles) (payload.Profiles || []).forEach(profile => {
+        const profileId = idFor(field(profile, 'Id'));
+        const profileFields = {
+            profileId,
+            profileName: field(profile, 'Name') || '',
+            profileDefinitionId: field(profile, 'DefinitionId') || '',
+            profileDefinitionName: field(profile, 'DefinitionName') || '',
+            profileReusable: Boolean(field(profile, 'Reusable')),
+            profileMandatory: Boolean(field(profile, 'Mandatory')),
+        };
+        const profileParameters = field(profile, 'Parameters') || [];
+        if (profileParameters.length === 0) rows.push(parameterRow('Profile', {}, profileFields));
+        else profileParameters.forEach(parameter => rows.push(parameterRow('Profile', parameter, profileFields)));
+        (field(profile, 'NestedProfiles') || []).forEach(nested => appendNested(profile, nested, profileId));
+    });
+    if (!rows.some(row => row['Version ID'] === versionId)) rows.push(parameterRow('Version', {}));
+    return rows;
+}
+
 function itemsFor(orderId) {
     if (EXTRA_ITEMS.has(orderId)) return EXTRA_ITEMS.get(orderId);
     const index = ORDERS.findIndex(order => order['Order ID'] === orderId);
     if (index < 0) return [];
-    return Array.from({ length: (index % 4) + 1 }, (_, i) => ({
-        ID: guid(1000 + index * 10 + i), Name: `${ORDERS[index].Name} item ${i + 1}`,
-        Start: i % 2 ? 'No Start Time' : `9/${i + 1}/2026 8:00:00 AM`, End: i % 2 ? 'No End Time' : `9/${i + 2}/2026 6:00:00 PM`,
-        Action: ACTIONS[i % 3], Category: CATEGORIES[(index + i) % 3], 'Service Specification': `${CATEGORIES[(index + i) % 3]} spec`,
-        Service: i % 2 ? '' : `${ORDERS[index].Name} service`, ServiceId: '', Property: '', Configuration: '',
-        Status: STATES[(index + i) % STATES.length], StatusId: '', Description: '',
-    }));
+    return Array.from({ length: (index % 4) + 1 }, (_, i) => {
+        const linkedService = i % 2 ? null : SERVICES[(index + i) % SERVICES.length];
+        return {
+            ID: guid(1000 + index * 10 + i), Name: `${ORDERS[index].Name} item ${i + 1}`,
+            Start: i % 2 ? 'No Start Time' : `9/${i + 1}/2026 8:00:00 AM`, End: i % 2 ? 'No End Time' : `9/${i + 2}/2026 6:00:00 PM`,
+            Action: ACTIONS[i % 3], Category: CATEGORIES[(index + i) % 3], 'Category ID': CATEGORY_ROWS[(index + i) % CATEGORY_ROWS.length]['Category ID'], 'Service Specification': `${CATEGORIES[(index + i) % 3]} spec`, 'Service Specification ID': SPECIFICATIONS[(index + i) % SPECIFICATIONS.length]['Specification ID'],
+            Service: linkedService?.['Service Name'] || '', ServiceId: linkedService?.['DOM ID'] || '', Property: '', Configuration: '',
+            Status: STATES[(index + i) % STATES.length], StatusId: '', Description: '',
+        };
+    });
+}
+
+function isServiceOrderItemId(id) {
+    return ORDERS.some(order => itemsFor(order['Order ID']).some(item => item.ID === id));
+}
+
+function initializeServiceFromOrderItem(orderItemId) {
+    for (const order of ORDERS) {
+        const items = itemsFor(order['Order ID']);
+        const item = items.find(candidate => candidate.ID === orderItemId);
+        if (!item) continue;
+        if (String(item.Action).toLowerCase() === 'delete') return { error: 'A service cannot be initialized for a delete order item.' };
+        const specification = SPECIFICATIONS.find(candidate => candidate['Specification ID'] === item['Service Specification ID']);
+        if (!specification) return { error: 'A service specification must be assigned before initializing a service.' };
+        if (item.ServiceId && SERVICES.some(service => service['DOM ID'] === item.ServiceId)) return { serviceId: item.ServiceId };
+
+        const category = CATEGORY_ROWS.find(candidate => candidate['Category ID'] === item['Category ID']);
+        const highestServiceNumber = SERVICES.reduce((highest, service) => {
+            const suffix = Number(String(service['Service ID'] || '').split('-').pop());
+            return Number.isFinite(suffix) ? Math.max(highest, suffix) : highest;
+        }, 0);
+        const service = {
+            'DOM ID': guid(8500 + SERVICES.length),
+            'Service ID': `SERVICE-${String(highestServiceNumber + 1).padStart(5, '0')}`,
+            'Service Name': item.Name || 'New service',
+            'Service Status': 'New',
+            'Service Start': item.Start || 'No Start Time',
+            'Service End': item.End || 'No End Time',
+            'Service Category': category?.['Category Name'] || item.Category || '',
+            'Service Category Type': category?.['Category Type'] || '',
+            'Service Logo': category?.['Category Icon'] || '',
+            'Service Specification': specification.Name,
+            'Alarm Level': '0',
+        };
+        SERVICES.push(service);
+        item.Service = service['Service Name'];
+        item.ServiceId = service['DOM ID'];
+        EXTRA_ITEMS.set(order['Order ID'], items);
+        return { serviceId: service['DOM ID'] };
+    }
+    return { error: 'The selected service order item could not be found.' };
 }
 
 function readBody(req) { return new Promise(resolve => { let data = ''; req.on('data', chunk => { data += chunk; }); req.on('end', () => { try { resolve(JSON.parse(data || '{}')); } catch { resolve({}); } }); }); }
@@ -128,17 +366,128 @@ export default function mockDataMiner() {
                         const year = 2026;
                         const number = String(index).padStart(6, '0');
                         ORDERS.unshift({ 'Order ID': guid(5000 + index), Name: `New service order ${number}`, Description: '', Priority: 'Medium', 'External ID': `SO-${year}-${number}`, 'Related Organization': '', State: 'New' });
+                    } else if (script.Name === 'SLC_SM_AS_ManageServiceCategory' || script.Name === 'SLC_SM_AS_DeleteServiceCategory') {
+                        const payload = values.Payload ? JSON.parse(values.Payload) : {};
+                        if (values.Action === 'Add') {
+                            CATEGORY_ROWS.push({ 'Category ID': guid(4700 + CATEGORY_ROWS.length), 'Category Name': payload.Name || 'New category', 'Category Type': payload.Type || 'Channel', 'Category Icon': payload.Icon || '' });
+                        } else if (values.Action === 'Edit') {
+                            const category = CATEGORY_ROWS.find(candidate => candidate['Category ID'] === values.domId);
+                            if (category) Object.assign(category, { 'Category Name': payload.Name || category['Category Name'], 'Category Type': payload.Type || category['Category Type'], 'Category Icon': payload.Icon ?? category['Category Icon'] });
+                        } else if (values.Action === 'Delete') {
+                            CATEGORY_ROWS = CATEGORY_ROWS.filter(candidate => candidate['Category ID'] !== values.domId);
+                        }
+                    } else if (script.Name === 'SLC_SM_Create Service Inventory Item' && (values.Action === 'Add' || values.Action === 'Edit')) {
+                        const payload = values.Payload ? JSON.parse(values.Payload) : {};
+                        const category = CATEGORY_ROWS.find(candidate => candidate['Category Name'] === payload.Category);
+                        if (values.Action === 'Add') {
+                            const index = SERVICES.length + 300;
+                            SERVICES.unshift({ 'DOM ID': guid(9000 + index), 'Service ID': payload.ServiceID || `SVC-${String(300 + index).padStart(5, '0')}`, 'Service Name': payload.Name || 'New service', 'Service Status': 'New', 'Service Start': payload.StartTime || 'No Start Time', 'Service End': payload.IndefiniteRuntime ? 'No End Time' : payload.EndTime || 'No End Time', 'Service Category': category?.['Category Name'] || '', 'Service Category Type': category?.['Category Type'] || '', 'Service Logo': category?.['Category Icon'] || '', 'Service Specification': payload.Specification || '', 'Alarm Level': '0' });
+                        } else {
+                            const service = SERVICES.find(candidate => candidate['DOM ID'] === values['DOM ID']);
+                            if (service) Object.assign(service, { 'Service ID': payload.ServiceID || service['Service ID'], 'Service Name': payload.Name || service['Service Name'], 'Service Start': payload.StartTime || service['Service Start'], 'Service End': payload.IndefiniteRuntime ? 'No End Time' : payload.EndTime || service['Service End'], 'Service Category': category?.['Category Name'] || '', 'Service Category Type': category?.['Category Type'] || '', 'Service Logo': category?.['Category Icon'] || '', 'Service Specification': payload.Specification || '' });
+                        }
+                    } else if (script.Name === 'SLC_SM_Create Service Inventory Item' && values.Action === 'Duplicate') {
+                        const source = SERVICES.find(service => service['DOM ID'] === values['DOM ID']);
+                        if (!source) return send(res, 500, { Message: `Service ${values['DOM ID']} was not found.` });
+                        const index = SERVICES.length + 200;
+                        const duplicate = { ...source, 'DOM ID': guid(8000 + index), 'Service ID': `SVC-${String(200 + index).padStart(5, '0')}`, 'Service Name': `${source['Service Name']} (Copy)`, 'Service Status': 'New', 'Alarm Level': '0' };
+                        SERVICES.unshift(duplicate);
                     } else if (script.Name === 'SLC_SM_Delete Service Order') {
                         ORDERS = ORDERS.filter(order => order['Order ID'] !== values['DOM ID']);
                         EXTRA_ITEMS.delete(values['DOM ID']);
                     } else if (script.Name === 'SLC_SM_IAS_Add Service Order Item' && values.Action === 'Add') {
                         const existing = [...itemsFor(values['DOM ID'])];
                         const itemNumber = existing.length + 1;
-                        existing.push({ ID: guid(9000 + itemNumber), Name: `New order item ${itemNumber}`, Start: 'No Start Time', End: 'No End Time', Action: 'Add', Category: '', 'Service Specification': '', Service: '', ServiceId: '', Property: '', Configuration: '', Status: 'New', StatusId: '', Description: '' });
+                        const payload = values.Payload ? JSON.parse(values.Payload) : {};
+                        existing.push({ ID: guid(9000 + itemNumber), Name: payload.Name || `New order item ${itemNumber}`, Start: payload.StartTime || 'No Start Time', End: payload.EndTime || 'No End Time', Action: payload.ItemAction || 'Add', Category: '', 'Category ID': payload.CategoryId || '', 'Service Specification': '', 'Service Specification ID': payload.SpecificationId || '', Service: '', ServiceId: payload.ServiceId || '', Property: '', Configuration: '', Status: 'New', StatusId: '', Description: payload.Description || '' });
+                        EXTRA_ITEMS.set(values['DOM ID'], existing);
+                    } else if (script.Name === 'SLC_SM_IAS_Add Service Order Item' && values.Action === 'Edit') {
+                        const existing = [...itemsFor(values['DOM ID'])];
+                        const payload = values.Payload ? JSON.parse(values.Payload) : {};
+                        const item = existing.find(candidate => candidate.ID === values['Service Order Item ID']);
+                        if (item) {
+                            Object.assign(item, { Name: payload.Name || item.Name, Description: payload.Description || '', Action: payload.ItemAction || item.Action, Start: payload.StartTime || item.Start, End: payload.EndTime || item.End, 'Category ID': payload.CategoryId || '', 'Service Specification ID': payload.SpecificationId || '', ServiceId: payload.ServiceId || '' });
+                        }
                         EXTRA_ITEMS.set(values['DOM ID'], existing);
                     } else if (script.Name === 'SLC_SM_Delete Service Order Item') {
                         const existing = itemsFor(values['DOM ID']).filter(item => item.ID !== values['Service Order Item ID']);
                         EXTRA_ITEMS.set(values['DOM ID'], existing);
+                    } else if (script.Name === 'SLC_SM_IAS_Add Service Item') {
+                        const payload = values.Payload ? JSON.parse(values.Payload) : {};
+                        const existing = [...(EXTRA_ITEMS.has(values['DOM ID']) ? EXTRA_ITEMS.get(values['DOM ID']) : serviceItemsFor(values['DOM ID']))];
+                        const oldLabel = payload.ExistingLabel || values['Service Item Label'];
+                        const index = existing.findIndex(item => item.Label === oldLabel);
+                        const next = {
+                            Actions: '',
+                            Label: payload.Label || oldLabel || 'New service item',
+                            'Service Item ID': index >= 0 ? existing[index]['Service Item ID'] : String(existing.length + 1),
+                            'Service Item Type': payload.Type || 'Service',
+                            'Definition Reference': payload.DefinitionReference || '',
+                            'Service Item Script': payload.Script || '',
+                            'Implementation Reference': payload.ImplementationReference || '',
+                            'Implementation Reference Name': '',
+                            'Implementation Reference Link': '',
+                            'Implementation Reference Has Value': 'false',
+                            'Implementation Reference Name Has Value': 'false',
+                            'Implementation Reference Link Has Value': 'false',
+                            'Implementation State': 'New',
+                            'Implementation Reference Custom Link': '',
+                            'Implementation Reference Custom Link Has Value': 'false',
+                            'Monitoring Service State': 'Not monitored',
+                            'Monitoring Service DMA ID/SID': '',
+                            Log: '',
+                        };
+                        if (index >= 0) existing[index] = next; else existing.push(next);
+                        EXTRA_ITEMS.set(values['DOM ID'], existing);
+                    } else if (script.Name === 'SLC_SM_Delete Service Item') {
+                        const existing = EXTRA_ITEMS.has(values['DOM ID']) ? EXTRA_ITEMS.get(values['DOM ID']) : serviceItemsFor(values['DOM ID']);
+                        EXTRA_ITEMS.set(values['DOM ID'], existing.filter(item => item.Label !== values['Service Item Label']));
+                    } else if (script.Name === 'ServiceOrder_StateTranstitions') {
+                        const nextState = { Inprogress: 'In Progress', Partial: 'Partially Failed', Assesscancellation: 'Assess Cancellation', Pendingcancellation: 'Pending Cancellation' }[values.NextState] || values.NextState;
+                        const order = ORDERS.find(candidate => candidate['Order ID'] === values.ServiceOrderReference);
+                        if (order) order.State = nextState;
+                    } else if (script.Name === 'ServiceOrderItem_StateTranstitions') {
+                        const nextState = { Inprogress: 'In Progress', Partial: 'Partially Failed', Assesscancellation: 'Assess Cancellation', Pendingcancellation: 'Pending Cancellation' }[values.NextState] || values.NextState;
+                        for (const order of ORDERS) {
+                            const items = itemsFor(order['Order ID']);
+                            const item = items.find(candidate => candidate.ID === values.Id);
+                            if (item) {
+                                item.Status = nextState;
+                                EXTRA_ITEMS.set(order['Order ID'], items);
+                            }
+                        }
+                    } else if (script.Name === 'Service_StateTransitions') {
+                        const nextState = values.NextState;
+                        const service = SERVICES.find(candidate => candidate['DOM ID'] === values.ServiceReference);
+                        if (service) service['Service Status'] = nextState;
+                    } else if (script.Name === 'SLC_SM_Create Service Inventory Item' && values.Action === 'AddItemSilent') {
+                        const result = initializeServiceFromOrderItem(values['DOM ID']);
+                        if (result.error) return send(res, 200, { d: { ErrorCode: 1, ErrorMessage: result.error, Output: [] } });
+                    } else if (script.Name === 'SLC_SM_IAS_Manage Service Scripts') {
+                        const existing = SERVICE_SCRIPT_OVERRIDES.has(values['Service Id'])
+                            ? SERVICE_SCRIPT_OVERRIDES.get(values['Service Id'])
+                            : serviceScriptsFor(values['Service Id']);
+                        const action = String(values.Action || '').toLowerCase();
+                        if (action === 'add') {
+                            existing.push({ 'Script Name': values['Script Name'] || '', Description: values['Script Description'] || '' });
+                        } else if (action === 'update') {
+                            const index = existing.findIndex(item => item.Description === (values['Original Script Description'] || values['Script Description']));
+                            if (index >= 0) existing[index] = { 'Script Name': values['Script Name'] || '', Description: values['Script Description'] || '' };
+                        } else if (action === 'remove') {
+                            const index = existing.findIndex(item => item.Description === (values['Original Script Description'] || values['Script Description']));
+                            if (index >= 0) existing.splice(index, 1);
+                        }
+                        SERVICE_SCRIPT_OVERRIDES.set(values['Service Id'], existing);
+                    } else if (script.Name === 'SLC_SM_IAS_Service_Order_Configuration') {
+                        const payload = values.Payload ? JSON.parse(values.Payload) : {};
+                        SERVICE_CONFIGURATION_OVERRIDES.set(values['DOM ID'], configurationRowsFromPayload(values['DOM ID'], payload, { includeProfiles: false }));
+                    } else if (script.Name === 'SLC_SM_IAS_Service_Configuration' || script.Name === 'SLC_SM_IAS_Service_Spec_Configuration') {
+                        const payload = values.Payload ? JSON.parse(values.Payload) : {};
+                        if (payload.DeleteVersion) {
+                            SERVICE_CONFIGURATION_OVERRIDES.delete(values['DOM ID']);
+                        } else {
+                            SERVICE_CONFIGURATION_OVERRIDES.set(values['DOM ID'], configurationRowsFromPayload(values['DOM ID'], payload));
+                        }
                     }
                     return send(res, 200, { d: { ErrorCode: 0, Output: [] } });
                 }
@@ -151,13 +500,21 @@ export default function mockDataMiner() {
                     const args = Object.fromEntries((body.query?.Child?.Options?.[0]?.Value || []).map(option => [option.ID, option.Value?.Value]));
                     const isItems = descriptor.ScriptName === 'SLC_SM_GQIDS_Get Service Order Items';
                     const isServices = descriptor.ScriptName === 'SLC_SM_GQIDS_Get Services' || descriptor.ScriptName === 'SLC_SM_DS_GetServicesByCharacteristic';
+                    const isMonitoringServices = descriptor.ScriptName === 'SLC_SM_GQIDS_Get Monitoring Services' && descriptor.TypeFullName === 'SLC_SM_GQIDS_Get_Monitoring_Services.GetMonitoringServices';
+                    const isDocumentHubLogos = descriptor.ScriptName === 'SLC_SM_DS_GetDocumentHubLogos' && descriptor.TypeFullName === 'SLCSMDSGetDocumentHubLogos.SLCSMDSGetDocumentHubLogos';
                     const isServiceItems = descriptor.ScriptName === 'SLC_SM_GQIDS_Get Service Items';
                     const isServiceScripts = descriptor.ScriptName === 'SLC_SM_GQIDS_Get Service Scripts';
                     const isSpecifications = descriptor.ScriptName === 'SLC_SM_GQIDS_Get Service Specifications';
-                    if (!isItems && !isServices && !isServiceItems && !isServiceScripts && !isSpecifications && descriptor.ScriptName !== 'SLC_SM_GQIDS_Get Service Orders') return send(res, 500, { Message: `Unknown data source ${descriptor.ScriptName}` });
+                    const isCategories = descriptor.ScriptName === 'SLC_SM_GQIDS_Get Service Categories';
+                    const isConfigurations = descriptor.ScriptName === 'SLC_SM_GQIDS_Get Service Configurations';
+                    const isOrganizations = descriptor.ScriptName === 'SLC_SM_GQIDS_Get Service Organizations' && descriptor.TypeFullName === 'SLC_SM_GQIDS_Get_Service_Organizations.GetOrganizations';
+                    const isRelatedServiceOrders = descriptor.ScriptName === 'SLC_SM_GQIDS_Get Related Service Orders' && descriptor.TypeFullName === 'SLC_SM_GQIDS_Get_Related_Service_Orders.GetRelatedServiceOrders';
+                    const requestedConfigurationType = String(args['Configuration Type'] || '').trim().toLowerCase();
+                    const isOrderItemConfiguration = isConfigurations && (requestedConfigurationType ? requestedConfigurationType === 'orderitem' : isServiceOrderItemId(args['DOM ID']));
+                    if (!isItems && !isServices && !isServiceItems && !isServiceScripts && !isSpecifications && !isCategories && !isConfigurations && !isOrganizations && !isRelatedServiceOrders && !isMonitoringServices && !isDocumentHubLogos && descriptor.ScriptName !== 'SLC_SM_GQIDS_Get Service Orders') return send(res, 500, { Message: `Unknown data source ${descriptor.ScriptName}` });
                     const id = `dev-session-${++sessionCount}`;
-                    const columns = isItems ? ITEM_COLUMNS : isServices ? SERVICE_COLUMNS : isServiceItems ? SERVICE_ITEM_COLUMNS : isServiceScripts ? ['Script Name', 'Description'] : isSpecifications ? SPECIFICATION_COLUMNS : ORDER_COLUMNS;
-                    const rows = isServiceScripts ? [{ 'Script Name': 'Refresh service', Description: 'Refreshes the service implementation.' }, { 'Script Name': 'Restart service', Description: 'Restarts the service implementation.' }] : isItems ? itemsFor(args['DOM ID']) : isServices ? SERVICES : isServiceItems ? serviceItemsFor(args['DOM ID']) : isSpecifications ? SPECIFICATIONS : ORDERS;
+                    const columns = isItems ? ITEM_COLUMNS : isServices && !isMonitoringServices ? SERVICE_COLUMNS : isMonitoringServices ? MONITORING_SERVICE_COLUMNS : isDocumentHubLogos ? DOCUMENT_HUB_COLUMNS : isServiceItems ? SERVICE_ITEM_COLUMNS : isServiceScripts ? ['Script Name', 'Description'] : isSpecifications ? SPECIFICATION_COLUMNS : isCategories ? ['Category ID', 'Category Name', 'Category Type', 'Category Icon'] : isConfigurations ? SERVICE_CONFIG_COLUMNS : isOrganizations ? ORGANIZATION_COLUMNS : isRelatedServiceOrders ? ['Order ID', 'Order Name', 'Service Order Item ID', 'Action', 'State'] : ORDER_COLUMNS;
+                    const rows = isServiceScripts ? serviceScriptsFor(args['Service Name']) : isItems ? itemsFor(args['DOM ID']) : isMonitoringServices ? SERVICES.map(service => ({ 'Monitoring Service ID': service['DOM ID'], 'Monitoring Service Name': service['Service Name'] })) : isDocumentHubLogos ? DOCUMENT_HUB_LOGOS : isServices ? SERVICES.map(service => ({ ...service, 'Related Service Orders': relatedOrdersForService(service['DOM ID']).join(', '), 'Related Service Order Count': relatedOrdersForService(service['DOM ID']).length })) : isServiceItems ? serviceItemsFor(args['DOM ID']) : isSpecifications ? SPECIFICATIONS : isCategories ? CATEGORY_ROWS : isConfigurations ? serviceConfigurationsFor(args['DOM ID'], { includeProfiles: !isOrderItemConfiguration }) : isOrganizations ? ORGANIZATION_ROWS : isRelatedServiceOrders ? relatedOrderRowsForService(args['Service ID']) : ORDERS;
                     sessions.set(id, { columns, rows, offset: 0 });
                     return send(res, 200, { d: { ID: id, Columns: columns.map(name => ({ Name: name })) } });
                 }

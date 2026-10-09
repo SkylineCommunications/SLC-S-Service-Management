@@ -17,6 +17,9 @@
 		<ScriptParameter id="10" type="string" values="">
 			<Description>DOM ID</Description>
 		</ScriptParameter>
+		<ScriptParameter id="99" type="string" values="">
+			<Description>Skip Confirmation</Description>
+		</ScriptParameter>
 	</Parameters>
 
 	<Script>

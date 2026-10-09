@@ -11,6 +11,7 @@ dd/mm/2025  1.0.0.1     XXX, Skyline    Initial version
 13/07/2026	1.0.0.2		SKA, Skyline	Implemented logic to support duplicating a service
 31/07/2026	1.0.0.3		SKA, Skyline	Improved performance of service creation using optimized methods for reading the data and inverted the logic for linking a service
 04/08/2026	1.0.0.4		SKA, Skyline	Added support for defining a ServiceId when creating a new service
+09/10/2026	1.0.0.5		SKA, Skyline	DataMinerApp support
 ****************************************************************************
 */
 
@@ -18,6 +19,7 @@ namespace SLC_SM_Create_Service_Inventory_Item
 {
 	using System;
 	using System.Collections.Generic;
+	using System.Globalization;
 	using System.Linq;
 	using System.Threading;
 	using DomHelpers.SlcServicemanagement;
@@ -28,6 +30,8 @@ namespace SLC_SM_Create_Service_Inventory_Item
 	using Skyline.DataMiner.Core.DataMinerSystem.Common;
 	using Skyline.DataMiner.Net.Apps.DataMinerObjectModel;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.PeopleAndOrganization;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
 	using Skyline.DataMiner.SDM;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
@@ -75,24 +79,27 @@ namespace SLC_SM_Create_Service_Inventory_Item
 			catch (ScriptAbortException)
 			{
 				// Catch normal abort exceptions (engine.ExitFail or engine.ExitSuccess)
+				throw;
 			}
 			catch (ScriptForceAbortException)
 			{
 				// Catch forced abort exceptions, caused via external maintenance messages.
+				throw;
 			}
 			catch (ScriptTimeoutException)
 			{
 				// Catch timeout exceptions for when a script has been running for too long.
+				throw;
 			}
 			catch (InteractiveUserDetachedException)
 			{
 				// Catch a user detaching from the interactive script by closing the window.
 				// Only applicable for interactive scripts, can be removed for non-interactive scripts.
+				throw;
 			}
 			catch (Exception e)
 			{
-				engine.ShowErrorDialog(e);
-				engine.Log(e.ToString());
+				engine.HandleUnexpectedException(e);
 			}
 		}
 
@@ -184,6 +191,41 @@ namespace SLC_SM_Create_Service_Inventory_Item
 			{
 				TryCreateDmsService(instance.Name, instance.Icon);
 			}
+		}
+
+		private Guid? ResolveOrganizationId(string organizationName)
+		{
+			if (String.IsNullOrWhiteSpace(organizationName))
+			{
+				return null;
+			}
+
+			var organization = new DataHelperOrganization(_engine.GetUserConnection())
+				.ReadBasicDetails()
+				.FirstOrDefault(item => String.Equals(item.Name, organizationName.Trim(), StringComparison.OrdinalIgnoreCase))
+				?? throw new InvalidOperationException($"Organization '{organizationName}' was not found.");
+			return organization.ID;
+		}
+
+		private void UpdateLegacyOrganization(string serviceIdentifier, Guid? organizationId)
+		{
+			if (!Guid.TryParse(serviceIdentifier, out var serviceGuid))
+			{
+				return;
+			}
+
+			var legacyHelper = new DataHelperService(_engine.GetUserConnection());
+			var legacyService = legacyHelper
+				.Read(Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceExposers.Guid.Equal(serviceGuid))
+				.FirstOrDefault();
+			if (legacyService == null)
+			{
+				return;
+			}
+
+			legacyService.OrganizationId = organizationId;
+
+			legacyHelper.CreateOrUpdate(legacyService);
 		}
 
 		private void DuplicateServiceViaSdm(IServiceManagementApiHelper sdmHelper, SdmModels.Service source, SdmModels.Service instance)
@@ -864,10 +906,14 @@ namespace SLC_SM_Create_Service_Inventory_Item
 
 			var categoryReference = serviceOrderItem.ServiceInfo != null ? serviceOrderItem.ServiceInfo.ServiceCategoryId : null;
 			var specReference = serviceOrderItem.ServiceInfo != null ? serviceOrderItem.ServiceInfo.SpecificationId : null;
+			if (String.IsNullOrWhiteSpace(specReference.Identifier))
+			{
+				throw new InvalidOperationException("A service specification must be assigned before initializing a service.");
+			}
 
-			var spec = specReference != null
-				? sdmHelper.ServiceCatalog.ServiceSpecifications.Read(SdmModels.ServiceSpecificationExposers.Identifier.Equal(specReference.Identifier)).FirstOrDefault()
-				: null;
+			var spec = sdmHelper.ServiceCatalog.ServiceSpecifications
+				.Read(SdmModels.ServiceSpecificationExposers.Identifier.Equal(specReference.Identifier))
+				.FirstOrDefault() ?? throw new InvalidOperationException("The service specification assigned to this order item could not be found.");
 
 			var category = categoryReference != null
 				? sdmHelper.ServiceCatalog.ServiceCategories.Read(SdmModels.ServiceCategoryExposers.Identifier.Equal(categoryReference.Identifier)).FirstOrDefault()
@@ -913,6 +959,12 @@ namespace SLC_SM_Create_Service_Inventory_Item
 
 		private void RunSafe()
 		{
+			if (!String.IsNullOrWhiteSpace(_engine.ReadScriptParamFromApp("Payload")))
+			{
+				RunApiSafe();
+				return;
+			}
+
 			string actionRaw = _engine.ReadScriptParamFromApp("Action");
 			if (!Enum.TryParse(actionRaw, true, out Defaults.ScriptAction_CreateServiceInventoryItem action))
 			{
@@ -999,6 +1051,7 @@ namespace SLC_SM_Create_Service_Inventory_Item
 						UpdateServiceInfoViaSdm(sdmHelper, domId, presenter.SdmInstance);
 						throw new ScriptAbortException("OK");
 					}
+
 				};
 			}
 
@@ -1007,6 +1060,162 @@ namespace SLC_SM_Create_Service_Inventory_Item
 
 			// Run interactive
 			_controller.ShowDialog(view);
+		}
+
+		private void RunApiSafe()
+		{
+			var payload = _engine.ReadJsonPayload<ApiPayload>("Payload", "service");
+			string actionRaw = _engine.ReadScriptParamFromApp("Action");
+			if (!Enum.TryParse(actionRaw, true, out Defaults.ScriptAction_CreateServiceInventoryItem action))
+			{
+				throw new InvalidOperationException("No service action was provided.");
+			}
+			var helper = new ServiceManagementApiHelper(_engine.GetUserConnection(), "Service Inventory");
+			if (action == Defaults.ScriptAction_CreateServiceInventoryItem.AddItemSilent)
+			{
+				Guid orderItemId = _engine.ReadScriptParamFromApp<Guid>("DOM ID");
+				var orderItem = helper.ServiceOrder.ServiceOrderItems
+					.Read(SdmModels.ServiceOrderItemExposers.Identifier.Equal(orderItemId.ToString()))
+					.FirstOrDefault() ?? throw new InvalidOperationException("The selected service order item could not be found.");
+				if (String.Equals(orderItem.Action, "Delete", StringComparison.OrdinalIgnoreCase))
+				{
+					throw new InvalidOperationException("A service cannot be initialized for a delete order item.");
+				}
+				_engine.PerformanceLogger(
+					"Create New Service Inventory Item + Link to Order",
+					() => CreateNewServiceAndLinkItToServiceOrder(helper, orderItem));
+				return;
+			}
+
+			var services = helper.ServiceInventory.Services.Read(new TRUEFilterElement<SdmModels.Service>()).ToList();
+			if (action == Defaults.ScriptAction_CreateServiceInventoryItem.Duplicate)
+			{
+				Guid sourceId = _engine.ReadScriptParamFromApp<Guid>("DOM ID");
+				var source = GetService(helper, sourceId);
+				var duplicate = new SdmModels.Service
+				{
+					Identifier = Guid.NewGuid().ToString(),
+					ServiceID = GenerateUniqueServiceId(services.Select(existing => existing.ServiceID)),
+					Name = $"{source.Name} (Copy)",
+					Description = source.Description,
+					StartTime = source.StartTime,
+					EndTime = source.EndTime,
+					GenerateMonitoringService = source.GenerateMonitoringService,
+					MonitoringService = source.MonitoringService,
+					Icon = source.Icon,
+					CategoryId = source.CategoryId == null ? null : new SdmObjectReference<SdmModels.ServiceCategory>(source.CategoryId.Identifier),
+					ServiceSpecificationId = source.ServiceSpecificationId == null ? null : new SdmObjectReference<SdmModels.ServiceSpecification>(source.ServiceSpecificationId.Identifier),
+				};
+				DuplicateServiceViaSdm(helper, source, duplicate);
+				return;
+			}
+
+			Guid? organizationId = ResolveOrganizationId(payload.Organization);
+			if (action == Defaults.ScriptAction_CreateServiceInventoryItem.Add
+				&& String.IsNullOrWhiteSpace(payload.Name))
+			{
+				throw new InvalidOperationException("A service name is required.");
+			}
+
+			if (payload.LinkService && String.IsNullOrWhiteSpace(payload.LinkedService))
+			{
+				throw new InvalidOperationException("A linked service is required when service linking is enabled.");
+			}
+
+			Guid domId = Guid.Empty;
+			var existingService = default(SdmModels.Service);
+			if (action == Defaults.ScriptAction_CreateServiceInventoryItem.Edit)
+			{
+				domId = _engine.ReadScriptParamFromApp<Guid>("DOM ID");
+				existingService = GetService(helper, domId);
+			}
+			string serviceId = String.IsNullOrWhiteSpace(payload.ServiceID)
+				? existingService?.ServiceID ?? GenerateUniqueServiceId(services.Select(existing => existing.ServiceID))
+				: payload.ServiceID.Trim();
+
+			if (services.Any(existing =>
+				!String.Equals(existing.Identifier, existingService?.Identifier, StringComparison.OrdinalIgnoreCase)
+				&& String.Equals(existing.ServiceID, serviceId, StringComparison.OrdinalIgnoreCase)))
+			{
+				throw new InvalidOperationException($"Service ID '{serviceId}' already exists.");
+			}
+
+			var category = helper.ServiceCatalog.ServiceCategories
+				.Read(new TRUEFilterElement<SdmModels.ServiceCategory>())
+				.FirstOrDefault(item => String.Equals(item.Name, payload.Category, StringComparison.OrdinalIgnoreCase));
+			var specification = helper.ServiceCatalog.ServiceSpecifications
+				.Read(new TRUEFilterElement<SdmModels.ServiceSpecification>())
+				.FirstOrDefault(item => String.Equals(item.Name, payload.Specification, StringComparison.OrdinalIgnoreCase));
+
+			if (!String.IsNullOrWhiteSpace(payload.Category) && category == null)
+			{
+				throw new InvalidOperationException($"Service category '{payload.Category}' was not found.");
+			}
+
+			if (!String.IsNullOrWhiteSpace(payload.Specification) && specification == null)
+			{
+				throw new InvalidOperationException($"Service specification '{payload.Specification}' was not found.");
+			}
+
+			DateTime? startTime = ParseOptionalLocalDate(payload.StartTime, "service start");
+			DateTime? endTime = payload.IndefiniteRuntime ? null : ParseOptionalLocalDate(payload.EndTime, "service end");
+			if (startTime.HasValue && endTime.HasValue && endTime < startTime)
+			{
+				throw new InvalidOperationException("Service end time cannot be earlier than its start time.");
+			}
+
+			var service = new SdmModels.Service
+			{
+				Identifier = existingService?.Identifier ?? Guid.NewGuid().ToString(),
+				ServiceID = serviceId,
+				Name = String.IsNullOrWhiteSpace(payload.Name) ? existingService?.Name ?? serviceId : payload.Name,
+				StartTime = startTime,
+				EndTime = endTime,
+				GenerateMonitoringService = payload.GenerateMonitoringService || payload.LinkService,
+				MonitoringService = payload.LinkService ? payload.LinkedService ?? String.Empty : String.Empty,
+				Icon = category?.Icon ?? String.Empty,
+				CategoryId = category == null ? null : new SdmObjectReference<SdmModels.ServiceCategory>(category.Identifier),
+				ServiceSpecificationId = specification == null ? null : new SdmObjectReference<SdmModels.ServiceSpecification>(specification.Identifier),
+				ServiceItems = existingService?.ServiceItems?.ToList() ?? new List<SdmModels.ServiceItem>(),
+				ServiceItemsRelationships = existingService?.ServiceItemsRelationships?.ToList() ?? new List<SdmModels.ServiceItemRelationship>(),
+				ConfigurationVersions = existingService?.ConfigurationVersions?.ToList() ?? new List<SdmObjectReference<SdmModels.ServiceConfigurationVersion>>(),
+			};
+
+			if (action == Defaults.ScriptAction_CreateServiceInventoryItem.Edit)
+			{
+				UpdateServiceInfoViaSdm(helper, domId, service);
+			}
+			else
+			{
+				AddOrUpdateServiceViaSdm(helper, service);
+			}
+
+			UpdateLegacyOrganization(service.Identifier, organizationId);
+		}
+
+		private static DateTime? ParseOptionalLocalDate(string raw, string fieldName)
+		{
+			if (String.IsNullOrWhiteSpace(raw))
+			{
+				return null;
+			}
+
+			if (!DateTime.TryParse(raw, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var parsed))
+			{
+				throw new InvalidOperationException($"Invalid {fieldName} date '{raw}'.");
+			}
+
+			return parsed.ToUniversalTime();
+		}
+
+		private static string GenerateUniqueServiceId(IEnumerable<string> existingServiceIds)
+		{
+			int highest = existingServiceIds
+				.Where(value => !String.IsNullOrWhiteSpace(value))
+				.Select(value => Int32.TryParse(value.Split('-').Last(), out int number) ? number : 0)
+				.DefaultIfEmpty()
+				.Max();
+			return $"SERVICE-{highest + 1:00000}";
 		}
 
 		private void AddServiceItemForOrder(Guid domId, IServiceManagementApiHelper sdmHelper)

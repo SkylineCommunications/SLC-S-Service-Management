@@ -32,7 +32,9 @@ namespace SLC_SM_IAS_Manage_Service_Scripts.Model
 
 			Action = action;
 			ServiceId = engine.ReadScriptParamFromApp("Service Id")?.Trim();
+			ScriptName = engine.ReadScriptParamFromApp("Script Name")?.Trim();
 			ScriptDescription = engine.ReadScriptParamFromApp("Script Description")?.Trim();
+			OriginalScriptDescription = engine.ReadScriptParamFromApp("Original Script Description")?.Trim();
 		}
 
 		public ScriptAction Action { get; }
@@ -40,6 +42,10 @@ namespace SLC_SM_IAS_Manage_Service_Scripts.Model
 		public string ServiceId { get; }
 
 		public string ScriptDescription { get; }
+
+		public string ScriptName { get; }
+
+		public string OriginalScriptDescription { get; }
 
 		public List<string> GetScriptNamesWithServiceIdParameter()
 		{
@@ -54,7 +60,7 @@ namespace SLC_SM_IAS_Manage_Service_Scripts.Model
 
 				if (response == null)
 				{
-					return new List<string>();
+					throw new InvalidOperationException("DataMiner did not return the Automation script list.");
 				}
 
 				return response.Scripts
@@ -62,9 +68,10 @@ namespace SLC_SM_IAS_Manage_Service_Scripts.Model
 					.OrderBy(x => x)
 					.ToList();
 			}
-			catch (Exception)
+			catch (Exception exception)
 			{
-				return new List<string>();
+				engine.Log("GetScriptNamesWithServiceIdParameter|Unexpected exception: " + exception);
+				throw new InvalidOperationException("The available Automation scripts could not be loaded.", exception);
 			}
 		}
 
@@ -75,7 +82,7 @@ namespace SLC_SM_IAS_Manage_Service_Scripts.Model
 				var info = engine.SendSLNetSingleResponseMessage(new GetScriptInfoMessage { Name = scriptName }) as GetScriptInfoResponseMessage;
 				if (info == null)
 				{
-					return new List<string>();
+					throw new InvalidOperationException($"Automation script '{scriptName}' was not found.");
 				}
 
 				return info.Parameters
@@ -83,9 +90,10 @@ namespace SLC_SM_IAS_Manage_Service_Scripts.Model
 					.Select(p => p.Description)
 					.ToList();
 			}
-			catch (Exception)
+			catch (Exception exception)
 			{
-				return new List<string>();
+				engine.Log("GetScriptInputParameters|Unexpected exception: " + exception);
+				throw new InvalidOperationException($"The input parameters for Automation script '{scriptName}' could not be loaded.", exception);
 			}
 		}
 
@@ -96,9 +104,14 @@ namespace SLC_SM_IAS_Manage_Service_Scripts.Model
 				throw new InvalidOperationException("No service Id was provided.");
 			}
 
-			if ((Action == ScriptAction.Remove || Action == ScriptAction.Update) && String.IsNullOrWhiteSpace(ScriptDescription))
+			if (String.IsNullOrWhiteSpace(ScriptDescription))
 			{
 				throw new InvalidOperationException("No script description was provided.");
+			}
+
+			if ((Action == ScriptAction.Add || Action == ScriptAction.Update) && String.IsNullOrWhiteSpace(ScriptName))
+			{
+				throw new InvalidOperationException("No script name was provided.");
 			}
 		}
 

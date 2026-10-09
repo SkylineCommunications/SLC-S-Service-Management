@@ -25,14 +25,25 @@ export class DataMinerApiError extends Error { constructor(message) { super(mess
 
 function isNoConnection(payload) { return typeof payload?.ExceptionType === 'string' && payload.ExceptionType.includes('NoConnectionWebApiException'); }
 
-async function callApi(path, body) {
+async function callApi(path, body, { timeoutMs = 90000 } = {}) {
     const connection = getConnectionFromCookie();
     if (!connection) { redirectToAuth(); throw new DataMinerAuthError(); }
     let response;
-    try { response = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ connection, ...body }) }); }
-    catch { throw new DataMinerApiError('DataMiner could not be reached. Check your network connection.'); }
+    let payload;
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        response = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ connection, ...body }), signal: controller.signal });
+        payload = await response.json().catch(() => null);
+    }
+    catch (error) {
+        if (error?.name === 'AbortError') throw new DataMinerApiError(`DataMiner did not complete the request within ${Math.round(timeoutMs / 1000)} seconds.`);
+        throw new DataMinerApiError('DataMiner could not be reached. Check your network connection.');
+    }
+    finally {
+        window.clearTimeout(timeout);
+    }
     if (response.status === 401 || response.status === 403) { redirectToAuth(); throw new DataMinerAuthError(); }
-    const payload = await response.json().catch(() => null);
     if (isNoConnection(payload)) { redirectToAuth(); throw new DataMinerAuthError(); }
     if (!response.ok) throw new DataMinerApiError(payload?.Message || `${path} failed (HTTP ${response.status}).`);
     return payload?.d;
