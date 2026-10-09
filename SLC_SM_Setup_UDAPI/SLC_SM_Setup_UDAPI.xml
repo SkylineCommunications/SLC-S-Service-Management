@@ -1,0 +1,27 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<DMSScript options="272" xmlns="http://www.skyline.be/automation">
+	<Name>SLC_SM_Setup_UDAPI</Name>
+	<Description></Description>
+	<Type>Automation</Type>
+	<Author>SDT</Author>
+	<CheckSets>FALSE</CheckSets>
+	<Folder>Service Management/UDAPI</Folder>
+	<Interactivity>Auto</Interactivity>
+
+	<Protocols>
+	</Protocols>
+
+	<Memory>
+	</Memory>
+
+	<Parameters>
+	</Parameters>
+
+	<Script>
+		<Exe id="1" type="csharp">
+			<Value><![CDATA[[Project:SLC_SM_Setup_UDAPI]]]></Value>
+			<!--<Param type="debug">true</Param>-->
+			<Message></Message>
+		</Exe>
+	</Script>
+</DMSScript>
