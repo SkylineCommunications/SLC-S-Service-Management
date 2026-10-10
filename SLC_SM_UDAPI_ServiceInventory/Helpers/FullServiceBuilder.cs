@@ -61,34 +61,7 @@ namespace SLC_SM_UDAPI_ServiceInventory.Helpers
 				f => this.serviceManagement.ServiceInventory.ServiceConfigurationVersions.Read(f),
 				v => v.Identifier);
 
-			var configurationValues = ReadById(
-				versions.Values.SelectMany(v => ReferenceIds(v.Parameters)),
-				id => ServiceConfigurationValueExposers.Identifier.Equal(id),
-				f => this.serviceManagement.ServiceInventory.ServiceConfigurationValues.Read(f),
-				v => v.Identifier);
-
-			var serviceProfiles = ReadById(
-				versions.Values.SelectMany(v => ReferenceIds(v.Profiles)),
-				id => ServiceProfileExposers.Identifier.Equal(id),
-				f => this.serviceManagement.ServiceInventory.ServiceProfiles.Read(f),
-				p => p.Identifier);
-
-			var definitions = ReadById(
-				serviceProfiles.Values.Select(p => p.ProfileDefinitionId.Identifier),
-				id => ProfileDefinitionExposers.Identifier.Equal(id),
-				f => this.serviceManagement.ServiceCatalog.ProfileDefinitions.Read(f),
-				d => d.Identifier);
-
-			var profiles = this.ReadProfileTree(serviceProfiles.Values.Select(p => p.ProfileId.Identifier));
-
-			var parameterValues = ReadById(
-				configurationValues.Values.Select(v => v.ConfigurationParameterId.Identifier)
-					.Concat(profiles.Values.SelectMany(p => ReferenceIds(p.ConfigurationParameterValues))),
-				id => ConfigurationParameterValueExposers.Identifier.Equal(id),
-				f => this.serviceManagement.ServiceCatalog.ConfigurationParameterValues.Read(f),
-				v => v.Identifier);
-
-			var context = new ResolveContext(configurationValues, serviceProfiles, definitions, profiles, parameterValues);
+			var context = this.BuildContext(versions.Values);
 
 			return serviceList.Select(service => new FullService
 			{
@@ -113,6 +86,55 @@ namespace SLC_SM_UDAPI_ServiceInventory.Helpers
 				ServiceItemsRelationships = service.ServiceItemsRelationships ?? new List<ServiceItemRelationship>(),
 				ServiceScripts = service.ServiceScripts ?? new List<ServiceScript>(),
 			}).ToList();
+		}
+
+		/// <summary>
+		/// Builds the full model of a single configuration version, reading only the records it references.
+		/// </summary>
+		/// <param name="version">The configuration version to resolve.</param>
+		/// <returns>The full configuration version model, or null when <paramref name="version"/> is null.</returns>
+		public FullServiceConfigurationVersion BuildVersion(ServiceConfigurationVersion version)
+		{
+			if (version == null)
+			{
+				return null;
+			}
+
+			return BuildVersion(version, this.BuildContext(new[] { version }));
+		}
+
+		private ResolveContext BuildContext(IEnumerable<ServiceConfigurationVersion> versionList)
+		{
+			var versions = versionList.Where(v => v != null).ToList();
+
+			var configurationValues = ReadById(
+				versions.SelectMany(v => ReferenceIds(v.Parameters)),
+				id => ServiceConfigurationValueExposers.Identifier.Equal(id),
+				f => this.serviceManagement.ServiceInventory.ServiceConfigurationValues.Read(f),
+				v => v.Identifier);
+
+			var serviceProfiles = ReadById(
+				versions.SelectMany(v => ReferenceIds(v.Profiles)),
+				id => ServiceProfileExposers.Identifier.Equal(id),
+				f => this.serviceManagement.ServiceInventory.ServiceProfiles.Read(f),
+				p => p.Identifier);
+
+			var definitions = ReadById(
+				serviceProfiles.Values.Select(p => p.ProfileDefinitionId.Identifier),
+				id => ProfileDefinitionExposers.Identifier.Equal(id),
+				f => this.serviceManagement.ServiceCatalog.ProfileDefinitions.Read(f),
+				d => d.Identifier);
+
+			var profiles = this.ReadProfileTree(serviceProfiles.Values.Select(p => p.ProfileId.Identifier));
+
+			var parameterValues = ReadById(
+				configurationValues.Values.Select(v => v.ConfigurationParameterId.Identifier)
+					.Concat(profiles.Values.SelectMany(p => ReferenceIds(p.ConfigurationParameterValues))),
+				id => ConfigurationParameterValueExposers.Identifier.Equal(id),
+				f => this.serviceManagement.ServiceCatalog.ConfigurationParameterValues.Read(f),
+				v => v.Identifier);
+
+			return new ResolveContext(configurationValues, serviceProfiles, definitions, profiles, parameterValues);
 		}
 
 		private static FullServiceConfigurationVersion BuildVersion(ServiceConfigurationVersion version, ResolveContext context)

@@ -127,5 +127,30 @@ namespace SLC_SM_UDAPI_ServiceOrder.Models
 		/// <summary>Gets or sets the service ID.</summary>
 		[JsonProperty("serviceId")]
 		public Guid? ServiceId { get; set; }
+
+		/// <summary>
+		/// Gets or sets configuration values for this item. Each value overrides the specification value of the same
+		/// configuration parameter and can satisfy a parameter that is mandatory at service order.
+		/// </summary>
+		[JsonProperty("configurationValues")]
+		public List<ConfigurationValueRequest> ConfigurationValues { get; set; }
+	}
+
+	/// <summary>
+	/// A configuration value supplied for a service order item.
+	/// </summary>
+	public sealed class ConfigurationValueRequest
+	{
+		/// <summary>Gets or sets the configuration parameter ID (required). Must be a parameter of the item's service specification.</summary>
+		[JsonProperty("configurationParameterId")]
+		public Guid? ConfigurationParameterId { get; set; }
+
+		/// <summary>Gets or sets the text value.</summary>
+		[JsonProperty("stringValue")]
+		public string StringValue { get; set; }
+
+		/// <summary>Gets or sets the numeric value.</summary>
+		[JsonProperty("doubleValue")]
+		public double? DoubleValue { get; set; }
 	}
 }

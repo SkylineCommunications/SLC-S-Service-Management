@@ -15,7 +15,7 @@
 
 	<Parameters>
 		<ScriptParameter id="10" type="string" values="">
-			<Description>InputData</Description>
+			<Description>Request</Description>
 		</ScriptParameter>
 	</Parameters>
 

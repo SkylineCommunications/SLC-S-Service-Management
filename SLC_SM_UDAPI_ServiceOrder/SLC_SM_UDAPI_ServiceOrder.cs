@@ -1,12 +1,11 @@
 namespace SLCSMUDAPIServiceOrder
 {
 	using System;
-	using Newtonsoft.Json;
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Net.Apps.UserDefinableApis;
 	using Skyline.DataMiner.Net.Apps.UserDefinableApis.Actions;
 	using Skyline.DataMiner.Utils.UserDefinedApiToolkit;
-
+	using SLC_SM_Common.UDAPI;
 	using SLC_SM_UDAPI_ServiceOrder.Helpers;
 
 	/// <summary>
@@ -50,25 +49,8 @@ namespace SLCSMUDAPIServiceOrder
 
 		public void Run(IEngine engine)
 		{
-			try
-			{
-				// This method is required for the script to compile, but it will never be called.
-				ApiTriggerInput requestData = new ApiTriggerInput
-				{
-					Route = String.Empty,
-					RouteParameters = null,
-				};
-
-				var apiResult = OnApiTrigger(engine, requestData);
-
-				engine.AddScriptOutput("status", apiResult.ResponseCode.ToString());
-				engine.AddScriptOutput("result", JsonConvert.SerializeObject(apiResult));
-			}
-			catch (System.Exception)
-			{
-				engine.AddScriptOutput("status", "500");
-				engine.ExitFail("ERROR");
-			}
+			string rawRequest = engine.GetScriptParam("Request")?.Value;
+			ApiHelper.ParseApiRequest(OnApiTrigger, engine, rawRequest);
 		}
 	}
 }
