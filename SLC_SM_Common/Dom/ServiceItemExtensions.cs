@@ -20,7 +20,7 @@
 	public static class ServiceItemExtensions
 	{
 		/// <summary>
-		/// Transitions the specified service to the Active state if it is currently in the Reserved or Terminated state.
+		/// Transitions the specified service to the Active state if it is currently in the Reserved state.
 		/// </summary>
 		/// <param name="service">The service instance to update. If null or not in a valid state for transition, the service is returned unchanged.</param>
 		/// <param name="connection">DataMiner connection reference.</param>
@@ -37,10 +37,6 @@
 			if (service.Status == StatusesEnum.Reserved)
 			{
 				transition = TransitionsEnum.Reserved_To_Active;
-			}
-			else if (service.Status == StatusesEnum.Terminated)
-			{
-				transition = TransitionsEnum.Terminated_To_Active;
 			}
 			else
 			{
@@ -76,27 +72,12 @@
 				return service;
 			}
 
-			TransitionsEnum transition;
-			if (service.Status == StatusesEnum.New)
-			{
-				transition = TransitionsEnum.New_To_Retired;
-			}
-			else if (service.Status == StatusesEnum.Designed)
-			{
-				transition = TransitionsEnum.Designed_To_Retired;
-			}
-			else if (service.Status == StatusesEnum.Reserved)
-			{
-				transition = TransitionsEnum.Reserved_To_Retired;
-			}
-			else if (service.Status == StatusesEnum.Terminated)
-			{
-				transition = TransitionsEnum.Terminated_To_Retired;
-			}
-			else
+			if (service.Status != StatusesEnum.Terminated)
 			{
 				return service;
 			}
+
+			var transition = TransitionsEnum.Terminated_To_Retired;
 
 			var inventoryApi = connection.GetServiceManagementApiHelper("Service Inventory");
 
@@ -194,19 +175,19 @@
 				return false;
 			}
 
-			//if (serviceItem.Type == SlcServicemanagementIds.Enums.ServiceitemtypesEnum.Workflow)
+			//if (serviceItem.Type == SlcServicemanagementIds.Enums.ServiceItemTypesEnum.Workflow)
 			//{
 			//	// Check job
 			//	return LinkedJobStillActive(engine, refId);
 			//}
 
-			if (serviceItem.Type == SlcServicemanagementIds.Enums.ServiceitemtypesEnum.SRMBooking)
+			if (serviceItem.Type == SlcServicemanagementIds.Enums.ServiceItemTypesEnum.SRMBooking)
 			{
 				// Check booking
 				return LinkedBookingStillActive(engine, refId);
 			}
 
-			if (serviceItem.Type == SlcServicemanagementIds.Enums.ServiceitemtypesEnum.Service)
+			if (serviceItem.Type == SlcServicemanagementIds.Enums.ServiceItemTypesEnum.Service)
 			{
 				// Check linked item
 				return LinksStillExist(engine.GetUserConnection(), refId);

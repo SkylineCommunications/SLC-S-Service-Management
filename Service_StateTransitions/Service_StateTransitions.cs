@@ -82,7 +82,6 @@ namespace ServiceStateTransitions
 			switch (transition)
 			{
 				case TransitionsEnum.Reserved_To_Active:
-				case TransitionsEnum.Terminated_To_Active:
 					service.UpdateStatusToActive(engine.GetUserConnection());
 					break;
 

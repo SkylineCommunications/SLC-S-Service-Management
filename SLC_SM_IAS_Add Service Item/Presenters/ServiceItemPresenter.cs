@@ -45,25 +45,25 @@
 
 			// Load correct types
 			view.ServiceItemType.SetOptions(
-				new List<Option<SlcServicemanagementIds.Enums.ServiceitemtypesEnum>>
+				new List<Option<SlcServicemanagementIds.Enums.ServiceItemTypesEnum>>
 				{
-					new Option<SlcServicemanagementIds.Enums.ServiceitemtypesEnum>(
+					new Option<SlcServicemanagementIds.Enums.ServiceItemTypesEnum>(
 						SlcServicemanagementIds.Enums.Serviceitemtypes.Service,
-						SlcServicemanagementIds.Enums.ServiceitemtypesEnum.Service),
+						SlcServicemanagementIds.Enums.ServiceItemTypesEnum.Service),
 				});
 
 			if (workflowTypeAvailable)
 			{
-				view.ServiceItemType.AddOption(new Option<SlcServicemanagementIds.Enums.ServiceitemtypesEnum>(
+				view.ServiceItemType.AddOption(new Option<SlcServicemanagementIds.Enums.ServiceItemTypesEnum>(
 						SlcServicemanagementIds.Enums.Serviceitemtypes.Workflow,
-						SlcServicemanagementIds.Enums.ServiceitemtypesEnum.Workflow));
+						SlcServicemanagementIds.Enums.ServiceItemTypesEnum.Workflow));
 			}
 
 			if (srmBookingTypeAvailable)
 			{
-				view.ServiceItemType.AddOption(new Option<SlcServicemanagementIds.Enums.ServiceitemtypesEnum>(
+				view.ServiceItemType.AddOption(new Option<SlcServicemanagementIds.Enums.ServiceItemTypesEnum>(
 						SlcServicemanagementIds.Enums.Serviceitemtypes.SRMBooking,
-						SlcServicemanagementIds.Enums.ServiceitemtypesEnum.SRMBooking));
+						SlcServicemanagementIds.Enums.ServiceItemTypesEnum.SRMBooking));
 			}
 
 			view.TboxLabel.Changed += (sender, args) => ValidateLabel(args.Value);
@@ -96,7 +96,7 @@
 			ImplementationReference = GetImplementationReference(),
 		};
 
-		private SlcServicemanagementIds.Enums.ServiceitemtypesEnum GetSelectedServiceItemType()
+		private SlcServicemanagementIds.Enums.ServiceItemTypesEnum GetSelectedServiceItemType()
 		{
 			var selectedType = view.ServiceItemType.Selected;
 			if (view.ServiceItemType.Options.Any(o => o.Value.Equals(selectedType)))
@@ -104,7 +104,7 @@
 				return selectedType;
 			}
 
-			return SlcServicemanagementIds.Enums.ServiceitemtypesEnum.Service;
+			return SlcServicemanagementIds.Enums.ServiceItemTypesEnum.Service;
 		}
 
 		public WorkflowsInstance[] WorkFlows
@@ -133,8 +133,8 @@
 			view.BtnAdd.Text = "Save";
 			view.TboxLabel.Text = section.Label;
 
-			view.ServiceItemType.Selected = section.Type ?? SlcServicemanagementIds.Enums.ServiceitemtypesEnum.Service;
-			engine.PerformanceLogger("Update Service Item Type", () => OnUpdateServiceItemType(section.Type ?? SlcServicemanagementIds.Enums.ServiceitemtypesEnum.Service));
+			view.ServiceItemType.Selected = section.Type ?? SlcServicemanagementIds.Enums.ServiceItemTypesEnum.Service;
+			engine.PerformanceLogger("Update Service Item Type", () => OnUpdateServiceItemType(section.Type ?? SlcServicemanagementIds.Enums.ServiceItemTypesEnum.Service));
 
 			if (!String.IsNullOrEmpty(section.DefinitionReference))
 			{
@@ -166,7 +166,7 @@
 
 		public string UpdateJobForWorkFlow(string label)
 		{
-			if (view.ServiceItemType.Selected != SlcServicemanagementIds.Enums.ServiceitemtypesEnum.Workflow)
+			if (view.ServiceItemType.Selected != SlcServicemanagementIds.Enums.ServiceItemTypesEnum.Workflow)
 			{
 				return String.Empty;
 			}
@@ -257,12 +257,12 @@
 
 		private string GetImplementationReference()
 		{
-			if (view.ServiceItemType.Selected == SlcServicemanagementIds.Enums.ServiceitemtypesEnum.Service)
+			if (view.ServiceItemType.Selected == SlcServicemanagementIds.Enums.ServiceItemTypesEnum.Service)
 			{
 				return services.Find(s => view.ImplementationReferences.Selected == GetServiceDropDownLabel(s))?.Identifier ?? String.Empty;
 			}
 
-			if (view.ServiceItemType.Selected == SlcServicemanagementIds.Enums.ServiceitemtypesEnum.SRMBooking && bookings.ContainsKey(view.DefinitionReferences.Selected))
+			if (view.ServiceItemType.Selected == SlcServicemanagementIds.Enums.ServiceItemTypesEnum.SRMBooking && bookings.ContainsKey(view.DefinitionReferences.Selected))
 			{
 				return bookings[view.DefinitionReferences.Selected].Find(x => view.ImplementationReferences.Selected == GetBookingDropDownLabel(x))?.ID.ToString() ?? String.Empty;
 			}
@@ -282,7 +282,7 @@
 				.FirstOrDefault();
 		}
 
-		private void OnUpdateDefinitionReference(string selectedDefinitionReference, SlcServicemanagementIds.Enums.ServiceitemtypesEnum serviceItemType)
+		private void OnUpdateDefinitionReference(string selectedDefinitionReference, SlcServicemanagementIds.Enums.ServiceItemTypesEnum serviceItemType)
 		{
 			if (String.IsNullOrEmpty(selectedDefinitionReference))
 			{
@@ -294,7 +294,7 @@
 				return;
 			}
 
-			if (serviceItemType == SlcServicemanagementIds.Enums.ServiceitemtypesEnum.SRMBooking)
+			if (serviceItemType == SlcServicemanagementIds.Enums.ServiceItemTypesEnum.SRMBooking)
 			{
 				engine.PerformanceLogger("Update Impl. Ref. SRM Booking", () => UpdateImplementationReferenceForTypeSrmBooking(selectedDefinitionReference));
 				UpdateLabelPlaceholder(selectedDefinitionReference);
@@ -315,7 +315,7 @@
 
 				view.ScriptSelection.Selected = scriptName;
 			}
-			else if (serviceItemType == SlcServicemanagementIds.Enums.ServiceitemtypesEnum.Service)
+			else if (serviceItemType == SlcServicemanagementIds.Enums.ServiceItemTypesEnum.Service)
 			{
 				var selectedSpec = specifications.Find(s => s.Name == selectedDefinitionReference);
 				UpdateImplementationReferenceForTypeService(selectedSpec);
@@ -327,9 +327,9 @@
 			}
 		}
 
-		private void OnUpdateServiceItemType(SlcServicemanagementIds.Enums.ServiceitemtypesEnum serviceItemType)
+		private void OnUpdateServiceItemType(SlcServicemanagementIds.Enums.ServiceItemTypesEnum serviceItemType)
 		{
-			if (serviceItemType == SlcServicemanagementIds.Enums.ServiceitemtypesEnum.Workflow)
+			if (serviceItemType == SlcServicemanagementIds.Enums.ServiceItemTypesEnum.Workflow)
 			{
 				var workflowOptions = WorkFlows.Select(x => x.Name).OrderBy(x => x).ToList();
 				view.DefinitionReferences.SetOptions(workflowOptions);
@@ -341,7 +341,7 @@
 				view.ScriptSelection.SetOptions(new List<string>());
 				view.ScriptSelection.IsEnabled = false;
 			}
-			else if (serviceItemType == SlcServicemanagementIds.Enums.ServiceitemtypesEnum.Service)
+			else if (serviceItemType == SlcServicemanagementIds.Enums.ServiceItemTypesEnum.Service)
 			{
 				if (specifications.Count < 1)
 				{
@@ -368,8 +368,8 @@
 				OnUpdateDefinitionReference(view.DefinitionReferences.Selected, serviceItemType);
 			}
 
-			view.LblImplementationReference.IsVisible = serviceItemType != SlcServicemanagementIds.Enums.ServiceitemtypesEnum.Workflow;
-			view.ImplementationReferences.IsVisible = serviceItemType != SlcServicemanagementIds.Enums.ServiceitemtypesEnum.Workflow;
+			view.LblImplementationReference.IsVisible = serviceItemType != SlcServicemanagementIds.Enums.ServiceItemTypesEnum.Workflow;
+			view.ImplementationReferences.IsVisible = serviceItemType != SlcServicemanagementIds.Enums.ServiceItemTypesEnum.Workflow;
 
 			UpdateLabelPlaceholder(view.DefinitionReferences.Selected);
 		}

@@ -621,8 +621,6 @@ namespace SLC_SM_Create_Service_Inventory_Item
 					: null,
 				Profiles = duplicatedChildProfiles,
 				ConfigurationParameterValues = duplicatedConfigurationParameterValues,
-				TestedProtocols = sourceProfile.TestedProtocols?.Select(tp => new SdmObjectReference<ConfigModels.ProtocolTest>(tp.Identifier)).ToList()
-					?? new List<SdmObjectReference<ConfigModels.ProtocolTest>>(),
 			};
 
 			sdmHelper.ServiceCatalog.Profiles.Create(duplicatedProfile);
