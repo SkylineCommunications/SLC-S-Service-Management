@@ -69,14 +69,10 @@ function encodeScriptParameter(value) {
     return JSON.stringify([String(value)]);
 }
 
-/**
- * Executes a deployed DataMiner Automation script through the JSON API.
- * `parameterDefinitions` must include every parameter declared by the script XML.
- */
-export async function executeAutomationScript({ name, folder = 'Service Management', interactive = false, parameterDefinitions = [] }, values = {}) {
+function buildAutomationScript({ name, folder = 'Service Management', interactive = false, hasFindInteractiveClient = interactive, parameterDefinitions = [] }, values = {}) {
     if (!name) throw new DataMinerApiError('No Automation script name was provided.');
 
-    const script = {
+    return {
         __type: 'Skyline.DataMiner.Web.Common.v1.DMAAutomationScript',
         Name: name,
         Folder: folder,
@@ -84,7 +80,7 @@ export async function executeAutomationScript({ name, folder = 'Service Manageme
         Settings: {
             __type: 'Skyline.DataMiner.Web.Common.v1.DMAAutomationScriptSettings',
             RequireInteractive: interactive,
-            HasFindInteractiveClient: interactive,
+            HasFindInteractiveClient: hasFindInteractiveClient,
         },
         Parameters: parameterDefinitions.map(parameter => ({
             __type: 'Skyline.DataMiner.Web.Common.v1.DMAAutomationScriptParameter',
@@ -97,32 +93,64 @@ export async function executeAutomationScript({ name, folder = 'Service Manageme
         Dummies: [],
         MemoryFiles: [],
     };
+}
+
+function automationScriptOptions(waitForScript) {
+    return {
+        __type: 'Skyline.DataMiner.Web.Common.v1.DMAAutomationScriptOptions',
+        WaitForScript: waitForScript,
+        CheckSets: true,
+        LockElements: false,
+        ForceLockElements: false,
+        WaitWhenLocked: true,
+        IsInUse: false,
+        AskForConfirmation: false,
+        GenerateStartedInfoEvent: true,
+        customSuccessMessage: null,
+        hideSuccessPopup: true,
+        skipPresetsIfComplete: true,
+        hidePresets: true,
+        popupIsMinimizable: false,
+        popupType: 1,
+        ClientTimeZone: { Type: 0, Info: null },
+    };
+}
+
+/**
+ * Executes a deployed DataMiner Automation script through the JSON API.
+ * `parameterDefinitions` must include every parameter declared by the script XML.
+ */
+export async function executeAutomationScript({ name, folder = 'Service Management', interactive = false, parameterDefinitions = [] }, values = {}) {
+    const script = buildAutomationScript({ name, folder, interactive, parameterDefinitions }, values);
     const result = await callApi('/API/v1/Json.asmx/ExecuteAutomationScriptWithOutput', {
         script,
-        scriptOptions: {
-            __type: 'Skyline.DataMiner.Web.Common.v1.DMAAutomationScriptOptions',
-            WaitForScript: true,
-            CheckSets: true,
-            LockElements: false,
-            ForceLockElements: false,
-            WaitWhenLocked: true,
-            IsInUse: false,
-            AskForConfirmation: false,
-            GenerateStartedInfoEvent: true,
-            customSuccessMessage: null,
-            hideSuccessPopup: true,
-            skipPresetsIfComplete: true,
-            hidePresets: true,
-            popupIsMinimizable: false,
-            popupType: 1,
-            ClientTimeZone: { Type: 0, Info: null },
-        },
+        scriptOptions: automationScriptOptions(true),
     });
     const errorCode = Number(result?.ErrorCode);
     if (!result || (Number.isFinite(errorCode) && errorCode !== 0)) {
         throw new DataMinerApiError(result?.ErrorMessage || result?.Message || `Automation script "${name}" failed${Number.isFinite(errorCode) ? ` (error ${errorCode})` : '.'}`);
     }
     return result;
+}
+
+/**
+ * Starts an interactive Automation script without waiting for it and returns the script instance ID that
+ * LaunchAutomationScript/ContinueAutomationScript need. The app renders the dialog itself, so DataMiner must not
+ * look for another interactive client (HasFindInteractiveClient = false).
+ */
+export async function launchInteractiveAutomationScript({ name, folder = 'Service Management', parameterDefinitions = [] }, values = {}) {
+    const script = buildAutomationScript({ name, folder, interactive: true, hasFindInteractiveClient: false, parameterDefinitions }, values);
+    const result = await callApi('/API/v1/Json.asmx/ExecuteAutomationScript', { script, scriptOptions: automationScriptOptions(false) });
+    const scriptId = typeof result === 'object' && result !== null ? result.ScriptID ?? result.ScriptId : result;
+    if (scriptId === null || scriptId === undefined || scriptId === '' || !Number.isFinite(Number(scriptId))) {
+        throw new DataMinerApiError(`DataMiner did not return a script ID for "${name}".`);
+    }
+    return Number(scriptId);
+}
+
+/** Aborts a running interactive Automation script. */
+export async function detachAutomationScript(scriptID) {
+    await callApi('/API/v1/Json.asmx/DetachAutomationScript', { scriptID }, { timeoutMs: 15000 });
 }
 
 /** Builds the "Custom data" query for an ad hoc data source. `args` maps GQI string argument names to static values. */

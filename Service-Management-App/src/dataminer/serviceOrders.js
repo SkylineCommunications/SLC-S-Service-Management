@@ -64,11 +64,6 @@ export const SERVICE_ORDER_SCRIPTS = {
         interactive: false,
         parameterDefinitions: [{ id: 10, name: 'DOM ID' }, { id: 11, name: 'Action' }, { id: 20, name: 'Payload' }],
     },
-    addOrder: {
-        name: 'SLC_SM_IAS_Add Service Order',
-        interactive: true,
-        parameterDefinitions: [{ id: 10, name: 'DOM ID' }, { id: 11, name: 'Action' }],
-    },
     deleteOrder: {
         name: 'SLC_SM_Delete Service Order',
         interactive: false,

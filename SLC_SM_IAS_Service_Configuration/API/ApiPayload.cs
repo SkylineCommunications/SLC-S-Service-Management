@@ -25,6 +25,9 @@ namespace SLC_SM_IAS_Service_Configuration
 		/// <summary>Gets or sets a value indicating whether the version should be deleted.</summary>
 		public bool DeleteVersion { get; set; }
 
+		/// <summary>Gets or sets a value indicating whether the saved version should become active.</summary>
+		public bool ActivateVersion { get; set; }
+
 		/// <summary>Gets or sets configuration identifiers to delete.</summary>
 		public List<string> DeleteConfigurationIds { get; set; } = new List<string>();
 
@@ -60,6 +63,30 @@ namespace SLC_SM_IAS_Service_Configuration
 
 		/// <summary>Gets or sets a value indicating whether the parameter is mandatory.</summary>
 		public bool Mandatory { get; set; }
+
+		/// <summary>Gets or sets the parameter label.</summary>
+		public string Label { get; set; }
+
+		/// <summary>Gets or sets a value indicating whether the parameter is linked.</summary>
+		public bool IsLinked { get; set; }
+
+		/// <summary>Gets or sets a value indicating whether the parameter value is fixed.</summary>
+		public bool Fixed { get; set; }
+
+		/// <summary>Gets or sets the selected unit identifier.</summary>
+		public string UnitId { get; set; }
+
+		/// <summary>Gets or sets the numeric minimum.</summary>
+		public string Start { get; set; }
+
+		/// <summary>Gets or sets the numeric maximum.</summary>
+		public string End { get; set; }
+
+		/// <summary>Gets or sets the numeric step size.</summary>
+		public string StepSize { get; set; }
+
+		/// <summary>Gets or sets the numeric decimal precision.</summary>
+		public string Decimals { get; set; }
 	}
 
 	/// <summary>

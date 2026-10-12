@@ -12,6 +12,11 @@ test.describe('Service Management workspace', () => {
         await expect(page.locator('.order-row').filter({ hasText: 'Network refresh' })).toBeVisible();
         for (const name of ['Services', 'Catalog', 'Settings']) { await page.getByRole('link', { name }).click(); await expect(page.getByRole('heading', { name, exact: true })).toBeVisible(); }
     });
+    test('does not expose the removed order IAS launcher', { tag: '@A4' }, async ({ page }) => {
+        const orderRow = page.locator('.order-row').filter({ hasText: 'Network refresh' });
+        await orderRow.getByRole('button', { name: 'Open details of Network refresh' }).click();
+        await expect(page.getByRole('dialog').getByRole('button', { name: 'Launch test IAS', exact: true })).toHaveCount(0);
+    });
     test('loads organizations into the service order form dropdown', { tag: '@W10' }, async ({ page }) => {
         await page.getByRole('button', { name: 'New order', exact: true }).click();
         const form = page.getByRole('form', { name: 'New service order' });
@@ -19,6 +24,11 @@ test.describe('Service Management workspace', () => {
         await expect(organization).toBeVisible();
         await expect(organization).toHaveValue('');
         await expect(organization.locator('option')).toHaveText(['No organization', 'Acme Media', 'Skyline Broadcast']);
+        await form.getByRole('textbox', { name: 'Label' }).fill('Network refresh');
+        await expect(form.getByText('Name already exists!', { exact: true })).toBeVisible();
+        await expect(form.getByRole('button', { name: 'Create order', exact: true })).toBeDisabled();
+        await form.getByRole('textbox', { name: 'Label' }).fill('New validation order');
+        await expect(form.getByRole('button', { name: 'Create order', exact: true })).toBeEnabled();
         expect(mock.calls.some(call => {
             if (call.method !== 'OpenQuerySession') return false;
             const descriptor = JSON.parse(call.body.query.Options[0].Value.Value);
@@ -34,6 +44,49 @@ test.describe('Service Management workspace', () => {
         await expect(form.getByRole('combobox', { name: 'Organization' }).locator('option')).toContainText(['Acme Media', 'Skyline Broadcast']);
         await form.getByRole('checkbox', { name: 'Link service' }).check();
         await expect(form.getByRole('combobox', { name: 'Linked service' }).locator('option')).not.toHaveCount(1);
+    });
+    test('disables service inventory creation until its validation rules pass', { tag: '@S5' }, async ({ page }) => {
+        await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: /Services/ }).click();
+        await page.getByRole('button', { name: 'Add service', exact: true }).click();
+        const form = page.getByRole('form', { name: 'New service' });
+        const save = form.getByRole('button', { name: 'Create', exact: true });
+
+        await form.getByRole('textbox', { name: 'Name' }).fill('Test service');
+        await expect(form.getByText('Name already exists!', { exact: true })).toBeVisible();
+        await expect(save).toBeDisabled();
+
+        await form.getByRole('textbox', { name: 'Service ID' }).fill('SVC-TEST-001');
+        await expect(form.getByText('Service ID already exists!', { exact: true })).toBeVisible();
+        await form.getByRole('textbox', { name: 'Service ID' }).fill('SVC-NEW-001');
+        await form.getByRole('textbox', { name: 'Name' }).fill('New service');
+        await expect(save).toBeEnabled();
+
+        await form.getByLabel('Start time').fill('2020-01-01T08:00');
+        await expect(form.getByText("Please make a selection which doesn't lie in the past.", { exact: true })).toBeVisible();
+        await expect(save).toBeDisabled();
+        await form.getByLabel('Start time').fill('2099-01-01T08:00');
+        await form.getByRole('textbox', { name: /End time/ }).fill('2098-01-01T08:00');
+        await expect(form.getByText('End Time must come after the start time.', { exact: true })).toBeVisible();
+        await expect(save).toBeDisabled();
+        await form.getByRole('textbox', { name: /End time/ }).fill('2100-01-01T08:00');
+
+        await form.getByRole('checkbox', { name: 'Link service' }).check();
+        await expect(form.getByText('Selection is mandatory!', { exact: true })).toBeVisible();
+        await expect(save).toBeDisabled();
+        await form.getByRole('combobox', { name: 'Linked service' }).selectOption({ label: 'Monitoring service 1' });
+        await expect(save).toBeEnabled();
+    });
+    test('disables service item creation for duplicate labels', { tag: '@S5' }, async ({ page }) => {
+        await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: /Services/ }).click();
+        await page.locator('.service-row').filter({ hasText: 'Test service' }).getByRole('button', { name: 'Open details of Test service' }).click();
+        const details = page.getByRole('dialog', { name: 'Test service' });
+        await details.getByRole('button', { name: 'Add item', exact: true }).click();
+        const form = page.getByRole('form', { name: 'Add service item' });
+        await form.getByRole('textbox', { name: 'Label' }).fill('Encoder booking');
+        await expect(form.getByText('Label already exists!', { exact: true })).toBeVisible();
+        await expect(form.getByRole('button', { name: 'Add item', exact: true })).toBeDisabled();
+        await form.getByRole('textbox', { name: 'Label' }).fill('');
+        await expect(form.getByRole('button', { name: 'Add item', exact: true })).toBeEnabled();
     });
     test('loads the selected service organization only when editing', { tag: '@S3' }, async ({ page }) => {
         await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: /Services/ }).click();
@@ -62,6 +115,35 @@ test.describe('Service Management workspace', () => {
         await form.getByRole('button', { name: 'Create', exact: true }).click();
         await expect(page.getByText('Broadcast', { exact: true })).toBeVisible();
         expect(mock.calls.some(call => call.method === 'ExecuteAutomationScriptWithOutput' && call.body.script?.Name === 'SLC_SM_AS_ManageServiceCategory')).toBeTruthy();
+    });
+    test('disables service category creation until name and type are valid', { tag: '@C4' }, async ({ page }) => {
+        await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: /Settings/ }).click();
+        await page.getByRole('link', { name: 'Manage categories', exact: true }).click();
+        await page.getByRole('button', { name: 'New category', exact: true }).click();
+        const form = page.getByRole('form', { name: 'New service category' });
+        const create = form.getByRole('button', { name: 'Create', exact: true });
+        await expect(form.getByText('Name is required.', { exact: true })).toBeVisible();
+        await expect(create).toBeDisabled();
+        await form.getByRole('textbox', { name: 'Name' }).fill('Connectivity');
+        await expect(form.getByText('Name already exists!', { exact: true })).toBeVisible();
+        await expect(create).toBeDisabled();
+        await form.getByRole('textbox', { name: 'Name' }).fill('Broadcast');
+        await form.getByRole('textbox', { name: 'Type' }).fill('');
+        await expect(form.getByText('Type is required.', { exact: true })).toBeVisible();
+        await expect(create).toBeDisabled();
+        await form.getByRole('textbox', { name: 'Type' }).fill('Channel');
+        await expect(create).toBeEnabled();
+    });
+    test('disables service specification creation for duplicate names', { tag: '@C4' }, async ({ page }) => {
+        await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: 'inventory_2 Catalog' }).click();
+        await page.getByRole('button', { name: 'Add specification', exact: true }).click();
+        const form = page.getByRole('form', { name: 'New service specification' });
+        await form.getByRole('textbox', { name: 'Label' }).fill('Managed switching');
+        await expect(form.getByText('Name already exists!', { exact: true })).toBeVisible();
+        await expect(form.getByRole('button', { name: 'Create', exact: true })).toBeDisabled();
+        await expect(form.getByRole('textbox', { name: 'Label' })).toHaveAttribute('placeholder', 'Specification #00002');
+        await form.getByRole('textbox', { name: 'Label' }).fill('');
+        await expect(form.getByRole('button', { name: 'Create', exact: true })).toBeEnabled();
     });
     test('shows related service orders in service details', { tag: '@S4' }, async ({ page }) => {
         await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: /Services/ }).click();
@@ -121,7 +203,41 @@ test.describe('Service Management workspace', () => {
         const dialog = page.getByRole('dialog');
         await dialog.getByRole('button', { name: 'Configurations', exact: true }).click();
         await expect(dialog.getByRole('heading', { name: 'Specification configuration' })).toBeVisible();
-        await expect(dialog.getByRole('button', { name: 'Expand standalone parameters' })).toBeVisible();
+        const version = dialog.getByRole('combobox', { name: 'Version' });
+        const activeControl = dialog.locator('.configuration-version-active');
+        await expect(activeControl).toHaveCount(1);
+        await expect(activeControl).toContainText('Active');
+        await expect(activeControl).toBeDisabled();
+        await expect(dialog.getByRole('button', { name: 'Delete configuration', exact: true })).toBeDisabled();
+        await version.selectOption({ label: 'Archived version' });
+        await expect(activeControl).toContainText('Activate');
+        await expect(activeControl).toBeEnabled();
+        await expect(dialog.getByRole('button', { name: 'Delete configuration', exact: true })).toBeEnabled();
+        await version.selectOption({ label: 'Current version (Active)' });
+        await dialog.getByRole('button', { name: 'Show Value Details', exact: true }).click();
+        await expect(dialog.getByRole('button', { name: 'Hide Value Details', exact: true })).toBeVisible();
+        await dialog.getByRole('button', { name: 'Expand standalone parameters' }).click();
+        await expect(dialog.locator('.native-configuration-table thead th')).toHaveText(['Label', 'Parameter', 'Type', 'Link', 'Value', 'Unit', 'Start', 'End', 'Step size', 'Decimals', 'Values', 'Mandatory', '']);
+        await dialog.getByRole('button', { name: 'Hide Value Details', exact: true }).click();
+        const polarization = dialog.getByRole('combobox', { name: 'Value for Polarization' });
+        await expect(polarization).toBeVisible();
+        await expect(polarization.locator('option')).toHaveText(['Select value…', 'Horizontal', 'Vertical']);
+        await polarization.selectOption({ label: 'Vertical' });
+        await expect(polarization).toHaveValue('Vertical');
+        await dialog.getByRole('button', { name: 'Show Value Details', exact: true }).click();
+        const bitrate = dialog.getByLabel('Value for Max Overall Bitrate');
+        await expect(bitrate).toHaveAttribute('type', 'number');
+        await bitrate.fill('42');
+        await dialog.getByLabel('start for Max Overall Bitrate').fill('-500');
+        await dialog.getByLabel('end for Max Overall Bitrate').fill('500');
+        await dialog.getByLabel('step for Max Overall Bitrate').fill('0.5');
+        await dialog.getByLabel('decimals for Max Overall Bitrate').fill('1');
+        await expect(bitrate).toHaveValue('42');
+        await dialog.getByRole('button', { name: 'Hide Value Details', exact: true }).click();
+        await dialog.getByRole('button', { name: 'Show Lifecycle Details', exact: true }).click();
+        await expect(dialog.locator('.native-configuration-table thead th')).toContainText(['N/A', 'Fixed', 'Expose at order', 'Mandatory at order', 'Mandatory at service']);
+        await dialog.getByRole('button', { name: 'Hide Lifecycle Details', exact: true }).click();
+        await expect(dialog.getByRole('button', { name: 'Collapse standalone parameters' })).toBeVisible();
         await expect(dialog.getByRole('button', { name: 'Collapse profiles' })).toBeVisible();
         await expect(dialog.locator('.configuration-profile-card')).toHaveCount(1);
         await expect(dialog.getByLabel('Select parameter to add')).toHaveCSS('width', '240px');
@@ -167,6 +283,16 @@ test.describe('Service Management workspace', () => {
         await expect(dialog.locator('.native-configuration-profile-view')).toHaveCount(0);
         await expect(dialog.locator('.configuration-profile-card')).toHaveCount(2);
         await expect(dialog.getByRole('button', { name: /^(Expand|Collapse) Transport profile$/ })).toBeVisible();
+    });
+    test('keeps a new configuration version inactive until activation', { tag: '@C7' }, async ({ page }) => {
+        await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: 'inventory_2 Catalog' }).click();
+        await page.locator('.catalog-row').filter({ hasText: 'Managed switching' }).getByRole('button', { name: 'Open details of Managed switching' }).click();
+        const dialog = page.getByRole('dialog');
+        await dialog.getByRole('button', { name: 'Configurations', exact: true }).click();
+        await expect(dialog.getByRole('heading', { name: 'Specification configuration' })).toBeVisible();
+        await dialog.getByRole('button', { name: 'New version', exact: true }).click();
+        await expect(dialog.getByText('Inactive until Activate', { exact: true })).toBeVisible();
+        await expect(dialog.getByRole('button', { name: 'Delete configuration', exact: true })).toBeDisabled();
     });
     test('manages service operations through the Automation script contract', { tag: '@W8' }, async ({ page }) => {
         await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: /Services/ }).click();
@@ -263,6 +389,33 @@ test.describe('Service Management workspace', () => {
         await expect(page.getByRole('dialog', { name: 'Studio expansion' })).toContainText('This order has no items.');
         await page.getByRole('button', { name: 'Close order details' }).click();
         await expect(page.getByRole('dialog')).toHaveCount(0);
+    });
+    test('blocks service initialization until the specification is configured', { tag: '@W3' }, async ({ page }) => {
+        await page.locator('.order-row').filter({ hasText: 'Network refresh' }).getByRole('button', { name: 'Open details of Network refresh' }).click();
+        const panel = page.getByRole('dialog', { name: 'Network refresh' });
+        const item = panel.locator('.order-item').filter({ hasText: 'Core switch B' });
+        const initialize = item.getByRole('button', { name: 'Initialize service for Core switch B' });
+        await expect(initialize).toBeEnabled();
+        await initialize.click();
+        await expect(item.getByRole('note')).toContainText('Configure the service specification before initializing a service.');
+        await expect(initialize).toBeDisabled();
+        await expect.poll(() => mock.calls.filter(call => call.method === 'ExecuteAutomationScriptWithOutput' && call.body.script?.Name === 'SLC_SM_Create Service Inventory Item')).toHaveLength(0);
+        expect(mock.calls.some(call => {
+            if (call.method !== 'OpenQuerySession') return false;
+            const descriptor = JSON.parse(call.body.query.Options[0].Value.Value);
+            return descriptor.ScriptName === 'SLC_SM_GQIDS_Get Service Configurations'
+                && call.body.query.Child.Options[0].Value.some((option: any) => option.ID === 'DOM ID' && option.Value.Value === 'unconfigured-spec');
+        })).toBeTruthy();
+    });
+    test('disables order-item creation until IAS-required selections are valid', { tag: '@D5' }, async ({ page }) => {
+       await page.locator('.order-row').filter({ hasText: 'Network refresh' }).getByRole('button', { name: 'Open details of Network refresh' }).click();
+       const orderDialog = page.getByRole('dialog', { name: 'Network refresh' });
+       await orderDialog.getByRole('button', { name: 'Add item', exact: true }).click();
+       const itemForm = page.getByRole('form', { name: 'Add service order item' });
+       await expect(itemForm.getByRole('button', { name: 'Add item', exact: true })).toBeDisabled();
+       await expect(itemForm.getByText('Selection is mandatory!', { exact: true })).toBeVisible();
+       await itemForm.getByRole('combobox', { name: 'Service specification' }).selectOption({ label: 'Managed switching' });
+       await expect(itemForm.getByRole('button', { name: 'Add item', exact: true })).toBeEnabled();
     });
     test('order details can be deep linked and show an item error with retry', { tag: ['@D3', '@D4'] }, async ({ page }) => {
         mock.itemsFail = true;

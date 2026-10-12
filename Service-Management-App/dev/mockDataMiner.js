@@ -5,7 +5,7 @@ const ORDER_COLUMNS = ['Order ID', 'Name', 'Description', 'Priority', 'External 
 const ITEM_COLUMNS = ['ID', 'Name', 'Start', 'End', 'Action', 'Category', 'Category ID', 'Service Specification', 'Service Specification ID', 'Service', 'ServiceId', 'Property', 'Configuration', 'Status', 'StatusId', 'Description'];
 const SERVICE_COLUMNS = ['DOM ID', 'Service ID', 'Service Name', 'Service Status', 'Service Start', 'Service End', 'Service Category', 'Service Category Type', 'Service Logo', 'Service Specification', 'Alarm Level', 'Service Organization', 'Monitoring Service', 'Related Service Orders', 'Related Service Order Count'];
 const SERVICE_ITEM_COLUMNS = ['Actions', 'Label', 'Service Item ID', 'Service Item Type', 'Definition Reference', 'Service Item Script', 'Implementation Reference', 'Implementation Reference Name', 'Implementation Reference Link', 'Implementation Reference Has Value', 'Implementation Reference Name Has Value', 'Implementation Reference Link Has Value', 'Implementation State', 'Implementation Reference Custom Link', 'Implementation Reference Custom Link Has Value', 'Monitoring Service State', 'Monitoring Service DMA ID/SID', 'Log'];
-const SERVICE_CONFIG_COLUMNS = ['Version ID', 'Version Name', 'Version Description', 'Version Start', 'Version End', 'Is Active', 'Record Type', 'Configuration ID', 'Parameter ID', 'Parameter Value ID', 'Parameter Name', 'Parameter Type', 'Parameter Value', 'Mandatory', 'Profile ID', 'Profile Name', 'Profile Definition ID', 'Profile Definition Name', 'Profile Reusable', 'Profile Mandatory', 'Nested Profile ID', 'Nested Profile Name', 'Nested Profile Definition ID', 'Nested Profile Definition Name'];
+const SERVICE_CONFIG_COLUMNS = ['Version ID', 'Version Name', 'Version Description', 'Version Start', 'Version End', 'Is Active', 'Record Type', 'Configuration ID', 'Parameter ID', 'Parameter Value ID', 'Parameter Name', 'Parameter Type', 'Parameter Value', 'Mandatory', 'Profile ID', 'Profile Name', 'Profile Definition ID', 'Profile Definition Name', 'Profile Reusable', 'Profile Mandatory', 'Nested Profile ID', 'Nested Profile Name', 'Nested Profile Definition ID', 'Nested Profile Definition Name', 'Parameter Label', 'Parameter Is Linked', 'Parameter Unit', 'Parameter Unit ID', 'Parameter Start', 'Parameter End', 'Parameter Step Size', 'Parameter Decimals', 'Parameter Options', 'Parameter Fixed', 'Parameter N/A', 'Expose At Order', 'Mandatory At Order', 'Mandatory At Service'];
 const SPECIFICATION_COLUMNS = ['Specification ID', 'Name', 'Description', 'Created At', 'Created By', 'Last Modified', 'Last Modified By', 'Service Item Count'];
 const ORGANIZATION_COLUMNS = ['Organization ID', 'Organization Name'];
 const MONITORING_SERVICE_COLUMNS = ['Monitoring Service ID', 'Monitoring Service Name'];
@@ -130,10 +130,11 @@ function serviceConfigurationsFor(serviceId, { includeProfiles = true } = {}) {
     }
     const hasConfigurationVersion = serviceId !== SERVICE_WITHOUT_CONFIGURATION_ID;
     const versionId = guid(7000 + SERVICES.findIndex(service => service['DOM ID'] === serviceId));
+    const discreteOptions = '[{"Id":"disabled","Value":"Disabled"},{"Id":"enabled","Value":"Enabled"}]';
     const parameters = [
-        ['Bitrate', 'Number', '2500', 'false', 7200],
-        ['Protocol', 'Text', 'SRT', 'true', 7201],
-        ['Redundant', 'Discrete', 'Enabled', 'false', 7203],
+        ['Bitrate', 'Number', '2500', 'false', 7200, ''],
+        ['Protocol', 'Text', 'SRT', 'true', 7201, ''],
+        ['Redundant', 'Discrete', 'Enabled', 'false', 7203, discreteOptions],
     ];
     const rows = hasConfigurationVersion ? parameters.map((parameter, index) => ({
         'Version ID': versionId,
@@ -149,6 +150,15 @@ function serviceConfigurationsFor(serviceId, { includeProfiles = true } = {}) {
         'Parameter Name': parameter[0],
         'Parameter Type': parameter[1],
         'Parameter Value': parameter[2],
+        'Parameter Label': parameter[0],
+        'Parameter Is Linked': 'false',
+        'Parameter Unit': '',
+        'Parameter Unit ID': '',
+        'Parameter Start': parameter[1] === 'Number' ? '-10000' : '',
+        'Parameter End': parameter[1] === 'Number' ? '10000' : '',
+        'Parameter Step Size': parameter[1] === 'Number' ? '1' : '',
+        'Parameter Decimals': parameter[1] === 'Number' ? '0' : '',
+        'Parameter Options': parameter[5],
         Mandatory: parameter[3],
         'Profile ID': '',
         'Profile Name': '',
@@ -161,7 +171,7 @@ function serviceConfigurationsFor(serviceId, { includeProfiles = true } = {}) {
         { 'Version ID': '', 'Record Type': 'AvailableParameter', 'Parameter ID': guid(7200), 'Parameter Name': 'Bitrate', 'Parameter Type': 'Number' },
         { 'Version ID': '', 'Record Type': 'AvailableParameter', 'Parameter ID': guid(7201), 'Parameter Name': 'Protocol', 'Parameter Type': 'Text' },
         { 'Version ID': '', 'Record Type': 'AvailableParameter', 'Parameter ID': guid(7202), 'Parameter Name': 'Latency', 'Parameter Type': 'Number' },
-        { 'Version ID': '', 'Record Type': 'AvailableParameter', 'Parameter ID': guid(7203), 'Parameter Name': 'Redundant', 'Parameter Type': 'Discrete' },
+        { 'Version ID': '', 'Record Type': 'AvailableParameter', 'Parameter ID': guid(7203), 'Parameter Name': 'Redundant', 'Parameter Type': 'Discrete', 'Parameter Options': discreteOptions },
     );
     if (!includeProfiles) return rows;
     rows.push(
@@ -178,12 +188,12 @@ function serviceConfigurationsFor(serviceId, { includeProfiles = true } = {}) {
     const childProfileId = guid(7601);
     const grandchildProfileId = guid(7602);
     const greatGrandchildProfileId = guid(7603);
-    const profileBase = { 'Version ID': versionId, 'Version Name': 'Current version', 'Version Description': 'Current service configuration', 'Version Start': '9/1/2026 8:00:00 AM', 'Version End': 'No End Time', 'Is Active': 'true', 'Configuration ID': '', 'Parameter ID': '', 'Parameter Value ID': '', 'Parameter Name': '', 'Parameter Type': '', 'Parameter Value': '', Mandatory: 'false', 'Profile ID': '', 'Profile Name': '', 'Profile Definition ID': '', 'Profile Definition Name': '', 'Profile Reusable': 'false', 'Profile Mandatory': 'true', 'Nested Profile ID': '', 'Nested Profile Name': '', 'Nested Profile Definition ID': '', 'Nested Profile Definition Name': '' };
+    const profileBase = { 'Version ID': versionId, 'Version Name': 'Current version', 'Version Description': 'Current service configuration', 'Version Start': '9/1/2026 8:00:00 AM', 'Version End': 'No End Time', 'Is Active': 'true', 'Configuration ID': '', 'Parameter ID': '', 'Parameter Value ID': '', 'Parameter Name': '', 'Parameter Type': '', 'Parameter Value': '', 'Parameter Label': '', 'Parameter Is Linked': 'false', 'Parameter Unit': '', 'Parameter Unit ID': '', 'Parameter Start': '', 'Parameter End': '', 'Parameter Step Size': '', 'Parameter Decimals': '', 'Parameter Options': '', Mandatory: 'false', 'Profile ID': '', 'Profile Name': '', 'Profile Definition ID': '', 'Profile Definition Name': '', 'Profile Reusable': 'false', 'Profile Mandatory': 'true', 'Nested Profile ID': '', 'Nested Profile Name': '', 'Nested Profile Definition ID': '', 'Nested Profile Definition Name': '' };
     rows.push(
         { ...profileBase, 'Record Type': 'Profile', 'Profile ID': rootProfileId, 'Profile Name': 'Transport profile', 'Profile Definition ID': guid(7400), 'Profile Definition Name': 'Transport profile' },
         { ...profileBase, 'Record Type': 'NestedProfile', 'Profile ID': rootProfileId, 'Profile Name': 'Transport profile', 'Profile Definition ID': guid(7400), 'Profile Definition Name': 'Transport profile', 'Nested Profile ID': childProfileId, 'Nested Profile Name': 'Reusable encapsulation profile', 'Nested Profile Definition ID': guid(7401), 'Nested Profile Definition Name': 'Encapsulation profile', 'Parameter ID': guid(7202), 'Parameter Value ID': guid(7302), 'Parameter Name': 'Latency', 'Parameter Type': 'Number', 'Parameter Value': '50' },
         { ...profileBase, 'Record Type': 'NestedProfile', 'Profile ID': childProfileId, 'Profile Name': 'Reusable encapsulation profile', 'Profile Definition ID': guid(7401), 'Profile Definition Name': 'Encapsulation profile', 'Nested Profile ID': grandchildProfileId, 'Nested Profile Name': 'Reusable timing profile', 'Nested Profile Definition ID': guid(7402), 'Nested Profile Definition Name': 'Timing profile', 'Profile Reusable': 'true', 'Parameter ID': guid(7200), 'Parameter Value ID': guid(7300), 'Parameter Name': 'Bitrate', 'Parameter Type': 'Number', 'Parameter Value': '2500' },
-        { ...profileBase, 'Record Type': 'NestedProfile', 'Profile ID': grandchildProfileId, 'Profile Name': 'Reusable timing profile', 'Profile Definition ID': guid(7402), 'Profile Definition Name': 'Timing profile', 'Nested Profile ID': greatGrandchildProfileId, 'Nested Profile Name': 'Reusable monitoring profile', 'Nested Profile Definition ID': guid(7403), 'Nested Profile Definition Name': 'Monitoring profile', 'Profile Reusable': 'true', 'Parameter ID': guid(7203), 'Parameter Value ID': guid(7303), 'Parameter Name': 'Redundant', 'Parameter Type': 'Discrete', 'Parameter Value': 'Enabled' },
+        { ...profileBase, 'Record Type': 'NestedProfile', 'Profile ID': grandchildProfileId, 'Profile Name': 'Reusable timing profile', 'Profile Definition ID': guid(7402), 'Profile Definition Name': 'Timing profile', 'Nested Profile ID': greatGrandchildProfileId, 'Nested Profile Name': 'Reusable monitoring profile', 'Nested Profile Definition ID': guid(7403), 'Nested Profile Definition Name': 'Monitoring profile', 'Profile Reusable': 'true', 'Parameter ID': guid(7203), 'Parameter Value ID': guid(7303), 'Parameter Name': 'Redundant', 'Parameter Type': 'Discrete', 'Parameter Value': 'Enabled', 'Parameter Options': discreteOptions },
     );
     return rows;
 }
@@ -200,7 +210,7 @@ function configurationRowsFromPayload(serviceId, payload, { includeProfiles = tr
         'Version Description': payload.Description || '',
         'Version Start': payload.StartDate || '9/1/2026 8:00:00 AM',
         'Version End': payload.EndDate || 'No End Time',
-        'Is Active': 'true',
+        'Is Active': String(Boolean(payload.ActivateVersion)),
     };
     let generatedId = 0;
     const idFor = value => value || guid(9000 + generatedId++);
@@ -216,6 +226,15 @@ function configurationRowsFromPayload(serviceId, payload, { includeProfiles = tr
             'Parameter Name': field(parameter, 'Name') || available['Parameter Name'] || '',
             'Parameter Type': field(parameter, 'Type') || available['Parameter Type'] || '',
             'Parameter Value': field(parameter, 'Value') ?? '',
+            'Parameter Label': field(parameter, 'Label') || available['Parameter Label'] || field(parameter, 'Name') || available['Parameter Name'] || '',
+            'Parameter Is Linked': String(field(parameter, 'IsLinked') ?? false),
+            'Parameter Unit': field(parameter, 'Unit') || available['Parameter Unit'] || '',
+            'Parameter Unit ID': field(parameter, 'UnitId') || available['Parameter Unit ID'] || '',
+            'Parameter Start': field(parameter, 'Start') || available['Parameter Start'] || '',
+            'Parameter End': field(parameter, 'End') || available['Parameter End'] || '',
+            'Parameter Step Size': field(parameter, 'StepSize') || available['Parameter Step Size'] || '',
+            'Parameter Decimals': field(parameter, 'Decimals') || available['Parameter Decimals'] || '',
+            'Parameter Options': available['Parameter Options'] || field(parameter, 'Options') || '',
             Mandatory: String(field(parameter, 'Mandatory') ?? false),
             'Profile ID': profileFields.profileId || '',
             'Profile Name': profileFields.profileName || '',

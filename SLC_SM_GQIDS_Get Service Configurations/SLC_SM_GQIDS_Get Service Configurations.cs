@@ -17,8 +17,7 @@ namespace SLC_SM_GQIDS_Get_Service_Configurations
 	using System.Collections.Generic;
 	using System.Globalization;
 	using System.Linq;
-	using DomHelpers.SlcConfigurations;
-	using DomHelpers.SlcServicemanagement;
+	using Newtonsoft.Json;
 	using Skyline.DataMiner.Analytics.GenericInterface;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
@@ -41,6 +40,10 @@ namespace SLC_SM_GQIDS_Get_Service_Configurations
 		private IServiceManagementApiHelper _api;
 		private Guid _serviceId;
 		private string _configurationType;
+		private Dictionary<string, DiscreteParameterOptions> _discreteOptionsById = new Dictionary<string, DiscreteParameterOptions>(StringComparer.OrdinalIgnoreCase);
+		private Dictionary<string, DiscreteValue> _discreteValuesById = new Dictionary<string, DiscreteValue>(StringComparer.OrdinalIgnoreCase);
+		private Dictionary<string, NumberParameterOptions> _numberOptionsById = new Dictionary<string, NumberParameterOptions>(StringComparer.OrdinalIgnoreCase);
+		private Dictionary<string, ConfigurationUnit> _configurationUnitsById = new Dictionary<string, ConfigurationUnit>(StringComparer.OrdinalIgnoreCase);
 
 		public GQIColumn[] GetColumns()
 		{
@@ -70,6 +73,20 @@ namespace SLC_SM_GQIDS_Get_Service_Configurations
 				new GQIStringColumn("Nested Profile Name"),
 				new GQIStringColumn("Nested Profile Definition ID"),
 				new GQIStringColumn("Nested Profile Definition Name"),
+				new GQIStringColumn("Parameter Label"),
+				new GQIStringColumn("Parameter Is Linked"),
+				new GQIStringColumn("Parameter Unit"),
+				new GQIStringColumn("Parameter Unit ID"),
+				new GQIStringColumn("Parameter Start"),
+				new GQIStringColumn("Parameter End"),
+				new GQIStringColumn("Parameter Step Size"),
+				new GQIStringColumn("Parameter Decimals"),
+				new GQIStringColumn("Parameter Options"),
+				new GQIStringColumn("Parameter Fixed"),
+				new GQIStringColumn("Parameter N/A"),
+				new GQIStringColumn("Expose At Order"),
+				new GQIStringColumn("Mandatory At Order"),
+				new GQIStringColumn("Mandatory At Service"),
 			};
 		}
 
@@ -112,6 +129,8 @@ namespace SLC_SM_GQIDS_Get_Service_Configurations
 				{
 					throw new InvalidOperationException($"Unsupported configuration type '{configurationType}'.");
 				}
+
+				LoadDiscreteOptions();
 
 				var service = ServiceOwner.Equals(configurationType, StringComparison.OrdinalIgnoreCase)
 					? _api.ServiceInventory.Services
@@ -382,26 +401,26 @@ namespace SLC_SM_GQIDS_Get_Service_Configurations
 				return rows.ToArray();
 			}
 
-			private static GQIRow BuildOrderItemParameterRow(ServiceConfigurationVersion version, Models.ServiceOrderItemConfigurationValue configuration, ConfigurationParameter parameter, ConfigurationParameterValue value, string valueId)
+			private GQIRow BuildOrderItemParameterRow(ServiceConfigurationVersion version, Models.ServiceOrderItemConfigurationValue configuration, ConfigurationParameter parameter, ConfigurationParameterValue value, string valueId)
 			{
 				return BuildRow(version, version.Identifier, "Parameter", null, null, null, null, false, configuration.Mandatory, parameter, value, null, valueId, configuration.Identifier);
 			}
 
-		private static GQIRow BuildSpecificationParameterRow(ServiceConfigurationVersion version, Models.ServiceSpecificationConfigurationValue configuration, ConfigurationParameter parameter, ConfigurationParameterValue value, string valueId)
+		private GQIRow BuildSpecificationParameterRow(ServiceConfigurationVersion version, Models.ServiceSpecificationConfigurationValue configuration, ConfigurationParameter parameter, ConfigurationParameterValue value, string valueId)
 			{
-				return BuildRow(version, version.Identifier, "Parameter", null, null, null, null, false, configuration.MandatoryAtService, parameter, value, null, valueId, configuration.Identifier);
+				return BuildRow(version, version.Identifier, "Parameter", null, null, null, null, false, configuration.MandatoryAtService, parameter, value, null, valueId, configuration.Identifier, false, false, configuration.ExposeAtServiceOrder, configuration.MandatoryAtServiceOrder, configuration.MandatoryAtService);
 			}
 
-		private static GQIRow BuildSpecificationProfileRow(ServiceConfigurationVersion version, Models.ServiceSpecificationProfile configuration, Profile profile, ProfileDefinition definition)
+		private GQIRow BuildSpecificationProfileRow(ServiceConfigurationVersion version, Models.ServiceSpecificationProfile configuration, Profile profile, ProfileDefinition definition)
 			{
-				return BuildRow(version, version.Identifier, "Profile", configuration.Identifier, profile.Name, definition?.Identifier, definition?.Name, profile.IsReusable, configuration.MandatoryAtService, null, null, null, null, null);
+				return BuildRow(version, version.Identifier, "Profile", configuration.Identifier, profile.Name, definition?.Identifier, definition?.Name, profile.IsReusable, configuration.MandatoryAtService, null, null, null, null, null, false, false, configuration.ExposeAtServiceOrder, configuration.MandatoryAtServiceOrder, configuration.MandatoryAtService);
 			}
 
-		private static GQIRow BuildSpecificationProfileParameterRow(ServiceConfigurationVersion version, Models.ServiceSpecificationProfile configuration, Profile profile, ProfileDefinition definition, ConfigurationParameter parameter, ConfigurationParameterValue value, string valueId)
+		private GQIRow BuildSpecificationProfileParameterRow(ServiceConfigurationVersion version, Models.ServiceSpecificationProfile configuration, Profile profile, ProfileDefinition definition, ConfigurationParameter parameter, ConfigurationParameterValue value, string valueId)
 			{
-				return BuildRow(version, version.Identifier, "ProfileParameter", configuration.Identifier, profile.Name, definition?.Identifier, definition?.Name, profile.IsReusable, configuration.MandatoryAtService, parameter, value, null, valueId, null);
+				return BuildRow(version, version.Identifier, "ProfileParameter", configuration.Identifier, profile.Name, definition?.Identifier, definition?.Name, profile.IsReusable, configuration.MandatoryAtService, parameter, value, null, valueId, null, false, false, configuration.ExposeAtServiceOrder, configuration.MandatoryAtServiceOrder, configuration.MandatoryAtService);
 			}
-		private static GQIRow BuildRow(
+		private GQIRow BuildRow(
 			ServiceConfigurationVersion version,
 			string activeVersionId,
 			string recordType,
@@ -415,7 +434,12 @@ namespace SLC_SM_GQIDS_Get_Service_Configurations
 			ConfigurationParameterValue parameterValue,
 			Models.ServiceConfigurationValue serviceConfigurationValue,
 			string parameterValueId,
-			string unused)
+			string unused,
+			bool parameterFixed = false,
+			bool parameterNotApplicable = false,
+			bool exposeAtOrder = false,
+			bool mandatoryAtOrder = false,
+			bool mandatoryAtService = false)
 		{
 			string value = parameterValue == null
 				? String.Empty
@@ -440,21 +464,35 @@ namespace SLC_SM_GQIDS_Get_Service_Configurations
 					new GQICell { Value = parameter?.Name ?? String.Empty },
 					new GQICell { Value = parameter?.Type.ToString() ?? String.Empty },
 					new GQICell { Value = value },
-					new GQICell { Value = serviceConfigurationValue?.Mandatory ?? profileMandatory },
+					new GQICell { Value = ToBoolean(serviceConfigurationValue?.Mandatory, profileMandatory) },
 					new GQICell { Value = profileId ?? String.Empty },
 					new GQICell { Value = profileName ?? String.Empty },
 					new GQICell { Value = profileDefinitionId ?? String.Empty },
 					new GQICell { Value = profileDefinitionName ?? String.Empty },
-					new GQICell { Value = profileReusable },
-					new GQICell { Value = profileMandatory },
+					new GQICell { Value = ToBoolean(profileReusable) },
+					new GQICell { Value = ToBoolean(profileMandatory) },
 					new GQICell { Value = String.Empty },
 					new GQICell { Value = String.Empty },
 					new GQICell { Value = String.Empty },
 					new GQICell { Value = String.Empty },
+					new GQICell { Value = parameterValue?.Label ?? String.Empty },
+					new GQICell { Value = parameterValue?.IsLinked.ToString() ?? String.Empty },
+					new GQICell { Value = GetParameterUnit(parameter, parameterValue) },
+					new GQICell { Value = GetParameterUnitId(parameter, parameterValue) },
+					new GQICell { Value = GetNumberOptionValue(parameter, parameterValue, options => options?.MinRange) },
+					new GQICell { Value = GetNumberOptionValue(parameter, parameterValue, options => options?.MaxRange) },
+					new GQICell { Value = GetNumberOptionValue(parameter, parameterValue, options => options?.StepSize) },
+					new GQICell { Value = GetNumberOptionValue(parameter, parameterValue, options => options?.Decimals) },
+					new GQICell { Value = GetDiscreteOptionsJson(parameter, parameterValue) },
+					new GQICell { Value = parameterValue == null ? parameterFixed.ToString() : parameterValue.ValueFixed.ToString() },
+					new GQICell { Value = parameterValue == null ? parameterNotApplicable.ToString() : IsNotApplicable(parameterValue).ToString() },
+					new GQICell { Value = exposeAtOrder.ToString() },
+					new GQICell { Value = mandatoryAtOrder.ToString() },
+					new GQICell { Value = mandatoryAtService.ToString() },
 				});
 		}
 
-		private static GQIRow BuildAvailableParameterRow(ConfigurationParameter parameter)
+		private GQIRow BuildAvailableParameterRow(ConfigurationParameter parameter)
 		{
 			return BuildRow(
 				new ServiceConfigurationVersion { Identifier = String.Empty },
@@ -473,7 +511,7 @@ namespace SLC_SM_GQIDS_Get_Service_Configurations
 				null);
 		}
 
-		private static GQIRow BuildAvailableProfileRow(ProfileDefinition definition)
+		private GQIRow BuildAvailableProfileRow(ProfileDefinition definition)
 		{
 			return BuildRow(
 				new ServiceConfigurationVersion { Identifier = String.Empty },
@@ -579,7 +617,7 @@ namespace SLC_SM_GQIDS_Get_Service_Configurations
 			}
 		}
 
-		private static GQIRow BuildNestedProfileParameterRow(
+		private GQIRow BuildNestedProfileParameterRow(
 			ServiceConfigurationVersion version,
 			string activeVersionId,
 			string parentProfileId,
@@ -623,6 +661,20 @@ namespace SLC_SM_GQIDS_Get_Service_Configurations
 					new GQICell { Value = nestedProfile.Name ?? String.Empty },
 					new GQICell { Value = definition?.Identifier ?? String.Empty },
 					new GQICell { Value = definition?.Name ?? String.Empty },
+					new GQICell { Value = value?.Label ?? String.Empty },
+					new GQICell { Value = value?.IsLinked.ToString() ?? String.Empty },
+					new GQICell { Value = GetParameterUnit(parameter, value) },
+					new GQICell { Value = GetParameterUnitId(parameter, value) },
+					new GQICell { Value = GetNumberOptionValue(parameter, value, options => options?.MinRange) },
+					new GQICell { Value = GetNumberOptionValue(parameter, value, options => options?.MaxRange) },
+					new GQICell { Value = GetNumberOptionValue(parameter, value, options => options?.StepSize) },
+					new GQICell { Value = GetNumberOptionValue(parameter, value, options => options?.Decimals) },
+					new GQICell { Value = GetDiscreteOptionsJson(parameter, value) },
+					new GQICell { Value = value?.ValueFixed.ToString() ?? String.Empty },
+					new GQICell { Value = value == null ? String.Empty : IsNotApplicable(value).ToString() },
+					new GQICell { Value = String.Empty },
+					new GQICell { Value = String.Empty },
+					new GQICell { Value = String.Empty },
 				});
 		}
 
@@ -665,7 +717,136 @@ namespace SLC_SM_GQIDS_Get_Service_Configurations
 					new GQICell { Value = nestedProfile.Name ?? String.Empty },
 					new GQICell { Value = definition?.Identifier ?? String.Empty },
 					new GQICell { Value = definition?.Name ?? String.Empty },
+					new GQICell { Value = String.Empty },
+					new GQICell { Value = String.Empty },
+					new GQICell { Value = String.Empty },
+					new GQICell { Value = String.Empty },
+					new GQICell { Value = String.Empty },
+					new GQICell { Value = String.Empty },
+					new GQICell { Value = String.Empty },
+					new GQICell { Value = String.Empty },
+					new GQICell { Value = String.Empty },
+					new GQICell { Value = String.Empty },
+					new GQICell { Value = String.Empty },
+					new GQICell { Value = String.Empty },
+					new GQICell { Value = String.Empty },
+					new GQICell { Value = String.Empty },
 				});
+		}
+
+		private void LoadDiscreteOptions()
+		{
+			_discreteOptionsById = _api.ServiceCatalog.DiscreteParameterOptions
+				.Read(new TRUEFilterElement<DiscreteParameterOptions>())
+				.ToDictionary(option => option.Identifier, StringComparer.OrdinalIgnoreCase);
+			_discreteValuesById = _api.ServiceCatalog.DiscreteValues
+				.Read(new TRUEFilterElement<DiscreteValue>())
+				.ToDictionary(value => value.Identifier, StringComparer.OrdinalIgnoreCase);
+			_numberOptionsById = _api.ServiceCatalog.NumberParameterOptions
+				.Read(new TRUEFilterElement<NumberParameterOptions>())
+				.ToDictionary(option => option.Identifier, StringComparer.OrdinalIgnoreCase);
+			_configurationUnitsById = _api.ServiceCatalog.ConfigurationUnits
+				.Read(new TRUEFilterElement<ConfigurationUnit>())
+				.ToDictionary(unit => unit.Identifier, StringComparer.OrdinalIgnoreCase);
+		}
+
+		private string GetDiscreteOptionsJson(ConfigurationParameter parameter, ConfigurationParameterValue parameterValue)
+		{
+			if (parameter == null || !String.Equals(parameter.Type.ToString(), "Discrete", StringComparison.OrdinalIgnoreCase))
+			{
+				return String.Empty;
+			}
+
+			string optionsId = parameterValue == null ? String.Empty : parameterValue.DiscreteOptionsId.Identifier;
+			if (String.IsNullOrWhiteSpace(optionsId))
+			{
+				optionsId = parameter.DiscreteOptionsId.Identifier;
+			}
+			if (String.IsNullOrWhiteSpace(optionsId) || !_discreteOptionsById.TryGetValue(optionsId, out var options) || options.DiscreteValues == null)
+			{
+				return "[]";
+			}
+
+			var values = new List<DiscreteValue>();
+			foreach (var reference in options.DiscreteValues)
+			{
+				if (_discreteValuesById.TryGetValue(reference.Identifier, out var value) && value != null)
+				{
+					values.Add(value);
+				}
+			}
+
+			return JsonConvert.SerializeObject(values
+				.OrderBy(value => value.Value, StringComparer.OrdinalIgnoreCase)
+				.Select(value => new { Id = value.Identifier, Value = value.Value }));
+		}
+
+		private string GetParameterUnit(ConfigurationParameter parameter, ConfigurationParameterValue parameterValue)
+		{
+			var options = GetNumberOptions(parameter, parameterValue);
+			string unitId = GetParameterUnitId(parameter, parameterValue);
+			if (String.IsNullOrWhiteSpace(unitId))
+			{
+				return String.Empty;
+			}
+
+			return _configurationUnitsById.TryGetValue(unitId, out var unit)
+				? unit.Name ?? String.Empty
+				: String.Empty;
+		}
+
+		private string GetParameterUnitId(ConfigurationParameter parameter, ConfigurationParameterValue parameterValue)
+		{
+			var options = GetNumberOptions(parameter, parameterValue);
+			return options?.DefaultUnitId.Identifier ?? String.Empty;
+		}
+
+		private string GetNumberOptionValue(
+			ConfigurationParameter parameter,
+			ConfigurationParameterValue parameterValue,
+			Func<NumberParameterOptions, object> selector)
+		{
+			return FormatNumber(selector(GetNumberOptions(parameter, parameterValue)));
+		}
+
+		private NumberParameterOptions GetNumberOptions(ConfigurationParameter parameter, ConfigurationParameterValue parameterValue)
+		{
+			string optionsId = parameterValue == null ? String.Empty : parameterValue.NumberOptionsId.Identifier;
+			if (String.IsNullOrWhiteSpace(optionsId) && parameter != null)
+			{
+				optionsId = parameter.NumberOptionsId.Identifier;
+			}
+
+			return String.IsNullOrWhiteSpace(optionsId) || !_numberOptionsById.TryGetValue(optionsId, out var options)
+				? null
+				: options;
+		}
+
+		private static string FormatNumber(object value)
+		{
+			return value == null ? String.Empty : Convert.ToString(value, CultureInfo.InvariantCulture);
+		}
+
+		private static bool IsNotApplicable(ConfigurationParameterValue value)
+		{
+			return value != null && !value.DoubleValue.HasValue && String.IsNullOrWhiteSpace(value.StringValue);
+		}
+
+		private static bool ToBoolean(object value, bool fallback = false)
+		{
+			if (value == null)
+			{
+				return fallback;
+			}
+
+			if (value is bool boolValue)
+			{
+				return boolValue;
+			}
+
+			return Boolean.TryParse(Convert.ToString(value, CultureInfo.InvariantCulture), out var parsed)
+				? parsed
+				: fallback;
 		}
 
 	}

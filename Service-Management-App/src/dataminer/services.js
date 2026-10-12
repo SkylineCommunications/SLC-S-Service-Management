@@ -86,6 +86,12 @@ export const SERVICE_INVENTORY_SCRIPTS = {
         interactive: false,
         parameterDefinitions: [{ id: 2, name: 'ServiceReference' }, { id: 3, name: 'PreviousState' }, { id: 4, name: 'NextState' }],
     },
+    // Runs the service item's own (interactive) script, e.g. a Booking Manager wizard, and stores the resulting reference.
+    launchItemScript: {
+        name: 'Launch Interactive Subscript',
+        interactive: true,
+        parameterDefinitions: [{ id: 3, name: 'DOM ID' }, { id: 4, name: 'Item Label' }],
+    },
 };
 export const SERVICE_CONFIGURATION_SCRIPTS = {
     save: {
@@ -173,6 +179,43 @@ export async function fetchServiceConfigurations(serviceId, configurationType = 
     const availableParameters = [];
     const availableProfiles = [];
     const availableNestedProfiles = [];
+    const parameterDetails = row => ({
+        label: row['Parameter Label'] ?? '',
+        isLinked: String(row['Parameter Is Linked'] ?? '').toLowerCase() === 'true',
+        unit: row['Parameter Unit'] ?? '',
+        unitId: row['Parameter Unit ID'] ?? '',
+        start: row['Parameter Start'] ?? '',
+        end: row['Parameter End'] ?? '',
+        step: row['Parameter Step Size'] ?? '',
+        decimals: row['Parameter Decimals'] ?? '',
+        fixed: String(row['Parameter Fixed'] ?? '').toLowerCase() === 'true',
+        notApplicable: String(row['Parameter N/A'] ?? '').toLowerCase() === 'true',
+        exposeAtOrder: String(row['Expose At Order'] ?? '').toLowerCase() === 'true',
+        mandatoryAtOrder: String(row['Mandatory At Order'] ?? '').toLowerCase() === 'true',
+        mandatoryAtService: String(row['Mandatory At Service'] ?? '').toLowerCase() === 'true',
+    });
+    const parseDiscreteOptions = (raw, parameterName) => {
+        if (!raw) return [];
+        let parsed;
+        try {
+            parsed = JSON.parse(String(raw));
+        } catch (error) {
+            throw new Error(`Discrete options for configuration parameter "${parameterName || 'unknown'}" are invalid: ${error.message}`);
+        }
+        if (!Array.isArray(parsed)) {
+            throw new Error(`Discrete options for configuration parameter "${parameterName || 'unknown'}" are not an array.`);
+        }
+        return parsed.map((option, index) => {
+            if (!option || typeof option !== 'object') {
+                throw new Error(`Discrete option ${index + 1} for configuration parameter "${parameterName || 'unknown'}" is invalid.`);
+            }
+            const value = String(option.Value ?? '').trim();
+            if (!value) {
+                throw new Error(`Discrete option ${index + 1} for configuration parameter "${parameterName || 'unknown'}" has no value.`);
+            }
+            return { id: String(option.Id ?? value), value };
+        });
+    };
     const addUnique = (items, item) => {
         if (item.id && !items.some(existing => existing.id === item.id)) items.push(item);
     };
@@ -187,6 +230,9 @@ export async function fetchServiceConfigurations(serviceId, configurationType = 
                 definitionName: fields.definitionName ?? '',
                 reusable: fields.reusable ?? false,
                 mandatory: fields.mandatory ?? false,
+                exposeAtOrder: fields.exposeAtOrder ?? false,
+                mandatoryAtOrder: fields.mandatoryAtOrder ?? false,
+                mandatoryAtService: fields.mandatoryAtService ?? false,
                 parameters: [],
                 nestedProfiles: [],
             };
@@ -198,6 +244,9 @@ export async function fetchServiceConfigurations(serviceId, configurationType = 
             profile.definitionName ||= fields.definitionName ?? '';
             profile.reusable ||= fields.reusable ?? false;
             profile.mandatory ||= fields.mandatory ?? false;
+            profile.exposeAtOrder ||= fields.exposeAtOrder ?? false;
+            profile.mandatoryAtOrder ||= fields.mandatoryAtOrder ?? false;
+            profile.mandatoryAtService ||= fields.mandatoryAtService ?? false;
         }
         return profile;
     };
@@ -210,6 +259,8 @@ export async function fetchServiceConfigurations(serviceId, configurationType = 
                 name: row['Parameter Name'] ?? '',
                 type: row['Parameter Type'] ?? '',
                 value: row['Parameter Value'] ?? '',
+                options: parseDiscreteOptions(row['Parameter Options'], row['Parameter Name']),
+                ...parameterDetails(row),
                 mandatory: String(row['Profile Mandatory']).toLowerCase() === 'true',
             });
         }
@@ -217,7 +268,7 @@ export async function fetchServiceConfigurations(serviceId, configurationType = 
     rows.forEach(row => {
         const recordType = row['Record Type'] ?? '';
         if (recordType === 'AvailableParameter') {
-            addUnique(availableParameters, { id: row['Parameter ID'] ?? '', name: row['Parameter Name'] ?? '', type: row['Parameter Type'] ?? '' });
+            addUnique(availableParameters, { id: row['Parameter ID'] ?? '', name: row['Parameter Name'] ?? '', type: row['Parameter Type'] ?? '', options: parseDiscreteOptions(row['Parameter Options'], row['Parameter Name']), ...parameterDetails(row) });
             return;
         }
         if (recordType === 'AvailableProfile') {
@@ -259,6 +310,9 @@ export async function fetchServiceConfigurations(serviceId, configurationType = 
                 definitionName: row['Profile Definition Name'] ?? '',
                 reusable: String(row['Profile Reusable']).toLowerCase() === 'true',
                 mandatory: String(row['Profile Mandatory']).toLowerCase() === 'true',
+                exposeAtOrder: String(row['Expose At Order']).toLowerCase() === 'true',
+                mandatoryAtOrder: String(row['Mandatory At Order']).toLowerCase() === 'true',
+                mandatoryAtService: String(row['Mandatory At Service']).toLowerCase() === 'true',
             });
             const nested = ensureProfile(version, nestedProfileId, {
                 name: row['Nested Profile Name'] ?? '',
@@ -266,6 +320,9 @@ export async function fetchServiceConfigurations(serviceId, configurationType = 
                 definitionName: row['Nested Profile Definition Name'] ?? '',
                 reusable: availableNestedProfiles.some(item => item.id === nestedProfileId && item.reusable),
                 mandatory: String(row['Profile Mandatory']).toLowerCase() === 'true',
+                exposeAtOrder: String(row['Expose At Order']).toLowerCase() === 'true',
+                mandatoryAtOrder: String(row['Mandatory At Order']).toLowerCase() === 'true',
+                mandatoryAtService: String(row['Mandatory At Service']).toLowerCase() === 'true',
             });
             if (parent && nested) {
                 if (!parent.nestedProfiles.some(item => item.id === nested.id)) parent.nestedProfiles.push(nested);
@@ -294,6 +351,8 @@ export async function fetchServiceConfigurations(serviceId, configurationType = 
                 name: row['Parameter Name'] ?? '',
                 type: row['Parameter Type'] ?? '',
                 value: row['Parameter Value'] ?? '',
+                options: parseDiscreteOptions(row['Parameter Options'], row['Parameter Name']),
+                ...parameterDetails(row),
                 mandatory: String(row.Mandatory).toLowerCase() === 'true',
             });
         }

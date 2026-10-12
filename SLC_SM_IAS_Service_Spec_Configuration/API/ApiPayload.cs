@@ -55,6 +55,27 @@ namespace SLC_SM_IAS_Service_Spec_Configuration
 		/// <summary>Gets or sets a value indicating whether the parameter is mandatory.</summary>
 		public bool Mandatory { get; set; }
 
+		/// <summary>Gets or sets the parameter label.</summary>
+		public string Label { get; set; }
+
+		/// <summary>Gets or sets a value indicating whether the parameter value is fixed.</summary>
+		public bool Fixed { get; set; }
+
+		/// <summary>Gets or sets the selected unit identifier.</summary>
+		public string UnitId { get; set; }
+
+		/// <summary>Gets or sets the numeric minimum.</summary>
+		public string Start { get; set; }
+
+		/// <summary>Gets or sets the numeric maximum.</summary>
+		public string End { get; set; }
+
+		/// <summary>Gets or sets the numeric step size.</summary>
+		public string StepSize { get; set; }
+
+		/// <summary>Gets or sets the numeric decimal precision.</summary>
+		public string Decimals { get; set; }
+
 		/// <summary>Gets or sets a value indicating whether the parameter is mandatory at service level.</summary>
 		public bool MandatoryAtService { get; set; }
 

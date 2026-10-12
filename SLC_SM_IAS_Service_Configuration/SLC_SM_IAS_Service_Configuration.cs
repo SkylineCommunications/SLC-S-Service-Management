@@ -117,7 +117,7 @@ namespace SLC_SM_IAS_Service_Configuration
 			var profileDefinitions = ReadProfileDefinitions(helper);
 			DeleteServiceProfiles(helper, payload);
 			version.Profiles = SaveServiceProfiles(helper, payload.Profiles, profileDefinitions, parameters);
-			SaveServiceConfiguration(helper, service, version);
+			SaveServiceConfiguration(helper, service, version, payload.ActivateVersion);
 		}
 
 		private static ServiceModel ReadService(ServiceManagementApiHelper helper, Guid domId)
@@ -209,7 +209,20 @@ namespace SLC_SM_IAS_Service_Configuration
 					: helper.ServiceCatalog.ConfigurationParameterValues
 						.Read(ConfigurationParameterValueExposers.Identifier.Equal(parameter.ParameterValueId))
 						.FirstOrDefault() ?? throw new InvalidOperationException($"Configuration parameter value '{parameter.ParameterValueId}' was not found.");
+				string existingNumberOptionsId = parameterValue.NumberOptionsId.Identifier;
+				var numberOptions = String.Equals(definition.Type.ToString(), "Number", StringComparison.OrdinalIgnoreCase)
+					? PrepareNumberOptions(helper, definition, existingNumberOptionsId)
+					: null;
 				parameterValue.ApplyConfigurationValue(definition, parameter.Value, parameter.Mandatory);
+				parameterValue.Label = parameter.Label ?? String.Empty;
+				parameterValue.IsLinked = parameter.IsLinked;
+				parameterValue.ValueFixed = parameter.Fixed;
+				if (numberOptions != null)
+				{
+					ApplyNumberOptions(numberOptions, parameter);
+					parameterValue.NumberOptionsId = new SdmObjectReference<NumberParameterOptions>(numberOptions.Identifier);
+					helper.ServiceCatalog.NumberParameterOptions.CreateOrUpdate(new[] { numberOptions });
+				}
 				helper.ServiceCatalog.ConfigurationParameterValues.CreateOrUpdate(new[] { parameterValue });
 
 				var configuration = String.IsNullOrWhiteSpace(parameter.ConfigurationId)
@@ -224,6 +237,86 @@ namespace SLC_SM_IAS_Service_Configuration
 			}
 
 			return references;
+		}
+
+		private static NumberParameterOptions PrepareNumberOptions(
+			ServiceManagementApiHelper helper,
+			ConfigurationParameter definition,
+			string existingOptionsId)
+		{
+			string definitionOptionsId = definition.NumberOptionsId.Identifier;
+			if (!String.IsNullOrWhiteSpace(existingOptionsId)
+				&& !String.Equals(existingOptionsId, definitionOptionsId, StringComparison.OrdinalIgnoreCase))
+			{
+				return helper.ServiceCatalog.NumberParameterOptions
+					.Read(NumberParameterOptionsExposers.Identifier.Equal(existingOptionsId))
+					.FirstOrDefault() ?? throw new InvalidOperationException($"Number options '{existingOptionsId}' were not found.");
+			}
+
+			var source = String.IsNullOrWhiteSpace(definitionOptionsId)
+				? null
+				: helper.ServiceCatalog.NumberParameterOptions
+					.Read(NumberParameterOptionsExposers.Identifier.Equal(definitionOptionsId))
+					.FirstOrDefault();
+			if (source == null)
+			{
+				return new NumberParameterOptions { Identifier = Guid.NewGuid().ToString() };
+			}
+
+			return new NumberParameterOptions
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				Units = source.Units?.ToList() ?? new List<SdmObjectReference<ConfigurationUnit>>(),
+				DefaultUnitId = source.DefaultUnitId,
+				MinRange = source.MinRange,
+				MaxRange = source.MaxRange,
+				Decimals = source.Decimals,
+				StepSize = source.StepSize,
+				DefaultValue = source.DefaultValue,
+			};
+		}
+
+		private static void ApplyNumberOptions(NumberParameterOptions options, ApiParameter parameter)
+		{
+			if (!String.IsNullOrWhiteSpace(parameter.UnitId))
+			{
+				options.DefaultUnitId = new SdmObjectReference<ConfigurationUnit>(parameter.UnitId);
+			}
+
+			if (!String.IsNullOrWhiteSpace(parameter.Start))
+			{
+				options.MinRange = ParseDouble(parameter.Start, "minimum");
+			}
+
+			if (!String.IsNullOrWhiteSpace(parameter.End))
+			{
+				options.MaxRange = ParseDouble(parameter.End, "maximum");
+			}
+
+			if (!String.IsNullOrWhiteSpace(parameter.StepSize))
+			{
+				options.StepSize = ParseDouble(parameter.StepSize, "step size");
+			}
+
+			if (!String.IsNullOrWhiteSpace(parameter.Decimals))
+			{
+				if (!Int64.TryParse(parameter.Decimals, NumberStyles.Integer, CultureInfo.InvariantCulture, out var decimals) || decimals < 0)
+				{
+					throw new InvalidOperationException($"Decimals '{parameter.Decimals}' is not a valid non-negative integer.");
+				}
+
+				options.Decimals = decimals;
+			}
+		}
+
+		private static double ParseDouble(string value, string fieldName)
+		{
+			if (!Double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var result))
+			{
+				throw new InvalidOperationException($"Number option {fieldName} '{value}' is invalid.");
+			}
+
+			return result;
 		}
 
 		private static Dictionary<string, ProfileDefinition> ReadProfileDefinitions(ServiceManagementApiHelper helper)
@@ -305,14 +398,18 @@ namespace SLC_SM_IAS_Service_Configuration
 		private static void SaveServiceConfiguration(
 			ServiceManagementApiHelper helper,
 			ServiceModel service,
-			ServiceConfigurationVersion version)
+			ServiceConfigurationVersion version,
+			bool activateVersion)
 		{
 			helper.ServiceInventory.ServiceConfigurationVersions.CreateOrUpdate(new[] { version });
-			service.ServiceConfigurationId = new SdmObjectReference<ServiceConfigurationVersion>(version.Identifier);
 			service.ConfigurationVersions = service.ConfigurationVersions ?? new List<SdmObjectReference<ServiceConfigurationVersion>>();
 			if (!service.ConfigurationVersions.Any(reference => reference.Identifier == version.Identifier))
 			{
 				service.ConfigurationVersions.Add(new SdmObjectReference<ServiceConfigurationVersion>(version.Identifier));
+			}
+			if (activateVersion)
+			{
+				service.ServiceConfigurationId = new SdmObjectReference<ServiceConfigurationVersion>(version.Identifier);
 			}
 
 			helper.ServiceInventory.Services.Update(service);
