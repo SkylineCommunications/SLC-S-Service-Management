@@ -48,8 +48,7 @@
         <DllName>Skyline.DataMiner.Dev.Utils.Solutions.MediaOps.Plan.dll</DllName>
       </MediaOpsFallbackDependency>
 
-      <ResolvedMediaOpsFallbackDependency Include="@(MediaOpsFallbackDependency)"
-          Condition="Exists('$(NuGetPackageRoot)%(MediaOpsFallbackDependency.PackageId)\%(MediaOpsFallbackDependency.PackageVersion)\lib\net48\%(MediaOpsFallbackDependency.DllName)')">
+      <ResolvedMediaOpsFallbackDependency Include="@(MediaOpsFallbackDependency)" Condition="Exists('$(NuGetPackageRoot)%(MediaOpsFallbackDependency.PackageId)\%(MediaOpsFallbackDependency.PackageVersion)\lib\net48\%(MediaOpsFallbackDependency.DllName)')">
         <SourcePath>$(NuGetPackageRoot)%(MediaOpsFallbackDependency.PackageId)\%(MediaOpsFallbackDependency.PackageVersion)\lib\net48\%(MediaOpsFallbackDependency.DllName)</SourcePath>
         <SetupTargetDir>$(SetupDependenciesRoot)\%(MediaOpsFallbackDependency.Identity)</SetupTargetDir>
         <CompanionTargetDir>$(CompanionRoot)\%(MediaOpsFallbackDependency.Identity)</CompanionTargetDir>
@@ -59,12 +58,8 @@
     <MakeDir Directories="@(ResolvedMediaOpsFallbackDependency->'%(SetupTargetDir)')" />
     <MakeDir Directories="@(ResolvedMediaOpsFallbackDependency->'%(CompanionTargetDir)')" />
 
-    <Copy SourceFiles="%(ResolvedMediaOpsFallbackDependency.SourcePath)"
-          DestinationFolder="%(ResolvedMediaOpsFallbackDependency.SetupTargetDir)"
-          SkipUnchangedFiles="true" />
+    <Copy SourceFiles="%(ResolvedMediaOpsFallbackDependency.SourcePath)" DestinationFolder="%(ResolvedMediaOpsFallbackDependency.SetupTargetDir)" SkipUnchangedFiles="true" />
 
-    <Copy SourceFiles="%(ResolvedMediaOpsFallbackDependency.SourcePath)"
-          DestinationFolder="%(ResolvedMediaOpsFallbackDependency.CompanionTargetDir)"
-          SkipUnchangedFiles="true" />
+    <Copy SourceFiles="%(ResolvedMediaOpsFallbackDependency.SourcePath)" DestinationFolder="%(ResolvedMediaOpsFallbackDependency.CompanionTargetDir)" SkipUnchangedFiles="true" />
   </Target>
 </Project>

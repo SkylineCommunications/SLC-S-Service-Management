@@ -39,12 +39,6 @@
 
 			var newProfileDefinition = CreateNewProfileDefinition(navigator);
 
-			if (navigator.CurrentPage is ProfilePage)
-			{
-				var currentProfilePage = navigator.CurrentPage as ProfilePage;
-				AddProfileDefinitionReference(currentProfilePage.ProfileDefinitionRecord, newProfileDefinition.ID);
-			}
-
 			navigator.AddRecordToCurrentPage(DataRecordFactory.CreateDataRecord(newProfileDefinition, State.Updated, RecordType.New));
 			presenter.BuildUI();
 		}
@@ -75,48 +69,24 @@
 			record.State = State.Updated;
 		}
 
-		public void Handle_Mandatory_Changed(ProfilePage page, DataRecord record, CheckBox.CheckBoxChangedEventArgs args)
+		public void Handle_Mandatory_Changed(ProfilePage page, ConfigurationDataRecord record, CheckBox.CheckBoxChangedEventArgs args)
 		{
 			var parent = page.ProfileDefinitionRecord;
-			bool isChecked = args.IsChecked;
 
-			switch (record)
-			{
-				case ProfileDefinitionDataRecord pd:
-					parent.ProfileDefinition.ProfileDefinitions
-						  .Single(p => p.ProfileDefinitionReference == pd.ProfileDefinition.ID)
-						  .Mandatory = isChecked;
-					break;
-
-				case ConfigurationDataRecord cd:
-					parent.ProfileDefinition.ConfigurationParameters
-						  .Single(c => c.ConfigurationParameter == cd.ConfigurationParameter.ID)
-						  .Mandatory = isChecked;
-					break;
-			}
+			parent.ProfileDefinition.ConfigurationParameters
+				  .Single(c => c.ConfigurationParameter == record.ConfigurationParameter.ID)
+				  .Mandatory = args.IsChecked;
 
 			parent.State = State.Updated;
 		}
 
-		public void Handle_AllowMultiple_Changed(ProfilePage page, DataRecord record, CheckBox.CheckBoxChangedEventArgs args)
+		public void Handle_AllowMultiple_Changed(ProfilePage page, ConfigurationDataRecord record, CheckBox.CheckBoxChangedEventArgs args)
 		{
 			var parent = page.ProfileDefinitionRecord;
-			bool isChecked = args.IsChecked;
 
-			switch (record)
-			{
-				case ProfileDefinitionDataRecord pd:
-					parent.ProfileDefinition.ProfileDefinitions
-						  .Single(p => p.ProfileDefinitionReference == pd.ProfileDefinition.ID)
-						  .AllowMultiple = isChecked;
-					break;
-
-				case ConfigurationDataRecord cd:
-					parent.ProfileDefinition.ConfigurationParameters
-						  .Single(c => c.ConfigurationParameter == cd.ConfigurationParameter.ID)
-						  .AllowMultiple = isChecked;
-					break;
-			}
+			parent.ProfileDefinition.ConfigurationParameters
+				  .Single(c => c.ConfigurationParameter == record.ConfigurationParameter.ID)
+				  .AllowMultiple = args.IsChecked;
 
 			parent.State = State.Updated;
 		}
@@ -126,20 +96,8 @@
 			presenter.StoreModels();
 			presenter.RefreshCachedConfigurationParameters();
 
-			var navigator = presenter.Navigator;
-			var allProfileDefinitions = presenter.RefreshCachedProfileDefinitions();
-
-			List<DataRecord> records;
-			if (navigator.GetCurrentPage().Previous is ProfilePage parentProfilePage)
-			{
-				records = presenter.LoadSubProfileDefinitions(parentProfilePage.ProfileDefinitionRecord, allProfileDefinitions);
-			}
-			else
-			{
-				records = presenter.LoadRootProfileDefinitions(allProfileDefinitions);
-			}
-
-			navigator.GoBack(records);
+			var records = presenter.LoadRootProfileDefinitions(presenter.RefreshCachedProfileDefinitions());
+			presenter.Navigator.GoBack(records);
 
 			presenter.BuildUI();
 		}

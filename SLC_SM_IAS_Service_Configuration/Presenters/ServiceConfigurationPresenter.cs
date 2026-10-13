@@ -463,7 +463,7 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 			foreach (var param in configuration.ServiceParameterConfigs.Where(p => p.State != State.Delete))
 			{
 				param.ConfigurationParamValue.ConfigurationParameterId = new SdmObjectReference<ConfigurationParameter>(param.ConfigurationParam.Identifier);
-				param.ServiceParameterConfig.ConfigurationParameterId = new SdmObjectReference<ConfigurationParameter>(param.ConfigurationParamValue.Identifier);
+				param.ServiceParameterConfig.ConfigurationParameterId = new SdmObjectReference<ConfigurationParameterValue>(param.ConfigurationParamValue.Identifier);
 				CreateOrUpdateOptions(param);
 				sdmHelper.ServiceCatalog.ConfigurationParameterValues.CreateOrUpdate(new[] { param.ConfigurationParamValue });
 				sdmHelper.ServiceInventory.ServiceConfigurationValues.CreateOrUpdate(new[] { param.ServiceParameterConfig });
@@ -706,7 +706,7 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 			{
 				Identifier = Guid.NewGuid().ToString(),
 				Mandatory = false,
-				ConfigurationParameterId = new SdmObjectReference<ConfigurationParameter>(configurationParameterValue.Identifier),
+				ConfigurationParameterId = new SdmObjectReference<ConfigurationParameterValue>(configurationParameterValue.Identifier),
 			};
 
 			configuration.ServiceConfigurationVersion.Parameters.Add(new SdmObjectReference<ServiceConfigurationValue>(config.Identifier));
@@ -2555,7 +2555,7 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 				{
 					Identifier = Guid.NewGuid().ToString(),
 					Mandatory = sourceConfig.Mandatory,
-					ConfigurationParameterId = new SdmObjectReference<ConfigurationParameter>(duplicatedParameterValue.Identifier),
+					ConfigurationParameterId = new SdmObjectReference<ConfigurationParameterValue>(duplicatedParameterValue.Identifier),
 				};
 
 				serviceConfigurationValuesById[duplicatedConfig.Identifier] = duplicatedConfig;
@@ -2710,7 +2710,7 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 				{
 					Identifier = Guid.NewGuid().ToString(),
 					Mandatory = specificationConfiguration.MandatoryAtService,
-					ConfigurationParameterId = new SdmObjectReference<ConfigurationParameter>(duplicatedParameterValue.Identifier),
+					ConfigurationParameterId = new SdmObjectReference<ConfigurationParameterValue>(duplicatedParameterValue.Identifier),
 				};
 
 				serviceConfigurationValuesById[configurationValue.Identifier] = configurationValue;
