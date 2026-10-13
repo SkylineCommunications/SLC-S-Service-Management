@@ -88,6 +88,38 @@ test.describe('Service Management workspace', () => {
         await form.getByRole('textbox', { name: 'Label' }).fill('');
         await expect(form.getByRole('button', { name: 'Add item', exact: true })).toBeEnabled();
     });
+    test('keeps the background inert for the service item IAS dialog and restores focus when closed', { tag: '@A5' }, async ({ page }) => {
+        await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: /Services/ }).click();
+        await page.locator('.service-row').filter({ hasText: 'Test service' }).getByRole('button', { name: 'Open details of Test service' }).click();
+        const details = page.getByRole('dialog', { name: 'Test service' });
+        const launch = details.getByRole('button', { name: 'Launch script for Encoder booking' });
+        await launch.focus();
+        await launch.click();
+
+        const iasDialog = page.getByRole('dialog', { name: 'Encoding Booking Wizard' });
+        await expect(iasDialog).toBeVisible();
+        await expect.poll(() => iasDialog.evaluate(dialog => dialog.contains(document.activeElement))).toBe(true);
+
+        expect(await iasDialog.evaluate(dialog => dialog.matches(':modal'))).toBe(true);
+        const backgroundLink = page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: /Services/ });
+        await backgroundLink.focus();
+        await expect(backgroundLink).not.toBeFocused();
+
+        await iasDialog.getByRole('button', { name: 'Create Booking', exact: true }).focus();
+        await page.keyboard.press('Tab');
+        await expect.poll(() => iasDialog.evaluate(dialog => {
+            const active = dialog.ownerDocument.activeElement;
+            return active === dialog.ownerDocument.body || dialog.contains(active);
+        })).toBe(true);
+        await expect(backgroundLink).not.toBeFocused();
+        await page.keyboard.press('Tab');
+        await expect(iasDialog.getByRole('button', { name: 'Close interactive script' })).toBeFocused();
+
+        await page.keyboard.press('Escape');
+        await expect(iasDialog).not.toBeVisible();
+        await expect(details).toBeVisible();
+        await expect(launch).toBeFocused();
+    });
     test('loads the selected service organization only when editing', { tag: '@S3' }, async ({ page }) => {
         await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: /Services/ }).click();
         await page.locator('.service-row').filter({ hasText: 'Test service' }).getByRole('button', { name: 'Open details of Test service' }).click();
@@ -416,6 +448,13 @@ test.describe('Service Management workspace', () => {
        await expect(itemForm.getByText('Selection is mandatory!', { exact: true })).toBeVisible();
        await itemForm.getByRole('combobox', { name: 'Service specification' }).selectOption({ label: 'Managed switching' });
        await expect(itemForm.getByRole('button', { name: 'Add item', exact: true })).toBeEnabled();
+       await itemForm.getByRole('checkbox', { name: 'Indefinite runtime' }).uncheck();
+       await itemForm.getByLabel('Start time').fill('2099-01-01T08:00');
+       await itemForm.getByLabel('End time').fill('2098-01-01T08:00');
+       await expect(itemForm.getByText('End Time must come after the start time.', { exact: true })).toBeVisible();
+       await expect(itemForm.getByRole('button', { name: 'Add item', exact: true })).toBeDisabled();
+       await itemForm.getByLabel('End time').fill('2100-01-01T08:00');
+       await expect(itemForm.getByRole('button', { name: 'Add item', exact: true })).toBeEnabled();
     });
     test('order details can be deep linked and show an item error with retry', { tag: ['@D3', '@D4'] }, async ({ page }) => {
         mock.itemsFail = true;
@@ -457,8 +496,9 @@ test.describe('Orders data states', () => {
     });
     test('redirects to DataMiner authentication when the GQI call reports an expired connection', { tag: '@G6' }, async ({ page }) => {
         await mockDataMinerApi(page, 'expired');
-        await page.goto(APP_URL);
+        const deepLink = `${APP_ROOT_URL}#orders/${encodeURIComponent(SAMPLE_ORDERS[0]['Order ID'])}`;
+        await page.goto(deepLink);
         await expect.poll(() => new URL(page.url()).pathname).toBe('/auth/');
-        expect(new URL(page.url()).searchParams.get('url')).toContain(APP_ROOT_URL);
+        expect(new URL(page.url()).searchParams.get('url')).toBe(deepLink);
     });
 });

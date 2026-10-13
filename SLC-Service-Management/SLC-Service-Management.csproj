@@ -14,10 +14,10 @@
     <CatalogDefaultDownloadKeyName>skyline:sdk:dataminertoken</CatalogDefaultDownloadKeyName>
     <UserSecretsId>c77184c7-44bc-4fa1-bbac-614d79915f0e</UserSecretsId>
   </PropertyGroup>
-	<!--<Target Name="BuildWebApp" BeforeTargets="BeforeBuild">
+	<Target Name="BuildWebApp" BeforeTargets="BeforeBuild">
 		<Exec Command="npm ci" WorkingDirectory="$(ProjectDir)..\Service-Management-App" />
 		<Exec Command="npm run build" WorkingDirectory="$(ProjectDir)..\Service-Management-App" />
-	</Target>-->
+	</Target>
   <ItemGroup>
     <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
     <PackageReference Include="Skyline.DataMiner.Core.AppPackageInstaller" Version="4.0.0" />

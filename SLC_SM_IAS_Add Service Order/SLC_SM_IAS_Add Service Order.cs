@@ -19,13 +19,11 @@ namespace SLC_SM_IAS_Add_Service_Order_1
 	using System.Linq;
 	using DomHelpers.SlcServicemanagement;
 	using Skyline.DataMiner.Automation;
-	using Skyline.DataMiner.Net;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.PeopleAndOrganization;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
-	using Skyline.DataMiner.Utils.ServiceManagement.Common.IAS;
 	using SLC_SM_IAS_Add_Service_Order_1.Presenters;
 	using SLC_SM_IAS_Add_Service_Order_1.Views;
 	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;

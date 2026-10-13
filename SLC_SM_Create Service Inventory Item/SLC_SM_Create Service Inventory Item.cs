@@ -34,7 +34,6 @@ namespace SLC_SM_Create_Service_Inventory_Item
 	using Skyline.DataMiner.SDM;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
-	using Skyline.DataMiner.Utils.ServiceManagement.Common.IAS;
 	using SLC_SM_Common.Extensions;
 	using SLC_SM_Create_Service_Inventory_Item.Presenters;
 	using SLC_SM_Create_Service_Inventory_Item.Views;
@@ -902,7 +901,7 @@ namespace SLC_SM_Create_Service_Inventory_Item
 
 			var categoryReference = serviceOrderItem.ServiceInfo != null ? serviceOrderItem.ServiceInfo.ServiceCategoryId : null;
 			var specReference = serviceOrderItem.ServiceInfo != null ? serviceOrderItem.ServiceInfo.SpecificationId : null;
-			if (String.IsNullOrWhiteSpace(specReference.Identifier))
+			if (specReference == null || String.IsNullOrWhiteSpace(specReference.Identifier))
 			{
 				throw new InvalidOperationException("A service specification must be assigned before initializing a service.");
 			}
@@ -1165,6 +1164,7 @@ namespace SLC_SM_Create_Service_Inventory_Item
 				Identifier = existingService?.Identifier ?? Guid.NewGuid().ToString(),
 				ServiceID = serviceId,
 				Name = String.IsNullOrWhiteSpace(payload.Name) ? existingService?.Name ?? serviceId : payload.Name,
+				Description = existingService?.Description ?? String.Empty,
 				StartTime = startTime,
 				EndTime = endTime,
 				GenerateMonitoringService = payload.GenerateMonitoringService || payload.LinkService,
@@ -1172,6 +1172,9 @@ namespace SLC_SM_Create_Service_Inventory_Item
 				Icon = category?.Icon ?? String.Empty,
 				CategoryId = category == null ? null : new SdmObjectReference<SdmModels.ServiceCategory>(category.Identifier),
 				ServiceSpecificationId = specification == null ? null : new SdmObjectReference<SdmModels.ServiceSpecification>(specification.Identifier),
+				ServiceConfigurationId = existingService?.ServiceConfigurationId == null
+ 					? null
+ 					: new SdmObjectReference<SdmModels.ServiceConfigurationVersion>(existingService.ServiceConfigurationId.Identifier),
 				ServiceItems = existingService?.ServiceItems?.ToList() ?? new List<SdmModels.ServiceItem>(),
 				ServiceItemsRelationships = existingService?.ServiceItemsRelationships?.ToList() ?? new List<SdmModels.ServiceItemRelationship>(),
 				ConfigurationVersions = existingService?.ConfigurationVersions?.ToList() ?? new List<SdmObjectReference<SdmModels.ServiceConfigurationVersion>>(),

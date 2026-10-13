@@ -1,7 +1,6 @@
 namespace SLC_SM_GQIDS_Get_Service_Specifications
 {
 	using System;
-	using System.Collections.Generic;
 	using System.Linq;
 	using DomHelpers.SlcServicemanagement;
 	using Skyline.DataMiner.Analytics.GenericInterface;
@@ -83,7 +82,7 @@ namespace SLC_SM_GQIDS_Get_Service_Specifications
 			{
 				_dms.GenerateInformationMessage($"GQIDS|{DataSourceName}|Exception: {exception}");
 				_logger.Error($"GQIDS|{DataSourceName}|Exception: {exception}");
-				return new GQIPage(Array.Empty<GQIRow>()) { HasNextPage = false };
+				throw;
 			}
 		}
 	}

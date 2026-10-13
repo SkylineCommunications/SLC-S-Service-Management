@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { IasSession, layoutComponents } from './dataminer/ias.js';
 
 const CANCEL_PATTERN = /^(cancel|close|abort)\b/i;
@@ -126,18 +126,28 @@ export function IasDialog({ script, parameters, eyebrow = 'Interactive Automatio
         if (button) { lastTrigger.current = button.text; sessionRef.current?.submit(valuesRef.current, trigger); }
     }, [layout, busy]);
 
-    useEffect(() => { dialogRef.current?.focus(); }, []);
+    useLayoutEffect(() => {
+        const dialog = dialogRef.current;
+        if (!dialog) return;
+        if (!dialog.open) dialog.showModal();
+        return () => { if (dialog.open) dialog.close(); };
+    }, []);
 
     const labels = useMemo(() => layout ? fieldLabels(layout) : new Map(), [layout]);
     const { body, footer } = useMemo(() => layout ? splitFooter(layout.rows) : { body: [], footer: [] }, [layout]);
     const grid = useMemo(() => gridTemplate(body), [body]);
 
-    const close = () => { sessionRef.current?.close(); onClose(); };
-    const onKeyDown = event => {
-        if (event.key !== 'Escape') return;
-        event.stopPropagation();
-        event.nativeEvent.stopImmediatePropagation?.();
+    const close = () => {
+        sessionRef.current?.close();
+        if (dialogRef.current?.open) dialogRef.current.close();
+        onClose();
+    };
+    const onCancel = event => {
+        event.preventDefault();
         close();
+    };
+    const stopParentEscape = event => {
+        if (event.key === 'Escape') event.stopPropagation();
     };
 
     const setValue = (destVar, value) => { dirty.current.add(destVar); setValues(current => ({ ...current, [destVar]: value })); };
@@ -231,11 +241,24 @@ export function IasDialog({ script, parameters, eyebrow = 'Interactive Automatio
         });
     })}</form>;
 
-    return <div className="confirm-layer ias-layer"><div className="confirm-backdrop" onClick={close} aria-hidden="true" /><section ref={dialogRef} tabIndex={-1} className="order-form-dialog ias-dialog" role="dialog" aria-modal="true" aria-labelledby="ias-dialog-title" onKeyDown={onKeyDown}>
-        <header className="order-form-header"><div><p className="eyebrow">{eyebrow}</p><h2 id="ias-dialog-title">{title}</h2></div><button className="icon-button" type="button" aria-label="Close interactive script" onClick={close}><span className="icon" aria-hidden="true">close</span></button></header>
-        <div className="ias-body">{content}</div>
-        {state.phase === 'interactive' && footer.length > 0 && <footer className="order-form-actions ias-footer">{busy && <span className="ias-busy" role="status"><span className="icon spin" aria-hidden="true">refresh</span>{state.pendingAsync > 0 ? 'Loading options…' : 'Updating…'}</span>}{footer.map((component, index) => renderComponent(component, `footer-${index}`))}</footer>}
-        {state.phase === 'interactive' && footer.length === 0 && busy && <footer className="order-form-actions ias-footer"><span className="ias-busy" role="status"><span className="icon spin" aria-hidden="true">refresh</span>Updating…</span></footer>}
-        {(state.phase === 'failed' || state.phase === 'closed' || state.phase === 'done') && <footer className="order-form-actions ias-footer"><button className="quiet-button" type="button" onClick={close}>Close</button></footer>}
-    </section></div>;
+    return (
+        <dialog ref={dialogRef} className="confirm-layer ias-layer" aria-modal="true" aria-labelledby="ias-dialog-title" onCancel={onCancel} onKeyDown={stopParentEscape}>
+            <div className="confirm-backdrop" onClick={close} aria-hidden="true" />
+            <section className="order-form-dialog ias-dialog">
+                <header className="order-form-header">
+                    <div>
+                        <p className="eyebrow">{eyebrow}</p>
+                        <h2 id="ias-dialog-title">{title}</h2>
+                    </div>
+                    <button className="icon-button" type="button" aria-label="Close interactive script" onClick={close}>
+                        <span className="icon" aria-hidden="true">close</span>
+                    </button>
+                </header>
+                <div className="ias-body">{content}</div>
+                {state.phase === 'interactive' && footer.length > 0 && <footer className="order-form-actions ias-footer">{busy && <span className="ias-busy" role="status"><span className="icon spin" aria-hidden="true">refresh</span>{state.pendingAsync > 0 ? 'Loading options…' : 'Updating…'}</span>}{footer.map((component, index) => renderComponent(component, `footer-${index}`))}</footer>}
+                {state.phase === 'interactive' && footer.length === 0 && busy && <footer className="order-form-actions ias-footer"><span className="ias-busy" role="status"><span className="icon spin" aria-hidden="true">refresh</span>Updating…</span></footer>}
+                {(state.phase === 'failed' || state.phase === 'closed' || state.phase === 'done') && <footer className="order-form-actions ias-footer"><button className="quiet-button" type="button" onClick={close}>Close</button></footer>}
+            </section>
+        </dialog>
+    );
 }

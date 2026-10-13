@@ -6,11 +6,9 @@ namespace SLC_SM_GQIDS_Get_Services
 	using DomHelpers.SlcPeople_Organizations;
 	using DomHelpers.SlcServicemanagement;
 	using Skyline.DataMiner.Analytics.GenericInterface;
-	using Skyline.DataMiner.Net;
 	using Skyline.DataMiner.Net.Apps.DataMinerObjectModel;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.PeopleAndOrganization;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
 	using SLC_SM_Common.Extensions;
@@ -122,7 +120,7 @@ namespace SLC_SM_GQIDS_Get_Services
 			{
 				FilterElement<Models.ServiceCategory> filter = null;
 				foreach (var categoryId in services
-					.Select(service => service.CategoryId.Identifier)
+					.Select(service => service.CategoryId != null ? service.CategoryId.Identifier : null)
 					.Where(identifier => !String.IsNullOrWhiteSpace(identifier))
 					.Distinct(StringComparer.OrdinalIgnoreCase))
 				{
@@ -153,7 +151,7 @@ namespace SLC_SM_GQIDS_Get_Services
 			{
 				FilterElement<Models.ServiceSpecification> filter = null;
 				foreach (var specificationId in services
-					.Select(service => service.ServiceSpecificationId.Identifier)
+					.Select(service => service.ServiceSpecificationId != null ? service.ServiceSpecificationId.Identifier : null)
 					.Where(identifier => !String.IsNullOrWhiteSpace(identifier))
 					.Distinct(StringComparer.OrdinalIgnoreCase))
 				{

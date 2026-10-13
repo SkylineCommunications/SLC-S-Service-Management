@@ -27,7 +27,6 @@ namespace SLC_SM_IAS_Service_Order_Configuration
 	using Skyline.DataMiner.SDM;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
-	using Skyline.DataMiner.Utils.ServiceManagement.Common.IAS;
 	using SLC_SM_IAS_Service_Order_Configuration.Presenters;
 	using SLC_SM_IAS_Service_Order_Configuration.Views;
 
@@ -98,6 +97,8 @@ namespace SLC_SM_IAS_Service_Order_Configuration
 			Guid domId = _engine.ReadScriptParamFromApp<Guid>("DOM ID");
 			var helper = new ServiceManagementApiHelper(_engine.GetUserConnection(), "Service Ordering");
 			var item = ReadServiceOrderItem(helper, domId);
+			var ownedConfigurations = ResolveOwnedConfigurationGraph(helper, item);
+			ValidatePayloadReferences(payload, ownedConfigurations);
 
 			if (payload.DeleteAll)
 			{
@@ -105,9 +106,9 @@ namespace SLC_SM_IAS_Service_Order_Configuration
 				return;
 			}
 
-			DeleteConfigurations(helper, payload);
+			DeleteConfigurations(helper, payload, ownedConfigurations);
 			var parameters = ReadConfigurationParameters(helper);
-			var references = SaveConfigurationParameters(helper, payload.Parameters, parameters);
+			var references = SaveConfigurationParameters(helper, payload.Parameters, parameters, ownedConfigurations);
 			UpdateServiceOrderItemConfigurations(helper, item, references);
 		}
 
@@ -125,6 +126,106 @@ namespace SLC_SM_IAS_Service_Order_Configuration
 				.ToDictionary(parameter => parameter.Identifier, StringComparer.OrdinalIgnoreCase);
 		}
 
+		private static OwnedConfigurationGraph ResolveOwnedConfigurationGraph(ServiceManagementApiHelper helper, ServiceOrderItem item)
+		{
+			var graph = new OwnedConfigurationGraph();
+			var references = item.ServiceInfo?.Configurations;
+			if (references == null)
+			{
+				return graph;
+			}
+
+			foreach (var reference in references)
+			{
+				var configurationId = reference == null ? null : reference.Identifier;
+				if (String.IsNullOrWhiteSpace(configurationId) || !graph.ConfigurationIds.Add(configurationId))
+				{
+					continue;
+				}
+
+				var configuration = helper.ServiceOrder.ServiceOrderItemConfigurationValues
+					.Read(ServiceOrderItemConfigurationValueExposers.Identifier.Equal(configurationId))
+					.FirstOrDefault();
+				if (configuration == null)
+				{
+					continue;
+				}
+
+				graph.Configurations[configurationId] = configuration;
+				var parameterValueReference = configuration.ConfigurationParameterValueId;
+				var parameterValueId = parameterValueReference == null ? null : parameterValueReference.Identifier;
+				if (String.IsNullOrWhiteSpace(parameterValueId) || !graph.ParameterValueIds.Add(parameterValueId))
+				{
+					continue;
+				}
+
+				var parameterValue = helper.ServiceCatalog.ConfigurationParameterValues
+					.Read(ConfigurationParameterValueExposers.Identifier.Equal(parameterValueId))
+					.FirstOrDefault();
+				if (parameterValue != null)
+				{
+					graph.ParameterValues[parameterValueId] = parameterValue;
+				}
+			}
+
+			return graph;
+		}
+
+		private static void ValidatePayloadReferences(ApiPayload payload, OwnedConfigurationGraph ownedConfigurations)
+		{
+			foreach (var configurationId in payload.DeleteConfigurationIds ?? new List<string>())
+			{
+				if (!String.IsNullOrWhiteSpace(configurationId))
+				{
+					ValidateOwnedConfigurationId(configurationId, ownedConfigurations);
+				}
+			}
+
+			foreach (var parameter in payload.Parameters ?? new List<ApiParameter>())
+			{
+				if (parameter == null)
+				{
+					throw new InvalidOperationException("A configuration parameter entry cannot be null.");
+				}
+
+				if (!String.IsNullOrWhiteSpace(parameter.ConfigurationId))
+				{
+					ValidateOwnedConfigurationId(parameter.ConfigurationId, ownedConfigurations);
+				}
+
+				if (!String.IsNullOrWhiteSpace(parameter.ParameterValueId))
+				{
+					ValidateOwnedParameterValueId(parameter.ParameterValueId, ownedConfigurations);
+				}
+			}
+		}
+
+		private static void ValidateOwnedConfigurationId(string configurationId, OwnedConfigurationGraph ownedConfigurations)
+		{
+			if (!ownedConfigurations.ConfigurationIds.Contains(configurationId))
+			{
+				throw new InvalidOperationException("The requested configuration is not assigned to the target service order item.");
+			}
+
+			if (!ownedConfigurations.Configurations.ContainsKey(configurationId))
+			{
+				throw new InvalidOperationException("A configuration assigned to the target service order item could not be found.");
+			}
+		}
+
+		private static void ValidateOwnedParameterValueId(string parameterValueId, OwnedConfigurationGraph ownedConfigurations)
+		{
+			if (!ownedConfigurations.ParameterValueIds.Contains(parameterValueId))
+			{
+				throw new InvalidOperationException("The requested configuration parameter value is not assigned to the target service order item.");
+			}
+
+			if (!ownedConfigurations.ParameterValues.ContainsKey(parameterValueId))
+			{
+				throw new InvalidOperationException("A configuration parameter value assigned to the target service order item could not be found.");
+			}
+		}
+
 		private static void DeleteAllConfigurations(ServiceManagementApiHelper helper, ServiceOrderItem item)
 		{
 			item.ServiceInfo = item.ServiceInfo ?? new ServiceOrderItemServiceInfo();
@@ -132,16 +233,18 @@ namespace SLC_SM_IAS_Service_Order_Configuration
 			helper.ServiceOrder.ServiceOrderItems.Update(item);
 		}
 
-		private static void DeleteConfigurations(ServiceManagementApiHelper helper, ApiPayload payload)
+		private static void DeleteConfigurations(
+			ServiceManagementApiHelper helper,
+			ApiPayload payload,
+			OwnedConfigurationGraph ownedConfigurations)
 		{
+			var deletedConfigurationIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 			foreach (var configurationId in payload.DeleteConfigurationIds ?? new List<string>())
 			{
-				var configuration = helper.ServiceOrder.ServiceOrderItemConfigurationValues
-					.Read(ServiceOrderItemConfigurationValueExposers.Identifier.Equal(configurationId))
-					.FirstOrDefault();
-				if (configuration != null)
+				if (!String.IsNullOrWhiteSpace(configurationId)
+					&& deletedConfigurationIds.Add(configurationId))
 				{
-					helper.ServiceOrder.ServiceOrderItemConfigurationValues.Delete(configuration);
+					helper.ServiceOrder.ServiceOrderItemConfigurationValues.Delete(ownedConfigurations.Configurations[configurationId]);
 				}
 			}
 		}
@@ -149,7 +252,8 @@ namespace SLC_SM_IAS_Service_Order_Configuration
 		private static List<SdmObjectReference<ServiceOrderItemConfigurationValue>> SaveConfigurationParameters(
 			ServiceManagementApiHelper helper,
 			IEnumerable<ApiParameter> parameterPayloads,
-			IReadOnlyDictionary<string, ConfigurationParameter> parameters)
+			IReadOnlyDictionary<string, ConfigurationParameter> parameters,
+			OwnedConfigurationGraph ownedConfigurations)
 		{
 			var references = new List<SdmObjectReference<ServiceOrderItemConfigurationValue>>();
 			foreach (var parameter in parameterPayloads ?? new List<ApiParameter>())
@@ -161,17 +265,13 @@ namespace SLC_SM_IAS_Service_Order_Configuration
 
 				var value = String.IsNullOrWhiteSpace(parameter.ParameterValueId)
 					? new ConfigurationParameterValue { Identifier = Guid.NewGuid().ToString() }
-					: helper.ServiceCatalog.ConfigurationParameterValues
-						.Read(ConfigurationParameterValueExposers.Identifier.Equal(parameter.ParameterValueId))
-						.FirstOrDefault() ?? throw new InvalidOperationException($"Configuration parameter value '{parameter.ParameterValueId}' was not found.");
+					: ownedConfigurations.ParameterValues[parameter.ParameterValueId];
 				value.ApplyConfigurationValue(definition, parameter.Value, parameter.Mandatory);
 				helper.ServiceCatalog.ConfigurationParameterValues.CreateOrUpdate(new[] { value });
 
 				var configuration = String.IsNullOrWhiteSpace(parameter.ConfigurationId)
 					? new ServiceOrderItemConfigurationValue { Identifier = Guid.NewGuid().ToString() }
-					: helper.ServiceOrder.ServiceOrderItemConfigurationValues
-						.Read(ServiceOrderItemConfigurationValueExposers.Identifier.Equal(parameter.ConfigurationId))
-						.FirstOrDefault() ?? throw new InvalidOperationException($"Configuration '{parameter.ConfigurationId}' was not found.");
+					: ownedConfigurations.Configurations[parameter.ConfigurationId];
 				configuration.ConfigurationParameterValueId = new SdmObjectReference<ConfigurationParameterValue>(value.Identifier);
 				configuration.Mandatory = parameter.Mandatory;
 				helper.ServiceOrder.ServiceOrderItemConfigurationValues.CreateOrUpdate(new[] { configuration });
@@ -189,6 +289,19 @@ namespace SLC_SM_IAS_Service_Order_Configuration
 			item.ServiceInfo = item.ServiceInfo ?? new ServiceOrderItemServiceInfo();
 			item.ServiceInfo.Configurations = references;
 			helper.ServiceOrder.ServiceOrderItems.Update(item);
+		}
+
+		private sealed class OwnedConfigurationGraph
+		{
+			public HashSet<string> ConfigurationIds { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+			public Dictionary<string, ServiceOrderItemConfigurationValue> Configurations { get; } =
+				new Dictionary<string, ServiceOrderItemConfigurationValue>(StringComparer.OrdinalIgnoreCase);
+
+			public HashSet<string> ParameterValueIds { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+			public Dictionary<string, ConfigurationParameterValue> ParameterValues { get; } =
+				new Dictionary<string, ConfigurationParameterValue>(StringComparer.OrdinalIgnoreCase);
 		}
 
 		private void RunSafe()

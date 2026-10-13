@@ -22,7 +22,6 @@ namespace SLC_SM_IAS_Add_Service_Specification
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
-	using Skyline.DataMiner.Utils.ServiceManagement.Common.IAS;
 	using SLC_SM_IAS_Add_Service_Specification.Presenters;
 	using SLC_SM_IAS_Add_Service_Specification.Views;
 	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;

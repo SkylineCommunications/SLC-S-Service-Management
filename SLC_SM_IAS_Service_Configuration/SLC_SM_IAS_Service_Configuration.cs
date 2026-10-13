@@ -30,7 +30,6 @@ namespace SLC_SM_IAS_Service_Configuration
 	using Skyline.DataMiner.SDM;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
-	using Skyline.DataMiner.Utils.ServiceManagement.Common.IAS;
 	using SLC_SM_IAS_Service_Configuration.Presenters;
 	using SLC_SM_IAS_Service_Configuration.Views;
 	using ServiceModel = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement.Service;

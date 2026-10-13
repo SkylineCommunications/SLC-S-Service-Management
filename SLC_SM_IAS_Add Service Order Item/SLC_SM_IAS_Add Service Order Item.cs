@@ -24,7 +24,6 @@ namespace SLC_SM_IAS_Add_Service_Order_Item_1
 	using Skyline.DataMiner.SDM;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
-	using Skyline.DataMiner.Utils.ServiceManagement.Common.IAS;
 	using SLC_SM_IAS_Add_Service_Order_Item_1.Presenters;
 	using SLC_SM_IAS_Add_Service_Order_Item_1.Views;
 	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;

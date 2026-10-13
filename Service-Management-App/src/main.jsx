@@ -945,7 +945,7 @@ function TabbedServiceDetailPanel({ service, onClose, onEdit, onDelete, onDuplic
     }, [onClose]);
     const details = [['Service ID', service.serviceId], ['Service specification', service.specification], ['Service category', service.category], ['Category type', service.categoryType], ['Start time', service.start], ['End time', service.end]];
     const relatedOrdersContent = relatedOrders.status === 'loading' ? <div className="service-related-empty"><span className="icon spin" aria-hidden="true">refresh</span>Loading related orders…</div> : relatedOrders.status === 'error' ? <div className="service-related-empty error"><span className="icon" aria-hidden="true">error</span>{relatedOrders.error}</div> : relatedOrders.items.length === 0 ? <div className="service-related-empty"><span className="icon" aria-hidden="true">assignment</span>No related service orders.</div> : <div className="related-orders-table-wrap"><table className="related-orders-table"><thead><tr><th>Name</th><th>Action</th><th>State</th></tr></thead><tbody>{relatedOrders.items.map(({ order, item }, index) => <tr key={`${order.id}-${item.id || index}`}><td>{order.name || 'Unnamed order'}</td><td>{item.action || '—'}</td><td><span className={`state-badge ${stateTone(item.status)}`}>{item.status || 'Unknown'}</span></td></tr>)}</tbody></table></div>;
-    const serviceView = <div className="service-drawer-body"><div className="service-drawer-heading"><div><p className="eyebrow">Service Info</p><h2 id="service-detail-title">{service.name || 'Unnamed service'}</h2></div><span className={`state-badge ${serviceTone(service.status)}`}>{service.status || 'Unknown'}</span></div><div className="service-lifecycle" aria-label="Service lifecycle"><div className="service-lifecycle-steps">{lifecycle.map((state, index) => <span className={index === currentIndex ? 'service-lifecycle-step current' : index < currentIndex ? 'service-lifecycle-step complete' : 'service-lifecycle-step'} key={state}>{state}</span>)}</div><div className="service-lifecycle-actions">{transitions.length === 0 ? <span className="service-lifecycle-action-empty">No actions</span> : transitions.map(transition => <button className="service-lifecycle-action" type="button" key={`${transition.label}-${transition.next}`} onClick={() => onTransitionService(service, transition)} disabled={actionState?.status === 'running'}>{transition.label}</button>)}</div></div><div className="service-detail-layout"><section className="service-info-card"><div className="service-info-card-heading"><h3>Service details</h3><div className="drawer-card-actions"><button className="quiet-button drawer-action-button" type="button" onClick={onEdit}><span className="icon" aria-hidden="true">edit</span>Edit</button><button className="quiet-button drawer-action-button" type="button" onClick={() => onDuplicate(service)} disabled={actionState?.status === 'running'}><span className="icon" aria-hidden="true">content_copy</span>Duplicate</button><button className="danger-button drawer-action-button" type="button" onClick={onDelete}><span className="icon" aria-hidden="true">delete</span>Delete</button></div></div><dl className="detail-grid service-detail-grid">{details.map(([label, value]) => <div key={label}><dt>{label}</dt><dd className={label === 'DOM instance ID' ? 'mono' : ''}>{value || '—'}</dd></div>)}</dl></section><section className="service-info-card related-orders-card"><div className="service-info-card-heading"><h3>Related service orders</h3><span className="count-pill">{relatedOrders.status === 'ready' ? relatedOrders.items.length : '—'}</span></div>{relatedOrdersContent}</section></div><section className="service-items-panel"><div className="service-items-heading"><div><p className="eyebrow">Service configuration</p><h3>Service items</h3></div><button className="primary-button" type="button" onClick={() => setItemEditor({ action: 'Add', item: null })} disabled={actionState?.status === 'running'}><span className="icon" aria-hidden="true">add</span>Add item</button></div>{itemData.status === 'loading' ? <div className="service-related-empty"><span className="icon spin" aria-hidden="true">refresh</span>Loading service items…</div> : itemData.items.length === 0 ? <div className="service-related-empty"><span className="icon" aria-hidden="true">inbox</span>Nothing to show.</div> : <div className="service-items-table-wrap"><table className="service-items-table"><thead><tr><th>Label</th><th>Service item type</th><th>Definition reference</th><th>Implementation state</th><th>Monitoring service state</th><th>Actions</th></tr></thead><tbody>{itemData.items.map(item => <tr key={item.id || item.label}><td>{item.label || '—'}</td><td>{item.type || '—'}</td><td>{item.definition || '—'}</td><td>{item.implementationState || '—'}</td><td>{item.monitoringState || '—'}</td><td><div className="service-actions"><button className="table-icon-action" type="button" aria-label={`Launch script for ${item.label || 'service item'}`} title={item.script ? `Launch ${item.script}` : 'No service item script is configured'} onClick={() => setScriptItem(item)} disabled={!item.script || !item.label || Boolean(scriptItem) || actionState?.status === 'running'}><span className="icon" aria-hidden="true">play_circle</span></button><button className="table-icon-action" type="button" aria-label={`Edit ${item.label || 'service item'}`} onClick={() => setItemEditor({ action: 'Edit', item })} disabled={actionState?.status === 'running'}><span className="icon" aria-hidden="true">edit</span></button><button className="table-icon-action danger" type="button" aria-label={`Delete ${item.label || 'service item'}`} onClick={() => deleteItem(item)} disabled={actionState?.status === 'running'}><span className="icon" aria-hidden="true">delete</span></button></div></td></tr>)}</tbody></table></div>}</section></div>;
+    const serviceView = <div className="service-drawer-body"><div className="service-drawer-heading"><div><p className="eyebrow">Service Info</p><h2 id="service-detail-title">{service.name || 'Unnamed service'}</h2></div><span className={`state-badge ${serviceTone(service.status)}`}>{service.status || 'Unknown'}</span></div><div className="service-lifecycle" aria-label="Service lifecycle"><div className="service-lifecycle-steps">{lifecycle.map((state, index) => <span className={index === currentIndex ? 'service-lifecycle-step current' : index < currentIndex ? 'service-lifecycle-step complete' : 'service-lifecycle-step'} key={state}>{state}</span>)}</div><div className="service-lifecycle-actions">{transitions.length === 0 ? <span className="service-lifecycle-action-empty">No actions</span> : transitions.map(transition => <button className="service-lifecycle-action" type="button" key={`${transition.label}-${transition.next}`} onClick={() => onTransitionService(service, transition)} disabled={actionState?.status === 'running'}>{transition.label}</button>)}</div></div><div className="service-detail-layout"><section className="service-info-card"><div className="service-info-card-heading"><h3>Service details</h3><div className="drawer-card-actions"><button className="quiet-button drawer-action-button" type="button" onClick={onEdit}><span className="icon" aria-hidden="true">edit</span>Edit</button><button className="quiet-button drawer-action-button" type="button" onClick={() => onDuplicate(service)} disabled={actionState?.status === 'running'}><span className="icon" aria-hidden="true">content_copy</span>Duplicate</button><button className="danger-button drawer-action-button" type="button" onClick={onDelete}><span className="icon" aria-hidden="true">delete</span>Delete</button></div></div><dl className="detail-grid service-detail-grid">{details.map(([label, value]) => <div key={label}><dt>{label}</dt><dd className={label === 'DOM instance ID' ? 'mono' : ''}>{value || '—'}</dd></div>)}</dl></section><section className="service-info-card related-orders-card"><div className="service-info-card-heading"><h3>Related service orders</h3><span className="count-pill">{relatedOrders.status === 'ready' ? relatedOrders.items.length : '—'}</span></div>{relatedOrdersContent}</section></div><section className="service-items-panel"><div className="service-items-heading"><div><p className="eyebrow">Service configuration</p><h3>Service items</h3></div><button className="primary-button" type="button" onClick={() => setItemEditor({ action: 'Add', item: null })} disabled={actionState?.status === 'running'}><span className="icon" aria-hidden="true">add</span>Add item</button></div>{itemData.status === 'loading' ? <div className="service-related-empty"><span className="icon spin" aria-hidden="true">refresh</span>Loading service items…</div> : itemData.items.length === 0 ? <div className="service-related-empty"><span className="icon" aria-hidden="true">inbox</span>Nothing to show.</div> : <div className="service-items-table-wrap"><table className="service-items-table"><thead><tr><th>Label</th><th>Service item type</th><th>Definition reference</th><th>Implementation state</th><th>Monitoring service state</th><th>Actions</th></tr></thead><tbody>{itemData.items.map(item => <tr key={item.id || item.label}><td>{item.label || '—'}</td><td>{item.type || '—'}</td><td>{item.definition || '—'}</td><td>{item.implementationState || '—'}</td><td>{item.monitoringState || '—'}</td><td><div className="service-actions"><button className="table-icon-action" type="button" aria-label={`Launch script for ${item.label || 'service item'}`} title={item.script ? `Launch ${item.script}` : 'No service item script is configured'} onClick={() => setScriptItem(item)} disabled={!item.script || !item.label || actionState?.status === 'running'}><span className="icon" aria-hidden="true">play_circle</span></button><button className="table-icon-action" type="button" aria-label={`Edit ${item.label || 'service item'}`} onClick={() => setItemEditor({ action: 'Edit', item })} disabled={actionState?.status === 'running'}><span className="icon" aria-hidden="true">edit</span></button><button className="table-icon-action danger" type="button" aria-label={`Delete ${item.label || 'service item'}`} onClick={() => deleteItem(item)} disabled={actionState?.status === 'running'}><span className="icon" aria-hidden="true">delete</span></button></div></td></tr>)}</tbody></table></div>}</section></div>;
     return <><div className="drawer-layer"><div className="drawer-backdrop" onClick={onClose} aria-hidden="true" /><aside className="drawer service-drawer" role="dialog" aria-modal="true" aria-labelledby="service-detail-title"><header className="service-drawer-topbar"><nav aria-label="Service detail sections"><button className={tab === 'service' ? 'service-tab active' : 'service-tab'} type="button" onClick={() => setTab('service')} aria-selected={tab === 'service'}><span className="icon" aria-hidden="true">assignment</span>Service</button><button className={tab === 'configurations' ? 'service-tab active' : 'service-tab'} type="button" onClick={() => setTab('configurations')} aria-selected={tab === 'configurations'}><span className="icon" aria-hidden="true">settings</span>Configurations</button><button className={tab === 'operations' ? 'service-tab active' : 'service-tab'} type="button" onClick={() => setTab('operations')} aria-selected={tab === 'operations'}><span className="icon" aria-hidden="true">bolt</span>Operations</button></nav><button ref={closeButton} className="icon-button" type="button" aria-label="Close service details" onClick={onClose}><span className="icon">close</span></button></header>{tab === 'service' ? serviceView : tab === 'configurations' ? <NativeServiceConfigurationsView service={service} actionState={actionState} onSave={onSaveConfiguration} onConfirm={onConfirmConfiguration} allowInitialVersion allowVersionAdd /> : <ServiceOperationsView service={service} scripts={scripts} busy={actionState?.status === 'running'} onSubmit={submitOperation} onDelete={deleteOperation} />}</aside></div>{itemEditor && <ServiceItemDialog key={`${itemEditor.action}-${itemEditor.item?.label || 'new'}`} busy={actionState?.status === 'running'} parentId={service.id} action={itemEditor.action} initialItem={itemEditor.item} context="Service" onClose={() => setItemEditor(null)} onSubmit={submitItem} />}{scriptItem && <IasDialog script={SERVICE_INVENTORY_SCRIPTS.launchItemScript} parameters={{ 'DOM ID': service.id, 'Item Label': scriptItem.label }} eyebrow={`Service item · ${scriptItem.label}`} onClose={closeItemScript} onFinished={finishItemScript} />}</>;
 }
 
@@ -1408,10 +1408,9 @@ function NewServiceDialog({ busy, onClose, onSubmit, initialService = null, acti
     const missingServiceId = !serviceId;
     const missingStartTime = !form.startTime;
     const startTime = Date.parse(form.startTime);
-    const endTime = Date.parse(form.endTime);
     const startInPast = action !== 'Edit' && Number.isFinite(startTime) && startTime < Date.now();
     const missingEndTime = !form.indefiniteRuntime && !form.endTime;
-    const endBeforeStart = !form.indefiniteRuntime && Number.isFinite(startTime) && Number.isFinite(endTime) && endTime < startTime;
+    const endBeforeStart = !form.indefiniteRuntime && isEndBeforeStart(form.startTime, form.endTime);
     const missingLinkedService = form.linkService && !form.linkedService;
     const invalidForm = missingServiceId || duplicateServiceId || duplicateServiceName || missingStartTime || startInPast || missingEndTime || endBeforeStart || missingLinkedService;
     const submit = async event => {
@@ -1448,6 +1447,12 @@ function dateTimeInputValue(value) {
     return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
+function isEndBeforeStart(startValue, endValue) {
+    const startTime = Date.parse(startValue);
+    const endTime = Date.parse(endValue);
+    return Number.isFinite(startTime) && Number.isFinite(endTime) && endTime < startTime;
+}
+
 function ServiceOrderItemDialog({ busy, onClose, onSubmit, orderId, initialItem = null, action = 'Add' }) {
     const categoryData = useDataList(fetchServiceCategories);
     const specificationData = useDataList(fetchServiceSpecifications);
@@ -1473,11 +1478,12 @@ function ServiceOrderItemDialog({ busy, onClose, onSubmit, orderId, initialItem 
     const timeApplicable = form.itemAction === 'Add';
     const specificationRequired = form.itemAction === 'Add' && !form.specificationId;
     const serviceRequired = ['Modify', 'Delete'].includes(form.itemAction) && !form.serviceId;
+    const endBeforeStart = timeApplicable && !form.indefiniteRuntime && isEndBeforeStart(form.startTime, form.endTime);
     const updateAction = value => { setSubmitAttempted(true); update('itemAction', value); };
     const submit = async event => {
         event.preventDefault();
         setSubmitAttempted(true);
-        if (duplicateLabel || specificationRequired || serviceRequired) return;
+        if (duplicateLabel || specificationRequired || serviceRequired || endBeforeStart) return;
         const name = form.name.trim() || placeholder;
         await onSubmit({
             'DOM ID': orderId,
@@ -1497,7 +1503,91 @@ function ServiceOrderItemDialog({ busy, onClose, onSubmit, orderId, initialItem 
         });
     };
     const optionError = [categoryData, specificationData, serviceData].find(data => data.status === 'error')?.error;
-    return <div className="confirm-layer order-form-layer"><div className="confirm-backdrop" onClick={onClose} aria-hidden="true" /><form className="order-form-dialog specification-form-dialog" onSubmit={submit} aria-labelledby="service-order-item-form-title"><header className="order-form-header"><div><p className="eyebrow">Service operations</p><h2 id="service-order-item-form-title">{action === 'Edit' ? 'Edit service order item' : 'Add service order item'}</h2></div><button className="icon-button" type="button" aria-label="Close service order item form" onClick={onClose}><span className="icon" aria-hidden="true">close</span></button></header><div className="order-form-grid"><label className="wide">Label<input autoFocus value={form.name} onChange={event => update('name', event.target.value)} placeholder={placeholder} aria-invalid={duplicateLabel || undefined} />{duplicateLabel && <span className="form-field-error">Label already exists!</span>}{submitAttempted && !form.name.trim() && !duplicateLabel && <span className="form-field-hint">Placeholder will be used: {placeholder}</span>}</label><label className="wide">Description<textarea value={form.description} onChange={event => update('description', event.target.value)} placeholder="Describe the requested item" /></label><label>Action<select value={form.itemAction} onChange={event => updateAction(event.target.value)}><option value="Add">Add</option><option value="Delete">Delete</option><option value="Modify">Modify</option><option value="NoChange">No Change</option><option value="Undefined">Undefined</option></select></label><label>Category<select value={form.categoryId} onChange={event => update('categoryId', event.target.value)}><option value="">None</option>{categoryData.items.map(category => <option value={category.id} key={category.id}>{category.name || category.id}</option>)}</select></label><label>Service specification<select value={form.specificationId} onChange={event => update('specificationId', event.target.value)} disabled={form.itemAction === 'Modify' || form.itemAction === 'Delete'} aria-invalid={submitAttempted && specificationRequired || undefined}><option value="">None</option>{specificationData.items.map(specification => <option value={specification.id} key={specification.id}>{specification.name || specification.id}</option>)}</select>{specificationRequired && <span className="form-field-error">Selection is mandatory!</span>}</label><label>Service reference<select value={form.serviceId} onChange={event => update('serviceId', event.target.value)} disabled={form.itemAction === 'Add'} aria-invalid={submitAttempted && serviceRequired || undefined}><option value="">None</option>{serviceData.items.map(service => <option value={service.id} key={service.id}>{service.name || service.serviceId || service.id}</option>)}</select>{serviceRequired && <span className="form-field-error">Selection is mandatory!</span>}</label>{timeApplicable && <><label>Start time<input type="datetime-local" value={form.startTime} onChange={event => update('startTime', event.target.value)} /></label><label>End time<input type="datetime-local" value={form.endTime} onChange={event => update('endTime', event.target.value)} disabled={form.indefiniteRuntime} /></label><label className="form-checkbox"><input type="checkbox" checked={form.indefiniteRuntime} onChange={event => update('indefiniteRuntime', event.target.checked)} />Indefinite runtime</label></>}{optionError && <p className="form-error wide">{optionError}</p>}</div><footer className="order-form-actions"><button className="quiet-button" type="button" onClick={onClose} disabled={busy}>Cancel</button><button className="primary-button" type="submit" disabled={busy || duplicateLabel || specificationRequired || serviceRequired}>{busy ? 'Saving…' : action === 'Edit' ? 'Save' : 'Add item'}</button></footer></form></div>;
+    return (
+        <div className="confirm-layer order-form-layer">
+            <div className="confirm-backdrop" onClick={onClose} aria-hidden="true" />
+            <form className="order-form-dialog specification-form-dialog" onSubmit={submit} aria-labelledby="service-order-item-form-title">
+                <header className="order-form-header">
+                    <div>
+                        <p className="eyebrow">Service operations</p>
+                        <h2 id="service-order-item-form-title">{action === 'Edit' ? 'Edit service order item' : 'Add service order item'}</h2>
+                    </div>
+                    <button className="icon-button" type="button" aria-label="Close service order item form" onClick={onClose}>
+                        <span className="icon" aria-hidden="true">close</span>
+                    </button>
+                </header>
+                <div className="order-form-grid">
+                    <label className="wide">
+                        Label
+                        <input autoFocus value={form.name} onChange={event => update('name', event.target.value)} placeholder={placeholder} aria-invalid={duplicateLabel || undefined} />
+                        {duplicateLabel && <span className="form-field-error">Label already exists!</span>}
+                        {submitAttempted && !form.name.trim() && !duplicateLabel && <span className="form-field-hint">Placeholder will be used: {placeholder}</span>}
+                    </label>
+                    <label className="wide">
+                        Description
+                        <textarea value={form.description} onChange={event => update('description', event.target.value)} placeholder="Describe the requested item" />
+                    </label>
+                    <label>
+                        Action
+                        <select value={form.itemAction} onChange={event => updateAction(event.target.value)}>
+                            <option value="Add">Add</option>
+                            <option value="Delete">Delete</option>
+                            <option value="Modify">Modify</option>
+                            <option value="NoChange">No Change</option>
+                            <option value="Undefined">Undefined</option>
+                        </select>
+                    </label>
+                    <label>
+                        Category
+                        <select value={form.categoryId} onChange={event => update('categoryId', event.target.value)}>
+                            <option value="">None</option>
+                            {categoryData.items.map(category => <option value={category.id} key={category.id}>{category.name || category.id}</option>)}
+                        </select>
+                    </label>
+                    <label>
+                        Service specification
+                        <select value={form.specificationId} onChange={event => update('specificationId', event.target.value)} disabled={form.itemAction === 'Modify' || form.itemAction === 'Delete'} aria-invalid={submitAttempted && specificationRequired || undefined}>
+                            <option value="">None</option>
+                            {specificationData.items.map(specification => <option value={specification.id} key={specification.id}>{specification.name || specification.id}</option>)}
+                        </select>
+                        {specificationRequired && <span className="form-field-error">Selection is mandatory!</span>}
+                    </label>
+                    <label>
+                        Service reference
+                        <select value={form.serviceId} onChange={event => update('serviceId', event.target.value)} disabled={form.itemAction === 'Add'} aria-invalid={submitAttempted && serviceRequired || undefined}>
+                            <option value="">None</option>
+                            {serviceData.items.map(service => <option value={service.id} key={service.id}>{service.name || service.serviceId || service.id}</option>)}
+                        </select>
+                        {serviceRequired && <span className="form-field-error">Selection is mandatory!</span>}
+                    </label>
+                    {timeApplicable && (
+                        <>
+                            <label>
+                                Start time
+                                <input type="datetime-local" value={form.startTime} onChange={event => update('startTime', event.target.value)} />
+                            </label>
+                            <label>
+                                End time
+                                <input type="datetime-local" value={form.endTime} onChange={event => update('endTime', event.target.value)} disabled={form.indefiniteRuntime} aria-invalid={endBeforeStart || undefined} />
+                                {endBeforeStart && <span className="form-field-error">End Time must come after the start time.</span>}
+                            </label>
+                            <label className="form-checkbox">
+                                <input type="checkbox" checked={form.indefiniteRuntime} onChange={event => update('indefiniteRuntime', event.target.checked)} />
+                                Indefinite runtime
+                            </label>
+                        </>
+                    )}
+                    {optionError && <p className="form-error wide">{optionError}</p>}
+                </div>
+                <footer className="order-form-actions">
+                    <button className="quiet-button" type="button" onClick={onClose} disabled={busy}>Cancel</button>
+                    <button className="primary-button" type="submit" disabled={busy || duplicateLabel || specificationRequired || serviceRequired || endBeforeStart}>
+                        {busy ? 'Saving…' : action === 'Edit' ? 'Save' : 'Add item'}
+                    </button>
+                </footer>
+            </form>
+        </div>
+    );
 }
 
 function ServiceItemDialog({ busy, onClose, onSubmit, parentId, initialItem = null, action = 'Add', context = 'Service' }) {
