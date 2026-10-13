@@ -101,12 +101,6 @@
 			{
 				if (record.State == State.Removed)
 				{
-					if (record is ProfileDefinitionDataRecord profileRecord
-						&& profileRecord.RecordType == RecordType.Reference)
-					{
-						continue;
-					}
-
 					if (record is ConfigurationDataRecord
 						&& record.RecordType != RecordType.New
 						&& Data.Mode == Mode.Profile)
@@ -133,35 +127,20 @@
 						.ToList();
 		}
 
-		public List<DataRecord> LoadSubProfileDefinitions(ProfileDefinitionDataRecord record, IEnumerable<Models.ProfileDefinition> allProfileDefinitions)
+		public List<DataRecord> LoadProfileDefinitionParameters(ProfileDefinitionDataRecord record)
 		{
 			var referencedConfigurationParameters = Model.ReadReferencedConfigurationParameters(record.ProfileDefinition);
-			var referencedProfileDefinitions = Model.ReadReferencedProfileDefinitions(record.ProfileDefinition);
-
 			var configurationParameters = Model.ReadConfigurationParameters(referencedConfigurationParameters.Select(r => r.ConfigurationParameter));
-			var profileDefinitions = allProfileDefinitions.Where(p => referencedProfileDefinitions.Select(r => r.ProfileDefinitionReference).Contains(p.ID));
 
-			var records =
-				configurationParameters
-					.OrderBy(cp => cp.Name, StringComparer.OrdinalIgnoreCase)
-					.Select(cp => DataRecordFactory.CreateDataRecord(cp, State.Equal, RecordType.Reference))
-					.Concat(profileDefinitions
-						.OrderBy(pd => pd.Name, StringComparer.OrdinalIgnoreCase)
-						.Select(pd => DataRecordFactory.CreateDataRecord(pd, State.Equal, RecordType.Reference)))
-					.ToList();
-
-			return records;
+			return configurationParameters
+				.OrderBy(cp => cp.Name, StringComparer.OrdinalIgnoreCase)
+				.Select(cp => DataRecordFactory.CreateDataRecord(cp, State.Equal, RecordType.Reference))
+				.ToList();
 		}
 
 		public List<DataRecord> LoadRootProfileDefinitions(IEnumerable<Models.ProfileDefinition> profileDefinitions)
 		{
-			var childIds = profileDefinitions
-				.SelectMany(definition => definition.ProfileDefinitions)
-				.Select(child => child.ProfileDefinitionReference)
-				.ToHashSet();
-
 			return profileDefinitions
-				.Where(definition => !childIds.Contains(definition.ID))
 				.OrderBy(d => d.Name, StringComparer.OrdinalIgnoreCase)
 				.Select(d => DataRecordFactory.CreateDataRecord(d, State.Equal))
 				.ToList();

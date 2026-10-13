@@ -1,7 +1,21 @@
 <CatalogReferences xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns="http://www.skyline.be/catalogReferences">
 
+	<CatalogReference id="52173e49-9185-4772-9b60-c186ee365a81">
+		<Name>1.Standard Data Model Registration</Name>
+		<Selection>
+			<Range>2</Range>
+		</Selection>
+	</CatalogReference>
+
+	<CatalogReference id="c9666f3a-be26-42fd-83f2-6ee7fab4f11e">
+		<Name>2.Categories</Name>
+		<Selection>
+			<Range>1</Range>
+		</Selection>
+	</CatalogReference>
+
 	<CatalogReference id="8ce7d7af-62f6-4cfd-8687-663e24f3c5be">
-		<Name>DOM ImportExport</Name>
+		<Name>3.DOM ImportExport</Name>
 		<Selection>
 			<Range>1.0.0</Range>
 		</Selection>

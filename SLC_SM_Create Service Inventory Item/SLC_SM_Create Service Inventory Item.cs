@@ -22,8 +22,6 @@ namespace SLC_SM_Create_Service_Inventory_Item
 	using System.Globalization;
 	using System.Linq;
 	using System.Threading;
-	using DomHelpers.SlcServicemanagement;
-	using DomHelpers.SlcWorkflow;
 	using Library;
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Core.DataMinerSystem.Automation;
@@ -395,7 +393,7 @@ namespace SLC_SM_Create_Service_Inventory_Item
 				{
 					Identifier = duplicatedParameterId,
 					Mandatory = sourceParameter.Mandatory,
-					ConfigurationParameterId = new SdmObjectReference<ConfigModels.ConfigurationParameter>(duplicatedConfigParameterValueId),
+					ConfigurationParameterId = new SdmObjectReference<ConfigModels.ConfigurationParameterValue>(duplicatedConfigParameterValueId),
 				};
 
 				sdmHelper.ServiceInventory.ServiceConfigurationValues.Create(duplicatedParameter);
@@ -665,8 +663,6 @@ namespace SLC_SM_Create_Service_Inventory_Item
 					: null,
 				Profiles = duplicatedChildProfiles,
 				ConfigurationParameterValues = duplicatedConfigurationParameterValues,
-				TestedProtocols = sourceProfile.TestedProtocols?.Select(tp => new SdmObjectReference<ConfigModels.ProtocolTest>(tp.Identifier)).ToList()
-					?? new List<SdmObjectReference<ConfigModels.ProtocolTest>>(),
 			};
 
 			sdmHelper.ServiceCatalog.Profiles.Create(duplicatedProfile);

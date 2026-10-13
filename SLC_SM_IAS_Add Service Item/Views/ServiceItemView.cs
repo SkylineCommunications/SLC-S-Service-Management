@@ -47,7 +47,7 @@
 
 		public Label LblServiceItemType { get; } = new Label("Service Item Type");
 
-		public EnumDropDown<SlcServicemanagementIds.Enums.ServiceitemtypesEnum> ServiceItemType { get; } = new EnumDropDown<SlcServicemanagementIds.Enums.ServiceitemtypesEnum> { Width = Defaults.WidgetWidth };
+		public EnumDropDown<SlcServicemanagementIds.Enums.ServiceItemTypesEnum> ServiceItemType { get; } = new EnumDropDown<SlcServicemanagementIds.Enums.ServiceItemTypesEnum> { Width = Defaults.WidgetWidth };
 
 		public Label LblDefinitionReference { get; } = new Label("Definition Reference");
 

@@ -70,7 +70,7 @@
 
 		public Label LblPriority { get; } = new Label("Priority");
 
-		public DropDown<SlcServicemanagementIds.Enums.ServiceorderpriorityEnum> Priority { get; } = new DropDown<SlcServicemanagementIds.Enums.ServiceorderpriorityEnum> { Width = Defaults.WidgetWidth };
+		public DropDown<SlcServicemanagementIds.Enums.ServiceOrderPriorityEnum> Priority { get; } = new DropDown<SlcServicemanagementIds.Enums.ServiceOrderPriorityEnum> { Width = Defaults.WidgetWidth };
 
 		public Label LblDescription { get; } = new Label("Description");
 

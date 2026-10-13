@@ -145,9 +145,9 @@ namespace SLC_SM_IAS_Add_Service_Item
 				throw new InvalidOperationException($"A service item with label '{newLabel}' already exists.");
 			}
 
-			if (!Enum.TryParse(payload.Type, true, out SlcServicemanagementIds.Enums.ServiceitemtypesEnum type))
+			if (!Enum.TryParse(payload.Type, true, out SlcServicemanagementIds.Enums.ServiceItemTypesEnum type))
 			{
-				type = SlcServicemanagementIds.Enums.ServiceitemtypesEnum.Service;
+				type = SlcServicemanagementIds.Enums.ServiceItemTypesEnum.Service;
 			}
 
 			var section = new Models.ServiceItem
@@ -307,8 +307,7 @@ namespace SLC_SM_IAS_Add_Service_Item
 
 		private void AddServiceLink(Guid serviceInstanceId, string serviceInstanceName, Models.ServiceItem newSection)
 		{
-			if (newSection.Type != SlcServicemanagementIds.Enums.ServiceitemtypesEnum.Service
-				|| String.IsNullOrWhiteSpace(newSection.ImplementationReference)
+			if (newSection.Type != SlcServicemanagementIds.Enums.ServiceItemTypesEnum.Service
 				|| !_engine.DomModelExists(SlcRelationshipsIds.ModuleId, new[] { SlcRelationshipsIds.Sections.LinkInfo.Id.Id }))
 			{
 				return;

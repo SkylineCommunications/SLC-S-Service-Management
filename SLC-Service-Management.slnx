@@ -12,11 +12,11 @@
     <Project Path="SLC_SM_AS_AddRelationship/SLC_SM_AS_AddRelationship.csproj" />
     <Project Path="SLC_SM_AS_AddServiceItem/SLC_SM_AS_AddServiceItem.csproj" />
     <Project Path="SLC_SM_AS_DeleteServiceCategory/SLC_SM_AS_DeleteServiceCategory.csproj" />
-    <Project Path="SLC_SM_AS_ManageServiceCategory/SLC_SM_AS_ManageServiceCategory.csproj" />
     <Project Path="SLC_SM_AS_DynamicDelete/SLC_SM_AS_DynamicDelete.csproj" />
     <Project Path="SLC_SM_AS_Execute Script/SLC_SM_AS_Execute Script.csproj" Id="59f786c4-3e31-4c52-b132-26326baf1c88">
       <Build Solution="Debug|*" Project="false" />
     </Project>
+    <Project Path="SLC_SM_AS_ManageServiceCategory/SLC_SM_AS_ManageServiceCategory.csproj" />
     <Project Path="SLC_SM_AS_Service Item ContextMenu Actions/SLC_SM_AS_Service Item ContextMenu Actions.csproj" />
     <Project Path="SLC_SM_AS_SetIcon/SLC_SM_AS_SetIcon.csproj" />
     <Project Path="SLC_SM_Create Job For Service Item/SLC_SM_Create Job For Service Item.csproj" />
@@ -48,23 +48,23 @@
     <Project Path="SLC_SM_DS_GetTopologyNodes/SLC_SM_DS_GetTopologyNodes.csproj" />
     <Project Path="SLC_SM_DS_GetWorkflows/SLC_SM_DS_GetWorkflows.csproj" />
     <Project Path="SLC_SM_DS_TopologySelectedItems/SLC_SM_DS_TopologySelectedItems.csproj" />
-    <Project Path="SLC_SM_GQIDS_Get Service Item Infos/SLC_SM_GQIDS_Get Service Item Infos.csproj" />
+    <Project Path="SLC_SM_GQIDS_Get Monitoring Services/SLC_SM_GQIDS_Get Monitoring Services.csproj" />
+    <Project Path="SLC_SM_GQIDS_Get Related Service Orders/SLC_SM_GQIDS_Get Related Service Orders.csproj" />
     <Project Path="SLC_SM_GQIDS_Get Service Categories/SLC_SM_GQIDS_Get Service Categories.csproj">
       <Build Solution="Debug|*" Project="false" />
     </Project>
     <Project Path="SLC_SM_GQIDS_Get Service Configurations/SLC_SM_GQIDS_Get Service Configurations.csproj">
       <Build Solution="Debug|*" Project="false" />
     </Project>
-    <Project Path="SLC_SM_GQIDS_Get Monitoring Services/SLC_SM_GQIDS_Get Monitoring Services.csproj" />
+    <Project Path="SLC_SM_GQIDS_Get Service Item Infos/SLC_SM_GQIDS_Get Service Item Infos.csproj" />
     <Project Path="SLC_SM_GQIDS_Get Service Order Items/SLC_SM_GQIDS_Get Service Order Items.csproj" />
     <Project Path="SLC_SM_GQIDS_Get Service Orders/SLC_SM_GQIDS_Get Service Orders.csproj" />
     <Project Path="SLC_SM_GQIDS_Get Service Organizations/SLC_SM_GQIDS_Get Service Organizations.csproj" />
-    <Project Path="SLC_SM_GQIDS_Get Related Service Orders/SLC_SM_GQIDS_Get Related Service Orders.csproj" />
-    <Project Path="SLC_SM_GQIDS_Get Service Specifications/SLC_SM_GQIDS_Get Service Specifications.csproj" />
-    <Project Path="SLC_SM_GQIDS_Get Services/SLC_SM_GQIDS_Get Services.csproj" />
     <Project Path="SLC_SM_GQIDS_Get Service Scripts/SLC_SM_GQIDS_Get Service Scripts.csproj" Id="6588f8c7-899f-4ed6-aed0-7b0f11f56b45">
       <Build Solution="Debug|*" Project="false" />
     </Project>
+    <Project Path="SLC_SM_GQIDS_Get Service Specifications/SLC_SM_GQIDS_Get Service Specifications.csproj" />
+    <Project Path="SLC_SM_GQIDS_Get Services/SLC_SM_GQIDS_Get Services.csproj" />
   </Folder>
   <Folder Name="/IAS/">
     <Project Path="Launch Interactive Subscript/Launch Interactive Subscript.csproj" />
@@ -89,6 +89,9 @@
     <File Path="Internal/Code Analysis/stylecop.json" />
   </Folder>
   <Folder Name="/Operators/">
+    <Project Path="Operators/SLC_SM_CO_RenameColumn/SLC_SM_CO_RenameColumn.csproj">
+      <Build Solution="Debug|*" Project="false" />
+    </Project>
     <Project Path="Service-Management-GQI-CustomOperator-HasValue/Service-Management-GQI-CustomOperator-HasValue.csproj" />
     <Project Path="SLC_SM_CO_GetCharacteristics/SLC_SM_CO_GetCharacteristics.csproj" />
     <Project Path="SLC_SM_CO_GetWorkflowIcon/SLC_SM_CO_GetWorkflowIcon.csproj" />

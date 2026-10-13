@@ -230,7 +230,7 @@ namespace SLC_SM_IAS_Service_Configuration
 					: helper.ServiceInventory.ServiceConfigurationValues
 						.Read(ServiceConfigurationValueExposers.Identifier.Equal(parameter.ConfigurationId))
 						.FirstOrDefault() ?? throw new InvalidOperationException($"Configuration '{parameter.ConfigurationId}' was not found.");
-				configuration.ConfigurationParameterId = new SdmObjectReference<ConfigurationParameter>(parameterValue.Identifier);
+				configuration.ConfigurationParameterId = new SdmObjectReference<ConfigurationParameterValue>(parameterValue.Identifier);
 				configuration.Mandatory = parameter.Mandatory;
 				helper.ServiceInventory.ServiceConfigurationValues.CreateOrUpdate(new[] { configuration });
 				references.Add(new SdmObjectReference<ServiceConfigurationValue>(configuration.Identifier));

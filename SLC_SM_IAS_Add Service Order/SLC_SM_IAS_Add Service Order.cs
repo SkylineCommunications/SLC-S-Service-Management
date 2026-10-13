@@ -199,7 +199,7 @@ namespace SLC_SM_IAS_Add_Service_Order_1
 			string priority = payload.Priority;
 			if (!String.IsNullOrWhiteSpace(priority))
 			{
-				if (!Enum.TryParse(priority, true, out SlcServicemanagementIds.Enums.ServiceorderpriorityEnum parsedPriority))
+				if (!Enum.TryParse(priority, true, out SlcServicemanagementIds.Enums.ServiceOrderPriorityEnum parsedPriority))
 				{
 					throw new InvalidOperationException($"Unsupported service-order priority '{priority}'.");
 				}

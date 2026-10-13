@@ -86,8 +86,11 @@ namespace ServiceOrder_StateTranstitions_1
 			subScript.Synchronous = true;
 			subScript.InheritScriptOutput = true;
 
-			// Launch the script
-			subScript.StartScript();
+			using (engine.GetUserConnection().ShareCorrelationWithSubScripts())
+			{
+				subScript.StartScript();
+			}
+
 			if (subScript.HadError)
 			{
 				throw new InvalidOperationException("Script failed");
@@ -122,7 +125,7 @@ namespace ServiceOrder_StateTranstitions_1
 
 			if (orderItems.Any(o => !o.CanBeRejected(connection)))
 			{
-				throw new NotSupportedException("Some underlying order items or linked service items are already in progress, it's not possible to reject the order at this point");
+				throw new NotSupportedException("The order can only be rejected while all order items are New or Acknowledged and their linked services (if any) are Terminated or Retired.");
 			}
 
 			if (!skipConfirmation && !engine.ShowConfirmDialog("Do you wish to reject the current order?"))
@@ -176,7 +179,8 @@ namespace ServiceOrder_StateTranstitions_1
 				item.TryUpdateStatusToAcknowledged(connection);
 			}
 
-			order.UpdateStatusToAcknowledged(connection);
+			var latestOrder = api.ServiceOrder.ServiceOrders.Read(ServiceOrderExposers.Identifier.Equal(order.Identifier)).FirstOrDefault();
+			latestOrder?.UpdateStatusToAcknowledged(connection);
 		}
 
 		private void RunSafe()
