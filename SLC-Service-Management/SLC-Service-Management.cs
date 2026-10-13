@@ -57,24 +57,9 @@ internal class Script
 
 			installer.InstallDefaultContent();
 			EnsureMediaOpsDependencies(engine, installer);
-			//var installer = new AppInstaller(Engine.SLNetRaw, context);
-			//installer.InstallDefaultContent();
 
-			// string setupContentPath = installer.GetSetupContentDirectory();
-			//installerHelper.GetDomInstaller().InstallDomModules();
-			// string setupContentPath = installer.GetSetupContentDirectory();
-			//var installer = new AppInstaller(Engine.SLNetRaw, context);
-			//_setupContentPath = installer.GetSetupContentDirectory();
-
-			//// Custom installation logic can be added here for each individual install package.
-			//var exceptions = new List<Exception>();
-			//installer.Log("Importing DOM...");
-			//exceptions.AddRange(ImportDom(engine));
-
-			//if (exceptions.Any())
-			//{
-			//	throw new AggregateException(exceptions);
-			//}
+			installer.Log("Importing DOM...");
+			ImportDom(engine, installer);
 
 			var installerHelper = new AppInstallerHelper(Engine.SLNetRaw, context);
 			installerHelper.InstallDefaultContent();
@@ -85,9 +70,6 @@ internal class Script
 				url: "/public/service-management",
 				icon: "ms-Icon--BuildDefinition",
 				color: Color.FromArgb(220, 38, 38));
-
-			installer.Log("Importing DOM...");
-			ImportDom(engine, installer);
 
 			RegisterSolution(engine, installer, context);
 		}
