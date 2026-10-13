@@ -106,7 +106,7 @@ export function isOpenOrder(order) { return !CLOSED_STATES.has(order.state.trim(
 
 export async function fetchServiceOrders() {
     const rows = await runQuery(SERVICE_ORDERS_QUERY);
-    return rows.map(row => ({ id: row['Order ID'] ?? '', name: row['Name'] ?? '', description: row['Description'] ?? '', priority: row['Priority'] ?? '', externalId: row['External ID'] ?? '', organization: row['Related Organization'] ?? '', state: row['State'] ?? '', start: formatDataMinerDateTime(row.Start), createdAt: formatDataMinerDateTime(row['Created At']), createdAtTimestamp: getDataMinerTimestamp(row['Created At']) }));
+    return rows.map(row => ({ id: row['Order ID'] ?? '', name: row['Name'] ?? '', description: row['Description'] ?? '', priority: row['Priority'] ?? '', externalId: row['External ID'] ?? '', organization: row['Related Organization'] ?? '', state: row['State'] ?? '', start: formatDataMinerDateTime(row.Start), end: formatDataMinerDateTime(row.End), createdAt: formatDataMinerDateTime(row['Created At']), createdAtTimestamp: getDataMinerTimestamp(row['Created At']) }));
 }
 
 export async function fetchRelatedServiceOrders(serviceId) {

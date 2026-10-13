@@ -1296,7 +1296,7 @@ function useConfirmation() {
 }
 
 function NewOrderDialog({ busy, onClose, onSubmit, initialOrder = null, action = 'Add', existingOrderNames = [] }) {
-    const [form, setForm] = useState(() => ({ name: initialOrder?.name || '', description: initialOrder?.description || '', externalId: initialOrder?.externalId || '', priority: initialOrder?.priority || 'High', organization: initialOrder?.organization || '', requestedStart: initialOrder?.start || '', requestedEnd: '', completionEnabled: Boolean(initialOrder?.start) }));
+    const [form, setForm] = useState(() => ({ name: initialOrder?.name || '', description: initialOrder?.description || '', externalId: initialOrder?.externalId || '', priority: initialOrder?.priority || 'High', organization: initialOrder?.organization || '', requestedStart: dateTimeInputValue(initialOrder?.start), requestedEnd: dateTimeInputValue(initialOrder?.end), completionEnabled: Boolean(initialOrder?.start || initialOrder?.end) }));
     const organizationData = useDataList(fetchServiceOrganizations);
     const [closed, setClosed] = useState(false);
     const [submitAttempted, setSubmitAttempted] = useState(false);

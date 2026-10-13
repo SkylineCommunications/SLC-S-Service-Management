@@ -37,6 +37,7 @@ namespace SLC_SM_GQIDS_Get_Service_Orders
 				new GQIStringColumn("Related Organization"),
 				new GQIStringColumn("State"),
 				new GQIDateTimeColumn("Start"),
+				new GQIDateTimeColumn("End"),
 				new GQIDateTimeColumn("Created At"),
 			};
 		}
@@ -84,6 +85,7 @@ namespace SLC_SM_GQIDS_Get_Service_Orders
 					new GQICell { Value = item.OrganizationId.HasValue ? organizations.Find(x => x.ID == item.OrganizationId)?.Name ?? String.Empty : String.Empty },
 					new GQICell { Value = item.Status.GetDescription() },
 					new GQICell { Value = item.CompletionInfo?.RequestedStartDate?.ToUniversalTime() },
+					new GQICell { Value = item.CompletionInfo?.RequestedCompletedDate?.ToUniversalTime() },
 					new GQICell { Value = createdAtById.TryGetValue(id, out var createdAt) ? createdAt.UtcDateTime : (DateTime?)null },
 				};
 			return new GQIRow(id, columns) { Metadata = metadata };

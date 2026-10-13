@@ -391,6 +391,29 @@ test.describe('Service Management workspace', () => {
         expect(count(mock, 'GetNextQuerySessionPage')).toBe(2);
         await expect.poll(() => count(mock, 'CloseQuerySession')).toBe(1);
     });
+    test('preserves the requested completion date when editing an order', { tag: '@W1' }, async ({ page }) => {
+        await page.locator('.order-row').filter({ hasText: 'Network refresh' }).getByRole('button', { name: 'Open details of Network refresh' }).click();
+        await page.getByRole('dialog', { name: 'Network refresh' }).getByRole('button', { name: 'Edit', exact: true }).click();
+
+        const form = page.getByRole('form', { name: 'Edit service order' });
+        await expect(form.getByLabel('Requested start date')).toHaveValue('2026-10-20T10:30');
+        await expect(form.getByLabel('Requested completed date')).toHaveValue('2026-10-20T12:45');
+        await form.getByRole('textbox', { name: 'Label' }).fill('Network refresh updated');
+        await form.getByRole('button', { name: 'Save', exact: true }).click();
+
+        const saveCall = mock.calls
+            .filter(call => call.method === 'ExecuteAutomationScriptWithOutput' && call.body.script?.Name === 'SLC_SM_IAS_Add Service Order')
+            .at(-1);
+        expect(saveCall).toBeTruthy();
+        const parameters = Object.fromEntries(saveCall!.body.script.Parameters.map((parameter: any) => [
+            parameter.Name,
+            JSON.parse(parameter.Value ?? '[]')?.[0] ?? '',
+        ]));
+        expect(parameters.Action).toBe('Edit');
+        const payload = JSON.parse(parameters.Payload);
+        expect(payload.RequestedStart).toBe('2026-10-20T10:30');
+        expect(payload.RequestedEnd).toBe('2026-10-20T12:45');
+    });
     test('refresh re-runs the GQI query', { tag: '@G3' }, async ({ page }) => {
         await expect(page.locator('.order-row')).toHaveCount(3);
         await page.getByRole('button', { name: 'Refresh', exact: true }).click();

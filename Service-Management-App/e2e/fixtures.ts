@@ -12,12 +12,12 @@ export async function setSessionCookie(context: BrowserContext): Promise<void> {
 
 // Sample rows returned by the mocked "Get_ServiceOrders" GQI ad hoc data source.
 export const SAMPLE_ORDERS = [
-    { 'Order ID': '6f1c2a90-1b2c-4d3e-8f40-5a6b7c8d9e01', Name: 'Network refresh', Description: 'Replace core switches', Priority: 'High', 'External ID': 'SO-1042', 'Related Organization': 'Skyline Broadcast', State: 'In Progress' },
+    { 'Order ID': '6f1c2a90-1b2c-4d3e-8f40-5a6b7c8d9e01', Name: 'Network refresh', Description: 'Replace core switches', Priority: 'High', 'External ID': 'SO-1042', 'Related Organization': 'Skyline Broadcast', State: 'In Progress', Start: '10/20/2026 10:30:00 AM', End: '10/20/2026 12:45:00 PM' },
     { 'Order ID': '7a2d3b81-2c3d-4e5f-9a51-6b7c8d9e0f12', Name: 'Studio expansion', Description: 'Add studio B', Priority: 'Medium', 'External ID': '', 'Related Organization': 'Acme Media', State: 'New' },
     { 'Order ID': '8b3e4c72-3d4e-4f60-ab62-7c8d9e0f1a23', Name: 'Backup link', Description: 'Secondary contribution link', Priority: 'Low', 'External ID': 'SO-1038', 'Related Organization': 'Skyline Broadcast', State: 'Completed' },
 ];
 // Deliberately not in the C# column order: the app must map cells by column name, not by index.
-const COLUMNS = ['State', 'Name', 'Order ID', 'Related Organization', 'Priority', 'External ID', 'Description'];
+const COLUMNS = ['State', 'Name', 'Order ID', 'Related Organization', 'Priority', 'External ID', 'Description', 'End', 'Start'];
 // Rows returned by the mocked "Get_ServiceOrderItems" data source, keyed by the "DOM ID" argument.
 export const SAMPLE_ORDER_ITEMS: Record<string, Record<string, string>[]> = {
     [SAMPLE_ORDERS[0]['Order ID']]: [

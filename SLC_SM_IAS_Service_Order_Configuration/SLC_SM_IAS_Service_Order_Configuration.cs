@@ -100,7 +100,7 @@ namespace SLC_SM_IAS_Service_Order_Configuration
 
 			if (payload.DeleteAll)
 			{
-				DeleteAllConfigurations(helper, item);
+				DeleteAllConfigurations(helper, item, ownedConfigurations);
 				return;
 			}
 
@@ -224,8 +224,13 @@ namespace SLC_SM_IAS_Service_Order_Configuration
 			}
 		}
 
-		private static void DeleteAllConfigurations(ServiceManagementApiHelper helper, ServiceOrderItem item)
+		private static void DeleteAllConfigurations(
+			ServiceManagementApiHelper helper,
+			ServiceOrderItem item,
+			OwnedConfigurationGraph ownedConfigurations)
 		{
+			DeleteOwnedConfigurations(helper, ownedConfigurations.Configurations.Values, ownedConfigurations);
+
 			item.ServiceInfo = item.ServiceInfo ?? new ServiceOrderItemServiceInfo();
 			item.ServiceInfo.Configurations = new List<SdmObjectReference<ServiceOrderItemConfigurationValue>>();
 			helper.ServiceOrder.ServiceOrderItems.Update(item);
@@ -237,12 +242,78 @@ namespace SLC_SM_IAS_Service_Order_Configuration
 			OwnedConfigurationGraph ownedConfigurations)
 		{
 			var deletedConfigurationIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+			var configurationsToDelete = new List<ServiceOrderItemConfigurationValue>();
 			foreach (var configurationId in payload.DeleteConfigurationIds ?? new List<string>())
 			{
-				if (!String.IsNullOrWhiteSpace(configurationId)
+				if (!string.IsNullOrWhiteSpace(configurationId)
 					&& deletedConfigurationIds.Add(configurationId))
 				{
-					helper.ServiceOrder.ServiceOrderItemConfigurationValues.Delete(ownedConfigurations.Configurations[configurationId]);
+					configurationsToDelete.Add(ownedConfigurations.Configurations[configurationId]);
+				}
+			}
+
+			DeleteOwnedConfigurations(helper, configurationsToDelete, ownedConfigurations);
+		}
+
+		private static void DeleteOwnedConfigurations(
+			ServiceManagementApiHelper helper,
+			IEnumerable<ServiceOrderItemConfigurationValue> configurations,
+			OwnedConfigurationGraph ownedConfigurations)
+		{
+			var configurationsToDelete = configurations.ToList();
+			if (configurationsToDelete.Count == 0)
+			{
+				return;
+			}
+
+			var deletedConfigurationIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+			var parameterValueIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+			foreach (var configuration in configurationsToDelete)
+			{
+				if (!string.IsNullOrWhiteSpace(configuration.Identifier))
+				{
+					deletedConfigurationIds.Add(configuration.Identifier);
+				}
+
+				var parameterValueReference = configuration.ConfigurationParameterValueId;
+				var parameterValueId = parameterValueReference == null ? null : parameterValueReference.Identifier;
+				if (!string.IsNullOrWhiteSpace(parameterValueId))
+				{
+					parameterValueIds.Add(parameterValueId);
+				}
+			}
+
+			var remainingParameterValueIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+			if (parameterValueIds.Count > 0)
+			{
+				foreach (var configuration in helper.ServiceOrder.ServiceOrderItemConfigurationValues
+					.Read(new TRUEFilterElement<ServiceOrderItemConfigurationValue>()))
+				{
+					if (deletedConfigurationIds.Contains(configuration.Identifier))
+					{
+						continue;
+					}
+
+					var parameterValueReference = configuration.ConfigurationParameterValueId;
+					var parameterValueId = parameterValueReference == null ? null : parameterValueReference.Identifier;
+					if (!string.IsNullOrWhiteSpace(parameterValueId))
+					{
+						remainingParameterValueIds.Add(parameterValueId);
+					}
+				}
+			}
+
+			foreach (var configuration in configurationsToDelete)
+			{
+				helper.ServiceOrder.ServiceOrderItemConfigurationValues.Delete(configuration);
+			}
+
+			foreach (var parameterValueId in parameterValueIds)
+			{
+				if (!remainingParameterValueIds.Contains(parameterValueId)
+					&& ownedConfigurations.ParameterValues.TryGetValue(parameterValueId, out var parameterValue))
+				{
+					helper.ServiceCatalog.ConfigurationParameterValues.Delete(parameterValue);
 				}
 			}
 		}
