@@ -20,10 +20,10 @@ namespace SLC_SM_IAS_Add_Service_Order_1
 		/// <summary>Gets or sets the organization name.</summary>
 		public string Organization { get; set; }
 
-		/// <summary>Gets or sets the requested start time.</summary>
+		/// <summary>Gets or sets the requested start time as ISO 8601 with a UTC offset.</summary>
 		public string RequestedStart { get; set; }
 
-		/// <summary>Gets or sets the requested completion time.</summary>
+		/// <summary>Gets or sets the requested completion time as ISO 8601 with a UTC offset.</summary>
 		public string RequestedEnd { get; set; }
 
 		/// <summary>Gets or sets a value indicating whether completion settings are enabled.</summary>

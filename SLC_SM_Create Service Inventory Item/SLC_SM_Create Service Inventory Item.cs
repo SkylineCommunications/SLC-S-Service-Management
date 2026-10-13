@@ -227,6 +227,9 @@ namespace SLC_SM_Create_Service_Inventory_Item
 
 		private void DuplicateServiceViaSdm(IServiceManagementApiHelper sdmHelper, SdmModels.Service source, SdmModels.Service instance)
 		{
+			instance.GenerateMonitoringService = false;
+			instance.MonitoringService = String.Empty;
+
 			var configurationVersionMap = new Dictionary<string, string>(StringComparer.InvariantCultureIgnoreCase);
 			var duplicatedConfigurationVersions = DuplicateConfigurationVersions(sdmHelper, source, instance.ServiceID, configurationVersionMap);
 			instance.ConfigurationVersions = duplicatedConfigurationVersions
@@ -1095,8 +1098,8 @@ namespace SLC_SM_Create_Service_Inventory_Item
 					Description = source.Description,
 					StartTime = source.StartTime,
 					EndTime = source.EndTime,
-					GenerateMonitoringService = source.GenerateMonitoringService,
-					MonitoringService = source.MonitoringService,
+					GenerateMonitoringService = false,
+					MonitoringService = String.Empty,
 					Icon = source.Icon,
 					CategoryId = source.CategoryId == null ? null : new SdmObjectReference<SdmModels.ServiceCategory>(source.CategoryId.Identifier),
 					ServiceSpecificationId = source.ServiceSpecificationId == null ? null : new SdmObjectReference<SdmModels.ServiceSpecification>(source.ServiceSpecificationId.Identifier),

@@ -1326,8 +1326,8 @@ function NewOrderDialog({ busy, onClose, onSubmit, initialOrder = null, action =
                 ExternalId: form.externalId,
                 Priority: form.priority,
                 Organization: form.organization,
-                RequestedStart: form.completionEnabled ? form.requestedStart : '',
-                RequestedEnd: form.completionEnabled ? form.requestedEnd : '',
+                RequestedStart: form.completionEnabled ? dateTimeLocalToUtc(form.requestedStart) : '',
+                RequestedEnd: form.completionEnabled ? dateTimeLocalToUtc(form.requestedEnd) : '',
                 CompletionSettingsEnabled: form.completionEnabled,
             }),
         });
@@ -1445,6 +1445,13 @@ function dateTimeInputValue(value) {
     if (Number.isNaN(date.getTime())) return '';
     const pad = number => String(number).padStart(2, '0');
     return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function dateTimeLocalToUtc(value) {
+    if (!value) return '';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+    return date.toISOString();
 }
 
 function isEndBeforeStart(startValue, endValue) {

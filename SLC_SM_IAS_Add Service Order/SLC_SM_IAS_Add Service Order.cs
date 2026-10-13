@@ -255,17 +255,29 @@ namespace SLC_SM_IAS_Add_Service_Order_1
 
 		private static DateTime? ParseOptionalDate(string raw, string fieldName)
 		{
-			if (String.IsNullOrWhiteSpace(raw))
+			if (string.IsNullOrWhiteSpace(raw))
 			{
 				return null;
 			}
 
-			if (!DateTime.TryParse(raw, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var parsed))
+			if (!HasExplicitTimeZone(raw) || !DateTimeOffset.TryParse(raw, CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTimeOffset parsed))
 			{
-				throw new InvalidOperationException($"Invalid {fieldName} date '{raw}'.");
+				throw new InvalidOperationException($"Invalid {fieldName} date. Expected ISO 8601 with a UTC offset.");
 			}
 
-			return parsed.ToUniversalTime();
+			return parsed.UtcDateTime;
+		}
+
+		private static bool HasExplicitTimeZone(string value)
+		{
+			if (value.EndsWith("Z", StringComparison.OrdinalIgnoreCase))
+			{
+				return true;
+			}
+
+			int timeSeparatorIndex = value.IndexOf('T');
+			return timeSeparatorIndex >= 0
+				&& (value.LastIndexOf('+') > timeSeparatorIndex || value.LastIndexOf('-') > timeSeparatorIndex);
 		}
 
 		private static string GetDefaultOrderId(IEnumerable<string> usedOrderIds)
