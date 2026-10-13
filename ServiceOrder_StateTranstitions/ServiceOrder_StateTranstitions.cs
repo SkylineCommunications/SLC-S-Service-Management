@@ -118,7 +118,7 @@
 
 			if (orderItems.Any(o => !o.CanBeRejected(connection)))
 			{
-				throw new NotSupportedException("Some underlying order items or linked service items are already in progress, it's not possible to reject the order at this point");
+				throw new NotSupportedException("The order can only be rejected while all order items are New or Acknowledged and their linked services (if any) are Terminated or Retired.");
 			}
 
 			if (!engine.ShowConfirmDialog("Do you wish to reject the current order?"))

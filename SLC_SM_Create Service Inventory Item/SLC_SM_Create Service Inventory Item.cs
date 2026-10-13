@@ -351,7 +351,7 @@ namespace SLC_SM_Create_Service_Inventory_Item
 				{
 					Identifier = duplicatedParameterId,
 					Mandatory = sourceParameter.Mandatory,
-					ConfigurationParameterId = new SdmObjectReference<ConfigModels.ConfigurationParameter>(duplicatedConfigParameterValueId),
+					ConfigurationParameterId = new SdmObjectReference<ConfigModels.ConfigurationParameterValue>(duplicatedConfigParameterValueId),
 				};
 
 				sdmHelper.ServiceInventory.ServiceConfigurationValues.Create(duplicatedParameter);
