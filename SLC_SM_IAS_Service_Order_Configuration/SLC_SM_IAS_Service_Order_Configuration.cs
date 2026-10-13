@@ -9,8 +9,6 @@ DATE		VERSION		AUTHOR			COMMENTS
 
 28/05/2025	1.0.0.1		RME, Skyline	Initial version
 09/10/2026	1.0.0.2		SKA, Skyline	DataMinerApp support
-09/10/2026	1.0.0.3		SKA, Skyline	DataMinerApp support
-09/10/2026	1.0.0.3		SKA, Skyline	DataMinerApp support
 ****************************************************************************
 */
 
