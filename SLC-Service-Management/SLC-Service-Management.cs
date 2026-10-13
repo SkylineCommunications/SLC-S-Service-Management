@@ -76,6 +76,7 @@ internal class Script
 		subscript.SelectScriptParam("Version", context.AppInfo.Version);
 
 		subscript.Synchronous = true;
+		subscript.ExtendedErrorInfo = true;
 		subscript.StartScript();
 
 		if (subscript.HadError)
