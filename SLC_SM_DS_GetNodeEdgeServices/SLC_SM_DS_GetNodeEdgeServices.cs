@@ -195,7 +195,7 @@ namespace SLCSMDSGetNodeEdgeServices
 		private IEnumerable<ServicesInstance> GetChannelDistributionRelatedServices(ServicesInstance service)
 		{
 			var serviceItems = service.ServiceItems
-				.Where(si => si.ServiceItemType == SlcServicemanagementIds.Enums.ServiceitemtypesEnum.Service);
+				.Where(si => si.ServiceItemType == SlcServicemanagementIds.Enums.ServiceItemTypesEnum.Service);
 
 			var filters = serviceItems
 				.Select(

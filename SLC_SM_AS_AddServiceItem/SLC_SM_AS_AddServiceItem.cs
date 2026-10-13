@@ -116,8 +116,8 @@ namespace SLCSMASAddServiceItem
 		{
 			return new Models.ServiceItem
 			{
-				Type = (SlcServicemanagementIds.Enums.ServiceitemtypesEnum)Enum.Parse(
-					typeof(SlcServicemanagementIds.Enums.ServiceitemtypesEnum), _serviceItemType),
+				Type = (SlcServicemanagementIds.Enums.ServiceItemTypesEnum)Enum.Parse(
+					typeof(SlcServicemanagementIds.Enums.ServiceItemTypesEnum), _serviceItemType),
 				DefinitionReference = _definitionReference,
 				Script = String.Empty,
 				ImplementationReference = String.Empty,
