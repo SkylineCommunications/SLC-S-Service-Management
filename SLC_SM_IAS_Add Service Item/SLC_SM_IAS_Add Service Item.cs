@@ -228,7 +228,7 @@ namespace SLC_SM_IAS_Add_Service_Item
 
 		private void AddServiceLink(Guid serviceInstanceId, string serviceInstanceName, Models.ServiceItem newSection)
 		{
-			if (newSection.Type != SlcServicemanagementIds.Enums.ServiceitemtypesEnum.Service
+			if (newSection.Type != SlcServicemanagementIds.Enums.ServiceItemTypesEnum.Service
 				|| !_engine.DomModelExists(SlcRelationshipsIds.ModuleId, new[] { SlcRelationshipsIds.Sections.LinkInfo.Id.Id }))
 			{
 				return;
