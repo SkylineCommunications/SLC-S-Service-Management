@@ -179,7 +179,11 @@
 			addServiceItemScript.SelectScriptParam("DefinitionReference", definitionReference);
 			addServiceItemScript.Synchronous = true;
 			addServiceItemScript.InheritScriptOutput = true;
-			addServiceItemScript.StartScript();
+
+			using (_engine.GetUserConnection().ShareCorrelationWithSubScripts())
+			{
+				addServiceItemScript.StartScript();
+			}
 
 			if (addServiceItemScript.HadError)
 				throw new InvalidOperationException($"Error creating the service item:{addServiceItemScript.GetErrorMessages()}");
