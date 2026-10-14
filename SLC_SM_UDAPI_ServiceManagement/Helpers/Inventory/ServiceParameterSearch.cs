@@ -165,8 +165,8 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 				return false;
 			}
 
-if (!IdMatches(query.CategoryId, service.CategoryId?.Identifier)
-	|| !IdMatches(query.ServiceSpecificationId, service.ServiceSpecificationId?.Identifier))
+			if (!IdMatches(query.CategoryId, service.CategoryId.Identifier)
+				|| !IdMatches(query.ServiceSpecificationId, service.ServiceSpecificationId.Identifier))
 			{
 				return false;
 			}
