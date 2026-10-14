@@ -26,7 +26,7 @@ namespace SLC_SM_UDAPI_ServiceManagement
 		[AutomationEntryPoint(AutomationEntryPointType.Types.OnApiTrigger)]
 		public static ApiTriggerOutput OnApiTrigger(IEngine engine, ApiTriggerInput requestData)
 		{
-			engine.Log($"Request: {JsonConvert.SerializeObject(requestData, Formatting.Indented)}");
+engine.Log($"Request: {requestData?.RequestMethod} {requestData?.Route}");
 
 			if (_api is null)
 			{
