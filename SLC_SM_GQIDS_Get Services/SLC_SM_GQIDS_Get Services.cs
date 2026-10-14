@@ -12,9 +12,11 @@ namespace SLC_SM_GQIDS_Get_Services
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
 	using SLC_SM_Common.Extensions;
-	using OrganizationExposers = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.OrganizationExposers;
+	using LegacyOrganizationModel = Skyline.DataMiner.ProjectApi.ServiceManagement.API.PeopleAndOrganization.Models.Organization;
 	using LegacyServiceExposers = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceExposers;
+	using LegacyServiceModel = Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement.Models.Service;
 	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
+	using OrganizationExposers = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.OrganizationExposers;
 
 	[GQIMetaData(Name = DataSourceName)]
 	public sealed class GetServices : IGQIDataSource, IGQIInputArguments, IGQIOnInit
@@ -79,9 +81,7 @@ namespace SLC_SM_GQIDS_Get_Services
 				_logger.Debug($"GQIDS|{DataSourceName}|Retrieved {services.Count} service inventory records.");
 				var categories = ReadCategories(services);
 				var specifications = ReadSpecifications(services);
-				var serviceOrganizations = String.IsNullOrWhiteSpace(_domId)
-					? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-					: ReadServiceOrganizations(services);
+				var serviceOrganizations = ReadServiceOrganizations(services);
 				var relatedOrders = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
 
 				return new GQIPage(services.Select(service => BuildRow(service, categories, specifications, serviceOrganizations, relatedOrders)).ToArray()) { HasNextPage = false };
@@ -220,35 +220,55 @@ namespace SLC_SM_GQIDS_Get_Services
 
 		private Dictionary<string, string> ReadServiceOrganizations(IEnumerable<Models.Service> services)
 		{
-			if (!_gqiDms.DomModelExists(SlcPeople_OrganizationsIds.ModuleId))
-			{
-				return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-			}
-
-			var serviceId = services
+			var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+			var serviceIds = services
 				.Select(service => service.Identifier)
 				.Select(identifier => Guid.TryParse(identifier, out var parsedId) ? parsedId : Guid.Empty)
-				.FirstOrDefault(identifier => identifier != Guid.Empty);
-			if (serviceId == Guid.Empty)
+				.Where(identifier => identifier != Guid.Empty)
+				.Distinct()
+				.ToList();
+			if (serviceIds.Count == 0 || !_gqiDms.DomModelExists(SlcPeople_OrganizationsIds.ModuleId))
 			{
-				return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+				return result;
 			}
 
-			var legacyService = new DataHelperService(_gqiDms.GetConnection())
-				.Read(LegacyServiceExposers.Guid.Equal(serviceId))
-				.FirstOrDefault();
-			if (legacyService?.OrganizationId == null)
+			FilterElement<LegacyServiceModel> serviceFilter = LegacyServiceExposers.Guid.Equal(serviceIds[0]);
+			foreach (var serviceId in serviceIds.Skip(1))
 			{
-				return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+				serviceFilter = serviceFilter.OR(LegacyServiceExposers.Guid.Equal(serviceId));
 			}
 
-			var organization = new DataHelpersPeopleAndOrganizations(_gqiDms.GetConnection())
+			var serviceOrganizationIds = new DataHelperService(_gqiDms.GetConnection())
+				.Read(serviceFilter)
+				.Where(service => service.OrganizationId.HasValue)
+				.ToDictionary(service => service.ID, service => service.OrganizationId.Value);
+			var organizationIds = serviceOrganizationIds.Values.Distinct().ToList();
+			if (organizationIds.Count == 0)
+			{
+				return result;
+			}
+
+			FilterElement<LegacyOrganizationModel> organizationFilter = OrganizationExposers.Guid.Equal(organizationIds[0]);
+			foreach (var organizationId in organizationIds.Skip(1))
+			{
+				organizationFilter = organizationFilter.OR(OrganizationExposers.Guid.Equal(organizationId));
+			}
+
+			var organizationNames = new DataHelpersPeopleAndOrganizations(_gqiDms.GetConnection())
 				.Organizations
-				.Read(OrganizationExposers.Guid.Equal(legacyService.OrganizationId.Value))
-				.FirstOrDefault();
-			return organization == null || String.IsNullOrWhiteSpace(organization.Name)
-				? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-				: new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [serviceId.ToString()] = organization.Name };
+				.Read(organizationFilter)
+				.Where(organization => !String.IsNullOrWhiteSpace(organization.Name))
+				.ToDictionary(organization => organization.ID, organization => organization.Name);
+
+			foreach (var serviceOrganization in serviceOrganizationIds)
+			{
+				if (organizationNames.TryGetValue(serviceOrganization.Value, out var organizationName))
+				{
+					result[serviceOrganization.Key.ToString()] = organizationName;
+				}
+			}
+
+			return result;
 		}
 
 	}

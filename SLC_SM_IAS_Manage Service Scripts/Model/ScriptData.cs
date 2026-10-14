@@ -104,12 +104,13 @@ namespace SLC_SM_IAS_Manage_Service_Scripts.Model
 				throw new InvalidOperationException("No service Id was provided.");
 			}
 
-			if (String.IsNullOrWhiteSpace(ScriptDescription))
+			bool apiMode = !String.IsNullOrWhiteSpace(engine.ReadScriptParamFromApp("Payload"));
+			if ((apiMode || Action == ScriptAction.Remove || Action == ScriptAction.Update) && String.IsNullOrWhiteSpace(ScriptDescription))
 			{
 				throw new InvalidOperationException("No script description was provided.");
 			}
 
-			if ((Action == ScriptAction.Add || Action == ScriptAction.Update) && String.IsNullOrWhiteSpace(ScriptName))
+			if (apiMode && (Action == ScriptAction.Add || Action == ScriptAction.Update) && String.IsNullOrWhiteSpace(ScriptName))
 			{
 				throw new InvalidOperationException("No script name was provided.");
 			}
