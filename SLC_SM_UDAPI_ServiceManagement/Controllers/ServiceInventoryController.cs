@@ -480,31 +480,44 @@
 			_logger.LogInformation("ListServices called with parameters:\ncategoryId={CategoryId}\nendDate={EndDate}\nfields={Fields}\nlimit={Limit}\nname={Name}\noffset={Offset}\norganizationId={OrganizationId}\nparameter={Parameter}\nprofileDefinition={ProfileDefinition}\nserviceSpecificationId={ServiceSpecificationId}\nsort={Sort}\nstartDate={StartDate}\nstatus={Status}",
 				categoryId, endDate, fields, limit, name, offset, organizationId, JsonConvert.SerializeObject(parameter), profileDefinition, serviceSpecificationId, sort, startDate, JsonConvert.SerializeObject(status));
 
-			var query = new ListServicesQuery
+			try
 			{
-				CategoryId = categoryId,
-				EndDate = endDate,
-				Limit = limit,
-				Name = name,
-				Offset = offset,
-				OrganizationId = organizationId,
-				Parameters = ParseParameters(parameter),
-				ProfileDefinitions = SplitCommaSeparatedValues(profileDefinition),
-				ServiceSpecificationId = serviceSpecificationId,
-				Sort = sort,
-				StartDate = startDate,
-				Statuses = SplitCommaSeparatedValues(status),
-			};
+				var query = new ListServicesQuery
+				{
+					CategoryId = categoryId,
+					EndDate = endDate,
+					Limit = limit,
+					Name = name,
+					Offset = offset,
+					OrganizationId = organizationId,
+					Parameters = ParseParameters(parameter),
+					ProfileDefinitions = SplitCommaSeparatedValues(profileDefinition),
+					ServiceSpecificationId = serviceSpecificationId,
+					Sort = sort,
+					StartDate = startDate,
+					Statuses = SplitCommaSeparatedValues(status),
+				};
 
-			var search = new ServiceParameterSearch(new TimedServiceSearchDataSource(new ServiceSearchDataSource(serviceManagementApiHelper), _logger));
-			var services = search.Find(query);
+				var search = new ServiceParameterSearch(new TimedServiceSearchDataSource(new ServiceSearchDataSource(serviceManagementApiHelper), _logger));
+				var services = search.Find(query);
 
-			if (SplitCommaSeparatedValues(fields).Count == 0)
-			{
-				return Ok(services);
+				if (SplitCommaSeparatedValues(fields).Count == 0)
+				{
+					return Ok(services);
+				}
+
+				return Ok(services.Select(s => SelectFields(s, fields)).ToList());
 			}
-
-			return Ok(services.Select(s => SelectFields(s, fields)).ToList());
+			catch (InvalidQueryException ex)
+			{
+				_logger.LogWarning(ex, "Invalid ListServices request: {Message}", ex.Message);
+				return BadRequest(CreateError("Invalid request", ex.Message, 400));
+			}
+			catch (Exception ex)
+			{
+				_logger.LogError(ex, "ListServices failed: {Message}", ex.Message);
+				return InternalServerError(CreateError("Internal server error", "An unexpected error occurred while listing the services.", 500));
+			}
 		}
 
 		[HttpPost("{id}/transition")]
