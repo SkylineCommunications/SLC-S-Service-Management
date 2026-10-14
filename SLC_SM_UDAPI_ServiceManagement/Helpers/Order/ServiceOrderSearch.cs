@@ -180,10 +180,10 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Order
 
 		private static bool MatchesStartDate(DateTime? requestedStartDate, ListServiceOrdersQuery query)
 		{
-			if (!requestedStartDate.HasValue)
-			{
-				return false;
-			}
+if (!requestedStartDate.HasValue)
+{
+	return !query.RequestedStartDateGte.HasValue && !query.RequestedStartDateLte.HasValue;
+}
 
 			var value = requestedStartDate.Value.ToUniversalTime();
 
