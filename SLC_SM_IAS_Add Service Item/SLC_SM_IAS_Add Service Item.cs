@@ -8,6 +8,7 @@ Revision History:
 DATE        VERSION        AUTHOR            COMMENTS
 
 dd/mm/2025    1.0.0.1        XXX, Skyline    Initial version
+09/10/2026    1.0.0.2        SKA, Skyline    DataMinerApp support
 ****************************************************************************
 */
 namespace SLC_SM_IAS_Add_Service_Item
@@ -25,7 +26,6 @@ namespace SLC_SM_IAS_Add_Service_Item
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
-	using Skyline.DataMiner.Utils.ServiceManagement.Common.IAS;
 	using SLC_SM_IAS_Add_Service_Item.Presenters;
 	using SLC_SM_IAS_Add_Service_Item.ScriptModels;
 	using SLC_SM_IAS_Add_Service_Item.Views;
@@ -67,28 +67,104 @@ namespace SLC_SM_IAS_Add_Service_Item
 			{
 				_engine = engine;
 				_controller = new InteractiveController(engine) { ScriptAbortPopupBehavior = ScriptAbortPopupBehavior.HideAlways };
+				if (!String.IsNullOrWhiteSpace(_engine.ReadScriptParamFromApp("Payload")))
+				{
+					RunApiSafe();
+					return;
+				}
+
 				RunSafe();
 			}
 			catch (ScriptAbortException)
 			{
 				// Catch normal abort exceptions (engine.ExitFail or engine.ExitSuccess)
+				throw;
 			}
 			catch (ScriptForceAbortException)
 			{
 				// Catch forced abort exceptions, caused via external maintenance messages.
+				throw;
 			}
 			catch (ScriptTimeoutException)
 			{
 				// Catch timeout exceptions for when a script has been running for too long.
+				throw;
 			}
 			catch (InteractiveUserDetachedException)
 			{
 				// Catch a user detaching from the interactive script by closing the window.
 				// Only applicable for interactive scripts, can be removed for non-interactive scripts.
+				throw;
 			}
 			catch (Exception e)
 			{
-				engine.ShowErrorDialog(e);
+				engine.HandleUnexpectedException(e);
+			}
+		}
+
+		private void RunApiSafe()
+		{
+			string actionRaw = _engine.ReadScriptParamFromApp("Action");
+			if (!Enum.TryParse(actionRaw, true, out Action action))
+			{
+				throw new InvalidOperationException("No Action provided to the service-item API mode.");
+			}
+
+			var payload = _engine.ReadJsonPayload<ApiPayload>("Payload", "service-item");
+			if (String.IsNullOrWhiteSpace(payload.Label))
+			{
+				throw new InvalidOperationException("A service-item label is required.");
+			}
+
+			var api = _engine.GetUserConnection().GetServiceManagementApiHelper("Service Inventory");
+			Guid domId = _engine.ReadScriptParamFromApp<Guid>("DOM ID");
+			var serviceInstance = api.ServiceInventory.Services.Read(ServiceExposers.Identifier.Equal(domId.ToString())).FirstOrDefault();
+			var specificationInstance = api.ServiceCatalog.ServiceSpecifications.Read(ServiceSpecificationExposers.Identifier.Equal(domId.ToString())).FirstOrDefault();
+			if (serviceInstance == null && specificationInstance == null)
+			{
+				throw new InvalidOperationException($"No service or service specification with ID '{domId}' was found.");
+			}
+
+			string oldLabel = action == Action.Edit ? payload.ExistingLabel?.Trim() ?? String.Empty : String.Empty;
+			if (action == Action.Edit && String.IsNullOrWhiteSpace(oldLabel))
+			{
+				throw new InvalidOperationException("An existing service-item label is required when editing.");
+			}
+			var existingItems = serviceInstance?.ServiceItems ?? specificationInstance?.ServiceItems ?? new List<Models.ServiceItem>();
+			if (action == Action.Edit && !existingItems.Any(item => item != null && String.Equals(item.Label, oldLabel, StringComparison.OrdinalIgnoreCase)))
+			{
+				throw new InvalidOperationException($"No service item with label '{oldLabel}' was found.");
+			}
+			string newLabel = payload.Label.Trim();
+			if (existingItems.Any(item =>
+				item != null
+				&& !String.Equals(item.Label, oldLabel, StringComparison.OrdinalIgnoreCase)
+				&& String.Equals(item.Label, newLabel, StringComparison.OrdinalIgnoreCase)))
+			{
+				throw new InvalidOperationException($"A service item with label '{newLabel}' already exists.");
+			}
+
+			if (!Enum.TryParse(payload.Type, true, out SlcServicemanagementIds.Enums.ServiceItemTypesEnum type))
+			{
+				type = SlcServicemanagementIds.Enums.ServiceItemTypesEnum.Service;
+			}
+
+			var section = new Models.ServiceItem
+			{
+				Label = newLabel,
+				Type = type,
+				DefinitionReference = payload.DefinitionReference ?? String.Empty,
+				ImplementationReference = payload.ImplementationReference ?? String.Empty,
+				Script = payload.Script ?? String.Empty,
+			};
+
+			if (serviceInstance != null)
+			{
+				AddOrUpdateServiceItemToInstance(api, serviceInstance, section, oldLabel);
+			}
+			else
+			{
+				AddOrUpdateServiceItemToInstance(api, specificationInstance, section, oldLabel);
 			}
 		}
 
@@ -119,15 +195,17 @@ namespace SLC_SM_IAS_Add_Service_Item
 				return Array.Empty<string>();
 			}
 
-			var items = serviceItems.Select(x => x.Label).ToList();
-			items.Remove(oldLbl);
+			var items = serviceItems
+				.Where(x => x != null && !String.Equals(x.Label, oldLbl, StringComparison.OrdinalIgnoreCase))
+				.Select(x => x.Label)
+				.ToList();
 
 			return items.ToArray();
 		}
 
 		private static Models.ServiceItem GetServiceItemSection(List<Models.ServiceItem> serviceItems, string label)
 		{
-			return serviceItems?.FirstOrDefault(x => x.Label == label)
+			return serviceItems?.FirstOrDefault(x => x != null && String.Equals(x.Label, label, StringComparison.OrdinalIgnoreCase))
 			       ?? throw new InvalidOperationException($"No Service Item with label '{label}' exists.");
 		}
 
@@ -175,7 +253,8 @@ namespace SLC_SM_IAS_Add_Service_Item
 			}
 
 			// Remove old instance first in case of edit
-			var oldItem = instance.ServiceItems.FirstOrDefault(x => x.Label == oldLabel);
+			instance.ServiceItems = instance.ServiceItems ?? new List<Models.ServiceItem>();
+			var oldItem = instance.ServiceItems.FirstOrDefault(x => String.Equals(x.Label, oldLabel, StringComparison.OrdinalIgnoreCase));
 			if (oldItem != null)
 			{
 				newSection.ServiceItemID = oldItem.ServiceItemID;
@@ -192,7 +271,6 @@ namespace SLC_SM_IAS_Add_Service_Item
 			newSection.Icon = instance.Icon; // inherit icon from service.
 
 			AddServiceLink(Guid.Parse(instance.Identifier), instance.Name, newSection);
-			newSection.Type = null;
 
 			instance.ServiceItems.Add(newSection);
 			helper.ServiceInventory.Services.Update(instance);
@@ -206,7 +284,8 @@ namespace SLC_SM_IAS_Add_Service_Item
 			}
 
 			// Remove old instance first in case of edit
-			var oldItem = instance.ServiceItems.FirstOrDefault(x => x.Label == oldLabel);
+			instance.ServiceItems = instance.ServiceItems ?? new List<Models.ServiceItem>();
+			var oldItem = instance.ServiceItems.FirstOrDefault(x => String.Equals(x.Label, oldLabel, StringComparison.OrdinalIgnoreCase));
 			if (oldItem != null)
 			{
 				newSection.ServiceItemID = oldItem.ServiceItemID;
@@ -220,7 +299,6 @@ namespace SLC_SM_IAS_Add_Service_Item
 				newSection.ServiceItemID = ids.Any() ? ids.Max() + 1 : 0;
 			}
 
-			newSection.Type = null;
 			instance.ServiceItems.Add(newSection);
 			NormalizeOptionalSpecificationCollections(instance);
 			helper.ServiceCatalog.ServiceSpecifications.Update(instance);

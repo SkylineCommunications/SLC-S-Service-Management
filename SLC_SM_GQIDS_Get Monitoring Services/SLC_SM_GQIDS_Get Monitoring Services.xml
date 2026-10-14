@@ -1,0 +1,27 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<DMSScript options="272" xmlns="http://www.skyline.be/automation">
+	<Name>SLC_SM_GQIDS_Get Monitoring Services</Name>
+	<Description>Returns DataMiner monitoring services for service linking.</Description>
+	<Type>Automation</Type>
+	<Author>SKA</Author>
+	<CheckSets>FALSE</CheckSets>
+	<Folder>Service Management</Folder>
+
+	<Protocols>
+	</Protocols>
+
+	<Memory>
+	</Memory>
+
+	<Parameters>
+	</Parameters>
+
+	<Script>
+		<Exe id="1" type="csharp">
+			<Value><![CDATA[[Project:SLC_SM_GQIDS_Get Monitoring Services]]]></Value>
+			<Param type="preCompile">true</Param>
+			<Param type="libraryName">GetMonitoringServices</Param>
+			<Message></Message>
+		</Exe>
+	</Script>
+</DMSScript>

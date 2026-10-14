@@ -7,7 +7,6 @@ namespace ServiceStateTransitions
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
-	using Skyline.DataMiner.Utils.ServiceManagement.Common.IAS;
 	using static DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Service_Behavior;
 	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 
@@ -44,31 +43,39 @@ namespace ServiceStateTransitions
 			catch (ScriptAbortException)
 			{
 				// Catch normal abort exceptions (engine.ExitFail or engine.ExitSuccess)
+				throw;
 			}
 			catch (ScriptForceAbortException)
 			{
 				// Catch forced abort exceptions, caused via external maintenance messages.
+				throw;
 			}
 			catch (ScriptTimeoutException)
 			{
 				// Catch timeout exceptions for when a script has been running for too long.
+				throw;
 			}
 			catch (InteractiveUserDetachedException)
 			{
 				// Catch a user detaching from the interactive script by closing the window.
 				// Only applicable for interactive scripts, can be removed for non-interactive scripts.
+				throw;
 			}
 			catch (Exception e)
 			{
-				engine.ShowErrorDialog(e);
+				engine.HandleUnexpectedException(e);
 			}
 		}
 
 		private void RunSafe()
 		{
 			var serviceReference = engine.ReadScriptParamFromApp<Guid>("ServiceReference");
-			var previousState = engine.ReadScriptParamFromApp("PreviousState").ToLower();
-			var nextState = engine.ReadScriptParamFromApp("NextState").ToLower();
+			var previousState = engine.ReadScriptParamFromApp("PreviousState")?.Trim().ToLowerInvariant();
+			var nextState = engine.ReadScriptParamFromApp("NextState")?.Trim().ToLowerInvariant();
+			if (String.IsNullOrWhiteSpace(previousState) || String.IsNullOrWhiteSpace(nextState))
+			{
+				throw new InvalidOperationException("Both PreviousState and NextState are required.");
+			}
 
 			TransitionsEnum transition = Enum.GetValues(typeof(TransitionsEnum))
 											 .Cast<TransitionsEnum?>()

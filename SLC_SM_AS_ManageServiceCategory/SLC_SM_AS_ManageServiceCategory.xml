@@ -1,0 +1,36 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<DMSScript options="272" xmlns="http://www.skyline.be/automation">
+	<Name>SLC_SM_AS_ManageServiceCategory</Name>
+	<Description>Creates, updates, or deletes a service category.</Description>
+	<Type>Automation</Type>
+	<Author>SKA</Author>
+	<CheckSets>FALSE</CheckSets>
+	<Folder>Service Management</Folder>
+
+	<Protocols>
+	</Protocols>
+
+	<Memory>
+	</Memory>
+
+	<Parameters>
+		<ScriptParameter id="2" type="string" values="">
+			<Description>domId</Description>
+		</ScriptParameter>
+		<ScriptParameter id="3" type="string" values="">
+			<Description>Action</Description>
+		</ScriptParameter>
+		<ScriptParameter id="20" type="string" values="">
+			<Description>Payload</Description>
+		</ScriptParameter>
+	</Parameters>
+
+	<Script>
+		<Exe id="1" type="csharp">
+			<Value><![CDATA[[Project:SLC_SM_AS_ManageServiceCategory]]]></Value>
+			<Param type="preCompile">true</Param>
+			<Param type="libraryName">SLC_SM_AS_ManageServiceCategory</Param>
+			<Message></Message>
+		</Exe>
+	</Script>
+</DMSScript>

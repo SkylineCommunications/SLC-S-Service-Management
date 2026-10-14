@@ -7,4 +7,5 @@
 	<ProjectReference Include="..\ProjectToInclude\ProjectToInclude.csproj" />
 	<ProjectReference Exclude="..\ProjectToExclude\ProjectToExclude.csproj" />
 	-->
+	
 </ProjectReferences>

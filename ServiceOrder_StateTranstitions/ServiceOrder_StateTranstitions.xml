@@ -20,6 +20,12 @@
 		<ScriptParameter id="4" type="string" values="">
 			<Description>ServiceOrderReference</Description>
 		</ScriptParameter>
+		<ScriptParameter id="5" type="string" values="">
+			<Description>Skip Confirmation</Description>
+		</ScriptParameter>
+		<ScriptParameter id="6" type="string" values="">
+			<Description>Cancellation Reason</Description>
+		</ScriptParameter>
 	</Parameters>
 	<Script>
 		<Exe id="1" type="csharp">
