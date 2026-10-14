@@ -104,6 +104,17 @@ namespace SLC_SM_Delete_Service
 				throw new InvalidOperationException($"The following service IDs were not found: {String.Join(", ", missingIds)}.");
 			}
 
+			var linkedServices = services
+				.Where(service => (service.ServiceItems ?? new List<Models.ServiceItem>())
+					.Any(serviceItem => serviceItem != null && HasActiveLinkedReference(serviceManagementHelper, serviceItem)))
+				.Select(service => $"'{service.Name}'")
+				.ToList();
+
+			if (linkedServices.Count > 0)
+			{
+				throw new InvalidOperationException($"No services were deleted. The following service(s) cannot be deleted because one of their service items is still linked: {String.Join(", ", linkedServices)}.");
+			}
+
 			foreach (var service in services)
 			{
 				RemoveService(dms, serviceManagementHelper, service);
@@ -112,14 +123,6 @@ namespace SLC_SM_Delete_Service
 
 		private void RemoveService(IDms dms, ServiceManagementApiHelper serviceManagementHelper, Models.Service service)
 		{
-			foreach (var serviceItem in service.ServiceItems ?? new List<Models.ServiceItem>())
-			{
-				if (serviceItem != null && HasActiveLinkedReference(serviceManagementHelper, serviceItem))
-				{
-					throw new InvalidOperationException($"Service '{service.Name}' cannot be deleted because one of its service items is still linked.");
-				}
-			}
-
 			if (service.GenerateMonitoringService == true && dms.ServiceExistsSafe(service.Name, out IDmsService dmsService))
 			{
 				dmsService.Delete();
