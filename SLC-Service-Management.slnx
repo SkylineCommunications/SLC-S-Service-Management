@@ -16,10 +16,10 @@
     <Project Path="SLC_SM_AS_Execute Script/SLC_SM_AS_Execute Script.csproj" Id="59f786c4-3e31-4c52-b132-26326baf1c88">
       <Build Solution="Debug|*" Project="false" />
     </Project>
+    <Project Path="SLC_SM_AS_ManageServiceCategory/SLC_SM_AS_ManageServiceCategory.csproj" />
     <Project Path="SLC_SM_AS_RegisterSolution/SLC_SM_AS_RegisterSolution.csproj">
       <Build Solution="Debug|*" Project="false" />
     </Project>
-    <Project Path="SLC_SM_AS_ManageServiceCategory/SLC_SM_AS_ManageServiceCategory.csproj" />
     <Project Path="SLC_SM_AS_Service Item ContextMenu Actions/SLC_SM_AS_Service Item ContextMenu Actions.csproj" />
     <Project Path="SLC_SM_AS_SetIcon/SLC_SM_AS_SetIcon.csproj" />
     <Project Path="SLC_SM_Create Job For Service Item/SLC_SM_Create Job For Service Item.csproj" />
