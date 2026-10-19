@@ -925,7 +925,7 @@ namespace SLC_SM_IAS_Service_Spec_Configuration.Presenters
 				IsEnabled = false,
 				IsVisible = !collapseButton.IsCollapsed,
 			};
-			var link = new CheckBox { IsChecked = record.ConfigurationParamValue.LinkedConfigurationReference != null, IsVisible = !collapseButton.IsCollapsed, IsEnabled = !isReusable };
+			var link = new CheckBox { IsChecked = record.ConfigurationParamValue.IsLinked, IsVisible = !collapseButton.IsCollapsed, IsEnabled = !isReusable };
 			var na = new CheckBox { IsChecked = false, IsVisible = !collapseButton.IsCollapsed, IsEnabled = !isReusable };
 			var unit = new DropDown<ConfigurationUnit>(
 				new[] { new Option<ConfigurationUnit>("-", null) })
@@ -958,11 +958,17 @@ namespace SLC_SM_IAS_Service_Spec_Configuration.Presenters
 			delete.Pressed += deleteEventHandler;
 			link.Changed += (sender, args) =>
 			{
-				record.ConfigurationParamValue.LinkedConfigurationReference = args.IsChecked ? "Dummy Link" : null;
+				record.ConfigurationParamValue.IsLinked = args.IsChecked;
+				if (!args.IsChecked)
+				{
+					record.ConfigurationParamValue.LinkedScript = null;
+					record.ConfigurationParamValue.LinkedConsumers = null;
+				}
+
 				BuildUI(this.showDetails, this.showLifeCycleDetails);
 			};
 
-			if (record.ConfigurationParamValue.LinkedConfigurationReference != null)
+			if (record.ConfigurationParamValue.IsLinked)
 			{
 				view.AddWidget(new DropDown(), row, parameterValueColumnIndex);
 			}

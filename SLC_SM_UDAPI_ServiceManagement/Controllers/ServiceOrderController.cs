@@ -1318,7 +1318,6 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 				StringValue = source.StringValue,
 				DoubleValue = source.DoubleValue,
 				ValueFixed = source.ValueFixed,
-				LinkedConfigurationReference = source.LinkedConfigurationReference,
 				IsLinked = source.IsLinked,
 				LinkedScript = source.LinkedScript,
 				LinkedConsumers = source.LinkedConsumers,

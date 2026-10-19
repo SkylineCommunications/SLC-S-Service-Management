@@ -713,7 +713,6 @@ namespace SLC_SM_Create_Service_Inventory_Item
 				TextOptionsId = source.TextOptionsId != null
 					? new SdmObjectReference<ConfigModels.TextParameterOptions>(source.TextOptionsId.Identifier)
 					: null,
-				LinkedConfigurationReference = source.LinkedConfigurationReference,
 				ValueFixed = source.ValueFixed,
 				LinkedConsumers = source.LinkedConsumers != null ? new List<Guid>(source.LinkedConsumers) : new List<Guid>(),
 				LinkedScript = source.LinkedScript,
