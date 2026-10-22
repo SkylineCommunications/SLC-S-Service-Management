@@ -10,6 +10,7 @@
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.Configurations;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 	using Skyline.DataMiner.Utils.UserDefinedApiToolkit;
+	using SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory;
 
 	internal static class UserDefinedApiExtensions
 	{
@@ -28,6 +29,12 @@
 			{
 				services.AddScoped<IServiceManagementApiHelper>(
 					sp => sp.GetRequiredService<IAccessor<IEngine>>().Value.GetServiceManagementApiHelper());
+				services.AddScoped<IMonitoringServiceManager>(
+					sp => new MonitoringServiceManager(sp.GetRequiredService<IAccessor<IEngine>>().Value));
+				services.AddScoped<IServiceOrganizationRepository>(
+					sp => new ServiceOrganizationRepository(sp.GetRequiredService<IAccessor<IEngine>>().Value));
+				services.AddScoped<IServiceItemImplementations>(
+					sp => new ServiceItemImplementations(sp.GetRequiredService<IAccessor<IEngine>>().Value));
 			});
 		}
 

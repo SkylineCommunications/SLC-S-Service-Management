@@ -238,12 +238,101 @@
 			}
 		}
 
+		/// <summary>
+		/// Partially updates a service category.
+		/// </summary>
+		/// <remarks>
+		/// <c>PATCH service-management/v1/serviceCategory/{id}</c> with <c>application/json</c>. Only the properties present in the
+		/// body (<c>name</c>, <c>type</c>, <c>icon</c>) are changed; values are stored trimmed. The name must stay unique (case-insensitive).
+		/// </remarks>
+		/// <param name="id">Resource ID (DOM instance GUID) of the category.</param>
+		/// <param name="patch">Request body with the properties to change.</param>
+		/// <returns>
+		/// <c>200</c> with the updated <c>{ id, name, type, icon }</c>;
+		/// <c>400</c> when <paramref name="id"/> is not a valid UUID, the body is missing, or <c>name</c>/<c>type</c> is empty;
+		/// <c>404</c> when the category does not exist;
+		/// <c>409</c> when another category already uses the name;
+		/// <c>500</c> on an unexpected error.
+		/// </returns>
+		[HttpPatch("{id}")]
+		[Consumes("application/json")]
+		public IApiResult UpdateServiceCategory(string id, [FromBody] JObject patch)
+		{
+			_logger.LogInformation("UpdateServiceCategory called with id={Id}", id);
+
+			try
+			{
+				if (!Guid.TryParse(id?.Trim(), out var categoryId))
+				{
+					return BadRequest(CreateError("Invalid request", "'id' must be a valid UUID.", 400));
+				}
+
+				if (patch == null)
+				{
+					return BadRequest(CreateError("Invalid request", "A request body is required.", 400));
+				}
+
+				var category = ReadCategory(categoryId);
+				if (category == null)
+				{
+					return NotFound(CreateError("Not found", $"Service category '{categoryId}' does not exist.", 404));
+				}
+
+				var request = patch.ToObject<ServiceCategoryRequest>();
+				if (Has(patch, "name"))
+				{
+					string name = request.Name?.Trim();
+					if (String.IsNullOrEmpty(name))
+					{
+						return BadRequest(CreateError("Invalid request", "'name' cannot be empty.", 400));
+					}
+
+					if (ReadAll().Any(c => !IsSameId(c.Identifier, categoryId) && String.Equals(c.Name?.Trim(), name, StringComparison.OrdinalIgnoreCase)))
+					{
+						return Conflict(CreateError("Conflict", $"A service category with name '{name}' already exists.", 409));
+					}
+
+					category.Name = name;
+				}
+
+				if (Has(patch, "type"))
+				{
+					string type = request.Type?.Trim();
+					if (String.IsNullOrEmpty(type))
+					{
+						return BadRequest(CreateError("Invalid request", "'type' cannot be empty.", 400));
+					}
+
+					category.Type = type;
+				}
+
+				if (Has(patch, "icon"))
+				{
+					category.Icon = request.Icon?.Trim() ?? String.Empty;
+				}
+
+				serviceManagementApiHelper.ServiceCatalog.ServiceCategories.Update(category);
+				return Ok(ToResponse(ReadCategory(categoryId) ?? category));
+			}
+			catch (Exception ex)
+			{
+				_logger.LogError(ex, "UpdateServiceCategory failed: {Message}", ex.Message);
+				return InternalServerError(CreateError("Internal server error", "An unexpected error occurred while updating the service category.", 500));
+			}
+		}
+
 		/// <summary>Builds the error body returned with non-success status codes.</summary>
 		private static ErrorResponse CreateError(string title, string details, int code)
 		{
 			var response = new ErrorResponse();
 			response.Errors.Add(new Error { Title = title, Details = details, Code = code });
 			return response;
+		}
+
+		/// <summary>Returns whether the PATCH body contains a property (case-insensitive).</summary>
+		private static bool Has(JObject patch, string property)
+		{
+			return patch.TryGetValue(property, StringComparison.OrdinalIgnoreCase, out _);
 		}
 
 		/// <summary>Compares a stored reference identifier with a category ID as GUIDs, ignoring case and format.</summary>

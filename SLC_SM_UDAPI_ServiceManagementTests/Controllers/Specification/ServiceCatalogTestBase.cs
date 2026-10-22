@@ -2,10 +2,8 @@
 {
 	using System;
 	using System.Collections.Generic;
-	using System.Reflection;
 	using System.Runtime.CompilerServices;
 	using Moq;
-	using Newtonsoft.Json.Linq;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.Configurations;
@@ -29,6 +27,16 @@
 		protected List<ServiceSpecificationProfile> SpecProfiles { get; private set; }
 
 		protected List<ConfigurationParameter> ConfigurationParameters { get; private set; }
+
+		protected List<ConfigurationParameterValue> ConfigurationParameterValues { get; private set; }
+
+		protected List<DiscreteParameterOptions> DiscreteParameterOptions { get; private set; }
+
+		protected List<DiscreteValue> DiscreteValues { get; private set; }
+
+		protected List<NumberParameterOptions> NumberParameterOptions { get; private set; }
+
+		protected List<ConfigurationUnit> ConfigurationUnits { get; private set; }
 
 		protected List<Profile> Profiles { get; private set; }
 
@@ -56,6 +64,11 @@
 			ConfigValues = new List<ServiceSpecificationConfigurationValue>();
 			SpecProfiles = new List<ServiceSpecificationProfile>();
 			ConfigurationParameters = new List<ConfigurationParameter>();
+			ConfigurationParameterValues = new List<ConfigurationParameterValue>();
+			DiscreteParameterOptions = new List<DiscreteParameterOptions>();
+			DiscreteValues = new List<DiscreteValue>();
+			NumberParameterOptions = new List<NumberParameterOptions>();
+			ConfigurationUnits = new List<ConfigurationUnit>();
 			Profiles = new List<Profile>();
 			ProfileDefinitions = new List<ProfileDefinition>();
 			Services = new List<Service>();
@@ -67,6 +80,11 @@
 			Catalog.SetupGet(c => c.ServiceSpecificationConfigurationValues).Returns(Repository(ConfigValues).Object);
 			Catalog.SetupGet(c => c.ServiceSpecificationProfiles).Returns(Repository(SpecProfiles).Object);
 			Catalog.SetupGet(c => c.ConfigurationParameters).Returns(Repository(ConfigurationParameters).Object);
+			Catalog.SetupGet(c => c.ConfigurationParameterValues).Returns(Repository(ConfigurationParameterValues).Object);
+			Catalog.SetupGet(c => c.DiscreteParameterOptions).Returns(Repository(DiscreteParameterOptions).Object);
+			Catalog.SetupGet(c => c.DiscreteValues).Returns(Repository(DiscreteValues).Object);
+			Catalog.SetupGet(c => c.NumberParameterOptions).Returns(Repository(NumberParameterOptions).Object);
+			Catalog.SetupGet(c => c.ConfigurationUnits).Returns(Repository(ConfigurationUnits).Object);
 			Catalog.SetupGet(c => c.Profiles).Returns(Repository(Profiles).Object);
 			Catalog.SetupGet(c => c.ProfileDefinitions).Returns(Repository(ProfileDefinitions).Object);
 
@@ -99,6 +117,17 @@
 			mock.Setup(r => r.Create(It.IsAny<T>())).Callback<T>(store.Add).Returns<T>(o => o);
 			mock.Setup(r => r.Update(It.IsAny<T>())).Returns<T>(o => o);
 			mock.Setup(r => r.Delete(It.IsAny<T>())).Callback<T>(o => store.RemoveAll(x => x.Identifier == o.Identifier));
+			mock.Setup(r => r.CreateOrUpdate(It.IsAny<IEnumerable<T>>()))
+				.Callback<IEnumerable<T>>(items =>
+				{
+					foreach (var item in items ?? new T[0])
+					{
+						if (!store.Contains(item))
+						{
+							store.Add(item);
+						}
+					}
+				});
 			return mock;
 		}
 

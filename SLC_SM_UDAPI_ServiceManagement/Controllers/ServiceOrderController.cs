@@ -6,6 +6,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 	using DomHelpers.SlcServicemanagement;
 	using Microsoft.Extensions.Logging;
 	using Newtonsoft.Json.Linq;
+	using Skyline.DataMiner.Net.Apps.DataMinerObjectModel;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
@@ -13,10 +14,12 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 	using Skyline.DataMiner.Utils.UserDefinedApiToolkit;
 	using SLC_SM_UDAPI_ServiceManagement.Models.Order;
 	using SLC_SM_UDAPI_ServiceManagement.Exceptions;
-	using SLC_SM_UDAPI_ServiceManagement.Helpers;
+	using SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory;
 	using SLC_SM_UDAPI_ServiceManagement.Models;
 	using ConfigurationModels = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.Configurations;
 	using SLC_SM_UDAPI_ServiceManagement.Helpers.Order;
+	using DataHelperOrganization = Skyline.DataMiner.ProjectApi.ServiceManagement.API.PeopleAndOrganization.DataHelperOrganization;
+	using IEngine = Skyline.DataMiner.Automation.IEngine;
 
 	/// <summary>
 	/// Service orders and their items: create, read, update, delete and status transitions.
@@ -54,17 +57,225 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 		private static readonly HashSet<string> UpdatableStatuses = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "New", "Acknowledged", "Pending", "Held" };
 		private readonly ILogger<ServiceOrderController> _logger;
 		private readonly IServiceManagementApiHelper _serviceManagementApiHelper;
+		private readonly IAccessor<IEngine> _engineAccessor;
 
 		/// <summary>
 		/// Initializes a new instance of the <see cref="ServiceOrderController"/> class.
 		/// </summary>
 		/// <param name="logger">Logger for request tracing and error diagnostics.</param>
 		/// <param name="serviceManagementApiHelper">Access to the service order and service catalog repositories.</param>
-		/// <exception cref="ArgumentNullException"><paramref name="logger"/> or <paramref name="serviceManagementApiHelper"/> is <see langword="null"/>.</exception>
-		public ServiceOrderController(ILogger<ServiceOrderController> logger, IServiceManagementApiHelper serviceManagementApiHelper)
+		/// <param name="engineAccessor">Access to the engine, used to read the DOM metadata (created) and the organizations.</param>
+		/// <exception cref="ArgumentNullException">An argument is <see langword="null"/>.</exception>
+		public ServiceOrderController(ILogger<ServiceOrderController> logger, IServiceManagementApiHelper serviceManagementApiHelper, IAccessor<IEngine> engineAccessor)
 		{
 			_logger = logger ?? throw new ArgumentNullException(nameof(logger));
 			_serviceManagementApiHelper = serviceManagementApiHelper ?? throw new ArgumentNullException(nameof(serviceManagementApiHelper));
+			_engineAccessor = engineAccessor ?? throw new ArgumentNullException(nameof(engineAccessor));
+		}
+
+		/// <summary>
+		/// Lists the flat configuration records for a service order item.
+		/// </summary>
+		[HttpGet("{id}/item/{itemId}/configuration")]
+		public IApiResult GetServiceOrderItemConfiguration(string id, string itemId)
+		{
+			try
+			{
+				var lookupError = FindServiceOrderItem(id, itemId, out var item);
+				if (lookupError != null)
+				{
+					return lookupError;
+				}
+
+				return Ok(new ServiceConfigurationReader(_serviceManagementApiHelper).ReadOrderItem(item));
+			}
+			catch (Exception ex)
+			{
+				_logger.LogError(ex, "GetServiceOrderItemConfiguration failed for order {OrderId}, item {ItemId}: {Message}", id, itemId, ex.Message);
+				return InternalServerError(CreateError("Internal server error", "An unexpected error occurred while retrieving the service order item configuration.", 500));
+			}
+		}
+
+		/// <summary>
+		/// Saves or deletes configuration values for a service order item.
+		/// </summary>
+		[HttpPut("{id}/item/{itemId}/configuration")]
+		public IApiResult SaveServiceOrderItemConfiguration(string id, string itemId, [FromBody] JObject body)
+		{
+			try
+			{
+				var lookupError = FindServiceOrderItem(id, itemId, out var item);
+				if (lookupError != null)
+				{
+					return lookupError;
+				}
+
+				if (body == null)
+				{
+					return BadRequest(CreateError("Invalid request", "A request body is required.", 400));
+				}
+
+				ServiceOrderItemConfigurationRequest request;
+				try
+				{
+					request = body.ToObject<ServiceOrderItemConfigurationRequest>();
+				}
+				catch (Newtonsoft.Json.JsonException)
+				{
+					return BadRequest(CreateError("Invalid request", "The request body contains invalid values.", 400));
+				}
+
+				new ServiceOrderItemConfigurationWriter(_serviceManagementApiHelper).Save(item, request);
+				var saved = _serviceManagementApiHelper.ServiceOrder.ServiceOrderItems
+					.Read(ServiceOrderItemExposers.Identifier.Equal(item.Identifier))
+					.FirstOrDefault() ?? item;
+				return Ok(new ServiceConfigurationReader(_serviceManagementApiHelper).ReadOrderItem(saved));
+			}
+			catch (InvalidConfigurationException ex)
+			{
+				_logger.LogWarning(ex, "Invalid SaveServiceOrderItemConfiguration request: {Message}", ex.Message);
+				return BadRequest(CreateError("Invalid request", ex.Message, 400));
+			}
+			catch (Exception ex)
+			{
+				_logger.LogError(ex, "SaveServiceOrderItemConfiguration failed for order {OrderId}, item {ItemId}: {Message}", id, itemId, ex.Message);
+				return InternalServerError(CreateError("Internal server error", "An unexpected error occurred while saving the service order item configuration.", 500));
+			}
+		}
+
+		/// <summary>
+		/// Creates a service from an order item's specification and links the service back to the order item.
+		/// </summary>
+		[HttpPost("{id}/item/{itemId}/initializeService")]
+		public IApiResult InitializeServiceFromOrderItem(string id, string itemId)
+		{
+			try
+			{
+				var lookupError = FindServiceOrderItem(id, itemId, out var item);
+				if (lookupError != null)
+				{
+					return lookupError;
+				}
+
+				string existingServiceId = item.ServiceInfo == null ? null : item.ServiceInfo.ServiceId.Identifier;
+				if (!String.IsNullOrWhiteSpace(existingServiceId))
+				{
+					var existingService = _serviceManagementApiHelper.ServiceInventory.Services
+						.Read(ServiceExposers.Identifier.Equal(existingServiceId))
+						.FirstOrDefault();
+					if (existingService != null)
+					{
+						return Ok(existingService);
+					}
+				}
+
+				SdmObjectReference<ServiceSpecification>? specificationReference = item.ServiceInfo == null
+					? (SdmObjectReference<ServiceSpecification>?)null
+					: item.ServiceInfo.SpecificationId;
+				if (!specificationReference.HasValue || String.IsNullOrWhiteSpace(specificationReference.Value.Identifier))
+				{
+					return BadRequest(CreateError("Invalid request", "A service specification must be assigned before initializing a service.", 400));
+				}
+
+				var specification = _serviceManagementApiHelper.ServiceCatalog.ServiceSpecifications
+					.Read(ServiceSpecificationExposers.Identifier.Equal(specificationReference.Value.Identifier))
+					.FirstOrDefault();
+				if (specification == null)
+				{
+					return BadRequest(CreateError("Invalid request", "The service specification assigned to this order item could not be found.", 400));
+				}
+
+				var categoryReference = item.ServiceInfo.ServiceCategoryId;
+				var category = String.IsNullOrWhiteSpace(categoryReference.Identifier)
+					? null
+					: _serviceManagementApiHelper.ServiceCatalog.ServiceCategories
+						.Read(ServiceCategoryExposers.Identifier.Equal(categoryReference.Identifier))
+						.FirstOrDefault();
+
+				var services = _serviceManagementApiHelper.ServiceInventory.Services;
+				var existingServices = services.Read(new TRUEFilterElement<Service>()).ToList();
+				var service = new Service
+				{
+					Identifier = Guid.NewGuid().ToString(),
+					ServiceID = GenerateNextServiceId(existingServices.Select(candidate => candidate.ServiceID)),
+					Name = GenerateUniqueServiceName(item.Name, existingServices.Select(candidate => candidate.Name)),
+					Description = item.Name,
+					StartTime = item.StartTime,
+					EndTime = item.EndTime,
+					ServiceSpecificationId = specificationReference.Value,
+					CategoryId = categoryReference,
+					Icon = category?.Icon ?? String.Empty,
+					ServiceItems = specification.ServiceItems?.ToList() ?? new List<ServiceItem>(),
+					ServiceItemsRelationships = specification.ServiceItemsRelationships?.ToList() ?? new List<ServiceItemRelationship>(),
+				};
+
+				services.Create(service);
+				try
+				{
+					item.ServiceInfo = item.ServiceInfo ?? new ServiceOrderItemServiceInfo();
+					item.ServiceInfo.ServiceId = new SdmObjectReference<Service>(service.Identifier);
+					_serviceManagementApiHelper.ServiceOrder.ServiceOrderItems.Update(item);
+				}
+				catch
+				{
+					try
+					{
+						services.Delete(service);
+					}
+					catch (Exception cleanupException)
+					{
+						_logger.LogWarning(cleanupException, "Could not remove unlinked service {ServiceInstanceId} after order item linking failed.", service.Identifier);
+					}
+
+					throw;
+				}
+
+				return Created(service);
+			}
+			catch (Exception ex)
+			{
+				_logger.LogError(ex, "InitializeServiceFromOrderItem failed for order {OrderId}, item {ItemId}: {Message}", id, itemId, ex.Message);
+				return InternalServerError(CreateError("Internal server error", "An unexpected error occurred while initializing a service from the order item.", 500));
+			}
+		}
+
+		private IApiResult FindServiceOrderItem(string orderId, string itemId, out ServiceOrderItem item)
+		{
+			item = null;
+			if (String.IsNullOrWhiteSpace(orderId))
+			{
+				return BadRequest(CreateError("Invalid request", "'id' is required.", 400));
+			}
+
+			if (!Guid.TryParse(itemId?.Trim(), out var itemGuid))
+			{
+				return BadRequest(CreateError("Invalid request", "'itemId' must be a valid UUID.", 400));
+			}
+
+			string normalizedOrderId = orderId.Trim();
+			var order = _serviceManagementApiHelper.ServiceOrder.ServiceOrders
+				.Read(ServiceOrderExposers.OrderId.Equal(normalizedOrderId))
+				.FirstOrDefault();
+			if (order == null)
+			{
+				return NotFound(CreateError("Not found", $"Service order '{normalizedOrderId}' does not exist.", 404));
+			}
+
+			var entry = (order.OrderItems ?? new List<ServiceOrderEntry>())
+				.FirstOrDefault(candidate => candidate?.ServiceOrderItemId != null
+					&& Guid.TryParse(candidate.ServiceOrderItemId.Identifier, out var candidateId)
+					&& candidateId == itemGuid);
+			if (entry?.ServiceOrderItemId == null || String.IsNullOrWhiteSpace(entry.ServiceOrderItemId.Identifier))
+			{
+				return NotFound(CreateError("Not found", $"Service order item '{itemGuid}' does not exist in service order '{normalizedOrderId}'.", 404));
+			}
+
+			item = _serviceManagementApiHelper.ServiceOrder.ServiceOrderItems
+				.Read(ServiceOrderItemExposers.Identifier.Equal(entry.ServiceOrderItemId.Identifier))
+				.FirstOrDefault();
+			return item == null
+				? NotFound(CreateError("Not found", $"Service order item '{itemGuid}' does not exist in service order '{normalizedOrderId}'.", 404))
+				: null;
 		}
 
 		/// <summary>
@@ -178,7 +389,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 		/// </para>
 		/// <para>If the request fails before the order is created, the items and configuration objects created so far are deleted.</para>
 		/// </remarks>
-		/// <param name="request">The order to create. <c>name</c> and at least one item are required.</param>
+		/// <param name="request">The order to create. <c>name</c> is required; items can be added after creating an empty order.</param>
 		/// <returns>
 		/// 201 with the created order; 400 when the request is invalid, a specification does not exist, a supplied parameter is
 		/// not part of its specification, or a parameter that is mandatory at service order has no value; 500 on an unexpected error.
@@ -433,7 +644,10 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 		/// <summary>
 		/// Gets a service order.
 		/// </summary>
-		/// <remarks><c>GET service-management/v1/serviceOrder/{id}</c>. The full order is read; <paramref name="fields"/> only limits the response.</remarks>
+		/// <remarks>
+		/// <para><c>GET service-management/v1/serviceOrder/{id}</c>. The full order is read; <paramref name="fields"/> only limits the response.</para>
+		/// <para>Adds <c>StatusName</c>, <c>OrganizationName</c> and <c>CreatedAt</c> (UTC) to the order; see <see cref="ToOrderResponses"/>.</para>
+		/// </remarks>
 		/// <param name="id">The order ID.</param>
 		/// <param name="fields">Optional comma-separated list of top-level properties to return (case-insensitive). Unknown names are ignored.</param>
 		/// <returns>200 with the order or the selected fields; 400 when <paramref name="id"/> is empty; 404 when the order does not exist; 500 on an unexpected error.</returns>
@@ -460,13 +674,17 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 				}
 
 				// TODO: update read with selected fields when SDM API supports it, to avoid reading all fields when only a subset is requested.
+				var metadataFilter = Guid.TryParse(order.Identifier, out var domId)
+					? DomInstanceExposers.Id.Equal(domId)
+					: null;
+				var response = ToOrderResponses(new[] { order }, metadataFilter)[0];
 				var requestedFields = SplitCommaSeparatedValues(fields);
 				if (requestedFields.Count == 0)
 				{
-					return Ok(order);
+					return Ok(response);
 				}
 
-				return Ok(SelectFields(order, requestedFields));
+				return Ok(SelectFields(response, requestedFields));
 			}
 			catch (Exception ex)
 			{
@@ -478,7 +696,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 		/// <summary>
 		/// Gets one item of a service order.
 		/// </summary>
-		/// <remarks><c>GET service-management/v1/serviceOrder/{id}/item/{itemId}</c>. The item's priority within the order is added to the response.</remarks>
+		/// <remarks><c>GET service-management/v1/serviceOrder/{id}/item/{itemId}</c>. The item's priority within the order and the names of <see cref="ToItemResponses"/> are added to the response.</remarks>
 		/// <param name="id">The order ID.</param>
 		/// <param name="itemId">The item identifier (UUID).</param>
 		/// <returns>200 with the item; 400 when an identifier is invalid; 404 when the order or item does not exist; 500 on an unexpected error.</returns>
@@ -523,7 +741,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 					return NotFound(CreateError("Not found", $"Service order item '{itemGuid}' does not exist in service order '{orderId}'.", 404));
 				}
 
-				var result = JObject.FromObject(item);
+				var result = ToItemResponses(new[] { item })[0];
 				result["priority"] = entry.Priority.HasValue ? new JValue(entry.Priority.Value) : JValue.CreateNull();
 
 				return Ok(result);
@@ -587,7 +805,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 		/// <summary>
 		/// Lists the items of a service order.
 		/// </summary>
-		/// <remarks><c>GET service-management/v1/serviceOrder/{id}/item</c>. Items are sorted by priority; items without a priority come last. Items that no longer exist are skipped.</remarks>
+		/// <remarks><c>GET service-management/v1/serviceOrder/{id}/item</c>. Items are sorted by priority; items without a priority come last. Items that no longer exist are skipped. The names of <see cref="ToItemResponses"/> are added.</remarks>
 		/// <param name="id">The order ID.</param>
 		/// <returns>200 with the items; 400 when <paramref name="id"/> is empty; 404 when the order does not exist; 500 on an unexpected error.</returns>
 		[HttpGet("{id}/item")]
@@ -626,7 +844,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 					.Where(item => item != null)
 					.ToList();
 
-				return Ok(result);
+				return Ok(ToItemResponses(result));
 			}
 			catch (Exception ex)
 			{
@@ -638,7 +856,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 		/// <summary>
 		/// Lists service orders, optionally filtered and sorted.
 		/// </summary>
-		/// <remarks><c>GET service-management/v1/serviceOrder</c>.</remarks>
+		/// <remarks><c>GET service-management/v1/serviceOrder</c>. Adds <c>StatusName</c>, <c>OrganizationName</c> and <c>CreatedAt</c> (UTC) to each order; see <see cref="ToOrderResponses"/>.</remarks>
 		/// <param name="offset">Number of orders to skip.</param>
 		/// <param name="limit">Maximum number of orders to return.</param>
 		/// <param name="fields">Optional comma-separated list of properties to return.</param>
@@ -685,7 +903,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 				var search = new ServiceOrderSearch(new TimedServiceOrderSearchDataSource(new ServiceOrderSearchDataSource(_serviceManagementApiHelper), _logger));
 				var orders = search.Find(query);
 
-				return Ok(orders);
+				return Ok(ToOrderResponses(orders, DomInstanceExposers.DomDefinitionId.Equal(SlcServicemanagementIds.Definitions.ServiceOrders.Id)));
 			}
 			catch (InvalidQueryException ex)
 			{
@@ -1301,7 +1519,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 			};
 		}
 
-		/// <summary>Copies a configuration parameter value under a new identifier (same fields as the Add Service Order Item script).</summary>
+		/// <summary>Copies a configuration parameter value under a new identifier.</summary>
 		/// <param name="source">The specification's value.</param>
 		/// <returns>The copy.</returns>
 		private static ConfigurationModels.ConfigurationParameterValue CloneConfigurationParameterValue(ConfigurationModels.ConfigurationParameterValue source)
@@ -1348,6 +1566,39 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 				.Max();
 
 			return $"ORDER-{max + 1:000000}";
+		}
+
+		private static string GenerateNextServiceId(IEnumerable<string> existingServiceIds)
+		{
+			int max = (existingServiceIds ?? Enumerable.Empty<string>())
+				.Where(id => !String.IsNullOrWhiteSpace(id))
+				.Select(id => Int32.TryParse(id.Split('-').Last(), out int number) ? number : 0)
+				.DefaultIfEmpty(0)
+				.Max();
+
+			return $"SERVICE-{max + 1:00000}";
+		}
+
+		private static string GenerateUniqueServiceName(string requestedName, IEnumerable<string> existingServiceNames)
+		{
+			string baseName = String.IsNullOrWhiteSpace(requestedName) ? "Service" : requestedName.Trim();
+			var names = new HashSet<string>(
+				(existingServiceNames ?? Enumerable.Empty<string>()).Where(name => !String.IsNullOrWhiteSpace(name)),
+				StringComparer.OrdinalIgnoreCase);
+
+			if (!names.Contains(baseName))
+			{
+				return baseName;
+			}
+
+			for (long suffix = 2; ; suffix++)
+			{
+				string candidate = $"{baseName} ({suffix})";
+				if (!names.Contains(candidate))
+				{
+					return candidate;
+				}
+			}
 		}
 
 		/// <summary>Checks whether a PATCH body contains a property (case-insensitive), including when its value is <see langword="null"/>.</summary>
@@ -1470,6 +1721,171 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 				: values.Split(',').Select(value => value.Trim()).Where(value => value.Length > 0).ToList();
 		}
 
+		/// <summary>
+		/// Serializes orders and adds <c>StatusName</c> (API status name), <c>OrganizationName</c> and <c>CreatedAt</c> (UTC) when known.
+		/// </summary>
+		/// <param name="orders">The orders.</param>
+		/// <param name="metadataFilter">Filter on the order DOM instances for <c>CreatedAt</c>, or <see langword="null"/> to skip it.</param>
+		/// <returns>The JSON objects, in the same order.</returns>
+		private List<JObject> ToOrderResponses(IEnumerable<ServiceOrder> orders, FilterElement<DomInstance> metadataFilter)
+		{
+			var list = orders.ToList();
+			var organizations = list.Any(o => o.OrganizationId.HasValue) ? ReadOrganizationNames() : new Dictionary<Guid, string>();
+			var createdAt = list.Count > 0 && metadataFilter != null ? ReadCreatedAt(metadataFilter) : new Dictionary<string, DateTime>();
+
+			return list.Select(order =>
+			{
+				var result = JObject.FromObject(order);
+				result["StatusName"] = ToApiStatus(order.Status.ToString());
+				result["OrganizationName"] = order.OrganizationId.HasValue && organizations.TryGetValue(order.OrganizationId.Value, out var name) ? name : null;
+				if (createdAt.TryGetValue(order.Identifier ?? String.Empty, out var created))
+				{
+					result["CreatedAt"] = created;
+				}
+
+				return result;
+			}).ToList();
+		}
+
+		/// <summary>
+		/// Serializes order items and adds <c>StatusName</c> (API status name), <c>ServiceCategoryName</c>, <c>ServiceSpecificationName</c> and <c>ServiceName</c> when known.
+		/// </summary>
+		/// <param name="items">The order items.</param>
+		/// <returns>The JSON objects, in the same order.</returns>
+		private List<JObject> ToItemResponses(IEnumerable<ServiceOrderItem> items)
+		{
+			var list = items.ToList();
+			var categories = ReadNames(
+				list.Select(i => i.ServiceInfo?.ServiceCategoryId.Identifier),
+				id => ServiceCategoryExposers.Identifier.Equal(id),
+				filter => _serviceManagementApiHelper.ServiceCatalog.ServiceCategories.Read(filter),
+				c => c.Identifier,
+				c => c.Name);
+			var specifications = ReadNames(
+				list.Select(i => i.ServiceInfo?.SpecificationId.Identifier),
+				id => ServiceSpecificationExposers.Identifier.Equal(id),
+				filter => _serviceManagementApiHelper.ServiceCatalog.ServiceSpecifications.Read(filter),
+				s => s.Identifier,
+				s => s.Name);
+			var services = ReadNames(
+				list.Select(i => i.ServiceInfo?.ServiceId.Identifier),
+				id => ServiceExposers.Identifier.Equal(id),
+				filter => _serviceManagementApiHelper.ServiceInventory.Services.Read(filter),
+				s => s.Identifier,
+				s => s.Name);
+
+			return list.Select(item =>
+			{
+				var result = JObject.FromObject(item);
+				result["StatusName"] = ToApiStatus(item.Status.ToString());
+				result["ServiceCategoryName"] = LookupName(categories, item.ServiceInfo?.ServiceCategoryId.Identifier);
+				result["ServiceSpecificationName"] = LookupName(specifications, item.ServiceInfo?.SpecificationId.Identifier);
+				result["ServiceName"] = LookupName(services, item.ServiceInfo?.ServiceId.Identifier);
+				return result;
+			}).ToList();
+		}
+
+		/// <summary>Looks up a name by identifier.</summary>
+		/// <param name="names">The names by identifier.</param>
+		/// <param name="id">The identifier, or <see langword="null"/>.</param>
+		/// <returns>The name, or <see langword="null"/> when it is unknown.</returns>
+		private static string LookupName(IReadOnlyDictionary<string, string> names, string id)
+		{
+			return !String.IsNullOrEmpty(id) && names.TryGetValue(id, out var name) ? name : null;
+		}
+
+		/// <summary>
+		/// Reads the names of objects by identifier, in batches. Returns the names read so far, with a warning, when reading fails.
+		/// </summary>
+		/// <typeparam name="T">The object type.</typeparam>
+		/// <param name="ids">The identifiers; empty and duplicate values are ignored.</param>
+		/// <param name="filterFor">Creates the filter for one identifier.</param>
+		/// <param name="read">Reads the objects matching a filter.</param>
+		/// <param name="identifier">Gets the identifier of an object.</param>
+		/// <param name="name">Gets the name of an object.</param>
+		/// <returns>The names by identifier.</returns>
+		private Dictionary<string, string> ReadNames<T>(
+			IEnumerable<string> ids,
+			Func<string, FilterElement<T>> filterFor,
+			Func<FilterElement<T>, IEnumerable<T>> read,
+			Func<T, string> identifier,
+			Func<T, string> name)
+		{
+			const int BatchSize = 200;
+			var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+			var distinct = ids
+				.Where(id => !String.IsNullOrWhiteSpace(id))
+				.Distinct(StringComparer.OrdinalIgnoreCase)
+				.ToList();
+
+			try
+			{
+				for (int start = 0; start < distinct.Count; start += BatchSize)
+				{
+					FilterElement<T> filter = new ORFilterElement<T>();
+					foreach (var id in distinct.Skip(start).Take(BatchSize))
+					{
+						filter = filter.OR(filterFor(id));
+					}
+
+					foreach (var value in read(filter) ?? Enumerable.Empty<T>())
+					{
+						if (value != null && !String.IsNullOrEmpty(identifier(value)))
+						{
+							result[identifier(value)] = name(value);
+						}
+					}
+				}
+			}
+			catch (Exception ex)
+			{
+				_logger.LogWarning(ex, "Reading {Type} names failed: {Message}", typeof(T).Name, ex.Message);
+			}
+
+			return result;
+		}
+
+		/// <summary>Reads the organization names. Returns an empty map, with a warning, when they cannot be read.</summary>
+		/// <returns>The organization names by ID.</returns>
+		private Dictionary<Guid, string> ReadOrganizationNames()
+		{
+			try
+			{
+				return new DataHelperOrganization(_engineAccessor.Value.GetUserConnection())
+					.Read()
+					.GroupBy(o => o.ID)
+					.ToDictionary(g => g.Key, g => g.First().Name);
+			}
+			catch (Exception ex)
+			{
+				_logger.LogWarning(ex, "Reading organizations failed: {Message}", ex.Message);
+				return new Dictionary<Guid, string>();
+			}
+		}
+
+		/// <summary>Reads the creation time (UTC) of service orders from the DOM metadata. Returns an empty map, with a warning, when it cannot be read.</summary>
+		/// <param name="filter">Filter on the service order DOM instances.</param>
+		/// <returns>The creation times by order identifier.</returns>
+		private Dictionary<string, DateTime> ReadCreatedAt(FilterElement<DomInstance> filter)
+		{
+			try
+			{
+				var domHelper = new DomHelper(_engineAccessor.Value.SendSLNetMessages, SlcServicemanagementIds.ModuleId);
+				var result = new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
+				foreach (var instance in domHelper.DomInstances.Read(filter) ?? new List<DomInstance>())
+				{
+					result[instance.ID.Id.ToString()] = new ServiceOrdersInstance(instance).CreatedAt.UtcDateTime;
+				}
+
+				return result;
+			}
+			catch (Exception ex)
+			{
+				_logger.LogWarning(ex, "Reading service order metadata failed: {Message}", ex.Message);
+				return new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
+			}
+		}
+
 		/// <summary>Converts a DataMiner status or transition part (for example <c>In_Progress</c>) to its API name (for example <c>inProgress</c>).</summary>
 		/// <param name="status">The status.</param>
 		/// <returns>The API name, or the status without underscores when it is unknown.</returns>
@@ -1512,9 +1928,10 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 				throw new InvalidQueryException("'name' is required.");
 			}
 
-			if (request.OrderItems == null || request.OrderItems.Count == 0 || request.OrderItems.Any(i => i == null))
+			request.OrderItems = request.OrderItems ?? new List<CreateServiceOrderItemRequest>();
+			if (request.OrderItems.Any(i => i == null))
 			{
-				throw new InvalidQueryException("'orderItems' is required and must contain at least one item.");
+				throw new InvalidQueryException("'orderItems' cannot contain null items.");
 			}
 
 			ParsePriority(request.Priority);
@@ -1557,7 +1974,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 		}
 
 		/// <summary>
-		/// Resolves, per order item, the configuration values of its service specification, as the Add Service Order Item script does,
+		/// Resolves, per order item, the configuration values of its service specification,
 		/// with the item's <c>configurationValues</c> replacing the specification values. Nothing is created.
 		/// </summary>
 		/// <remarks>Only the referenced specifications and values are read, each once per call.</remarks>

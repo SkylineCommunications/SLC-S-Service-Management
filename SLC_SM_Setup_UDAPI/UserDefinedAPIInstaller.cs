@@ -56,6 +56,18 @@ namespace SLC_SM_Setup_UDAPI
 				description: "UDAPI to execute a service order item state transition.",
 				route: "serviceOrder/{id}/item/{itemId}/transition");
 
+			InstallEndpoint(
+				apiId: Constants.ApiDefinitions.ServiceOrder_ById_ByItemId_Configuration_UDAPI_Id,
+				name: "Service Order - Item Configuration",
+				description: "UDAPI to retrieve or save a service order item's configuration.",
+				route: "serviceOrder/{id}/item/{itemId}/configuration");
+
+			InstallEndpoint(
+				apiId: Constants.ApiDefinitions.ServiceOrder_ById_ByItemId_InitializeService_UDAPI_Id,
+				name: "Service Order - Initialize Service from Item",
+				description: "UDAPI to create and link a service from a service order item.",
+				route: "serviceOrder/{id}/item/{itemId}/initializeService");
+
 			// Service Inventory
 			InstallEndpoint(
 				apiId: Constants.ApiDefinitions.ServiceInventory_UDAPI_Id,
@@ -87,6 +99,42 @@ namespace SLC_SM_Setup_UDAPI
 				description: "UDAPI to retrieve a configuration version of a service by id.",
 				route: "service/{id}/configurationVersion/{versionId}");
 
+			InstallEndpoint(
+				apiId: Constants.ApiDefinitions.ServiceInventory_ById_Configuration_Editor_UDAPI_Id,
+				name: "Service Inventory - Service Configuration",
+				description: "UDAPI to retrieve or save the flat service configuration editor data.",
+				route: "service/{id}/configuration");
+
+			InstallEndpoint(
+				apiId: Constants.ApiDefinitions.ServiceInventory_ById_Duplicate_UDAPI_Id,
+				name: "Service Inventory - Duplicate Service",
+				description: "UDAPI to duplicate a service and its configuration.",
+				route: "service/{id}/duplicate");
+
+			InstallEndpoint(
+				apiId: Constants.ApiDefinitions.ServiceInventory_ById_RelatedOrder_UDAPI_Id,
+				name: "Service Inventory - Related Service Orders",
+				description: "UDAPI to retrieve the service orders related to a service.",
+				route: "service/{id}/relatedOrder");
+
+			InstallEndpoint(
+				apiId: Constants.ApiDefinitions.ServiceInventory_ById_Script_UDAPI_Id,
+				name: "Service Inventory - Service Scripts",
+				description: "UDAPI to list, add, update or remove service scripts.",
+				route: "service/{id}/script");
+
+			InstallEndpoint(
+				apiId: Constants.ApiDefinitions.ServiceInventory_ById_Item_UDAPI_Id,
+				name: "Service Inventory - List Items of a Service",
+				description: "UDAPI to create or retrieve the items of a service.",
+				route: "service/{id}/item");
+
+			InstallEndpoint(
+				apiId: Constants.ApiDefinitions.ServiceInventory_ById_ByItemId_UDAPI_Id,
+				name: "Service Inventory - Item By Id of a Service",
+				description: "UDAPI to update or delete a service item by id.",
+				route: "service/{id}/item/{itemId}");
+
 			// Service Specification
 			InstallEndpoint(
 				apiId: Constants.ApiDefinitions.ServiceSpecification_UDAPI_Id,
@@ -100,6 +148,24 @@ namespace SLC_SM_Setup_UDAPI
 				description: "UDAPI to retrieve, partially update or delete a service specification by id.",
 				route: "serviceSpecification/{id}");
 
+			InstallEndpoint(
+				apiId: Constants.ApiDefinitions.ServiceSpecification_ById_Configuration_UDAPI_Id,
+				name: "Service Specification - Service Specification Configuration",
+				description: "UDAPI to retrieve or replace the configuration parameters and profiles of a service specification.",
+				route: "serviceSpecification/{id}/configuration");
+
+			InstallEndpoint(
+				apiId: Constants.ApiDefinitions.ServiceSpecification_ById_Item_UDAPI_Id,
+				name: "Service Specification - Add Service Item",
+				description: "UDAPI to add a service item to a service specification.",
+				route: "serviceSpecification/{id}/item");
+
+			InstallEndpoint(
+				apiId: Constants.ApiDefinitions.ServiceSpecification_ById_ByItemId_UDAPI_Id,
+				name: "Service Specification - Service Item By Id",
+				description: "UDAPI to update or delete a service item in a service specification.",
+				route: "serviceSpecification/{id}/item/{itemId}");
+
 			// Service Category
 			InstallEndpoint(
 				apiId: Constants.ApiDefinitions.ServiceCategory_UDAPI_Id,
@@ -112,6 +178,12 @@ namespace SLC_SM_Setup_UDAPI
 				name: "Service Category - Service Category By Id",
 				description: "UDAPI to retrieve or delete a service category by id.",
 				route: "serviceCategory/{id}");
+
+			InstallEndpoint(
+				apiId: Constants.ApiDefinitions.MonitoringService_UDAPI_Id,
+				name: "Monitoring Service - List",
+				description: "UDAPI to retrieve monitoring services.",
+				route: "monitoringService");
 		}
 
 		private void Import(ApiDefinition definition)

@@ -1,9 +1,9 @@
 import { StrictMode, useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { DataMinerAuthError, executeAutomationScript } from './dataminer/gqi.js';
-import { CATALOG_SCRIPTS, fetchDocumentHubLogos, fetchServiceCategories, fetchServiceSpecifications, fetchServiceSpecificationConfigurations } from './dataminer/catalog.js';
-import { fetchRelatedServiceOrders, fetchServiceOrderItemConfigurations, fetchServiceOrderItems, fetchServiceOrders, fetchServiceOrganizations, getOrderItemTransitions, getOrderTransitions, isOpenOrder, SERVICE_ORDER_SCRIPTS } from './dataminer/serviceOrders.js';
-import { fetchMonitoringServices, fetchServiceConfigurations, fetchServiceItems, fetchServiceScripts, fetchServices, isActiveService, SERVICE_CONFIGURATION_SCRIPTS, SERVICE_INVENTORY_SCRIPTS, SERVICE_SCRIPT_SCRIPTS, SERVICE_TRANSITIONS } from './dataminer/services.js';
+import { DataMinerAuthError } from './dataminer/gqi.js';
+import { addCatalogSpecificationItem, createCatalogCategory, createCatalogSpecification, deleteCatalogCategory, deleteCatalogSpecification, deleteCatalogSpecificationItem, fetchDocumentHubLogos, fetchServiceCategories, fetchServiceSpecifications, fetchServiceSpecificationConfigurations, fetchSpecificationItems, saveCatalogSpecificationConfiguration, updateCatalogCategory, updateCatalogSpecification, updateCatalogSpecificationItem } from './dataminer/catalog.js';
+import { addServiceOrderItem, createServiceOrder, deleteServiceOrder, deleteServiceOrderItem, fetchRelatedServiceOrders, fetchServiceOrderItemConfigurations, fetchServiceOrderItems, fetchServiceOrders, fetchServiceOrganizations, getOrderItemTransitions, getOrderTransitions, isOpenOrder, transitionServiceOrder, transitionServiceOrderItem, updateServiceOrder, updateServiceOrderItem, saveServiceOrderItemConfiguration, initializeServiceFromOrderItem } from './dataminer/serviceOrders.js';
+import { addInventoryServiceItem, addServiceScript, createInventoryService, deleteInventoryService, deleteInventoryServiceItem, deleteServiceScript, duplicateInventoryService, fetchInventoryServiceItems, fetchMonitoringServices, fetchServiceConfigurations, fetchServiceDetails, fetchServiceScripts, fetchServices, isActiveService, saveServiceConfiguration as saveInventoryServiceConfiguration, serviceApiId, SERVICE_INVENTORY_SCRIPTS, SERVICE_TRANSITIONS, transitionInventoryService, updateInventoryService, updateInventoryServiceItem, updateServiceScript } from './dataminer/services.js';
 import { getConnectionFromCookie, redirectToAuth } from './dataminer/session.js';
 import { IasDialog } from './IasDialog.jsx';
 import './styles.css';
@@ -44,7 +44,7 @@ function ThemeMenu({ theme, setTheme }) {
 }
 
 function LocalConnectionNotice() {
-    return <div className="app-shell"><main className="connection-page"><section className="connection-card"><span className="connection-icon icon" aria-hidden="true">cloud_off</span><p className="eyebrow">Live preview</p><h1>Connect this preview to DataMiner</h1><p>This local server is in live mode and does not load sample orders. Open the deployed DataMiner page for real GQI data, or configure <code>VITE_DATAMINER_ORIGIN</code> and restart the dev server.</p><div className="connection-options"><div><strong>Real DMA</strong><span>Open the app from its DataMiner-hosted URL.</span></div><div><strong>Local sample data</strong><span>Run <code>npm run dev:mock</code> explicitly.</span></div></div></section></main></div>;
+    return <div className="app-shell"><main className="connection-page"><section className="connection-card"><span className="connection-icon icon" aria-hidden="true">cloud_off</span><p className="eyebrow">Live preview</p><h1>Connect this preview to DataMiner</h1><p>This local server is in live mode and does not load sample orders. Open the deployed DataMiner page for live DataMiner data, or configure <code>VITE_DATAMINER_ORIGIN</code> and restart the dev server.</p><div className="connection-options"><div><strong>Real DMA</strong><span>Open the app from its DataMiner-hosted URL.</span></div><div><strong>Local sample data</strong><span>Run <code>npm run dev:mock</code> explicitly.</span></div></div></section></main></div>;
 }
 
 function PageContent({ page, param }) {
@@ -76,7 +76,6 @@ function isCompletedOrder(order) { return order.state.trim().toLowerCase() === '
 const priorityRank = { high: 0, medium: 1, low: 2 };
 const serviceStateTones = { active: 'done', reserved: 'active', designed: 'active', new: 'pending', terminated: 'closed', retired: 'closed' };
 function serviceTone(state) { return serviceStateTones[state.trim().toLowerCase()] || 'pending'; }
-function transitionStateParameter(state) { return String(state || '').trim().replace(/\s+/g, ''); }
 
 function useDataList(fetcher) {
     const [state, setState] = useState({ status: 'loading', items: [], error: '', updatedAt: null });
@@ -136,10 +135,10 @@ function OverviewPage() {
     return <main className="page-content overview-page">
         <section className="overview-hero"><div><div className="overview-heading-meta"><p className="eyebrow">Workspace overview</p><span className="overview-status"><span aria-hidden="true" />Operational view</span></div><h1>Service Management</h1><p className="description">Monitor service orders, inventory, and the catalog from one operational view.</p></div><PageHeaderActions updatedAt={overviewUpdatedAt} loading={overviewLoading} onRefresh={reloadAll} /></section>
         <section className="overview-metrics" aria-label="Workspace metrics">
-            <OverviewMetric href="#orders" label="Open orders" value={ordersReady ? openOrders : '—'} note={ordersReady ? `${orderData.orders.length} total orders` : 'Waiting for GQI'} accent="--palette-color4" icon="assignment" />
+            <OverviewMetric href="#orders" label="Open orders" value={ordersReady ? openOrders : '—'} note={ordersReady ? `${orderData.orders.length} total orders` : 'Waiting for DataMiner'} accent="--palette-color4" icon="assignment" />
             <OverviewMetric href="#orders" label="Orders needing attention" value={ordersReady ? attentionOrders : '—'} note="Held, partially failed, rejected, or cancelling" accent="--palette-color3" icon="error" />
-            <OverviewMetric href="#services" label="Active services" value={servicesReady ? activeServices : '—'} note={servicesReady ? `${serviceData.items.length} in inventory` : 'Waiting for GQI'} accent="--success" icon="dm_service" />
-            <OverviewMetric href="#catalog" label="Catalog specifications" value={catalogReady ? catalogData.items.length : '—'} note={catalogReady ? `${totalCatalogItems} service items defined` : 'Waiting for GQI'} accent="--focus-color" icon="inventory_2" />
+            <OverviewMetric href="#services" label="Active services" value={servicesReady ? activeServices : '—'} note={servicesReady ? `${serviceData.items.length} in inventory` : 'Waiting for DataMiner'} accent="--success" icon="dm_service" />
+            <OverviewMetric href="#catalog" label="Catalog specifications" value={catalogReady ? catalogData.items.length : '—'} note={catalogReady ? `${totalCatalogItems} service items defined` : 'Waiting for DataMiner'} accent="--focus-color" icon="inventory_2" />
         </section>
         <section className="overview-columns">
             <section className="overview-panel" aria-labelledby="overview-orders-title"><div className="overview-panel-heading"><div><p className="eyebrow">Service operations</p><h2 id="overview-orders-title">Recent orders</h2></div><a className="quiet-button" href="#orders">View all <span className="icon" aria-hidden="true">arrow_forward</span></a></div>{ordersReady && orderData.orders.length > 0 ? <div className="overview-list">{recentOrders.map(order => <a className="overview-list-row" href={`#orders/${encodeURIComponent(order.id)}`} key={order.id}><span className="overview-list-icon icon" aria-hidden="true">assignment</span><span className="overview-list-main"><strong>{order.name || 'Unnamed order'}</strong><span>{[orderReference(order), order.organization].filter(Boolean).join('  ·  ') || 'No reference information'}</span></span><span className={`state-badge ${stateTone(order.state)}`}>{order.state || 'Unknown'}</span><span className="icon overview-list-arrow" aria-hidden="true">chevron_right</span></a>)}</div> : <OverviewListMessage status={orderData.status} error={orderData.error} emptyText="No service orders yet." />}</section>
@@ -148,8 +147,14 @@ function OverviewPage() {
     </main>;
 }
 
-function useServiceItems(serviceId) {
-    const fetcher = useCallback(() => serviceId ? fetchServiceItems(serviceId) : Promise.resolve([]), [serviceId]);
+function useServiceItems(service) {
+    const { id, serviceId } = service ?? {};
+    const fetcher = useCallback(() => fetchInventoryServiceItems({ id, serviceId }), [id, serviceId]);
+    return useDataList(fetcher);
+}
+
+function useSpecificationItems(specificationId) {
+    const fetcher = useCallback(() => specificationId ? fetchSpecificationItems(specificationId) : Promise.resolve([]), [specificationId]);
     return useDataList(fetcher);
 }
 
@@ -539,8 +544,12 @@ function NativeConfigurationParametersSection({ parameters, availableParameters,
     </section>;
 }
 
-function NativeServiceConfigurationsView({ service, actionState, onSave, onConfirm, fetchConfigurations = fetchServiceConfigurations, heading = 'Service configuration', allowVersionDelete = true, allowVersionAdd = false, showVersionMetadata = true, supportsProfiles = true, allowInitialVersion = false, parameterHeading, parameterEmptyMessage, lifecycleMode = 'Specification' }) {
-    const configurationFetcher = useCallback(() => fetchConfigurations(service.id), [fetchConfigurations, service.id]);
+function NativeServiceConfigurationsView({ service, actionState, onSave, onConfirm, fetchConfigurations = fetchServiceConfigurations, configurationOwnerId, heading = 'Service configuration', allowVersionDelete = true, allowVersionAdd = false, showVersionMetadata = true, supportsProfiles = true, allowInitialVersion = false, parameterHeading, parameterEmptyMessage, lifecycleMode = 'Specification' }) {
+    const configurationId = configurationOwnerId ? service.id : serviceApiId(service);
+    const configurationFetcher = useCallback(
+        () => configurationOwnerId ? fetchConfigurations(configurationOwnerId, configurationId) : fetchConfigurations(configurationId),
+        [configurationId, configurationOwnerId, fetchConfigurations],
+    );
     const data = useDataList(configurationFetcher);
     const [versionId, setVersionId] = useState('');
     const [draft, setDraft] = useState(null);
@@ -596,6 +605,7 @@ function NativeServiceConfigurationsView({ service, actionState, onSave, onConfi
         setValidationError('');
     };
     useEffect(() => {
+        if (versionId === '__new__') return;
         if (configurations.length === 0) {
             setVersionId('');
             setDraft(null);
@@ -603,7 +613,7 @@ function NativeServiceConfigurationsView({ service, actionState, onSave, onConfi
         }
         const active = configurations.find(version => version.active) || configurations[0];
         setVersionId(current => current && configurations.some(version => version.id === current) ? current : active.id);
-    }, [configurations]);
+    }, [configurations, versionId]);
     useEffect(() => {
         if (versionId === '__new__') return;
         const version = configurations.find(item => item.id === versionId);
@@ -764,6 +774,17 @@ function NativeServiceConfigurationsView({ service, actionState, onSave, onConfi
                 ParameterValueId: parameter.valueId,
                 Value: parameter.value,
                 Mandatory: parameter.mandatory,
+                Label: parameter.label,
+                IsLinked: parameter.isLinked,
+                Fixed: parameter.fixed,
+                UnitId: parameter.unitId,
+                Start: parameter.start,
+                End: parameter.end,
+                StepSize: parameter.step,
+                Decimals: parameter.decimals,
+                ExposeAtServiceOrder: parameter.exposeAtOrder,
+                MandatoryAtServiceOrder: parameter.mandatoryAtOrder,
+                MandatoryAtService: parameter.mandatoryAtService,
             })),
         };
         if (showVersionMetadata) {
@@ -771,8 +792,8 @@ function NativeServiceConfigurationsView({ service, actionState, onSave, onConfi
                 VersionId: draft.id,
                 VersionName: draft.name,
                 Description: draft.description,
-                StartDate: draft.start,
-                EndDate: draft.end,
+                StartDate: dateTimeLocalToUtc(draft.start),
+                EndDate: dateTimeLocalToUtc(draft.end),
                 ActivateVersion: Boolean(activateVersion),
             });
         }
@@ -787,7 +808,7 @@ function NativeServiceConfigurationsView({ service, actionState, onSave, onConfi
             'DOM ID': service.id,
             Payload: JSON.stringify(payload),
         }, data.reloadAndWait)) {
-            setVersionId('');
+            if (versionId === '__new__') setVersionId('');
         }
     };
     return <div className="service-drawer-body native-configuration-view">
@@ -806,8 +827,9 @@ function NativeServiceConfigurationsView({ service, actionState, onSave, onConfi
         {data.status === 'loading' ? <div className="configuration-empty"><span className="icon spin" aria-hidden="true">refresh</span>{showVersionMetadata ? 'Loading configuration versions…' : 'Loading configuration parameters…'}</div>
             : data.status === 'error' ? <div className="configuration-empty error"><span className="icon" aria-hidden="true">error</span>{data.error}<button className="quiet-button" type="button" onClick={data.reload}>Retry</button></div>
                 : configurations.length === 0 && !draft ? <div className={allowInitialVersion ? 'configuration-empty initial-version-empty' : 'configuration-empty'}><span className="icon" aria-hidden="true">tune</span><span>{showVersionMetadata ? 'No configuration versions are defined for this service yet.' : 'No configuration parameters are available for this order item.'}</span>{allowInitialVersion && <button className="primary-button" type="button" onClick={addInitialVersion} disabled={busy}>Add initial version</button>}</div>
-                    : draft && (selectedProfile && selectedProfilePath
-                        ? <NativeConfigurationProfileView
+                : !draft ? <div className="configuration-empty" role="status"><span className="icon spin" aria-hidden="true">refresh</span>Loading selected configuration…</div>
+                    : selectedProfile && selectedProfilePath
+                    ? <NativeConfigurationProfileView
                             profile={selectedProfile}
                             profilePath={selectedProfilePath}
                             profilesAtLevel={profilesAtLevel}
@@ -866,12 +888,8 @@ function NativeServiceConfigurationsView({ service, actionState, onSave, onConfi
                                 onRemoveParameter={removeProfileParameter}
                                 onOpenNested={openProfile}
                             />}
-                        </>)}
+                        </>}
     </div>;
-}
-
-function ServiceConfigurationsView({ service }) {
-    return <div className="service-drawer-body"><div className="service-drawer-heading"><div><p className="eyebrow">Configurations</p><h2>Service configuration details</h2></div></div><section className="service-configuration-card"><div className="configuration-toolbar"><button className="quiet-button" type="button" disabled>Show Value Details</button><button className="quiet-button" type="button" disabled>Show Lifecycle Details</button></div><div className="configuration-version-grid"><label>Version<select disabled><option>Current version</option></select></label><button className="quiet-button" type="button" disabled>Copy</button><label>Created at<input value={service.start || '—'} readOnly /></label></div><div className="configuration-version-details"><h3>Version details</h3><label>Version name<input value="Current version" readOnly /></label><label>Description<textarea value={`Configuration for ${service.name || 'this service'}`} readOnly /></label><label>Start date<input value={service.start || '—'} readOnly /></label><label>End date<input value={service.end || '—'} readOnly /></label></div><div className="configuration-empty"><span className="icon" aria-hidden="true">tune</span>Detailed configuration parameters are not exposed by the current Service Inventory GQI source.</div></section></div>;
 }
 
 function ServiceOperationDialog({ action, initialScript, busy, onClose, onSubmit }) {
@@ -903,9 +921,9 @@ function TabbedServiceDetailPanel({ service, onClose, onEdit, onDelete, onDuplic
     const [tab, setTab] = useState('service');
     const [itemEditor, setItemEditor] = useState(null);
     const [scriptItem, setScriptItem] = useState(null);
-    const itemData = useServiceItems(service.id);
-    const relatedOrders = useRelatedServiceOrders(service.id);
-    const scripts = useServiceScripts(service.id);
+    const itemData = useServiceItems(service);
+    const relatedOrders = useRelatedServiceOrders(serviceApiId(service));
+    const scripts = useServiceScripts(serviceApiId(service));
     const transitions = SERVICE_TRANSITIONS[service.status.trim().toLowerCase()] || [];
     const closeItemScript = useCallback(() => setScriptItem(null), []);
     const reloadItems = itemData.reloadAndWait;
@@ -923,7 +941,7 @@ function TabbedServiceDetailPanel({ service, onClose, onEdit, onDelete, onDuplic
     }, [scriptItem, onActionNotice, onActionFailure, reloadItems]);
     const deleteItem = async item => { await onDeleteItem(item, itemData.reloadAndWait); };
     const submitItem = async values => {
-        const success = await (itemEditor?.action === 'Edit' ? onEditItem(values, itemData.reloadAndWait) : onAddItem(values, itemData.reloadAndWait));
+        const success = await (itemEditor?.action === 'Edit' ? onEditItem(service, values, itemData.reloadAndWait, itemEditor.item) : onAddItem(service, values, itemData.reloadAndWait));
         if (success) {
             setItemEditor(null);
         }
@@ -946,12 +964,12 @@ function TabbedServiceDetailPanel({ service, onClose, onEdit, onDelete, onDuplic
     const details = [['Service ID', service.serviceId], ['Service specification', service.specification], ['Service category', service.category], ['Category type', service.categoryType], ['Start time', service.start], ['End time', service.end]];
     const relatedOrdersContent = relatedOrders.status === 'loading' ? <div className="service-related-empty"><span className="icon spin" aria-hidden="true">refresh</span>Loading related orders…</div> : relatedOrders.status === 'error' ? <div className="service-related-empty error"><span className="icon" aria-hidden="true">error</span>{relatedOrders.error}</div> : relatedOrders.items.length === 0 ? <div className="service-related-empty"><span className="icon" aria-hidden="true">assignment</span>No related service orders.</div> : <div className="related-orders-table-wrap"><table className="related-orders-table"><thead><tr><th>Name</th><th>Action</th><th>State</th></tr></thead><tbody>{relatedOrders.items.map(({ order, item }, index) => <tr key={`${order.id}-${item.id || index}`}><td>{order.name || 'Unnamed order'}</td><td>{item.action || '—'}</td><td><span className={`state-badge ${stateTone(item.status)}`}>{item.status || 'Unknown'}</span></td></tr>)}</tbody></table></div>;
     const serviceView = <div className="service-drawer-body"><div className="service-drawer-heading"><div><p className="eyebrow">Service Info</p><h2 id="service-detail-title">{service.name || 'Unnamed service'}</h2></div><span className={`state-badge ${serviceTone(service.status)}`}>{service.status || 'Unknown'}</span></div><div className="service-lifecycle" aria-label="Service lifecycle"><div className="service-lifecycle-steps">{lifecycle.map((state, index) => <span className={index === currentIndex ? 'service-lifecycle-step current' : index < currentIndex ? 'service-lifecycle-step complete' : 'service-lifecycle-step'} key={state}>{state}</span>)}</div><div className="service-lifecycle-actions">{transitions.length === 0 ? <span className="service-lifecycle-action-empty">No actions</span> : transitions.map(transition => <button className="service-lifecycle-action" type="button" key={`${transition.label}-${transition.next}`} onClick={() => onTransitionService(service, transition)} disabled={actionState?.status === 'running'}>{transition.label}</button>)}</div></div><div className="service-detail-layout"><section className="service-info-card"><div className="service-info-card-heading"><h3>Service details</h3><div className="drawer-card-actions"><button className="quiet-button drawer-action-button" type="button" onClick={onEdit}><span className="icon" aria-hidden="true">edit</span>Edit</button><button className="quiet-button drawer-action-button" type="button" onClick={() => onDuplicate(service)} disabled={actionState?.status === 'running'}><span className="icon" aria-hidden="true">content_copy</span>Duplicate</button><button className="danger-button drawer-action-button" type="button" onClick={onDelete}><span className="icon" aria-hidden="true">delete</span>Delete</button></div></div><dl className="detail-grid service-detail-grid">{details.map(([label, value]) => <div key={label}><dt>{label}</dt><dd className={label === 'DOM instance ID' ? 'mono' : ''}>{value || '—'}</dd></div>)}</dl></section><section className="service-info-card related-orders-card"><div className="service-info-card-heading"><h3>Related service orders</h3><span className="count-pill">{relatedOrders.status === 'ready' ? relatedOrders.items.length : '—'}</span></div>{relatedOrdersContent}</section></div><section className="service-items-panel"><div className="service-items-heading"><div><p className="eyebrow">Service configuration</p><h3>Service items</h3></div><button className="primary-button" type="button" onClick={() => setItemEditor({ action: 'Add', item: null })} disabled={actionState?.status === 'running'}><span className="icon" aria-hidden="true">add</span>Add item</button></div>{itemData.status === 'loading' ? <div className="service-related-empty"><span className="icon spin" aria-hidden="true">refresh</span>Loading service items…</div> : itemData.items.length === 0 ? <div className="service-related-empty"><span className="icon" aria-hidden="true">inbox</span>Nothing to show.</div> : <div className="service-items-table-wrap"><table className="service-items-table"><thead><tr><th>Label</th><th>Service item type</th><th>Definition reference</th><th>Implementation state</th><th>Monitoring service state</th><th>Actions</th></tr></thead><tbody>{itemData.items.map(item => <tr key={item.id || item.label}><td>{item.label || '—'}</td><td>{item.type || '—'}</td><td>{item.definition || '—'}</td><td>{item.implementationState || '—'}</td><td>{item.monitoringState || '—'}</td><td><div className="service-actions"><button className="table-icon-action" type="button" aria-label={`Launch script for ${item.label || 'service item'}`} title={item.script ? `Launch ${item.script}` : 'No service item script is configured'} onClick={() => setScriptItem(item)} disabled={!item.script || !item.label || actionState?.status === 'running'}><span className="icon" aria-hidden="true">play_circle</span></button><button className="table-icon-action" type="button" aria-label={`Edit ${item.label || 'service item'}`} onClick={() => setItemEditor({ action: 'Edit', item })} disabled={actionState?.status === 'running'}><span className="icon" aria-hidden="true">edit</span></button><button className="table-icon-action danger" type="button" aria-label={`Delete ${item.label || 'service item'}`} onClick={() => deleteItem(item)} disabled={actionState?.status === 'running'}><span className="icon" aria-hidden="true">delete</span></button></div></td></tr>)}</tbody></table></div>}</section></div>;
-    return <><div className="drawer-layer"><div className="drawer-backdrop" onClick={onClose} aria-hidden="true" /><aside className="drawer service-drawer" role="dialog" aria-modal="true" aria-labelledby="service-detail-title"><header className="service-drawer-topbar"><nav aria-label="Service detail sections"><button className={tab === 'service' ? 'service-tab active' : 'service-tab'} type="button" onClick={() => setTab('service')} aria-selected={tab === 'service'}><span className="icon" aria-hidden="true">assignment</span>Service</button><button className={tab === 'configurations' ? 'service-tab active' : 'service-tab'} type="button" onClick={() => setTab('configurations')} aria-selected={tab === 'configurations'}><span className="icon" aria-hidden="true">settings</span>Configurations</button><button className={tab === 'operations' ? 'service-tab active' : 'service-tab'} type="button" onClick={() => setTab('operations')} aria-selected={tab === 'operations'}><span className="icon" aria-hidden="true">bolt</span>Operations</button></nav><button ref={closeButton} className="icon-button" type="button" aria-label="Close service details" onClick={onClose}><span className="icon">close</span></button></header>{tab === 'service' ? serviceView : tab === 'configurations' ? <NativeServiceConfigurationsView service={service} actionState={actionState} onSave={onSaveConfiguration} onConfirm={onConfirmConfiguration} allowInitialVersion allowVersionAdd /> : <ServiceOperationsView service={service} scripts={scripts} busy={actionState?.status === 'running'} onSubmit={submitOperation} onDelete={deleteOperation} />}</aside></div>{itemEditor && <ServiceItemDialog key={`${itemEditor.action}-${itemEditor.item?.label || 'new'}`} busy={actionState?.status === 'running'} parentId={service.id} action={itemEditor.action} initialItem={itemEditor.item} context="Service" onClose={() => setItemEditor(null)} onSubmit={submitItem} />}{scriptItem && <IasDialog script={SERVICE_INVENTORY_SCRIPTS.launchItemScript} parameters={{ 'DOM ID': service.id, 'Item Label': scriptItem.label }} eyebrow={`Service item · ${scriptItem.label}`} onClose={closeItemScript} onFinished={finishItemScript} />}</>;
+    return <><div className="drawer-layer"><div className="drawer-backdrop" onClick={onClose} aria-hidden="true" /><aside className="drawer service-drawer" role="dialog" aria-modal="true" aria-labelledby="service-detail-title"><header className="service-drawer-topbar"><nav aria-label="Service detail sections"><button className={tab === 'service' ? 'service-tab active' : 'service-tab'} type="button" onClick={() => setTab('service')} aria-selected={tab === 'service'}><span className="icon" aria-hidden="true">assignment</span>Service</button><button className={tab === 'configurations' ? 'service-tab active' : 'service-tab'} type="button" onClick={() => setTab('configurations')} aria-selected={tab === 'configurations'}><span className="icon" aria-hidden="true">settings</span>Configurations</button><button className={tab === 'operations' ? 'service-tab active' : 'service-tab'} type="button" onClick={() => setTab('operations')} aria-selected={tab === 'operations'}><span className="icon" aria-hidden="true">bolt</span>Operations</button></nav><button ref={closeButton} className="icon-button" type="button" aria-label="Close service details" onClick={onClose}><span className="icon">close</span></button></header>{tab === 'service' ? serviceView : tab === 'configurations' ? <NativeServiceConfigurationsView service={service} actionState={actionState} onSave={onSaveConfiguration} onConfirm={onConfirmConfiguration} allowInitialVersion allowVersionAdd /> : <ServiceOperationsView service={service} scripts={scripts} busy={actionState?.status === 'running'} onSubmit={submitOperation} onDelete={deleteOperation} />}</aside></div>{itemEditor && <ServiceItemDialog key={`${itemEditor.action}-${itemEditor.item?.label || 'new'}`} busy={actionState?.status === 'running'} parentId={service.id} parentService={service} action={itemEditor.action} initialItem={itemEditor.item} context="Service" onClose={() => setItemEditor(null)} onSubmit={submitItem} />}{scriptItem && <IasDialog script={SERVICE_INVENTORY_SCRIPTS.launchItemScript} parameters={{ 'DOM ID': service.id, 'Item Label': scriptItem.label }} eyebrow={`Service item · ${scriptItem.label}`} onClose={closeItemScript} onFinished={finishItemScript} />}</>;
 }
 
 function ServicesPage({ selectedId }) {
     const { status, items: services, error, updatedAt, reload, reloadAndWait } = useDataList(fetchServices);
-    const { state: actionState, run: runAction, fail: failAction, notify: notifyAction, dismiss: dismissAction } = useAutomationActions();
+    const { state: actionState, runApi, fail: failAction, notify: notifyAction, dismiss: dismissAction } = useAutomationActions();
     const { confirm, dialog: confirmationDialog } = useConfirmation();
     const [search, setSearch] = useState('');
     const [newServiceOpen, setNewServiceOpen] = useState(false);
@@ -967,52 +985,41 @@ function ServicesPage({ selectedId }) {
     const retiredCount = services.filter(service => service.status.trim().toLowerCase() === 'retired').length;
     const selectedService = selectedId ? services.find(service => service.id === selectedId) : null;
     const createService = () => setNewServiceOpen(true);
-    const submitNewService = async values => {
-        if (await runAction(SERVICE_INVENTORY_SCRIPTS.create, values, 'Creating service', reloadAndWait)) {
+    const submitNewService = async (_values, fields) => {
+        const created = await runApi(() => createInventoryService(fields), 'Creating service', reloadAndWait);
+        if (created) {
             setNewServiceOpen(false);
         }
     };
-    const submitEditedService = async values => {
-        if (await runAction(SERVICE_INVENTORY_SCRIPTS.edit, values, 'Saving service', reloadAndWait)) {
+    const submitEditedService = async (_values, { serviceId, ...fields }) => {
+        const saved = await runApi(() => updateInventoryService(serviceApiId(editServiceTarget), fields), 'Saving service', reloadAndWait);
+        if (saved) {
             setEditServiceTarget(null);
         }
     };
     const saveServiceLogo = async category => {
         const service = logoEditor?.service;
         if (!service) return;
-        const saved = await runAction(SERVICE_INVENTORY_SCRIPTS.edit, {
-            Action: 'Edit',
-            'DOM ID': service.id,
-            Payload: JSON.stringify({
-                ServiceID: service.serviceId,
-                Name: service.name,
-                Category: category,
-                Specification: service.specification,
-                Organization: service.organization,
-                StartTime: service.start,
-                EndTime: service.end,
-                IndefiniteRuntime: !service.end,
-                LinkedService: service.linkedService,
-                LinkService: Boolean(service.linkedService),
-                GenerateMonitoringService: Boolean(service.linkedService),
-            }),
-        }, 'Saving service logo', reloadAndWait);
+        const saved = await runApi(
+            () => updateInventoryService(serviceApiId(service), { category: category ? { name: category } : null }),
+            'Saving service logo',
+            reloadAndWait,
+        );
         if (saved) {
             setLogoEditor(null);
         }
     };
     const editService = service => setEditServiceTarget(service);
     const duplicateService = async service => {
-        if (!await runAction(SERVICE_INVENTORY_SCRIPTS.duplicate, { 'DOM ID': service.id, Action: 'Duplicate', Payload: JSON.stringify({}) }, 'Duplicating service', reloadAndWait)) return;
+        if (!await runApi(() => duplicateInventoryService(serviceApiId(service)), 'Duplicating service', reloadAndWait)) return;
         location.hash = 'services';
     };
     const deleteService = async service => {
         if (!await confirm(`Delete "${service.name || 'this service'}"?`)) return;
-        let refreshedServices = [];
-        if (await runAction(SERVICE_INVENTORY_SCRIPTS.delete, { 'DOM ID': service.id, 'Skip Confirmation': 'true' }, 'Deleting service', async () => {
-            refreshedServices = await reloadAndWait();
-            if (refreshedServices.some(candidate => candidate.id === service.id)) {
-                throw new Error('The delete script completed, but the service is still returned by GQI.');
+        if (await runApi(() => deleteInventoryService(serviceApiId(service)), 'Deleting service', async () => {
+            const refreshedServices = await reloadAndWait();
+            if (refreshedServices.some(candidate => candidate.id === service.id || candidate.serviceId === service.serviceId)) {
+                throw new Error('The service was deleted, but it is still returned by the Service Management API.');
             }
         })) {
             if (selectedId === service.id) location.hash = 'services';
@@ -1020,29 +1027,42 @@ function ServicesPage({ selectedId }) {
     };
     const deleteServiceItem = async (service, item, refresh) => {
         if (!await confirm(`Delete "${item.label || 'this service item'}"?`)) return false;
-        return runAction(SERVICE_INVENTORY_SCRIPTS.deleteItem, { 'DOM ID': service.id, 'Service Item Label': item.label, 'Skip Confirmation': 'true' }, 'Deleting service item', async () => {
-            const remainingItems = await fetchServiceItems(service.id);
-            if (remainingItems.some(candidate => candidate.label === item.label)) {
-                throw new Error('The delete script completed, but the service item is still returned by GQI.');
-            }
-            if (refresh) await refresh();
-        });
+        return runApi(() => deleteInventoryServiceItem(serviceApiId(service), item.id), 'Deleting service item', refresh);
     };
-    const addServiceItem = (values, refresh) => runAction(SERVICE_INVENTORY_SCRIPTS.addItem, values, 'Creating service item', refresh);
-    const editServiceItem = (values, refresh) => runAction(SERVICE_INVENTORY_SCRIPTS.editItem, values, 'Saving service item', refresh);
+    const addServiceItem = (service, values, refresh) => runApi(
+        () => addInventoryServiceItem(serviceApiId(service), serviceItemRequest(values)),
+        'Creating service item',
+        refresh,
+    );
+    const editServiceItem = (service, values, refresh, item) => runApi(
+        () => updateInventoryServiceItem(serviceApiId(service), item.id, serviceItemRequest(values)),
+        'Saving service item',
+        refresh,
+    );
     const transitionService = async (service, transition) => {
-        await runAction(SERVICE_INVENTORY_SCRIPTS.transition, { ServiceReference: service.id, PreviousState: transitionStateParameter(service.status), NextState: transition.next }, `${transition.label} service`, reloadAndWait);
+        await runApi(() => transitionInventoryService(serviceApiId(service), transition.next), `${transition.label} service`, reloadAndWait);
     };
-    const saveServiceConfiguration = (values, refresh) => runAction(SERVICE_CONFIGURATION_SCRIPTS.save, values, 'Saving service configuration', refresh);
-    const manageServiceOperation = (service, action, values, refresh) => runAction(SERVICE_SCRIPT_SCRIPTS.manage, {
-        Action: action,
-        'Service Id': service.id,
-        'Script Name': values.name,
-        'Script Description': values.description,
-        'Original Script Description': values.originalDescription || values.description,
-        Payload: JSON.stringify({}),
-    }, `${action === 'Update' ? 'Updating' : action === 'Remove' ? 'Deleting' : 'Adding'} service operation`, refresh);
-    const deleteServiceOperation = (service, script, refresh) => manageServiceOperation(service, 'Remove', { name: script.name, description: script.description, originalDescription: script.description }, refresh);
+    const saveServiceConfiguration = (values, refresh) => runApi(
+        () => saveInventoryServiceConfiguration(serviceApiId(selectedService), JSON.parse(values.Payload || '{}')),
+        'Saving service configuration',
+        refresh,
+    );
+    const manageServiceOperation = (service, action, values, refresh) => runApi(
+        () => action === 'Update'
+            ? updateServiceScript(serviceApiId(service), {
+                originalDescription: values.originalDescription,
+                name: values.name,
+                description: values.description,
+            })
+            : addServiceScript(serviceApiId(service), { name: values.name, description: values.description }),
+        `${action === 'Update' ? 'Updating' : 'Adding'} service operation`,
+        refresh,
+    );
+    const deleteServiceOperation = (service, script, refresh) => runApi(
+        () => deleteServiceScript(serviceApiId(service), script.description),
+        'Deleting service operation',
+        refresh,
+    );
     const normalizedSearch = search.trim().toLowerCase();
     const filteredServices = services.filter(service => {
         const normalizedStatus = service.status.trim().toLowerCase();
@@ -1070,14 +1090,14 @@ function ServicesPage({ selectedId }) {
     else if (services.length === 0) body = <div className="list-message" role="status"><span className="icon" aria-hidden="true">inbox</span>No services in inventory yet.</div>;
     else if (filteredServices.length === 0) body = <div className="services-empty" role="status"><span className="icon" aria-hidden="true">search_off</span><div><strong>No services match these filters</strong><span>Try a different search or status.</span></div><button className="quiet-button" type="button" onClick={() => { setSearch(''); setStatusFilter('all'); }}>Clear filters</button></div>;
     else body = <div className="services-table-wrap" aria-busy={loading}><table className="services-table"><colgroup><col className="service-icon-column" /><col className="service-id-column" /><col className="service-name-column" /><col className="service-status-column" /><col className="service-start-column" /><col className="service-end-column" /><col className="service-specification-column" /><col className="service-category-column" /><col className="service-category-type-column" /><col className="service-action-column" /></colgroup><thead><tr><th scope="col">Icon</th><th scope="col">{sortButton('serviceId', 'ID')}</th><th scope="col">{sortButton('name', 'Name')}</th><th scope="col">{sortButton('status', 'State')}</th><th scope="col">Start</th><th scope="col">End</th><th scope="col">{sortButton('specification', 'Spec')}</th><th scope="col">{sortButton('category', 'Category')}</th><th scope="col">{sortButton('categoryType', 'Type')}</th><th scope="col"><span className="sr-only">Actions</span></th></tr></thead><tbody>{pagedServices.map(service => <tr className={service.id && service.id === selectedId ? 'service-row selected' : 'service-row'} key={service.id || service.serviceId || service.name} onDoubleClick={() => { if (service.id) location.hash = `services/${encodeURIComponent(service.id)}`; }    }><td><button className="service-logo-button" type="button" aria-label={`Set logo for ${service.name || 'unnamed service'}`} onClick={event => { event.stopPropagation(); setLogoEditor({ service }); }}><span className="service-logo">{service.logo ? <img src={service.logo} alt="" /> : <span className="icon" aria-hidden="true">add_photo_alternate</span>}</span></button></td><td title={service.serviceId || undefined}><span className="table-primary">{service.serviceId || '—'}</span></td><td title={service.name || undefined}><span className="table-primary">{service.name || 'Unnamed service'}</span></td><td><span className={`state-badge ${serviceTone(service.status)}`}>{service.status || 'Unknown'}</span></td><td title={service.start || undefined}><span className="table-description">{service.start || '—'}</span></td><td title={service.end || undefined}><span className="table-description">{service.end || '—'}</span></td><td title={service.specification || undefined}><span className="table-primary">{service.specification || '—'}</span></td><td title={service.category || undefined}><span className="table-primary">{service.category || '—'}</span></td><td title={service.categoryType || undefined}><span className="table-primary">{service.categoryType || '—'}</span></td><td><div className="service-actions"><button className="table-row-open" type="button" aria-label={`Open details of ${service.name || 'unnamed service'}`} onClick={event => { event.stopPropagation(); location.hash = `services/${encodeURIComponent(service.id)}`; }}><span className="icon" aria-hidden="true">chevron_right</span></button></div></td></tr>)}</tbody></table></div>;
-    return <main className="page-content services-page"><section className="services-hero"><div><p className="eyebrow">{pages.services.eyebrow}</p><h1>Services</h1><p className="description">Explore the services currently defined in the Service Inventory.</p></div><PageHeaderActions updatedAt={updatedAt} loading={loading} onRefresh={reload} primaryAction={<button className="primary-button" type="button" onClick={createService} disabled={actionState?.status === 'running'}><span className="icon" aria-hidden="true">add</span>Add service</button>} /></section><ActionNotice state={actionState} onDismiss={dismissAction} />{confirmationDialog}{newServiceOpen && <NewServiceDialog busy={actionState?.status === 'running'} existingServices={services} onClose={() => setNewServiceOpen(false)} onSubmit={submitNewService} />}{editServiceTarget && <NewServiceDialog key={editServiceTarget.id} busy={actionState?.status === 'running'} existingServices={services} action="Edit" initialService={editServiceTarget} onClose={() => setEditServiceTarget(null)} onSubmit={submitEditedService} />}{logoEditor && <ServiceLogoDialog service={logoEditor.service} busy={actionState?.status === 'running'} onClose={() => setLogoEditor(null)} onSubmit={saveServiceLogo} />}<section className="services-metrics" aria-label="Service inventory metrics"><button className={statusFilter === 'all' ? 'service-metric selected' : 'service-metric'} type="button" onClick={() => setStatusFilter('all')}><span className="overview-metric-top"><span className="overview-metric-icon icon" aria-hidden="true">dm_service</span><span>All services</span></span><strong>{hasData ? services.length : '—'}</strong><small>Inventory records</small></button><button className={statusFilter === 'active' ? 'service-metric selected' : 'service-metric'} type="button" onClick={() => setStatusFilter('active')}><span className="overview-metric-top"><span className="overview-metric-icon icon" aria-hidden="true">check_circle</span><span>Active</span></span><strong>{hasData ? activeCount : '—'}</strong><small>Designed, reserved, or active</small></button><button className={statusFilter === 'retired' ? 'service-metric selected' : 'service-metric'} type="button" onClick={() => setStatusFilter('retired')}><span className="overview-metric-top"><span className="overview-metric-icon icon" aria-hidden="true">pause_circle</span><span>Retired</span></span><strong>{hasData ? retiredCount : '—'}</strong><small>No longer in operation</small></button></section><section className="services-surface" aria-labelledby="services-table-title"><div className="services-toolbar"><div className="orders-toolbar-title"><div><p className="eyebrow">Service inventory</p><h2 id="services-table-title">All services</h2></div>{hasData && <span className="orders-total-copy">{services.length} {services.length === 1 ? 'service' : 'services'} in total</span>}</div><div className="orders-toolbar-controls"><label className="orders-search"><span className="icon" aria-hidden="true">search</span><span className="sr-only">Search services</span><input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Search services" aria-label="Search services" />{search && <button type="button" aria-label="Clear search" onClick={() => setSearch('')}><span className="icon" aria-hidden="true">close</span></button>}</label><label className="orders-filter"><span className="sr-only">Filter services by status</span><select value={statusFilter} onChange={event => setStatusFilter(event.target.value)} aria-label="Filter services by status"><option value="all">All statuses</option><option value="active">Active</option><option value="retired">Retired</option></select><span className="icon" aria-hidden="true">expand_more</span></label></div></div>{body}</section><TablePagination page={servicesPage} pageSize={servicesPageSize} total={filteredServices.length} onPageChange={setServicesPage} onPageSizeChange={size => { setServicesPageSize(size); setServicesPage(1); }} />{selectedService && <TabbedServiceDetailPanel service={selectedService} onClose={() => { location.hash = 'services'; }} onEdit={() => editService(selectedService)} onDelete={() => deleteService(selectedService)} onDuplicate={() => duplicateService(selectedService)} onDeleteItem={item => deleteServiceItem(selectedService, item)} onAddItem={addServiceItem} onEditItem={editServiceItem} onTransitionService={transitionService} onSaveConfiguration={saveServiceConfiguration} onConfirmConfiguration={confirm} onManageOperation={manageServiceOperation} onDeleteOperation={deleteServiceOperation} onConfirmOperation={confirm} onActionNotice={notifyAction} onActionFailure={failAction} actionState={actionState} />}</main>;
+    return <main className="page-content services-page"><section className="services-hero"><div><p className="eyebrow">{pages.services.eyebrow}</p><h1>Services</h1><p className="description">Explore the services currently defined in the Service Inventory.</p></div><PageHeaderActions updatedAt={updatedAt} loading={loading} onRefresh={reload} primaryAction={<button className="primary-button" type="button" onClick={createService} disabled={actionState?.status === 'running'}><span className="icon" aria-hidden="true">add</span>Add service</button>} /></section><ActionNotice state={actionState} onDismiss={dismissAction} />{confirmationDialog}{newServiceOpen && <NewServiceDialog busy={actionState?.status === 'running'} existingServices={services} onClose={() => setNewServiceOpen(false)} onSubmit={submitNewService} />}{editServiceTarget && <NewServiceDialog key={editServiceTarget.id} busy={actionState?.status === 'running'} existingServices={services} action="Edit" initialService={editServiceTarget} onClose={() => setEditServiceTarget(null)} onSubmit={submitEditedService} />}{logoEditor && <ServiceLogoDialog service={logoEditor.service} busy={actionState?.status === 'running'} onClose={() => setLogoEditor(null)} onSubmit={saveServiceLogo} />}<section className="services-metrics" aria-label="Service inventory metrics"><button className={statusFilter === 'all' ? 'service-metric selected' : 'service-metric'} type="button" onClick={() => setStatusFilter('all')}><span className="overview-metric-top"><span className="overview-metric-icon icon" aria-hidden="true">dm_service</span><span>All services</span></span><strong>{hasData ? services.length : '—'}</strong><small>Inventory records</small></button><button className={statusFilter === 'active' ? 'service-metric selected' : 'service-metric'} type="button" onClick={() => setStatusFilter('active')}><span className="overview-metric-top"><span className="overview-metric-icon icon" aria-hidden="true">check_circle</span><span>Active</span></span><strong>{hasData ? activeCount : '—'}</strong><small>Designed, reserved, or active</small></button><button className={statusFilter === 'retired' ? 'service-metric selected' : 'service-metric'} type="button" onClick={() => setStatusFilter('retired')}><span className="overview-metric-top"><span className="overview-metric-icon icon" aria-hidden="true">pause_circle</span><span>Retired</span></span><strong>{hasData ? retiredCount : '—'}</strong><small>No longer in operation</small></button></section><section className="services-surface" aria-labelledby="services-table-title"><div className="services-toolbar"><div className="orders-toolbar-title"><div><p className="eyebrow">Service inventory</p><h2 id="services-table-title">All services</h2></div>{hasData && <span className="orders-total-copy">{services.length} {services.length === 1 ? 'service' : 'services'} in total</span>}</div><div className="orders-toolbar-controls"><label className="orders-search"><span className="icon" aria-hidden="true">search</span><span className="sr-only">Search services</span><input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Search services" aria-label="Search services" />{search && <button type="button" aria-label="Clear search" onClick={() => setSearch('')}><span className="icon" aria-hidden="true">close</span></button>}</label><label className="orders-filter"><span className="sr-only">Filter services by status</span><select value={statusFilter} onChange={event => setStatusFilter(event.target.value)} aria-label="Filter services by status"><option value="all">All statuses</option><option value="active">Active</option><option value="retired">Retired</option></select><span className="icon" aria-hidden="true">expand_more</span></label></div></div>{body}</section><TablePagination page={servicesPage} pageSize={servicesPageSize} total={filteredServices.length} onPageChange={setServicesPage} onPageSizeChange={size => { setServicesPageSize(size); setServicesPage(1); }} />{selectedService && <TabbedServiceDetailPanel service={selectedService} onClose={() => { location.hash = 'services'; }} onEdit={() => editService(selectedService)} onDelete={() => deleteService(selectedService)} onDuplicate={() => duplicateService(selectedService)} onDeleteItem={(item, refresh) => deleteServiceItem(selectedService, item, refresh)} onAddItem={addServiceItem} onEditItem={editServiceItem} onTransitionService={transitionService} onSaveConfiguration={saveServiceConfiguration} onConfirmConfiguration={confirm} onManageOperation={manageServiceOperation} onDeleteOperation={deleteServiceOperation} onConfirmOperation={confirm} onActionNotice={notifyAction} onActionFailure={failAction} actionState={actionState} />}</main>;
 }
 
 function TabbedSpecificationDetailPanel({ specification, onClose, onEdit, onDelete, onAddItem, onEditItem, onDeleteItem, onSaveConfiguration, onConfirmConfiguration, actionState }) {
     const closeButton = useRef(null);
     const [tab, setTab] = useState('specification');
     const [itemEditor, setItemEditor] = useState(null);
-    const itemData = useServiceItems(specification.id);
+    const itemData = useSpecificationItems(specification.id);
     const deleteItem = async item => { await onDeleteItem(item, itemData.reloadAndWait); };
     const submitItem = async values => {
         const success = await (itemEditor?.action === 'Edit' ? onEditItem(values, itemData.reloadAndWait) : onAddItem(values, itemData.reloadAndWait));
@@ -1126,24 +1146,24 @@ function ServiceCategoryDialog({ busy, onClose, onSubmit, initialCategory = null
 
 function ServiceCategoriesPage() {
     const { status, items: categories, error, updatedAt, reload, reloadAndWait } = useDataList(fetchServiceCategories);
-    const { state: actionState, run: runAction, fail: failAction, dismiss: dismissAction } = useAutomationActions();
+    const { state: actionState, runApi, dismiss: dismissAction } = useAutomationActions();
     const { confirm, dialog: confirmationDialog } = useConfirmation();
     const [editor, setEditor] = useState(null);
     const loading = status === 'loading';
     const hasData = status === 'ready' || (loading && categories.length > 0);
     const submit = async values => {
-        if (await runAction(CATALOG_SCRIPTS.manageCategories, values, `${values.Action === 'Edit' ? 'Saving' : 'Creating'} service category`, reloadAndWait)) {
+        const payload = values.Payload ? JSON.parse(values.Payload) : {};
+        const label = `${values.Action === 'Edit' ? 'Saving' : 'Creating'} service category`;
+        const succeeded = await runApi(() => values.Action === 'Edit'
+            ? updateCatalogCategory(values.domId, payload)
+            : createCatalogCategory(payload), label, reloadAndWait);
+        if (succeeded) {
             setEditor(null);
         }
     };
     const deleteCategory = async category => {
         if (!await confirm(`Delete "${category.name || 'this service category'}"?`)) return;
-        await runAction(CATALOG_SCRIPTS.manageCategories, { Action: 'Delete', domId: category.id, Payload: JSON.stringify({}) }, 'Deleting service category', async () => {
-            const refreshed = await reloadAndWait();
-            if (refreshed.some(candidate => candidate.id === category.id)) {
-                throw new Error('The category delete script completed, but the category is still returned by GQI.');
-            }
-        });
+        await runApi(() => deleteCatalogCategory(category.id), 'Deleting service category', reloadAndWait);
     };
     let body;
     if (status === 'error') body = <div className="list-message error" role="alert"><span className="icon" aria-hidden="true">error</span><div className="list-message-text"><strong>Categories could not be loaded</strong><span>{error}</span></div><button className="quiet-button" type="button" onClick={reload}>Retry</button></div>;
@@ -1160,7 +1180,7 @@ function CatalogPage({ selectedId }) {
 
 function SpecificationsCatalogPage({ selectedId }) {
     const { status, items: specifications, error, updatedAt, reload, reloadAndWait } = useDataList(fetchServiceSpecifications);
-    const { state: actionState, run: runAction, fail: failAction, dismiss: dismissAction } = useAutomationActions();
+    const { state: actionState, runApi, dismiss: dismissAction } = useAutomationActions();
     const { confirm, dialog: confirmationDialog } = useConfirmation();
     const [search, setSearch] = useState('');
     const [newSpecificationOpen, setNewSpecificationOpen] = useState(false);
@@ -1177,39 +1197,51 @@ function SpecificationsCatalogPage({ selectedId }) {
     const selectedSpecification = selectedId ? specifications.find(specification => specification.id === selectedId) : null;
     const deleteSpecification = async specification => {
         if (!await confirm(`Delete "${specification.name || 'this specification'}"?`)) return;
-        if (await runAction(CATALOG_SCRIPTS.deleteSpecification, { 'DOM ID': specification.id, 'Skip Confirmation': 'true' }, 'Deleting specification', async () => {
-            const refreshedSpecifications = await reloadAndWait();
-            if (refreshedSpecifications.some(candidate => candidate.id === specification.id)) {
-                throw new Error('The delete script completed, but the specification is still returned by GQI.');
-            }
-        })) {
+        if (await runApi(() => deleteCatalogSpecification(specification.id), 'Deleting service specification', reloadAndWait)) {
             if (selectedId === specification.id) location.hash = 'catalog';
         }
     };
     const createSpecification = () => setNewSpecificationOpen(true);
     const submitNewSpecification = async values => {
-        if (await runAction(CATALOG_SCRIPTS.createSpecification, values, 'Creating service specification', reloadAndWait)) {
+        if (await runApi(() => createCatalogSpecification(values.Payload ? JSON.parse(values.Payload) : {}), 'Creating service specification', reloadAndWait)) {
             setNewSpecificationOpen(false);
         }
     };
     const editSpecification = specification => setEditSpecificationTarget(specification);
     const submitEditedSpecification = async values => {
-        if (await runAction(CATALOG_SCRIPTS.createSpecification, values, 'Saving service specification', reloadAndWait)) {
+        if (await runApi(() => updateCatalogSpecification(values['DOM ID'], values.Payload ? JSON.parse(values.Payload) : {}), 'Saving service specification', reloadAndWait)) {
             setEditSpecificationTarget(null);
         }
     };
-    const saveSpecificationConfiguration = (values, refresh) => runAction(CATALOG_SCRIPTS.saveConfiguration, values, 'Saving specification configuration', refresh);
-    const addSpecificationItem = (values, refresh) => runAction(SERVICE_INVENTORY_SCRIPTS.addItem, values, 'Creating specification item', refresh);
-    const editSpecificationItem = (values, refresh) => runAction(SERVICE_INVENTORY_SCRIPTS.editItem, values, 'Saving specification item', refresh);
+    // The specification itself is the only configuration version: its version name and description are the specification
+    // name and description. An empty value keeps the current one instead of clearing it.
+    const toSpecificationConfigurationBody = payload => {
+        const { VersionName, ...body } = payload ? JSON.parse(payload) : {};
+        if (typeof VersionName === 'string' && VersionName.trim()) body.Name = VersionName.trim();
+        if (typeof body.Description === 'string' && !body.Description.trim()) delete body.Description;
+        return body;
+    };
+    const saveSpecificationConfiguration = (values, refresh) => runApi(
+        () => saveCatalogSpecificationConfiguration(values['DOM ID'], toSpecificationConfigurationBody(values.Payload)),
+        'Saving specification configuration',
+        async () => {
+            if (refresh) await refresh();
+            await reloadAndWait();
+        },
+    );
+    const addSpecificationItem = (values, refresh) => runApi(
+        () => addCatalogSpecificationItem(values['DOM ID'], serviceItemRequest(values)),
+        'Creating specification item',
+        refresh,
+    );
+    const editSpecificationItem = (values, refresh) => runApi(
+        () => updateCatalogSpecificationItem(values['DOM ID'], values['Service Item ID'], serviceItemRequest(values)),
+        'Saving specification item',
+        refresh,
+    );
     const deleteSpecificationItem = async (specification, item, refresh) => {
         if (!await confirm(`Delete "${item.label || 'this specification item'}"?`)) return false;
-        return runAction(SERVICE_INVENTORY_SCRIPTS.deleteItem, { 'DOM ID': specification.id, 'Service Item Label': item.label, 'Skip Confirmation': 'true' }, 'Deleting specification item', async () => {
-            const remainingItems = await fetchServiceItems(specification.id);
-            if (remainingItems.some(candidate => candidate.label === item.label)) {
-                throw new Error('The delete script completed, but the specification item is still returned by GQI.');
-            }
-            if (refresh) await refresh();
-        });
+        return runApi(() => deleteCatalogSpecificationItem(specification.id, item.id), 'Deleting specification item', refresh);
     };
     let body;
     if (status === 'error') body = <div className="list-message error" role="alert"><span className="icon" aria-hidden="true">error</span><div className="list-message-text"><strong>Catalog could not be loaded</strong><span>{error}</span></div><button className="quiet-button" type="button" onClick={reload}>Retry</button></div>;
@@ -1240,20 +1272,19 @@ function useAutomationActions() {
         const timeout = window.setTimeout(() => setState(null), state.status === 'error' ? 8000 : 4000);
         return () => window.clearTimeout(timeout);
     }, [state]);
-    const run = useCallback(async (script, values, label, refresh) => {
+    const runApi = useCallback(async (operation, label, refresh) => {
         setState({ status: 'running', message: `${label}…` });
         try {
-            await executeAutomationScript(script, values);
+            await operation();
             if (refresh) await refresh();
             setState({ status: 'success', message: `${label} completed.` });
             return true;
         } catch (error) {
-            if (error instanceof DataMinerAuthError) return false;
             setState({ status: 'error', message: error?.message || `${label} failed.` });
             return false;
         }
     }, []);
-    return { state, run, fail: message => setState({ status: 'error', message }), notify: (status, message) => setState({ status, message }), dismiss: () => setState(null) };
+    return { state, runApi, fail: message => setState({ status: 'error', message }), notify: (status, message) => setState({ status, message }), dismiss: () => setState(null) };
 }
 
 function ActionNotice({ state, onDismiss }) {
@@ -1295,6 +1326,16 @@ function useConfirmation() {
     return { confirm, dialog: request ? <ConfirmDialog message={request.message} onConfirm={() => close(true)} onCancel={() => close(false)} /> : null };
 }
 
+function CancellationReasonDialog({ busy, onClose, onSubmit }) {
+    const [reason, setReason] = useState('');
+    const submit = async event => {
+        event.preventDefault();
+        const trimmedReason = reason.trim();
+        if (trimmedReason) await onSubmit(trimmedReason);
+    };
+    return <div className="confirm-layer order-form-layer"><div className="confirm-backdrop" onClick={onClose} aria-hidden="true" /><form className="order-form-dialog" onSubmit={submit} aria-labelledby="cancellation-reason-title"><header className="order-form-header"><div><p className="eyebrow">Service order</p><h2 id="cancellation-reason-title">Request cancellation</h2></div><button className="icon-button" type="button" aria-label="Close cancellation request" onClick={onClose}><span className="icon" aria-hidden="true">close</span></button></header><div className="order-form-grid"><label className="wide">Cancellation reason<textarea autoFocus required value={reason} onChange={event => setReason(event.target.value)} /></label></div><footer className="order-form-actions"><button className="quiet-button" type="button" onClick={onClose} disabled={busy}>Cancel</button><button className="primary-button" type="submit" disabled={busy || !reason.trim()}>{busy ? 'Submitting…' : 'Request cancellation'}</button></footer></form></div>;
+}
+
 function NewOrderDialog({ busy, onClose, onSubmit, initialOrder = null, action = 'Add', existingOrderNames = [] }) {
     const [form, setForm] = useState(() => ({ name: initialOrder?.name || '', description: initialOrder?.description || '', externalId: initialOrder?.externalId || '', priority: initialOrder?.priority || 'High', organization: initialOrder?.organization || '', requestedStart: dateTimeInputValue(initialOrder?.start), requestedEnd: dateTimeInputValue(initialOrder?.end), completionEnabled: Boolean(initialOrder?.start || initialOrder?.end) }));
     const organizationData = useDataList(fetchServiceOrganizations);
@@ -1317,6 +1358,9 @@ function NewOrderDialog({ busy, onClose, onSubmit, initialOrder = null, action =
         setSubmitAttempted(true);
         if (duplicateName) return;
         const name = form.name.trim() || placeholder;
+        const requestedStart = form.completionEnabled ? dateTimeLocalToUtc(form.requestedStart) : '';
+        const requestedEnd = form.completionEnabled ? dateTimeLocalToUtc(form.requestedEnd) : '';
+        const organizationId = !form.organization ? null : organizationData.items.find(organization => organization.name === form.organization)?.id;
         await onSubmit({
             Action: action,
             'DOM ID': initialOrder?.id,
@@ -1326,10 +1370,19 @@ function NewOrderDialog({ busy, onClose, onSubmit, initialOrder = null, action =
                 ExternalId: form.externalId,
                 Priority: form.priority,
                 Organization: form.organization,
-                RequestedStart: form.completionEnabled ? dateTimeLocalToUtc(form.requestedStart) : '',
-                RequestedEnd: form.completionEnabled ? dateTimeLocalToUtc(form.requestedEnd) : '',
+                RequestedStart: requestedStart,
+                RequestedEnd: requestedEnd,
                 CompletionSettingsEnabled: form.completionEnabled,
             }),
+        }, {
+            name,
+            description: form.description,
+            externalId: form.externalId,
+            priority: form.priority,
+            organizationId: form.organization === (initialOrder?.organization || '') ? undefined : organizationId,
+            completionEnabled: form.completionEnabled,
+            requestedStart,
+            requestedEnd,
         });
     };
     if (closed) return null;
@@ -1386,19 +1439,27 @@ function NewServiceDialog({ busy, onClose, onSubmit, initialService = null, acti
             generateMonitoringService: false,
         };
     });
+    const [organizationTouched, setOrganizationTouched] = useState(false);
     const categoryData = useDataList(fetchServiceCategories);
     const specificationData = useDataList(fetchServiceSpecifications);
     const organizationData = useDataList(fetchServiceOrganizations);
     const linkedServiceData = useDataList(fetchMonitoringServices);
-    const existingServiceFetcher = useCallback(() => initialService?.id ? fetchServices(initialService.id) : Promise.resolve([]), [initialService?.id]);
+    const existingServiceFetcher = useCallback(async () => {
+        if (!initialService?.serviceId) return [];
+        const service = await fetchServiceDetails(initialService.serviceId);
+        return service ? [service] : [];
+    }, [initialService?.serviceId]);
     const existingServiceData = useDataList(existingServiceFetcher);
-    const update = (field, value) => setForm(current => ({ ...current, [field]: value }));
+    const update = (field, value) => {
+        if (field === 'organization') setOrganizationTouched(true);
+        setForm(current => ({ ...current, [field]: value }));
+    };
     useEffect(() => {
         const organization = existingServiceData.items[0]?.organization;
-        if (action === 'Edit' && organization) {
+        if (action === 'Edit' && organization && !organizationTouched) {
             setForm(current => current.organization ? current : { ...current, organization });
         }
-    }, [action, existingServiceData.items]);
+    }, [action, existingServiceData.items, organizationTouched]);
     const serviceId = form.serviceId.trim();
     const serviceName = form.name.trim();
     const generatedName = initialService?.serviceId || serviceId || getNextServiceId(existingServices);
@@ -1412,17 +1473,45 @@ function NewServiceDialog({ busy, onClose, onSubmit, initialService = null, acti
     const missingEndTime = !form.indefiniteRuntime && !form.endTime;
     const endBeforeStart = !form.indefiniteRuntime && isEndBeforeStart(form.startTime, form.endTime);
     const missingLinkedService = form.linkService && !form.linkedService;
-    const invalidForm = missingServiceId || duplicateServiceId || duplicateServiceName || missingStartTime || startInPast || missingEndTime || endBeforeStart || missingLinkedService;
+    const invalidServiceIdFormat = action !== 'Edit' && Boolean(serviceId) && !/^SERVICE-\d+$/.test(serviceId);
+    const organizationLookupPending = action === 'Edit' && existingServiceData.status === 'loading';
+    const invalidForm = missingServiceId
+        || invalidServiceIdFormat
+        || duplicateServiceId
+        || duplicateServiceName
+        || missingStartTime
+        || startInPast
+        || missingEndTime
+        || endBeforeStart
+        || missingLinkedService
+        || organizationLookupPending;
     const submit = async event => {
         event.preventDefault();
         if (invalidForm) return;
-        await onSubmit({ Action: action, 'DOM ID': initialService?.id, Payload: JSON.stringify({ ServiceID: serviceId, Name: serviceName || generatedName, Category: form.category, Specification: form.specification, Organization: form.organization, StartTime: form.startTime, EndTime: form.endTime, IndefiniteRuntime: form.indefiniteRuntime, LinkedService: form.linkedService, LinkService: form.linkService, GenerateMonitoringService: form.generateMonitoringService }) });
+        const originalOrganization = existingServiceData.items[0]?.organization ?? initialService?.organization ?? '';
+        const organizationChanged = organizationTouched || form.organization !== originalOrganization;
+        const changed = (field, initial) => action !== 'Edit' || (field === 'organization'
+            ? organizationChanged
+            : form[field] !== (initial || ''));
+        const findId = (items, name) => (name ? items.find(item => item.name === name)?.id : null);
+        await onSubmit({ Action: action, 'DOM ID': initialService?.id, Payload: JSON.stringify({ ServiceID: serviceId, Name: serviceName || generatedName, Category: form.category, Specification: form.specification, Organization: form.organization, StartTime: form.startTime, EndTime: form.endTime, IndefiniteRuntime: form.indefiniteRuntime, LinkedService: form.linkedService, LinkService: form.linkService, GenerateMonitoringService: form.generateMonitoringService }) }, {
+            serviceId,
+            name: serviceName || generatedName,
+            category: form.category ? { name: form.category } : null,
+            serviceSpecificationId: changed('specification', initialService?.specification) ? findId(specificationData.items, form.specification) : undefined,
+            organizationId: changed('organization', initialService?.organization) ? findId(organizationData.items, form.organization) : undefined,
+            startTime: dateTimeLocalToUtc(form.startTime) || null,
+            endTime: form.indefiniteRuntime ? null : dateTimeLocalToUtc(form.endTime) || null,
+            // Same as the 'SLC_SM_Create Service Inventory Item' script: linking a service also sets the generate flag.
+            generateMonitoringService: form.generateMonitoringService || form.linkService,
+            monitoringService: form.linkService ? form.linkedService : '',
+        });
     };
     const categories = categoryData.items.some(category => category.name === form.category) || !form.category ? categoryData.items : [{ id: `current-${form.category}`, name: form.category }, ...categoryData.items];
     const specifications = specificationData.items.some(specification => specification.name === form.specification) || !form.specification ? specificationData.items : [{ id: `current-${form.specification}`, name: form.specification }, ...specificationData.items];
     const organizations = organizationData.items.some(organization => organization.name === form.organization) || !form.organization ? organizationData.items : [{ id: `current-${form.organization}`, name: form.organization }, ...organizationData.items];
     const linkedServices = linkedServiceData.items.some(service => service.id === form.linkedService) || !form.linkedService ? linkedServiceData.items : [{ id: form.linkedService, name: form.linkedService }, ...linkedServiceData.items];
-    return <div className="confirm-layer order-form-layer"><div className="confirm-backdrop" onClick={onClose} aria-hidden="true" /><form className="order-form-dialog specification-form-dialog" onSubmit={submit} aria-labelledby="new-service-title"><header className="order-form-header"><div><p className="eyebrow">Service inventory</p><h2 id="new-service-title">{action === 'Edit' ? 'Edit service' : 'New service'}</h2></div><button className="icon-button" type="button" aria-label="Close service form" onClick={onClose}><span className="icon" aria-hidden="true">close</span></button></header><div className="order-form-grid"><label className="wide">Service ID<input autoFocus={action !== 'Edit'} value={form.serviceId} onChange={event => update('serviceId', event.target.value)} placeholder={getNextServiceId(existingServices)} disabled={action === 'Edit'} aria-invalid={missingServiceId || duplicateServiceId || undefined} />{missingServiceId && <span className="form-field-error">Service ID is required.</span>}{duplicateServiceId && <span className="form-field-error">Service ID already exists!</span>}</label><label className="wide">Name<input autoFocus={action === 'Edit'} value={form.name} onChange={event => update('name', event.target.value)} placeholder={generatedName} aria-invalid={duplicateServiceName || undefined} />{duplicateServiceName && <span className="form-field-error">Name already exists!</span>}{!serviceName.trim() && <span className="form-field-hint">Placeholder will be used: {generatedName}</span>}</label><label>Category<select aria-label="Category" value={form.category} onChange={event => update('category', event.target.value)} disabled={categoryData.status === 'loading' && categories.length === 0}><option value="">No category</option>{categoryData.status === 'loading' && categories.length === 0 && <option disabled>Loading categories…</option>}{categories.map(category => <option key={category.id || category.name} value={category.name}>{category.name}</option>)}</select>{categoryData.status === 'error' && <span className="form-field-error">Categories could not be loaded.</span>}</label><label>Service specification<select aria-label="Service specification" value={form.specification} onChange={event => update('specification', event.target.value)} disabled={specificationData.status === 'loading' && specifications.length === 0}><option value="">No specification</option>{specificationData.status === 'loading' && specifications.length === 0 && <option disabled>Loading specifications…</option>}{specifications.map(specification => <option key={specification.id || specification.name} value={specification.name}>{specification.name}</option>)}</select>{specificationData.status === 'error' && <span className="form-field-error">Specifications could not be loaded.</span>}</label><label>Organization<select aria-label="Organization" value={form.organization} onChange={event => update('organization', event.target.value)} disabled={organizationData.status === 'loading' && organizations.length === 0}><option value="">No organization</option>{organizationData.status === 'loading' && organizations.length === 0 && <option disabled>Loading organizations…</option>}{organizations.map(organization => <option key={organization.id || organization.name} value={organization.name}>{organization.name}</option>)}</select>{organizationData.status === 'error' && <span className="form-field-error">Organizations could not be loaded. You can leave this empty.</span>}</label><label>Start time<input type="datetime-local" value={form.startTime} onChange={event => update('startTime', event.target.value)} aria-invalid={missingStartTime || startInPast || undefined} />{missingStartTime && <span className="form-field-error">Start time is required.</span>}{startInPast && <span className="form-field-error">Please make a selection which doesn't lie in the past.</span>}</label><label>End time<input type="datetime-local" value={form.endTime} onChange={event => update('endTime', event.target.value)} disabled={form.indefiniteRuntime} aria-invalid={missingEndTime || endBeforeStart || undefined} />{missingEndTime && <span className="form-field-error">End time is required unless the runtime is indefinite.</span>}{endBeforeStart && <span className="form-field-error">End Time must come after the start time.</span>}</label><label className="form-checkbox"><input type="checkbox" checked={form.indefiniteRuntime} onChange={event => update('indefiniteRuntime', event.target.checked)} />Indefinite (no end time)</label><label>Linked service<select aria-label="Linked service" value={form.linkedService} onChange={event => update('linkedService', event.target.value)} disabled={!form.linkService || (linkedServiceData.status === 'loading' && linkedServices.length === 0)} aria-invalid={missingLinkedService || undefined}><option value="">No linked service</option>{linkedServiceData.status === 'loading' && linkedServices.length === 0 && <option disabled>Loading services…</option>}{linkedServices.map(service => <option key={service.id || service.name} value={service.id}>{service.name}</option>)}</select>{missingLinkedService && <span className="form-field-error">Selection is mandatory!</span>}{linkedServiceData.status === 'error' && <span className="form-field-error">Linked services could not be loaded.</span>}</label><label className="form-checkbox"><input type="checkbox" checked={form.linkService} onChange={event => update('linkService', event.target.checked)} />Link service</label><label className="form-checkbox"><input type="checkbox" checked={form.generateMonitoringService} onChange={event => update('generateMonitoringService', event.target.checked)} />Generate DataMiner monitoring service</label></div><footer className="order-form-actions"><button className="quiet-button" type="button" onClick={onClose} disabled={busy}>Cancel</button><button className="primary-button" type="submit" disabled={busy || invalidForm}>{busy ? (action === 'Edit' ? 'Saving…' : 'Creating…') : action === 'Edit' ? 'Save' : 'Create'}</button></footer></form></div>;
+    return <div className="confirm-layer order-form-layer"><div className="confirm-backdrop" onClick={onClose} aria-hidden="true" /><form className="order-form-dialog specification-form-dialog" onSubmit={submit} aria-labelledby="new-service-title"><header className="order-form-header"><div><p className="eyebrow">Service inventory</p><h2 id="new-service-title">{action === 'Edit' ? 'Edit service' : 'New service'}</h2></div><button className="icon-button" type="button" aria-label="Close service form" onClick={onClose}><span className="icon" aria-hidden="true">close</span></button></header><div className="order-form-grid"><label className="wide">Service ID<input autoFocus={action !== 'Edit'} value={form.serviceId} onChange={event => update('serviceId', event.target.value)} placeholder={getNextServiceId(existingServices)} disabled={action === 'Edit'} aria-invalid={missingServiceId || invalidServiceIdFormat || duplicateServiceId || undefined} />{missingServiceId && <span className="form-field-error">Service ID is required.</span>}{invalidServiceIdFormat && <span className="form-field-error">Service ID must look like SERVICE-123.</span>}{duplicateServiceId && <span className="form-field-error">Service ID already exists!</span>}</label><label className="wide">Name<input autoFocus={action === 'Edit'} value={form.name} onChange={event => update('name', event.target.value)} placeholder={generatedName} aria-invalid={duplicateServiceName || undefined} />{duplicateServiceName && <span className="form-field-error">Name already exists!</span>}{!serviceName.trim() && <span className="form-field-hint">Placeholder will be used: {generatedName}</span>}</label><label>Category<select aria-label="Category" value={form.category} onChange={event => update('category', event.target.value)} disabled={categoryData.status === 'loading' && categories.length === 0}><option value="">No category</option>{categoryData.status === 'loading' && categories.length === 0 && <option disabled>Loading categories…</option>}{categories.map(category => <option key={category.id || category.name} value={category.name}>{category.name}</option>)}</select>{categoryData.status === 'error' && <span className="form-field-error">Categories could not be loaded.</span>}</label><label>Service specification<select aria-label="Service specification" value={form.specification} onChange={event => update('specification', event.target.value)} disabled={specificationData.status === 'loading' && specifications.length === 0}><option value="">No specification</option>{specificationData.status === 'loading' && specifications.length === 0 && <option disabled>Loading specifications…</option>}{specifications.map(specification => <option key={specification.id || specification.name} value={specification.name}>{specification.name}</option>)}</select>{specificationData.status === 'error' && <span className="form-field-error">Specifications could not be loaded.</span>}</label><label>Organization<select aria-label="Organization" value={form.organization} onChange={event => update('organization', event.target.value)} disabled={organizationData.status === 'loading' && organizations.length === 0}><option value="">No organization</option>{organizationData.status === 'loading' && organizations.length === 0 && <option disabled>Loading organizations…</option>}{organizations.map(organization => <option key={organization.id || organization.name} value={organization.name}>{organization.name}</option>)}</select>{organizationData.status === 'error' && <span className="form-field-error">Organizations could not be loaded. You can leave this empty.</span>}</label><label>Start time<input type="datetime-local" value={form.startTime} onChange={event => update('startTime', event.target.value)} aria-invalid={missingStartTime || startInPast || undefined} />{missingStartTime && <span className="form-field-error">Start time is required.</span>}{startInPast && <span className="form-field-error">Please make a selection which doesn't lie in the past.</span>}</label><label>End time<input type="datetime-local" value={form.endTime} onChange={event => update('endTime', event.target.value)} disabled={form.indefiniteRuntime} aria-invalid={missingEndTime || endBeforeStart || undefined} />{missingEndTime && <span className="form-field-error">End time is required unless the runtime is indefinite.</span>}{endBeforeStart && <span className="form-field-error">End Time must come after the start time.</span>}</label><label className="form-checkbox"><input type="checkbox" checked={form.indefiniteRuntime} onChange={event => update('indefiniteRuntime', event.target.checked)} />Indefinite (no end time)</label><label>Linked service<select aria-label="Linked service" value={form.linkedService} onChange={event => update('linkedService', event.target.value)} disabled={!form.linkService || (linkedServiceData.status === 'loading' && linkedServices.length === 0)} aria-invalid={missingLinkedService || undefined}><option value="">No linked service</option>{linkedServiceData.status === 'loading' && linkedServices.length === 0 && <option disabled>Loading services…</option>}{linkedServices.map(service => <option key={service.id || service.name} value={service.id}>{service.name}</option>)}</select>{missingLinkedService && <span className="form-field-error">Selection is mandatory!</span>}{linkedServiceData.status === 'error' && <span className="form-field-error">Linked services could not be loaded.</span>}</label><label className="form-checkbox"><input type="checkbox" checked={form.linkService} onChange={event => update('linkService', event.target.checked)} />Link service</label><label className="form-checkbox"><input type="checkbox" checked={form.generateMonitoringService} onChange={event => update('generateMonitoringService', event.target.checked)} />Generate DataMiner monitoring service</label></div><footer className="order-form-actions"><button className="quiet-button" type="button" onClick={onClose} disabled={busy}>Cancel</button><button className="primary-button" type="submit" disabled={busy || invalidForm}>{busy ? (action === 'Edit' ? 'Saving…' : 'Creating…') : action === 'Edit' ? 'Save' : 'Create'}</button></footer></form></div>;
 }
 
 function ServiceLogoDialog({ service, busy, onClose, onSubmit }) {
@@ -1460,11 +1549,60 @@ function isEndBeforeStart(startValue, endValue) {
     return Number.isFinite(startTime) && Number.isFinite(endTime) && endTime < startTime;
 }
 
-function ServiceOrderItemDialog({ busy, onClose, onSubmit, orderId, initialItem = null, action = 'Add' }) {
+function serviceItemRequest(values) {
+    const payload = JSON.parse(values.Payload || '{}');
+    return {
+        label: payload.Label,
+        type: payload.Type,
+        definitionReference: payload.DefinitionReference,
+        implementationReference: payload.ImplementationReference,
+        script: payload.Script,
+    };
+}
+
+function serviceOrderUpdateRequest(fields) {
+    const request = {
+        name: fields.name,
+        description: fields.description,
+        externalId: fields.externalId,
+        priority: fields.priority.toLowerCase(),
+        completionInfo: fields.completionEnabled ? { requestedStartDate: fields.requestedStart || null, requestedCompletedDate: fields.requestedEnd || null } : null,
+    };
+    if (fields.organizationId !== undefined) request.organizationId = fields.organizationId;
+    return request;
+}
+
+function serviceOrderCreateRequest(fields) {
+    return {
+        ...serviceOrderUpdateRequest(fields),
+        orderItems: [],
+    };
+}
+
+function serviceOrderItemRequest(fields, existingItem = null) {
+    const timeApplicable = fields.action === 'Add';
+    const request = {
+        name: fields.name,
+        action: fields.action,
+        description: fields.description,
+        startTime: timeApplicable ? dateTimeLocalToUtc(fields.startTime) || null : null,
+        endTime: timeApplicable && !fields.indefiniteRuntime ? dateTimeLocalToUtc(fields.endTime) || null : null,
+        indefiniteRuntime: timeApplicable ? fields.indefiniteRuntime : true,
+        serviceCategoryId: fields.categoryId || null,
+        serviceId: fields.serviceId || null,
+    };
+    // Sending the specification rebuilds the item configuration, so an edit only sends it when it changed.
+    if (!existingItem || fields.specificationId !== existingItem.specificationId) request.serviceSpecificationId = fields.specificationId || null;
+    return request;
+}
+
+function ServiceOrderItemDialog({ busy, onClose, onSubmit, order, initialItem = null, action = 'Add' }) {
     const categoryData = useDataList(fetchServiceCategories);
     const specificationData = useDataList(fetchServiceSpecifications);
     const serviceData = useDataList(fetchServices);
-    const existingItemsFetcher = useCallback(() => orderId ? fetchServiceOrderItems(orderId) : Promise.resolve([]), [orderId]);
+    const orderDomId = order?.id;
+    const orderId = order?.orderId;
+    const existingItemsFetcher = useCallback(() => orderDomId ? fetchServiceOrderItems({ id: orderDomId, orderId }) : Promise.resolve([]), [orderDomId, orderId]);
     const existingItemsData = useDataList(existingItemsFetcher);
     const [form, setForm] = useState(() => ({
         name: initialItem?.name || '',
@@ -1493,7 +1631,7 @@ function ServiceOrderItemDialog({ busy, onClose, onSubmit, orderId, initialItem 
         if (duplicateLabel || specificationRequired || serviceRequired || endBeforeStart) return;
         const name = form.name.trim() || placeholder;
         await onSubmit({
-            'DOM ID': orderId,
+            'DOM ID': orderDomId,
             'Service Order Item ID': initialItem?.id,
             Action: action,
             Payload: JSON.stringify({
@@ -1507,7 +1645,7 @@ function ServiceOrderItemDialog({ busy, onClose, onSubmit, orderId, initialItem 
                 SpecificationId: form.specificationId,
                 ServiceId: form.serviceId,
             }),
-        });
+        }, { ...form, name, action: form.itemAction });
     };
     const optionError = [categoryData, specificationData, serviceData].find(data => data.status === 'error')?.error;
     return (
@@ -1541,7 +1679,7 @@ function ServiceOrderItemDialog({ busy, onClose, onSubmit, orderId, initialItem 
                             <option value="Delete">Delete</option>
                             <option value="Modify">Modify</option>
                             <option value="NoChange">No Change</option>
-                            <option value="Undefined">Undefined</option>
+                            {initialItem?.action === 'Undefined' && <option value="Undefined">Undefined</option>}
                         </select>
                     </label>
                     <label>
@@ -1597,8 +1735,8 @@ function ServiceOrderItemDialog({ busy, onClose, onSubmit, orderId, initialItem 
     );
 }
 
-function ServiceItemDialog({ busy, onClose, onSubmit, parentId, initialItem = null, action = 'Add', context = 'Service' }) {
-    const existingItemsFetcher = useCallback(() => parentId ? fetchServiceItems(parentId) : Promise.resolve([]), [parentId]);
+function ServiceItemDialog({ busy, onClose, onSubmit, parentId, parentService = null, initialItem = null, action = 'Add', context = 'Service' }) {
+    const existingItemsFetcher = useCallback(() => !parentId ? Promise.resolve([]) : context === 'Specification' ? fetchSpecificationItems(parentId) : fetchInventoryServiceItems(parentService ?? { id: parentId }), [parentId, parentService, context]);
     const existingItemsData = useDataList(existingItemsFetcher);
     const [form, setForm] = useState(() => ({
         label: initialItem?.label || '',
@@ -1616,6 +1754,7 @@ function ServiceItemDialog({ busy, onClose, onSubmit, parentId, initialItem = nu
         await onSubmit({
             'DOM ID': parentId,
             'Service Item Label': initialItem?.label,
+            'Service Item ID': initialItem?.id,
             Action: action,
             Payload: JSON.stringify({
                 Label: form.label.trim() || placeholder,
@@ -1630,20 +1769,21 @@ function ServiceItemDialog({ busy, onClose, onSubmit, parentId, initialItem = nu
     return <div className="confirm-layer order-form-layer"><div className="confirm-backdrop" onClick={onClose} aria-hidden="true" /><form className="order-form-dialog specification-form-dialog" onSubmit={submit} aria-labelledby="service-item-form-title"><header className="order-form-header"><div><p className="eyebrow">{context === 'Specification' ? 'Service design' : 'Service inventory'}</p><h2 id="service-item-form-title">{action === 'Edit' ? 'Edit service item' : 'Add service item'}</h2></div><button className="icon-button" type="button" aria-label="Close service item form" onClick={onClose}><span className="icon" aria-hidden="true">close</span></button></header><div className="order-form-grid"><label className="wide">Label<input autoFocus value={form.label} onChange={event => update('label', event.target.value)} placeholder={placeholder} aria-invalid={duplicateLabel || undefined} />{duplicateLabel && <span className="form-field-error">Label already exists!</span>}{!form.label.trim() && <span className="form-field-hint">Placeholder will be used: {placeholder}</span>}</label><label>Type<select value={form.type} onChange={event => update('type', event.target.value)}><option value="Service">Service</option><option value="Workflow">Workflow</option><option value="SRMBooking">SRM booking</option></select></label><label>Definition reference<input value={form.definitionReference} onChange={event => update('definitionReference', event.target.value)} placeholder="Definition reference" /></label><label>Implementation reference<input value={form.implementationReference} onChange={event => update('implementationReference', event.target.value)} placeholder="Optional reference ID" /></label><label className="wide">Service item script<input value={form.script} onChange={event => update('script', event.target.value)} placeholder="Optional script name" /></label></div><footer className="order-form-actions"><button className="quiet-button" type="button" onClick={onClose} disabled={busy}>Cancel</button><button className="primary-button" type="submit" disabled={busy || duplicateLabel}>{busy ? 'Saving…' : action === 'Edit' ? 'Save' : 'Add item'}</button></footer></form></div>;
 }
 
-function useOrderItems(orderId, refreshKey = 0) {
+function useOrderItems(order, refreshKey = 0) {
     const [state, setState] = useState({ status: 'loading', items: [], error: '' });
     const [attempt, setAttempt] = useState(0);
+    const { id, orderId } = order;
     useEffect(() => {
         let active = true;
         setState({ status: 'loading', items: [], error: '' });
-        fetchServiceOrderItems(orderId).then(items => { if (active) setState({ status: 'ready', items, error: '' }); }, error => { if (active && !(error instanceof DataMinerAuthError)) setState({ status: 'error', items: [], error: error?.message || 'Unknown error.' }); });
+        fetchServiceOrderItems({ id, orderId }).then(items => { if (active) setState({ status: 'ready', items, error: '' }); }, error => { if (active && !(error instanceof DataMinerAuthError)) setState({ status: 'error', items: [], error: error?.message || 'Unknown error.' }); });
         return () => { active = false; };
-    }, [orderId, attempt, refreshKey]);
+    }, [id, orderId, attempt, refreshKey]);
     return { ...state, retry: () => setAttempt(value => value + 1) };
 }
 
-function OrderItems({ orderId, refreshKey, onAdd, onEdit, onDelete, onSelect, onInitialize, initializingItemId, configurationBlockedItemId, busy }) {
-    const { status, items, error, retry } = useOrderItems(orderId, refreshKey);
+function OrderItems({ order, refreshKey, onAdd, onEdit, onDelete, onSelect, onInitialize, initializingItemId, busy }) {
+    const { status, items, error, retry } = useOrderItems(order, refreshKey);
     let body;
     if (status === 'error') body = <div className="list-message error" role="alert"><span className="icon" aria-hidden="true">error</span><div className="list-message-text"><strong>Order items could not be loaded</strong><span>{error}</span></div><button className="quiet-button" type="button" onClick={retry}>Retry</button></div>;
     else if (status === 'loading') body = <div className="list-message" role="status"><span className="icon spin" aria-hidden="true">refresh</span>Loading order items…</div>;
@@ -1652,12 +1792,9 @@ function OrderItems({ orderId, refreshKey, onAdd, onEdit, onDelete, onSelect, on
         const action = String(item.action || '').trim().toLowerCase();
         const initializing = initializingItemId === item.id;
         const serviceLinked = Boolean(item.serviceId);
-        const configurationBlocked = configurationBlockedItemId === item.id;
-        const canInitialize = Boolean(item.id && item.specificationId && !item.serviceId && action !== 'delete' && !configurationBlocked);
+        const canInitialize = Boolean(item.id && item.specificationId && !item.serviceId && action !== 'delete');
         const initializeTitle = serviceLinked
             ? 'Open the service linked to this order item.'
-            : configurationBlocked
-                ? 'Configure the service specification before initializing a service.'
             : !item.specificationId
                 ? 'Assign a service specification before initializing a service.'
                 : action === 'delete'
@@ -1670,7 +1807,6 @@ function OrderItems({ orderId, refreshKey, onAdd, onEdit, onDelete, onSelect, on
             </div>
             <dl className="item-facts">{[['Action', item.action], ['Category', item.category], ['Specification', item.specification], ['Service', item.service], ['Start', item.start], ['End', item.end]].map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value || '—'}</dd></div>)}</dl>
             {item.description && <p className="order-item-description">{item.description}</p>}
-            {configurationBlocked && <p className="order-item-warning" role="note"><span className="icon" aria-hidden="true">info</span>Configure the service specification before initializing a service.</p>}
             <div className="order-item-actions">
                 <button className="item-action-button" type="button" onClick={event => { event.stopPropagation(); onEdit(item); }} disabled={busy}><span className="icon" aria-hidden="true">edit</span>Edit</button>
                 <button className="item-action-button danger" type="button" onClick={event => { event.stopPropagation(); onDelete(item); }} disabled={busy}><span className="icon" aria-hidden="true">delete</span>Delete</button>
@@ -1699,7 +1835,7 @@ function OrderItems({ orderId, refreshKey, onAdd, onEdit, onDelete, onSelect, on
     return <section className="drawer-section" aria-labelledby="order-items-title"><div className="drawer-section-heading order-items-heading"><div className="drawer-section-title"><h3 id="order-items-title">Order items</h3>{status === 'ready' && <span className="count-pill" data-testid="order-item-count">{items.length}</span>}</div><button className="primary-button add-item-button" type="button" onClick={onAdd} disabled={busy}><span className="icon" aria-hidden="true">add</span>Add item</button></div>{body}</section>;
 }
 
-function ServiceOrderItemDetailPanel({ item, onClose, onEdit, onTransition, onSaveConfiguration, onConfirmConfiguration, busy }) {
+function ServiceOrderItemDetailPanel({ order, item, onClose, onEdit, onTransition, onSaveConfiguration, onConfirmConfiguration, busy }) {
     const closeButton = useRef(null);
     const [tab, setTab] = useState('item');
     const lifecycle = ['New', 'Acknowledged', 'In Progress', 'Completed'];
@@ -1714,16 +1850,16 @@ function ServiceOrderItemDetailPanel({ item, onClose, onEdit, onTransition, onSa
     }, [onClose]);
     const details = [['Name', item.name], ['Action', item.action], ['State', item.status], ['Specification', item.specification], ['Service', item.service], ['Category', item.category], ['Start time', item.start], ['End time', item.end], ['Description', item.description]];
     const transitionActions = <div className="item-transition-actions">{transitions.length === 0 ? <span className="service-related-empty">No transition is available from the current state.</span> : transitions.map(transition => <button className={`item-transition-button ${transition.label === 'Reject' || transition.label === 'Cancel' ? 'danger' : 'primary'}`} type="button" key={`${transition.label}-${transition.next}`} onClick={() => onTransition(item, transition)} disabled={busy}><span className="icon" aria-hidden="true">{transitionIcon(transition.label)}</span>{transition.label}</button>)}</div>;
-    return <div className="drawer-layer item-drawer-layer"><div className="drawer-backdrop" onClick={onClose} aria-hidden="true" /><aside className="drawer service-drawer item-detail-drawer" role="dialog" aria-modal="true" aria-labelledby="item-detail-title"><header className="service-drawer-topbar"><nav aria-label="Service order item sections"><button className={tab === 'item' ? 'service-tab active' : 'service-tab'} type="button" onClick={() => setTab('item')} aria-selected={tab === 'item'}><span className="icon" aria-hidden="true">assignment</span>Service Item</button><button className={tab === 'config' ? 'service-tab active' : 'service-tab'} type="button" onClick={() => setTab('config')} aria-selected={tab === 'config'}><span className="icon" aria-hidden="true">settings</span>Configurations</button></nav><button ref={closeButton} className="icon-button" type="button" aria-label="Close service order item details" onClick={onClose}><span className="icon">close</span></button></header>{tab === 'item' ? <div className="service-drawer-body"><div className="service-drawer-heading"><div><p className="eyebrow">Service Order Item</p><h2 id="item-detail-title">{item.name || 'Unnamed item'}</h2></div><button className="quiet-button drawer-action-button" type="button" onClick={onEdit} disabled={busy}><span className="icon" aria-hidden="true">edit</span>Edit</button></div><div className="service-lifecycle item-lifecycle" aria-label="Service order item lifecycle">{lifecycle.map((state, index) => <span className={index === currentIndex ? 'service-lifecycle-step current' : index < currentIndex ? 'service-lifecycle-step complete' : 'service-lifecycle-step'} key={state}>{state}</span>)}</div>{transitionActions}<section className="service-info-card item-info-card"><dl className="detail-grid service-detail-grid">{details.map(([label, value]) => <div key={label} className={label === 'Description' ? 'wide' : ''}><dt>{label}</dt><dd>{value || '—'}</dd></div>)}</dl></section></div> : <NativeServiceConfigurationsView service={item} actionState={{ status: busy ? 'running' : null }} onSave={onSaveConfiguration} onConfirm={onConfirmConfiguration} fetchConfigurations={fetchServiceOrderItemConfigurations} heading="Order item configuration" allowVersionDelete={false} showVersionMetadata={false} supportsProfiles={false} parameterHeading="Configuration parameters" parameterEmptyMessage="No configuration parameters are assigned to this order item." lifecycleMode="OrderItem" />}</aside></div>;
+    return <div className="drawer-layer item-drawer-layer"><div className="drawer-backdrop" onClick={onClose} aria-hidden="true" /><aside className="drawer service-drawer item-detail-drawer" role="dialog" aria-modal="true" aria-labelledby="item-detail-title"><header className="service-drawer-topbar"><nav aria-label="Service order item sections"><button className={tab === 'item' ? 'service-tab active' : 'service-tab'} type="button" onClick={() => setTab('item')} aria-selected={tab === 'item'}><span className="icon" aria-hidden="true">assignment</span>Service Item</button><button className={tab === 'config' ? 'service-tab active' : 'service-tab'} type="button" onClick={() => setTab('config')} aria-selected={tab === 'config'}><span className="icon" aria-hidden="true">settings</span>Configurations</button></nav><button ref={closeButton} className="icon-button" type="button" aria-label="Close service order item details" onClick={onClose}><span className="icon">close</span></button></header>{tab === 'item' ? <div className="service-drawer-body"><div className="service-drawer-heading"><div><p className="eyebrow">Service Order Item</p><h2 id="item-detail-title">{item.name || 'Unnamed item'}</h2></div><button className="quiet-button drawer-action-button" type="button" onClick={onEdit} disabled={busy}><span className="icon" aria-hidden="true">edit</span>Edit</button></div><div className="service-lifecycle item-lifecycle" aria-label="Service order item lifecycle">{lifecycle.map((state, index) => <span className={index === currentIndex ? 'service-lifecycle-step current' : index < currentIndex ? 'service-lifecycle-step complete' : 'service-lifecycle-step'} key={state}>{state}</span>)}</div>{transitionActions}<section className="service-info-card item-info-card"><dl className="detail-grid service-detail-grid">{details.map(([label, value]) => <div key={label} className={label === 'Description' ? 'wide' : ''}><dt>{label}</dt><dd>{value || '—'}</dd></div>)}</dl></section></div> : <NativeServiceConfigurationsView service={item} actionState={{ status: busy ? 'running' : null }} onSave={onSaveConfiguration} onConfirm={onConfirmConfiguration} fetchConfigurations={fetchServiceOrderItemConfigurations} configurationOwnerId={order.orderId} heading="Order item configuration" allowVersionDelete={false} showVersionMetadata={false} supportsProfiles={false} parameterHeading="Configuration parameters" parameterEmptyMessage="No configuration parameters are assigned to this order item." lifecycleMode="OrderItem" />}</aside></div>;
 }
 
-function OrderDetailPanel({ order, onClose, onRunAction, onActionFailure, onConfirmDelete, onConfirmAction, onOrdersChanged, onDeleteOrder, onEditOrder, actionState }) {
+function OrderDetailPanel({ order, onClose, onRunApi, onActionFailure, onConfirmDelete, onConfirmAction, onOrdersChanged, onDeleteOrder, onEditOrder, actionState }) {
     const closeButton = useRef(null);
     const [itemsRefreshKey, setItemsRefreshKey] = useState(0);
     const [selectedItem, setSelectedItem] = useState(null);
     const [itemEditor, setItemEditor] = useState(null);
-    const [configurationBlockedItemId, setConfigurationBlockedItemId] = useState(null);
     const [initializingItemId, setInitializingItemId] = useState(null);
+    const [pendingCancellationTransition, setPendingCancellationTransition] = useState(null);
     const busy = actionState?.status === 'running';
     const transitions = getOrderTransitions(order.state);
     useEffect(() => {
@@ -1736,22 +1872,27 @@ function OrderDetailPanel({ order, onClose, onRunAction, onActionFailure, onConf
     }, [onClose]);
     const facts = [['External ID', order.externalId], ['Priority', order.priority], ['Related organization', order.organization], ['State', order.state]];
     const runOrderEdit = () => onEditOrder(order);
-    const runItemAction = async (script, values, label, verifyDeletedId = '') => {
-        if (!await onRunAction(script, values, label, async () => {
-            if (verifyDeletedId) {
-                const refreshedItems = await fetchServiceOrderItems(order.id);
-                if (refreshedItems.some(item => item.id === verifyDeletedId)) {
-                    throw new Error('The delete script completed, but the order item is still returned by GQI.');
-                }
-            }
-        })) return;
-        setItemsRefreshKey(value => value + 1);
-    };
     const editItem = item => setItemEditor({ action: 'Edit', item });
-    const deleteItem = async item => { if (await onConfirmDelete(`Delete "${item.name || 'this order item'}"?`)) runItemAction(SERVICE_ORDER_SCRIPTS.deleteItem, { 'DOM ID': order.id, 'Service Order Item ID': item.id, 'Skip Confirmation': 'true' }, 'Deleting order item', item.id); };
+    const deleteItem = async item => {
+        if (!await onConfirmDelete(`Delete "${item.name || 'this order item'}"?`)) return;
+        if (await onRunApi(() => deleteServiceOrderItem(order.orderId, item.id), 'Deleting order item', async () => {
+            const refreshedItems = await fetchServiceOrderItems(order);
+            if (refreshedItems.some(candidate => candidate.id === item.id)) {
+                throw new Error('The order item was deleted, but it is still returned by the Service Management API.');
+            }
+        })) setItemsRefreshKey(value => value + 1);
+    };
     const addItem = () => setItemEditor({ action: 'Add', item: null });
-    const submitItem = async values => {
-        if (!await onRunAction(SERVICE_ORDER_SCRIPTS.addItem, values, itemEditor?.action === 'Edit' ? 'Saving order item' : 'Creating order item', () => fetchServiceOrderItems(order.id))) return;
+    const submitItem = async (values, fields) => {
+        const editing = itemEditor?.action === 'Edit';
+        const label = editing ? 'Saving order item' : 'Creating order item';
+        const saved = await onRunApi(
+            () => editing
+                ? updateServiceOrderItem(order.orderId, itemEditor.item.id, serviceOrderItemRequest(fields, itemEditor.item))
+                : addServiceOrderItem(order.orderId, serviceOrderItemRequest(fields)),
+            label,
+        );
+        if (!saved) return;
         setItemEditor(null);
         setSelectedItem(null);
         setItemsRefreshKey(value => value + 1);
@@ -1764,24 +1905,16 @@ function OrderDetailPanel({ order, onClose, onRunAction, onActionFailure, onConf
         }
         setInitializingItemId(item.id);
         try {
-            const specificationConfiguration = await fetchServiceSpecificationConfigurations(item.specificationId);
-            const hasConfiguredVersion = (specificationConfiguration?.versions || []).some(version => (version.parameters || []).length > 0 || (version.profiles || []).length > 0);
-            if (!hasConfiguredVersion) {
-                setConfigurationBlockedItemId(item.id);
-                onActionFailure(`Configure the service specification "${item.specification || 'selected specification'}" before initializing a service.`);
-                return;
-            }
-            setConfigurationBlockedItemId(null);
-            const initialized = await onRunAction(SERVICE_INVENTORY_SCRIPTS.initializeFromOrderItem, {
-                'DOM ID': item.id,
-                Action: 'AddItemSilent',
-                Payload: JSON.stringify({}),
-            }, `Initializing service for ${item.name || 'order item'}`, async () => {
-                const refreshedItems = await fetchServiceOrderItems(order.id);
-                if (!refreshedItems.some(candidate => candidate.id === item.id && candidate.serviceId)) {
-                    throw new Error('The script completed, but the order item is not linked to a Service Inventory service.');
-                }
-            });
+            const initialized = await onRunApi(
+                () => initializeServiceFromOrderItem(order.orderId, item.id),
+                `Initializing service for ${item.name || 'order item'}`,
+                async () => {
+                    const refreshedItems = await fetchServiceOrderItems(order);
+                    if (!refreshedItems.some(candidate => candidate.id === item.id && candidate.serviceId)) {
+                        throw new Error('The service was initialized, but the order item is not linked to it.');
+                    }
+                },
+            );
             if (!initialized) return;
             setItemsRefreshKey(value => value + 1);
         }
@@ -1792,25 +1925,49 @@ function OrderDetailPanel({ order, onClose, onRunAction, onActionFailure, onConf
             setInitializingItemId(null);
         }
     };
-    const transitionOrder = async (item, transition) => {
+    const applyOrderTransition = async (transition, cancellationReason) => {
         const requiresConfirmation = ['Reject', 'Cancel', 'Confirm Cancellation'].includes(transition.label);
-        if (requiresConfirmation && !await onConfirmAction(`Transition "${item.name || 'this service order'}" to ${transition.label.toLowerCase()}?`)) return;
-        await onRunAction(SERVICE_ORDER_SCRIPTS.transitionOrder, { PreviousState: transitionStateParameter(item.state), NextState: transition.next, ServiceOrderReference: item.id, 'Skip Confirmation': 'true', 'Cancellation Reason': '' }, `${transition.label} service order`, onOrdersChanged);
+        if (requiresConfirmation && !await onConfirmAction(`Transition "${order.name || 'this service order'}" to ${transition.label.toLowerCase()}?`)) return false;
+        return onRunApi(
+            () => transitionServiceOrder(order.orderId, transition.next, cancellationReason),
+            `${transition.label} service order`,
+            onOrdersChanged,
+        );
+    };
+    const transitionOrder = async (_item, transition) => {
+        if (String(transition.next).replace(/\s+/g, '').toLowerCase() === 'assesscancellation') {
+            setPendingCancellationTransition(transition);
+            return;
+        }
+        await applyOrderTransition(transition);
+    };
+    const submitCancellationReason = async reason => {
+        if (!pendingCancellationTransition) return;
+        if (await applyOrderTransition(pendingCancellationTransition, reason)) {
+            setPendingCancellationTransition(null);
+        }
     };
     const transitionOrderItem = async (item, transition) => {
         const requiresConfirmation = ['Reject', 'Cancel', 'Confirm Cancellation'].includes(transition.label);
         if (requiresConfirmation && !await onConfirmAction(`Transition "${item.name || 'this order item'}" to ${transition.label.toLowerCase()}?`)) return;
-        if (!await onRunAction(SERVICE_ORDER_SCRIPTS.transitionOrderItem, { Id: item.id, PreviousState: transitionStateParameter(item.status), NextState: transition.next, 'Skip Confirmation': 'true' }, `${transition.label} order item`, () => fetchServiceOrderItems(order.id))) return;
+        if (!await onRunApi(
+            () => transitionServiceOrderItem(order.orderId, item.id, transition.next),
+            `${transition.label} order item`,
+        )) return;
         setSelectedItem(null);
         setItemsRefreshKey(value => value + 1);
     };
-    const saveItemConfiguration = (values, refresh) => onRunAction(SERVICE_ORDER_SCRIPTS.saveItemConfiguration, values, 'Saving order-item configuration', refresh);
-    return <><div className="drawer-layer"><div className="drawer-backdrop" onClick={onClose} aria-hidden="true" /><aside className="drawer" role="dialog" aria-modal="true" aria-labelledby="order-detail-title"><header className="drawer-header"><div className="drawer-title"><p className="eyebrow">Service order</p><h2 id="order-detail-title">{order.name || 'Unnamed order'}</h2><div className="drawer-tags">{order.priority && <span className="order-priority">{order.priority} priority</span>}{order.organization && <span className="order-priority">{order.organization}</span>}</div></div><div className="drawer-header-actions"><button className="quiet-button drawer-action-button" type="button" onClick={runOrderEdit} disabled={busy}><span className="icon" aria-hidden="true">edit</span>Edit</button><button className="danger-button drawer-action-button" type="button" onClick={() => onDeleteOrder(order)} disabled={busy}><span className="icon" aria-hidden="true">delete</span>Delete</button><button ref={closeButton} className="icon-button" type="button" aria-label="Close order details" onClick={onClose}><span className="icon">close</span></button></div></header><div className="drawer-body"><section className="drawer-section" aria-labelledby="order-info-title"><div className="drawer-section-heading"><h3 id="order-info-title">Service order details</h3></div><div className="order-transition-panel"><div className="order-transition-panel-heading"><span className="eyebrow">Current state</span><span className={`state-badge ${stateTone(order.state)} order-transition-current`}>{order.state}</span></div><div className="order-transition-actions">{transitions.length === 0 ? <span className="service-related-empty">No transition is available from the current state.</span> : transitions.map(transition => <button className={`order-transition-action ${transition.label === 'Reject' || transition.label === 'Cancel' ? 'danger' : 'primary'}`} type="button" key={`${transition.label}-${transition.next}`} onClick={() => transitionOrder(order, transition)} disabled={busy}><span className="icon" aria-hidden="true">{transitionIcon(transition.label)}</span><span>{transition.label === 'Partially Failed' ? 'Partial fail' : transition.label === 'Information Missing' ? 'Missing info' : transition.label}</span></button>)}</div></div><dl className="detail-grid">{facts.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value || '—'}</dd></div>)}<div className="wide"><dt>Description</dt><dd>{order.description || 'No description'}</dd></div></dl></section><OrderItems orderId={order.id} refreshKey={itemsRefreshKey} onAdd={addItem} onEdit={editItem} onDelete={deleteItem} onSelect={setSelectedItem} onInitialize={initializeService} initializingItemId={initializingItemId} configurationBlockedItemId={configurationBlockedItemId} busy={busy} /></div></aside>{selectedItem && <ServiceOrderItemDetailPanel item={selectedItem} onClose={() => setSelectedItem(null)} onEdit={() => editItem(selectedItem)} onTransition={transitionOrderItem} onSaveConfiguration={saveItemConfiguration} onConfirmConfiguration={onConfirmAction} busy={busy} />}</div>{itemEditor && <ServiceOrderItemDialog key={`${itemEditor.action}-${itemEditor.item?.id || 'new'}`} busy={actionState?.status === 'running'} orderId={order.id} action={itemEditor.action} initialItem={itemEditor.item} onClose={() => setItemEditor(null)} onSubmit={submitItem} />}</>;
+    const saveItemConfiguration = (item, values, refresh) => onRunApi(
+        () => saveServiceOrderItemConfiguration(order.orderId, item.id, JSON.parse(values.Payload || '{}')),
+        'Saving order-item configuration',
+        refresh,
+    );
+    return <><div className="drawer-layer"><div className="drawer-backdrop" onClick={onClose} aria-hidden="true" /><aside className="drawer" role="dialog" aria-modal="true" aria-labelledby="order-detail-title"><header className="drawer-header"><div className="drawer-title"><p className="eyebrow">Service order</p><h2 id="order-detail-title">{order.name || 'Unnamed order'}</h2><div className="drawer-tags">{order.priority && <span className="order-priority">{order.priority} priority</span>}{order.organization && <span className="order-priority">{order.organization}</span>}</div></div><div className="drawer-header-actions"><button className="quiet-button drawer-action-button" type="button" onClick={runOrderEdit} disabled={busy}><span className="icon" aria-hidden="true">edit</span>Edit</button><button className="danger-button drawer-action-button" type="button" onClick={() => onDeleteOrder(order)} disabled={busy}><span className="icon" aria-hidden="true">delete</span>Delete</button><button ref={closeButton} className="icon-button" type="button" aria-label="Close order details" onClick={onClose}><span className="icon">close</span></button></div></header><div className="drawer-body"><section className="drawer-section" aria-labelledby="order-info-title"><div className="drawer-section-heading"><h3 id="order-info-title">Service order details</h3></div><div className="order-transition-panel"><div className="order-transition-panel-heading"><span className="eyebrow">Current state</span><span className={`state-badge ${stateTone(order.state)} order-transition-current`}>{order.state}</span></div><div className="order-transition-actions">{transitions.length === 0 ? <span className="service-related-empty">No transition is available from the current state.</span> : transitions.map(transition => <button className={`order-transition-action ${transition.label === 'Reject' || transition.label === 'Cancel' ? 'danger' : 'primary'}`} type="button" key={`${transition.label}-${transition.next}`} onClick={() => transitionOrder(order, transition)} disabled={busy}><span className="icon" aria-hidden="true">{transitionIcon(transition.label)}</span><span>{transition.label === 'Partially Failed' ? 'Partial fail' : transition.label === 'Information Missing' ? 'Missing info' : transition.label}</span></button>)}</div></div><dl className="detail-grid">{facts.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value || '—'}</dd></div>)}<div className="wide"><dt>Description</dt><dd>{order.description || 'No description'}</dd></div></dl></section><OrderItems order={order} refreshKey={itemsRefreshKey} onAdd={addItem} onEdit={editItem} onDelete={deleteItem} onSelect={setSelectedItem} onInitialize={initializeService} initializingItemId={initializingItemId} busy={busy} /></div></aside>{selectedItem && <ServiceOrderItemDetailPanel order={order} item={selectedItem} onClose={() => setSelectedItem(null)} onEdit={() => editItem(selectedItem)} onTransition={transitionOrderItem} onSaveConfiguration={(values, refresh) => saveItemConfiguration(selectedItem, values, refresh)} onConfirmConfiguration={onConfirmAction} busy={busy} />}</div>{itemEditor && <ServiceOrderItemDialog key={`${itemEditor.action}-${itemEditor.item?.id || 'new'}`} busy={actionState?.status === 'running'} order={order} action={itemEditor.action} initialItem={itemEditor.item} onClose={() => setItemEditor(null)} onSubmit={submitItem} />}{pendingCancellationTransition && <CancellationReasonDialog busy={busy} onClose={() => setPendingCancellationTransition(null)} onSubmit={submitCancellationReason} />}</>;
 }
 
 function OrdersPage({ selectedId }) {
     const { status, orders, error, updatedAt, reload, reloadAndWait } = useServiceOrders();
-    const { state: actionState, run: runAction, fail: failAction, dismiss: dismissAction } = useAutomationActions();
+    const { state: actionState, runApi, fail: failAction, dismiss: dismissAction } = useAutomationActions();
     const { confirm, dialog: confirmationDialog } = useConfirmation();
     const [search, setSearch] = useState('');
     const [statusFilter, setStatusFilter] = useState('all');
@@ -1828,23 +1985,27 @@ function OrdersPage({ selectedId }) {
     const isPreviewData = import.meta.env.MODE === 'mock' || import.meta.env.VITE_USE_MOCK === 'true';
     const closeDetails = useCallback(() => { location.hash = 'orders'; }, []);
     const createOrder = () => setNewOrderOpen(true);
-    const submitNewOrder = async values => {
-        if (await runAction(SERVICE_ORDER_SCRIPTS.createOrder, values, 'Creating service order', reloadAndWait)) {
+    const submitNewOrder = async (_values, fields) => {
+        if (await runApi(() => createServiceOrder(serviceOrderCreateRequest(fields)), 'Creating service order', reloadAndWait)) {
             setNewOrderOpen(false);
         }
     };
     const editOrder = order => setEditOrderTarget(order);
-    const submitEditedOrder = async values => {
-        if (await runAction(SERVICE_ORDER_SCRIPTS.createOrder, values, 'Saving service order', reloadAndWait)) {
-            setEditOrderTarget(null);
+    const submitEditedOrder = async (_values, fields) => {
+        const target = editOrderTarget;
+        if (!target?.orderId) {
+            failAction('The selected service order does not have a UDAPI order ID.');
+            return;
         }
+        const saved = await runApi(() => updateServiceOrder(target.orderId, serviceOrderUpdateRequest(fields)), 'Saving service order', reloadAndWait);
+        if (saved) setEditOrderTarget(null);
     };
     const deleteOrder = async order => {
         if (!await confirm(`Delete "${order.name || 'this service order'}"?`)) return;
-        if (await runAction(SERVICE_ORDER_SCRIPTS.deleteOrder, { 'DOM ID': order.id, 'Skip Confirmation': 'true' }, 'Deleting service order', async () => {
+        if (await runApi(() => deleteServiceOrder(order.orderId), 'Deleting service order', async () => {
             const refreshedOrders = await reloadAndWait();
             if (refreshedOrders.some(candidate => candidate.id === order.id)) {
-                throw new Error('The delete script completed, but the service order is still returned by GQI.');
+                throw new Error('The service order was deleted, but it is still returned by the Service Management API.');
             }
         })) {
             closeDetails();
@@ -1904,7 +2065,7 @@ function OrdersPage({ selectedId }) {
         <section className="order-stats" aria-label="Orders overview"><button className={statusFilter === 'all' ? 'order-stat selected' : 'order-stat'} type="button" aria-pressed={statusFilter === 'all'} onClick={() => setStatusFilter('all')}><span className="overview-metric-top"><span className="overview-metric-icon icon" aria-hidden="true">assignment</span><span className="order-stat-label">All orders</span></span><strong>{hasData ? orders.length : '–'}</strong><span className="order-stat-note">Total in workspace</span></button><button className={statusFilter === 'open' ? 'order-stat selected' : 'order-stat'} type="button" aria-pressed={statusFilter === 'open'} onClick={() => setStatusFilter('open')}><span className="overview-metric-top"><span className="overview-metric-icon icon" aria-hidden="true">play_circle</span><span className="order-stat-label">Open orders</span></span><strong data-testid="open-orders">{hasData ? openCount : '–'}</strong><span className="order-stat-note">{hasData ? 'Still in progress' : 'Waiting for data'}</span></button><button className={statusFilter === 'attention' ? 'order-stat selected' : 'order-stat'} type="button" aria-pressed={statusFilter === 'attention'} onClick={() => setStatusFilter('attention')}><span className="overview-metric-top"><span className="overview-metric-icon icon" aria-hidden="true">error</span><span className="order-stat-label">Orders needing attention</span></span><strong>{hasData ? attentionCount : '–'}</strong><span className="order-stat-note">Held, failed, rejected, or cancelling</span></button><button className={statusFilter === 'completed' ? 'order-stat selected' : 'order-stat'} type="button" aria-pressed={statusFilter === 'completed'} onClick={() => setStatusFilter('completed')}><span className="overview-metric-top"><span className="overview-metric-icon icon" aria-hidden="true">check_circle</span><span className="order-stat-label">Completed</span></span><strong>{hasData ? completedCount : '–'}</strong><span className="order-stat-note">Successfully delivered</span></button></section>
         <section className="orders-surface" aria-labelledby="orders-table-title"><div className="orders-toolbar"><div className="orders-toolbar-title"><div><p className="eyebrow">Service orders</p><h2 id="orders-table-title">All orders</h2></div>{hasData && <span className="orders-total-copy">{orders.length} {orders.length === 1 ? 'order' : 'orders'} in total</span>}</div><div className="orders-toolbar-controls"><label className="orders-search"><span className="icon" aria-hidden="true">search</span><span className="sr-only">Search orders</span><input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Search orders" aria-label="Search orders" />{search && <button type="button" aria-label="Clear search" onClick={() => setSearch('')}><span className="icon" aria-hidden="true">close</span></button>}</label><label className="orders-filter"><span className="sr-only">Filter orders by status</span><select value={statusFilter} onChange={event => setStatusFilter(event.target.value)} aria-label="Filter orders by status"><option value="all">All statuses</option><option value="open">Open</option><option value="attention">Needs attention</option><option value="completed">Completed</option></select><span className="icon" aria-hidden="true">expand_more</span></label></div></div>{body}</section>
         <TablePagination page={ordersPage} pageSize={ordersPageSize} total={filteredOrders.length} onPageChange={setOrdersPage} onPageSizeChange={size => { setOrdersPageSize(size); setOrdersPage(1); }} />
-        {selectedOrder && <OrderDetailPanel key={selectedOrder.id} order={selectedOrder} onClose={closeDetails} onRunAction={runAction} onActionFailure={failAction} onConfirmDelete={confirm} onConfirmAction={confirm} onOrdersChanged={reloadAndWait} onDeleteOrder={deleteOrder} onEditOrder={editOrder} actionState={actionState} />}
+        {selectedOrder && <OrderDetailPanel key={selectedOrder.id} order={selectedOrder} onClose={closeDetails} onRunApi={runApi} onActionFailure={failAction} onConfirmDelete={confirm} onConfirmAction={confirm} onOrdersChanged={reloadAndWait} onDeleteOrder={deleteOrder} onEditOrder={editOrder} actionState={actionState} />}
     </main>;
 }
 

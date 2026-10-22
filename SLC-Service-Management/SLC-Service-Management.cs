@@ -55,10 +55,10 @@ internal class Script
 			setupContentPath = installer.GetSetupContentDirectory();
 
 			installer.InstallDefaultContent();
-			EnsureMediaOpsDependencies(engine, installer);
+			//EnsureMediaOpsDependencies(engine, installer);
 
-			installer.Log("Importing DOM...");
-			ImportDom(engine, installer);
+			//installer.Log("Importing DOM...");
+			//ImportDom(engine, installer);
 
 			var installerHelper = new AppInstallerHelper(Engine.SLNetRaw, context);
 			installerHelper.InstallDefaultContent();

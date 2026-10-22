@@ -814,8 +814,6 @@ button.configuration-nested-chip > span:first-child { color:var(--color12); font
 .item-facts { gap:14px 22px; }
 .item-facts dd { color:var(--color12); font-size:13px; font-weight:500; }
 .order-item-description { margin-top:14px; padding:10px 12px; border-left:3px solid var(--color6); border-radius:5px; background:var(--color2); }
-.order-item-warning { display:flex; align-items:flex-start; gap:8px; margin-top:14px; padding:10px 12px; border:1px solid color-mix(in srgb, var(--minor) 45%, var(--color5)); border-left:3px solid var(--minor); border-radius:6px; background:color-mix(in srgb, var(--minor) 8%, var(--color1)); color:var(--color11); font-size:12px; line-height:18px; }
-.order-item-warning .icon { flex:0 0 auto; width:18px; color:var(--minor); font-size:18px; }
 .order-item-actions { margin-top:18px; padding-top:14px; gap:8px; }
 .item-action-button, .initialize-button { min-height:32px; padding:0 10px; border-radius:6px; font-size:12px; }
 .item-action-button .icon, .initialize-button .icon { width:16px; font-size:16px; }

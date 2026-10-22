@@ -1,16 +1,15 @@
 ﻿namespace SLC_SM_UDAPI_ServiceManagement.Tests.Controllers
 {
 	using System.Collections.Generic;
-	using System.Reflection;
 	using Microsoft.Extensions.Logging;
 	using Moq;
-	using Newtonsoft.Json.Linq;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 	using Skyline.DataMiner.SDM;
 	using Skyline.DataMiner.Utils.UserDefinedApiToolkit;
 	using SLC_SM_UDAPI_ServiceManagement.Controllers;
+	using SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory;
 
 	using Cfg = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.Configurations;
 	using ServiceStatus = DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Service_Behavior.StatusesEnum;
@@ -44,7 +43,27 @@
 
 		protected List<Cfg.ProfileDefinition> StoredProfileDefinitions { get; private set; }
 
+		protected List<Cfg.DiscreteParameterOptions> StoredDiscreteOptions { get; private set; }
+
+		protected List<Cfg.DiscreteValue> StoredDiscreteValues { get; private set; }
+
+		protected List<Cfg.NumberParameterOptions> StoredNumberOptions { get; private set; }
+
+		protected List<Cfg.ConfigurationUnit> StoredConfigurationUnits { get; private set; }
+
 		protected List<ServiceOrderItem> StoredOrderItems { get; private set; }
+
+		protected Mock<IServiceCatalogApi> Catalog { get; private set; }
+
+		protected Mock<IMonitoringServiceManager> MonitoringServices { get; private set; }
+
+		protected Mock<IServiceOrganizationRepository> Organizations { get; private set; }
+
+		protected Mock<IServiceItemImplementations> ItemImplementations { get; private set; }
+
+		protected Dictionary<Guid, string> OrganizationNames { get; private set; }
+
+		protected Dictionary<Guid, Guid> ServiceOrganizations { get; private set; }
 
 		protected ServiceInventoryController Controller { get; private set; }
 
@@ -61,6 +80,10 @@
 			StoredParameterValues = new List<Cfg.ConfigurationParameterValue>();
 			StoredProfiles = new List<Cfg.Profile>();
 			StoredProfileDefinitions = new List<Cfg.ProfileDefinition>();
+			StoredDiscreteOptions = new List<Cfg.DiscreteParameterOptions>();
+			StoredDiscreteValues = new List<Cfg.DiscreteValue>();
+			StoredNumberOptions = new List<Cfg.NumberParameterOptions>();
+			StoredConfigurationUnits = new List<Cfg.ConfigurationUnit>();
 			StoredOrderItems = new List<ServiceOrderItem>();
 
 			Services = new Mock<IServiceRepository>();
@@ -76,13 +99,17 @@
 			inventory.SetupGet(a => a.ServiceConfigurationValues).Returns(Repository(StoredConfigurationValues));
 			inventory.SetupGet(a => a.ServiceProfiles).Returns(Repository(StoredServiceProfiles));
 
-			var catalog = new Mock<IServiceCatalogApi>();
+			var catalog = Catalog = new Mock<IServiceCatalogApi>();
 			catalog.SetupGet(a => a.ServiceCategories).Returns(Repository(StoredCategories));
 			catalog.SetupGet(a => a.ServiceSpecifications).Returns(Repository(StoredSpecifications));
 			catalog.SetupGet(a => a.ConfigurationParameters).Returns(Repository(StoredParameters));
 			catalog.SetupGet(a => a.ConfigurationParameterValues).Returns(Repository(StoredParameterValues));
 			catalog.SetupGet(a => a.Profiles).Returns(Repository(StoredProfiles));
 			catalog.SetupGet(a => a.ProfileDefinitions).Returns(Repository(StoredProfileDefinitions));
+			catalog.SetupGet(a => a.DiscreteParameterOptions).Returns(Repository(StoredDiscreteOptions));
+			catalog.SetupGet(a => a.DiscreteValues).Returns(Repository(StoredDiscreteValues));
+			catalog.SetupGet(a => a.NumberParameterOptions).Returns(Repository(StoredNumberOptions));
+			catalog.SetupGet(a => a.ConfigurationUnits).Returns(Repository(StoredConfigurationUnits));
 
 			var orderItems = new Mock<IServiceOrderItemRepository>();
 			orderItems.Setup(r => r.Read(It.IsAny<FilterElement<ServiceOrderItem>>())).Returns<FilterElement<ServiceOrderItem>>(f => Filter(StoredOrderItems, f));
@@ -94,11 +121,24 @@
 			helper.SetupGet(h => h.ServiceInventory).Returns(inventory.Object);
 			helper.SetupGet(h => h.ServiceCatalog).Returns(catalog.Object);
 
+			MonitoringServices = new Mock<IMonitoringServiceManager>();
+
+			OrganizationNames = new Dictionary<Guid, string>();
+			ServiceOrganizations = new Dictionary<Guid, Guid>();
+			Organizations = new Mock<IServiceOrganizationRepository>();
+			Organizations.Setup(r => r.ReadOrganizationNames()).Returns(() => OrganizationNames);
+			Organizations.Setup(r => r.ReadServiceOrganizationIds(It.IsAny<IEnumerable<Guid>>())).Returns(() => ServiceOrganizations);
+
+			ItemImplementations = new Mock<IServiceItemImplementations>();
+
 			// No live engine in unit tests; endpoints that need it (TransitionService side effects) are covered by integration tests.
 			Controller = new ServiceInventoryController(
 				Mock.Of<ILogger<ServiceInventoryController>>(),
 				helper.Object,
-				Mock.Of<IAccessor<Skyline.DataMiner.Automation.IEngine>>(a => a.Value == Mock.Of<Skyline.DataMiner.Automation.IEngine>()));
+				Mock.Of<IAccessor<Skyline.DataMiner.Automation.IEngine>>(a => a.Value == Mock.Of<Skyline.DataMiner.Automation.IEngine>()),
+				MonitoringServices.Object,
+				Organizations.Object,
+				ItemImplementations.Object);
 
 			AttachContext(Controller);
 		}
@@ -148,6 +188,17 @@
 			repository.Setup(r => r.Read(It.IsAny<FilterElement<T>>())).Returns<FilterElement<T>>(f => Filter(store, f));
 			repository.Setup(r => r.Create(It.IsAny<T>())).Returns<T>(item => { store.Add(item); return item; });
 			repository.Setup(r => r.Update(It.IsAny<T>())).Returns<T>(item => item);
+			repository.Setup(r => r.CreateOrUpdate(It.IsAny<IEnumerable<T>>()))
+				.Callback<IEnumerable<T>>(items =>
+				{
+					foreach (var item in items ?? new T[0])
+					{
+						if (!store.Contains(item))
+						{
+							store.Add(item);
+						}
+					}
+				});
 			return repository.Object;
 		}
 

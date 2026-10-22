@@ -5,8 +5,9 @@
 	using System.Linq;
 	using System.Reflection;
 
-	using Microsoft.Extensions.Logging;
+	using Library.Dom;
 
+	using Microsoft.Extensions.Logging;
 	using Newtonsoft.Json.Linq;
 
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
@@ -15,8 +16,10 @@
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 	using Skyline.DataMiner.SDM;
 	using Skyline.DataMiner.Utils.UserDefinedApiToolkit;
+	using SLC_SM_UDAPI_ServiceManagement.Exceptions;
 	using SLC_SM_UDAPI_ServiceManagement.Models;
 	using SLC_SM_UDAPI_ServiceManagement.Models.Specification;
+	using ItemType = DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Enums.ServiceItemTypesEnum;
 
 	/// <summary>
 	/// Service specifications in the service catalog: templates that define the configuration parameters,
@@ -27,7 +30,7 @@
 	/// </remarks>
 	[ApiController]
 	[Route("service-management/v1/serviceSpecification")]
-	public class ServiceSpecificationController : ControllerBase
+	public partial class ServiceSpecificationController : ControllerBase
 	{
 		/// <summary>Maximum accepted value for the <c>limit</c> query parameter.</summary>
 		private const int MaxLimit = 500;
@@ -46,8 +49,10 @@
 		/// </summary>
 		/// <param name="logger">Logger for request tracing and error diagnostics.</param>
 		/// <param name="serviceManagementApiHelper">Access to the service catalog, inventory and order repositories.</param>
-		/// <exception cref="ArgumentNullException"><paramref name="logger"/> or <paramref name="serviceManagementApiHelper"/> is <see langword="null"/>.</exception>
-		public ServiceSpecificationController(ILogger<ServiceSpecificationController> logger, IServiceManagementApiHelper serviceManagementApiHelper)
+		/// <exception cref="ArgumentNullException">An argument is <see langword="null"/>.</exception>
+		public ServiceSpecificationController(
+			ILogger<ServiceSpecificationController> logger,
+			IServiceManagementApiHelper serviceManagementApiHelper)
 		{
 			_logger = logger ?? throw new ArgumentNullException(nameof(logger));
 			this.serviceManagementApiHelper = serviceManagementApiHelper ?? throw new ArgumentNullException(nameof(serviceManagementApiHelper));
@@ -56,31 +61,14 @@
 		/// <summary>
 		/// Adds a new service specification to the catalog.
 		/// </summary>
-		/// <remarks>
-		/// <para><c>POST service-management/v1/serviceSpecification</c> with <c>application/json</c>.</para>
-		/// <para>
-		/// The name is trimmed and must be unique (case-insensitive). Referenced configuration parameters, profiles and
-		/// profile definitions must exist; service item IDs must be unique and relationships may only reference listed items.
-		/// A configuration value / specification profile is created per entry; they are removed again if creation fails.
-		/// </para>
-		/// <para>
-		/// <c>profileDefinitionId</c> is optional. When omitted, <c>mandatoryAtService</c> and <c>mandatoryAtServiceOrder</c> default to
-		/// <see langword="false"/> and <c>exposeAtServiceOrder</c> defaults to <see langword="true"/>.
-		/// Empty or missing <c>serviceItems</c> and <c>serviceItemRelationships</c> are stored as empty lists; no placeholder item is added.
-		/// </para>
-		/// </remarks>
 		/// <param name="request">The specification to create.</param>
-		/// <returns>
-		/// <c>201 Created</c> with the stored specification as read back after saving (the in-memory object when the read-back returns nothing);
-		/// <c>409 Conflict</c> when the name is already used; <c>500 Internal Server Error</c> on unexpected failures.
-		/// </returns>
+		/// <returns>The created service specification.</returns>
 		[HttpPost]
 		[Consumes("application/json")]
 		public IApiResult CreateServiceSpecification([FromBody] ServiceSpecificationRequest request)
 		{
 			/* TODO:
 			 * Name race: two concurrent requests with the same name can both pass the 409 check.
-			 * Empty items or relationships: saved as sent. I didn't add the placeholder item and relationship the IAS script adds.
 			 */
 
 			_logger.LogInformation("CreateServiceSpecification called with name={Name}", request?.Name);
@@ -124,7 +112,7 @@
 				specification.ConfigurationParameters = CreateConfigurationValues(request.ConfigurationParameters, createdConfigs);
 				specification.ConfigurationProfiles = CreateProfiles(request.ConfigurationProfiles, createdProfiles);
 
-				serviceManagementApiHelper.ServiceCatalog.ServiceSpecifications.Create(specification);
+				serviceManagementApiHelper.CreateSpecification(specification);
 
 				return Created(ReadSpecification(Guid.Parse(specification.Identifier)) ?? specification);
 			}
@@ -137,22 +125,10 @@
 		}
 
 		/// <summary>
-		/// Deletes a service specification. Fails with 409 when services or open service order items still reference it.
+		/// Deletes a service specification.
 		/// </summary>
-		/// <remarks>
-		/// <para><c>DELETE service-management/v1/serviceSpecification/{id}</c>.</para>
-		/// <para>
-		/// Referencing services are found with a server-side filter and checked first; service order items are only read when no
-		/// service blocks the delete. Order items with status Completed, Cancelled, Rejected or Failed do not block it.
-		/// The specification's configuration values and specification profiles are deleted with it.
-		/// </para>
-		/// </remarks>
 		/// <param name="id">Specification identifier (UUID).</param>
-		/// <returns>
-		/// <c>204 No Content</c> when deleted; <c>400 Bad Request</c> when <paramref name="id"/> is not a UUID;
-		/// <c>404 Not Found</c> when it does not exist; <c>409 Conflict</c> when still referenced, with the number of referencing
-		/// services or open service order items in the message; <c>500 Internal Server Error</c> on unexpected failures.
-		/// </returns>
+		/// <returns>An empty successful response.</returns>
 		[HttpDelete("{id}")]
 		public IApiResult DeleteServiceSpecification(string id)
 		{
@@ -212,15 +188,11 @@
 		}
 
 		/// <summary>
-		/// Returns a single service specification.
+		/// Returns one service specification.
 		/// </summary>
-		/// <remarks><c>GET service-management/v1/serviceSpecification/{id}</c>.</remarks>
 		/// <param name="id">Specification identifier (UUID).</param>
-		/// <param name="fields">Optional comma-separated list of serialized property names to include (case-insensitive). Unknown names are ignored.</param>
-		/// <returns>
-		/// <c>200 OK</c> with the specification; <c>400 Bad Request</c> when <paramref name="id"/> is not a UUID;
-		/// <c>404 Not Found</c> when it does not exist; <c>500 Internal Server Error</c> on unexpected failures.
-		/// </returns>
+		/// <param name="fields">Optional comma-separated list of fields to return.</param>
+		/// <returns>The requested service specification.</returns>
 		[HttpGet("{id}")]
 		public IApiResult GetServiceSpecification(string id, [FromQuery] string fields = null)
 		{
@@ -240,12 +212,13 @@
 				}
 
 				var requestedFields = SplitCommaSeparatedValues(fields);
+				var response = JObject.FromObject(specification);
 				if (requestedFields.Count == 0)
 				{
-					return Ok(specification);
+					return Ok(response);
 				}
 
-				return Ok(SelectFields(specification, requestedFields));
+				return Ok(SelectFields(response, requestedFields));
 			}
 			catch (Exception ex)
 			{
@@ -255,24 +228,14 @@
 		}
 
 		/// <summary>
-		/// Lists the service specifications in the catalog.
+		/// Lists service specifications with optional filtering, sorting and field projection.
 		/// </summary>
-		/// <remarks>
-		/// <para><c>GET service-management/v1/serviceSpecification</c>.</para>
-		/// <para><paramref name="offset"/> and <paramref name="limit"/> are validated but not applied yet (spec: "not supported yet").</para>
-		/// <para><c>X-Total-Count</c> is not set: toolkit 10.6.8.3 exposes no documented response-header API.</para>
-		/// <para>Sorting places <see langword="null"/> values first and compares strings case-insensitively.</para>
-		/// </remarks>
-		/// <param name="offset">Number of items to skip. Must be 0 or greater.</param>
-		/// <param name="limit">Maximum number of items to return. Must be between 1 and 500.</param>
-		/// <param name="fields">Optional comma-separated list of serialized property names to include in each item (case-insensitive). Unknown names are ignored.</param>
-		/// <param name="sort">Optional property to sort on (case-insensitive, <c>id</c> maps to the identifier). Prefix with <c>-</c> for descending or <c>+</c> for ascending order (default). Only comparable properties are supported.</param>
-		/// <param name="name">Optional case-insensitive substring filter on the specification name. The value is trimmed.</param>
-		/// <returns>
-		/// <c>200 OK</c> with the (optionally filtered, sorted and projected) specifications;
-		/// <c>400 Bad Request</c> for an invalid <paramref name="offset"/>, <paramref name="limit"/> or <paramref name="sort"/>;
-		/// <c>500 Internal Server Error</c> when the catalog cannot be read.
-		/// </returns>
+		/// <param name="offset">Number of items to skip.</param>
+		/// <param name="limit">Maximum number of items to return.</param>
+		/// <param name="fields">Optional comma-separated list of fields to return.</param>
+		/// <param name="sort">Optional sort property, prefixed with <c>-</c> for descending order.</param>
+		/// <param name="name">Optional case-insensitive name filter.</param>
+		/// <returns>The matching service specifications.</returns>
 		[HttpGet]
 		public IApiResult ListServiceSpecifications(
 			[FromQuery] int offset = 0,
@@ -328,8 +291,8 @@
 						: specifications.OrderBy(keySelector, comparer);
 				}
 
-				var result = specifications.ToList();
 				var requestedFields = SplitCommaSeparatedValues(fields);
+				var result = specifications.Select(JObject.FromObject).ToList();
 				if (requestedFields.Count == 0)
 				{
 					return Ok(result);
@@ -345,27 +308,11 @@
 		}
 
 		/// <summary>
-		/// Partially updates a service specification (JSON Merge Patch). Arrays are replaced as a whole.
+		/// Partially updates a service specification.
 		/// </summary>
-		/// <remarks>
-		/// <para><c>PATCH service-management/v1/serviceSpecification/{id}</c>.</para>
-		/// <para>
-		/// Only properties present in the body are changed. Replacing <c>configurationParameters</c> or <c>configurationProfiles</c>
-		/// creates new linked records and deletes the previous ones after the update succeeds; new records are removed again on failure.
-		/// </para>
-		/// <para>
-		/// A new name is trimmed and must be unique (case-insensitive), ignoring the specification itself. When <c>serviceItems</c> or
-		/// <c>serviceItemRelationships</c> is omitted, the stored value is kept, and references are validated on the merged result.
-		/// Property names in the body are matched case-insensitively.
-		/// </para>
-		/// </remarks>
 		/// <param name="id">Specification identifier (UUID).</param>
-		/// <param name="patch">Merge-patch document with the properties to change.</param>
-		/// <returns>
-		/// <c>200 OK</c> with the updated specification as read back after saving; <c>400 Bad Request</c> for an invalid ID, missing or unbindable body, empty name or invalid references;
-		/// <c>404 Not Found</c> when it does not exist; <c>409 Conflict</c> when the new name is already used;
-		/// <c>500 Internal Server Error</c> on unexpected failures.
-		/// </returns>
+		/// <param name="patch">The properties to update.</param>
+		/// <returns>The updated service specification.</returns>
 		[HttpPatch("{id}")]
 		public IApiResult UpdateServiceSpecification(string id, [FromBody] JObject patch)
 		{
@@ -453,7 +400,7 @@
 					specification.ConfigurationProfiles = CreateProfiles(request.ConfigurationProfiles, createdProfiles);
 				}
 
-				serviceManagementApiHelper.ServiceCatalog.ServiceSpecifications.Update(specification);
+				serviceManagementApiHelper.UpdateSpecification(specification);
 				DeleteOwnedObjects(oldConfigIds, oldProfileIds);
 
 				return Ok(ReadSpecification(specId) ?? specification);
@@ -513,6 +460,42 @@
 			return patch.TryGetValue(property, StringComparison.OrdinalIgnoreCase, out _);
 		}
 
+		private static string RequireServiceItemLabel(string label)
+		{
+			if (String.IsNullOrWhiteSpace(label))
+			{
+				throw new InvalidQueryException("'label' is required.");
+			}
+
+			return label.Trim();
+		}
+
+		private static ItemType ParseServiceItemType(string value)
+		{
+			if (String.IsNullOrWhiteSpace(value))
+			{
+				return ItemType.Service;
+			}
+
+			string normalized = value.Replace(" ", String.Empty).Replace("_", String.Empty);
+			if (!Enum.TryParse(normalized, true, out ItemType parsed) || !Enum.IsDefined(typeof(ItemType), parsed))
+			{
+				throw new InvalidQueryException($"'type' has an invalid value '{value}'.");
+			}
+
+			return parsed;
+		}
+
+		private static bool IsServiceItemPlaceholder(ServiceItem item)
+		{
+			return !item.ServiceItemID.HasValue
+				&& String.IsNullOrWhiteSpace(item.Label)
+				&& String.IsNullOrWhiteSpace(item.DefinitionReference)
+				&& String.IsNullOrWhiteSpace(item.ImplementationReference)
+				&& String.IsNullOrWhiteSpace(item.Script)
+				&& String.IsNullOrWhiteSpace(item.Icon);
+		}
+
 		/// <summary>Compares two identifiers as UUIDs when both parse; otherwise as case-insensitive strings.</summary>
 		/// <param name="a">First identifier.</param>
 		/// <param name="b">Second identifier.</param>
@@ -541,7 +524,7 @@
 		/// <returns>A JSON object with only the requested properties.</returns>
 		private static JObject SelectFields(object value, IReadOnlyCollection<string> requested)
 		{
-			var source = JObject.FromObject(value);
+			var source = value as JObject ?? JObject.FromObject(value);
 			var filtered = new JObject();
 			foreach (var property in source.Properties())
 			{

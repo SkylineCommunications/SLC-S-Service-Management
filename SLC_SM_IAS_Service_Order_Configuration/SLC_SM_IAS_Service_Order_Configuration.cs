@@ -336,6 +336,7 @@ namespace SLC_SM_IAS_Service_Order_Configuration
 					? new ConfigurationParameterValue { Identifier = Guid.NewGuid().ToString() }
 					: ownedConfigurations.ParameterValues[parameter.ParameterValueId];
 				value.ApplyConfigurationValue(definition, parameter.Value, parameter.Mandatory);
+				value.ValueFixed = parameter.Fixed;
 				helper.ServiceCatalog.ConfigurationParameterValues.CreateOrUpdate(new[] { value });
 
 				var configuration = String.IsNullOrWhiteSpace(parameter.ConfigurationId)

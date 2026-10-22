@@ -5,7 +5,6 @@
 	using Newtonsoft.Json.Linq;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
-	using SLC_SM_UDAPI_ServiceManagement.Models;
 	using SLC_SM_UDAPI_ServiceManagement.Models.Order;
 
 	using OrderTransition = DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Serviceorder_Behavior.TransitionsEnum;
@@ -17,9 +16,20 @@
 		[TestMethod]
 		public void ListServiceOrders_NoFilters_ReturnsAllOrders()
 		{
-			AddOrder();
-			var result = Controller.ListServiceOrders();
-			Assert.AreEqual(200, StatusCode(result));
+			var order = AddOrder("InProgress");
+			var value = Value<List<JObject>>(Controller.ListServiceOrders());
+			Assert.AreEqual(1, value.Count);
+			Assert.AreEqual(order.Identifier, (string)value[0]["Identifier"]);
+			Assert.AreEqual("inProgress", (string)value[0]["StatusName"]);
+		}
+
+		[TestMethod]
+		public void ListServiceOrders_OrganizationUnreadable_ReturnsOrdersWithoutName()
+		{
+			var order = AddOrder();
+			order.OrganizationId = Guid.NewGuid();
+			var value = Value<List<JObject>>(Controller.ListServiceOrders());
+			Assert.IsNull((string)value[0]["OrganizationName"]);
 		}
 
 		[TestMethod]
@@ -42,7 +52,9 @@
 			var order = AddOrder();
 			var result = Controller.GetServiceOrder(OrderId);
 			Assert.AreEqual(200, StatusCode(result));
-			Assert.AreSame(order, Value<ServiceOrder>(result));
+			var value = Value<JObject>(result);
+			Assert.AreEqual(order.Identifier, (string)value["Identifier"]);
+			Assert.AreEqual("new", (string)value["StatusName"]);
 		}
 
 		[TestMethod]
@@ -112,10 +124,12 @@
 		}
 
 		[TestMethod]
-		public void CreateServiceOrder_NoItems_Returns400()
+		public void CreateServiceOrder_NoItems_CreatesEmptyOrder()
 		{
 			var request = new CreateServiceOrderRequest { Name = "x", OrderItems = new List<CreateServiceOrderItemRequest>() };
-			Assert.AreEqual(400, StatusCode(Controller.CreateServiceOrder(request)));
+
+			Assert.AreEqual(201, StatusCode(Controller.CreateServiceOrder(request)));
+			Orders.Verify(r => r.Create(It.Is<IEnumerable<ServiceOrder>>(orders => orders.Single().OrderItems.Count == 0)), Times.Once);
 		}
 
 		[TestMethod]

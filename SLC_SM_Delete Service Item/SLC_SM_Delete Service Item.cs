@@ -16,6 +16,7 @@ namespace SLC_SM_Delete_Service_Item
 	using System;
 	using System.Collections.Generic;
 	using System.Linq;
+	using Library.Dom;
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
@@ -130,7 +131,7 @@ namespace SLC_SM_Delete_Service_Item
 				spec.ServiceItemsRelationships.Remove(r);
 			}
 
-			helper.ServiceCatalog.ServiceSpecifications.Update(spec);
+			helper.UpdateSpecification(spec);
 		}
 
 		private static bool HasActiveLinkedReference(IServiceManagementApiHelper helper, Models.ServiceItem serviceItem)

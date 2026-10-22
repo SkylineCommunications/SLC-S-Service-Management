@@ -4,7 +4,6 @@
 	using Moq;
 	using Newtonsoft.Json.Linq;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
-	using SLC_SM_UDAPI_ServiceManagement.Models;
 	using SLC_SM_UDAPI_ServiceManagement.Models.Order;
 
 	using ItemTransition = DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Serviceorderitem_Behavior.TransitionsEnum;
@@ -24,16 +23,31 @@
 			order.OrderItems[0].Priority = 5;
 			order.OrderItems[1].Priority = 1;
 
-			var value = Value<List<ServiceOrderItem>>(Controller.ListServiceOrderItems(OrderId));
+			var value = Value<List<JObject>>(Controller.ListServiceOrderItems(OrderId));
 
-			CollectionAssert.AreEqual(new[] { second, first }, value);
+			CollectionAssert.AreEqual(new[] { second.Identifier, first.Identifier }, value.Select(v => (string)v["Identifier"]).ToArray());
+		}
+
+		[TestMethod]
+		public void ListServiceOrderItems_AddsStatusAndSpecificationName()
+		{
+			var item = AddItem("InProgress");
+			item.ServiceInfo.SpecificationId = new Skyline.DataMiner.SDM.SdmObjectReference<ServiceSpecification>(AddSpecification().ToString());
+			AddOrder("New", item);
+
+			var value = Value<List<JObject>>(Controller.ListServiceOrderItems(OrderId)).Single();
+
+			Assert.AreEqual("inProgress", (string)value["StatusName"]);
+			Assert.AreEqual("Spec", (string)value["ServiceSpecificationName"]);
+			Assert.IsNull((string)value["ServiceCategoryName"]);
+			Assert.IsNull((string)value["ServiceName"]);
 		}
 
 		[TestMethod]
 		public void ListServiceOrderItems_NoItems_ReturnsEmpty()
 		{
 			AddOrder();
-			Assert.AreEqual(0, Value<List<ServiceOrderItem>>(Controller.ListServiceOrderItems(OrderId)).Count);
+			Assert.AreEqual(0, Value<List<JObject>>(Controller.ListServiceOrderItems(OrderId)).Count);
 		}
 
 		[TestMethod]
@@ -85,6 +99,84 @@
 		}
 
 		#endregion GET /serviceOrder/{id}/item/{itemId}
+
+		#region Item configuration and initialization
+
+		[TestMethod]
+		public void GetServiceOrderItemConfiguration_ItemNotInOrder_Returns404()
+		{
+			AddOrder();
+			Assert.AreEqual(404, StatusCode(Controller.GetServiceOrderItemConfiguration(OrderId, Guid.NewGuid().ToString())));
+		}
+
+		[TestMethod]
+		public void SaveServiceOrderItemConfiguration_ForeignConfiguration_Returns400WithoutUpdatingItem()
+		{
+			var item = AddItem();
+			AddOrder("New", item);
+			var body = new JObject
+			{
+				["DeleteConfigurationIds"] = new JArray(Guid.NewGuid().ToString()),
+			};
+
+			Assert.AreEqual(400, StatusCode(Controller.SaveServiceOrderItemConfiguration(OrderId, item.Identifier, body)));
+			Items.Verify(r => r.Update(It.IsAny<ServiceOrderItem>()), Times.Never);
+		}
+
+		[TestMethod]
+		public void InitializeServiceFromOrderItem_WithoutSpecification_Returns400()
+		{
+			var item = AddItem();
+			item.ServiceInfo.SpecificationId = null;
+			AddOrder("New", item);
+
+			Assert.AreEqual(400, StatusCode(Controller.InitializeServiceFromOrderItem(OrderId, item.Identifier)));
+		}
+
+		[TestMethod]
+		public void InitializeServiceFromOrderItem_WhenItemNameIsUnique_KeepsOriginalName()
+		{
+			var specificationId = AddSpecification();
+			var item = AddItem();
+			item.ServiceInfo.SpecificationId = new Skyline.DataMiner.SDM.SdmObjectReference<ServiceSpecification>(specificationId.ToString());
+			AddOrder("New", item);
+
+			var result = Controller.InitializeServiceFromOrderItem(OrderId, item.Identifier);
+
+			Assert.AreEqual(201, StatusCode(result));
+			Assert.AreEqual("Item", Value<Service>(result).Name);
+		}
+
+		[TestMethod]
+		public void InitializeServiceFromOrderItem_WhenItemNameAlreadyExists_AddsUniqueSuffix()
+		{
+			var specificationId = AddSpecification();
+			var item = AddItem();
+			item.ServiceInfo.SpecificationId = new Skyline.DataMiner.SDM.SdmObjectReference<ServiceSpecification>(specificationId.ToString());
+			AddOrder("New", item);
+			StoredServices.Add(new Service
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				ServiceID = "SERVICE-00001",
+				Name = "item",
+			});
+			StoredServices.Add(new Service
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				ServiceID = "SERVICE-00002",
+				Name = "Item (2)",
+			});
+
+			var result = Controller.InitializeServiceFromOrderItem(OrderId, item.Identifier);
+
+			Assert.AreEqual(201, StatusCode(result));
+			var service = Value<Service>(result);
+			Assert.AreEqual("Item (3)", service.Name);
+			Assert.AreEqual(service.Identifier, item.ServiceInfo.ServiceId.Identifier);
+			Services.Verify(repository => repository.Create(It.Is<Service>(created => created.Name == "Item (3)")), Times.Once);
+		}
+
+		#endregion Item configuration and initialization
 
 		#region POST /serviceOrder/{id}/item
 

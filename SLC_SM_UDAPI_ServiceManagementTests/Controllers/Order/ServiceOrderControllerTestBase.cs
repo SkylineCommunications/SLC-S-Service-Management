@@ -1,17 +1,15 @@
 ﻿namespace SLC_SM_UDAPI_ServiceManagement.Tests.Controllers
 {
 	using System.Collections.Generic;
-	using System.Reflection;
-	using DomHelpers.SlcServicemanagement;
 	using Microsoft.Extensions.Logging;
 	using Moq;
-	using Newtonsoft.Json.Linq;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 	using Skyline.DataMiner.SDM;
 	using Skyline.DataMiner.Utils.UserDefinedApiToolkit;
 	using SLC_SM_UDAPI_ServiceManagement.Controllers;
+	using Cfg = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.Configurations;
 
 	using OrderStatus = DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Serviceorder_Behavior.StatusesEnum;
 	using OrderTransition = DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Serviceorder_Behavior.TransitionsEnum;
@@ -29,9 +27,13 @@
 
 		protected Mock<IServiceOrderItemRepository> Items { get; private set; }
 
+		protected Mock<IServiceRepository> Services { get; private set; }
+
 		protected List<ServiceOrder> StoredOrders { get; private set; }
 
 		protected List<ServiceOrderItem> StoredItems { get; private set; }
+
+		protected List<Service> StoredServices { get; private set; }
 
 		protected List<ServiceSpecification> StoredSpecifications { get; private set; }
 
@@ -42,6 +44,7 @@
 		{
 			StoredOrders = new List<ServiceOrder>();
 			StoredItems = new List<ServiceOrderItem>();
+			StoredServices = new List<Service>();
 
 			Orders = new Mock<IServiceOrderRepository>();
 			Orders.Setup(r => r.Read(It.IsAny<FilterElement<ServiceOrder>>())).Returns(() => StoredOrders.ToList());
@@ -58,19 +61,47 @@
 			var orderApi = new Mock<IServiceOrderApi>();
 			orderApi.SetupGet(a => a.ServiceOrders).Returns(Orders.Object);
 			orderApi.SetupGet(a => a.ServiceOrderItems).Returns(Items.Object);
+			var itemConfigurations = new Mock<IBulkRepository<ServiceOrderItemConfigurationValue>>();
+			itemConfigurations.Setup(r => r.Read(It.IsAny<FilterElement<ServiceOrderItemConfigurationValue>>()))
+				.Returns(new List<ServiceOrderItemConfigurationValue>());
+			orderApi.SetupGet(a => a.ServiceOrderItemConfigurationValues).Returns(itemConfigurations.Object);
 
 			StoredSpecifications = new List<ServiceSpecification>();
 			var specifications = new Mock<IBulkRepository<ServiceSpecification>>();
 			specifications.Setup(r => r.Read(It.IsAny<FilterElement<ServiceSpecification>>()))
 				.Returns<FilterElement<ServiceSpecification>>(f => StoredSpecifications.Where(f.getLambda()).ToList());
+			var configurationParameters = new Mock<IBulkRepository<Cfg.ConfigurationParameter>>();
+			configurationParameters.Setup(r => r.Read(It.IsAny<FilterElement<Cfg.ConfigurationParameter>>()))
+				.Returns(new List<Cfg.ConfigurationParameter>());
+			var parameterValues = new Mock<IBulkRepository<Cfg.ConfigurationParameterValue>>();
+			parameterValues.Setup(r => r.Read(It.IsAny<FilterElement<Cfg.ConfigurationParameterValue>>()))
+				.Returns(new List<Cfg.ConfigurationParameterValue>());
+
+			Services = new Mock<IServiceRepository>();
+			Services.Setup(r => r.Read(It.IsAny<FilterElement<Service>>()))
+				.Returns<FilterElement<Service>>(f => StoredServices.Where(f.getLambda()).ToList());
+			Services.Setup(r => r.Create(It.IsAny<Service>()))
+				.Callback<Service>(service => StoredServices.Add(service))
+				.Returns<Service>(service => service);
+			Services.Setup(r => r.Delete(It.IsAny<Service>()))
+				.Callback<Service>(service => StoredServices.Remove(service));
+			var inventory = new Mock<IServiceInventoryApi>();
+			inventory.SetupGet(a => a.Services).Returns(Services.Object);
+
 			var catalog = new Mock<IServiceCatalogApi>();
 			catalog.SetupGet(c => c.ServiceSpecifications).Returns(specifications.Object);
+			catalog.SetupGet(c => c.ConfigurationParameters).Returns(configurationParameters.Object);
+			catalog.SetupGet(c => c.ConfigurationParameterValues).Returns(parameterValues.Object);
 
 			var helper = new Mock<IServiceManagementApiHelper>();
 			helper.SetupGet(h => h.ServiceOrder).Returns(orderApi.Object);
+			helper.SetupGet(h => h.ServiceInventory).Returns(inventory.Object);
 			helper.SetupGet(h => h.ServiceCatalog).Returns(catalog.Object);
 
-			Controller = new ServiceOrderController(Mock.Of<ILogger<ServiceOrderController>>(), helper.Object);
+			Controller = new ServiceOrderController(
+				Mock.Of<ILogger<ServiceOrderController>>(),
+				helper.Object,
+				Mock.Of<IAccessor<Skyline.DataMiner.Automation.IEngine>>(a => a.Value == Mock.Of<Skyline.DataMiner.Automation.IEngine>()));
 
 			AttachContext(Controller);
 		}

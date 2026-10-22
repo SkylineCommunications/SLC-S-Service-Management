@@ -36,5 +36,8 @@ namespace SLC_SM_IAS_Service_Order_Configuration
 
 		/// <summary>Gets or sets a value indicating whether the parameter is mandatory.</summary>
 		public bool Mandatory { get; set; }
+
+		/// <summary>Gets or sets a value indicating whether the parameter value is fixed.</summary>
+		public bool Fixed { get; set; }
 	}
 }

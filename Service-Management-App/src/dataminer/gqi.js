@@ -88,7 +88,8 @@ function buildAutomationScript({ name, folder = 'Service Management', interactiv
             Values: null,
             MemoryFile: '',
             Name: parameter.name,
-            Value: encodeScriptParameter(values[parameter.name]),
+            // `raw` parameters are read with GetScriptParam(...).Value as-is, without the JSON array wrapper.
+            Value: parameter.raw ? String(values[parameter.name] ?? '') : encodeScriptParameter(values[parameter.name]),
         })),
         Dummies: [],
         MemoryFiles: [],
@@ -131,6 +132,13 @@ export async function executeAutomationScript({ name, folder = 'Service Manageme
         throw new DataMinerApiError(result?.ErrorMessage || result?.Message || `Automation script "${name}" failed${Number.isFinite(errorCode) ? ` (error ${errorCode})` : '.'}`);
     }
     return result;
+}
+
+/** Returns the `engine.AddScriptOutput` values of an ExecuteAutomationScriptWithOutput result as a key/value map. */
+export function readScriptOutputs(result) {
+    const entries = result?.ScriptOutput ?? result?.Output ?? result?.Outputs ?? [];
+    if (!Array.isArray(entries)) return typeof entries === 'object' && entries !== null ? { ...entries } : {};
+    return Object.fromEntries(entries.map(entry => [entry?.Key ?? entry?.Name, entry?.Value]).filter(([key]) => key));
 }
 
 /**

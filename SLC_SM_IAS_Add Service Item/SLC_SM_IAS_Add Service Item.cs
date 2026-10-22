@@ -19,6 +19,7 @@ namespace SLC_SM_IAS_Add_Service_Item
 
 	using DomHelpers.SlcRelationships;
 	using DomHelpers.SlcServicemanagement;
+	using Library.Dom;
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.Relationship;
@@ -285,6 +286,7 @@ namespace SLC_SM_IAS_Add_Service_Item
 
 			// Remove old instance first in case of edit
 			instance.ServiceItems = instance.ServiceItems ?? new List<Models.ServiceItem>();
+			instance.ServiceItems.RemoveAll(x => x == null || (!x.ServiceItemID.HasValue && String.IsNullOrWhiteSpace(x.Label)));
 			var oldItem = instance.ServiceItems.FirstOrDefault(x => String.Equals(x.Label, oldLabel, StringComparison.OrdinalIgnoreCase));
 			if (oldItem != null)
 			{
@@ -301,7 +303,7 @@ namespace SLC_SM_IAS_Add_Service_Item
 
 			instance.ServiceItems.Add(newSection);
 			NormalizeOptionalSpecificationCollections(instance);
-			helper.ServiceCatalog.ServiceSpecifications.Update(instance);
+			helper.UpdateSpecification(instance);
 		}
 
 		private void AddServiceLink(Guid serviceInstanceId, string serviceInstanceName, Models.ServiceItem newSection)

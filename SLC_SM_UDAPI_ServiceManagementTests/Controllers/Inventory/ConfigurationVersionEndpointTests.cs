@@ -2,9 +2,9 @@
 {
 	using System.Collections.Generic;
 	using Moq;
+	using Newtonsoft.Json.Linq;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 	using Skyline.DataMiner.SDM;
-	using SLC_SM_UDAPI_ServiceManagement.Models;
 	using SLC_SM_UDAPI_ServiceManagement.Models.Inventory;
 	using SLC_SM_UDAPI_ServiceManagement.Models.Inventory.FullService;
 
@@ -229,6 +229,61 @@
 		{
 			Services.Setup(r => r.Update(It.IsAny<Service>())).Throws(new InvalidOperationException());
 			Assert.AreEqual(500, StatusCode(Controller.CreateConfigurationVersion(service.ServiceID, new CreateConfigurationVersionRequest())));
+		}
+
+		[DataTestMethod]
+		[DataRow("")]
+		[DataRow("2500")]
+		public void SaveServiceConfiguration_AddsNumberParameter(string value)
+		{
+			var parameter = AddParameter("Bitrate", ParameterType.Number);
+			var version = AddVersion(service, "v1");
+			service.ServiceConfigurationId = new SdmObjectReference<ServiceConfigurationVersion>(version.Identifier);
+			var request = new ServiceConfigurationRequest
+			{
+				VersionId = version.Identifier,
+				VersionName = version.VersionName,
+				ActivateVersion = true,
+				Parameters = new List<ServiceConfigurationParameterRequest>
+				{
+					new ServiceConfigurationParameterRequest
+					{
+						ParameterId = parameter.Identifier,
+						Value = value,
+					},
+				},
+			};
+
+			var result = Controller.SaveServiceConfiguration(service.ServiceID, JObject.FromObject(request));
+			int statusCode = StatusCode(result);
+			Assert.AreEqual(200, statusCode, statusCode == 200 ? String.Empty : ErrorDetail(result));
+
+			Assert.AreEqual(1, version.Parameters.Count);
+			Assert.AreEqual(1, StoredParameterValues.Count);
+			Assert.AreEqual(!String.IsNullOrWhiteSpace(value), StoredParameterValues[0].DoubleValue.HasValue);
+			Assert.IsNull(StoredParameterValues[0].StringValue);
+			Assert.AreEqual(1, StoredConfigurationValues.Count);
+			var record = Value<List<ConfigurationRecord>>(result).Single(configuration => configuration.RecordType == "Parameter");
+			Assert.AreEqual(parameter.Identifier, record.ParameterId);
+			Assert.AreEqual(String.IsNullOrWhiteSpace(value), Boolean.Parse(record.ParameterNotApplicable));
+			Assert.AreEqual(String.IsNullOrWhiteSpace(value) ? String.Empty : value, record.ParameterValue);
+		}
+
+		[TestMethod]
+		public void SaveServiceConfiguration_RepositoryThrows_Returns500WithErrorReference()
+		{
+			Services.Setup(repository => repository.Update(It.IsAny<Service>()))
+				.Throws(new InvalidOperationException("Repository failure"));
+
+			var result = Controller.SaveServiceConfiguration(
+				service.ServiceID,
+				JObject.FromObject(new ServiceConfigurationRequest { ActivateVersion = true }));
+
+			Assert.AreEqual(500, StatusCode(result));
+			string detail = ErrorDetail(result);
+			StringAssert.Contains(detail, "Reference: ");
+			Assert.IsFalse(detail.Contains("Repository failure"));
+			Assert.AreEqual(1, StoredVersions.Count, "A failed multi-write save may leave earlier records persisted.");
 		}
 
 		private static CreateConfigurationVersionRequest ParameterRequest(ConfigurationParameterValueRequest value, bool mandatory = false)

@@ -25,20 +25,66 @@
 
 	[ApiController]
 	[Route("service-management/v1/service")]
-	public class ServiceInventoryController : ControllerBase
+	public partial class ServiceInventoryController : ControllerBase
 	{
 		private static readonly Regex ServiceIdPattern = new Regex(@"^SERVICE-\d+$", RegexOptions.Compiled);
+		private static readonly Dictionary<string, ServiceFieldSelector> ServiceFieldSelectors =
+			new Dictionary<string, ServiceFieldSelector>(StringComparer.OrdinalIgnoreCase)
+			{
+				[nameof(Service.Status)] = new ServiceFieldSelector(nameof(Service.Status), service => service.Status),
+				[nameof(Service.Name)] = new ServiceFieldSelector(nameof(Service.Name), service => service.Name),
+				[nameof(Service.ServiceID)] = new ServiceFieldSelector(nameof(Service.ServiceID), service => service.ServiceID),
+				[nameof(Service.Description)] = new ServiceFieldSelector(nameof(Service.Description), service => service.Description),
+				[nameof(Service.Icon)] = new ServiceFieldSelector(nameof(Service.Icon), service => service.Icon),
+				[nameof(Service.StartTime)] = new ServiceFieldSelector(nameof(Service.StartTime), service => service.StartTime),
+				[nameof(Service.EndTime)] = new ServiceFieldSelector(nameof(Service.EndTime), service => service.EndTime),
+				[nameof(Service.GenerateMonitoringService)] = new ServiceFieldSelector(nameof(Service.GenerateMonitoringService), service => service.GenerateMonitoringService),
+				[nameof(Service.MonitoringService)] = new ServiceFieldSelector(nameof(Service.MonitoringService), service => service.MonitoringService),
+				[nameof(Service.CategoryId)] = new ServiceFieldSelector(nameof(Service.CategoryId), service => service.CategoryId),
+				[nameof(Service.ServiceSpecificationId)] = new ServiceFieldSelector(nameof(Service.ServiceSpecificationId), service => service.ServiceSpecificationId),
+				[nameof(Service.ServiceConfigurationId)] = new ServiceFieldSelector(nameof(Service.ServiceConfigurationId), service => service.ServiceConfigurationId),
+				[nameof(Service.ConfigurationVersions)] = new ServiceFieldSelector(nameof(Service.ConfigurationVersions), service => service.ConfigurationVersions),
+				[nameof(Service.ServiceItems)] = new ServiceFieldSelector(nameof(Service.ServiceItems), service => service.ServiceItems),
+				[nameof(Service.ServiceItemsRelationships)] = new ServiceFieldSelector(nameof(Service.ServiceItemsRelationships), service => service.ServiceItemsRelationships),
+				[nameof(Service.ServiceScripts)] = new ServiceFieldSelector(nameof(Service.ServiceScripts), service => service.ServiceScripts),
+				[nameof(Service.Identifier)] = new ServiceFieldSelector(nameof(Service.Identifier), service => service.Identifier),
+			};
 
 		private readonly ILogger<ServiceInventoryController> _logger;
 		private readonly ODataSdmTranslator<Service> _translator;
 		private readonly IAccessor<IEngine> engineAccessor;
+		private readonly IServiceItemImplementations itemImplementations;
+		private readonly IMonitoringServiceManager monitoringServices;
+		private readonly IServiceOrganizationRepository organizations;
 		private readonly IServiceManagementApiHelper serviceManagementApiHelper;
 
-		public ServiceInventoryController(ILogger<ServiceInventoryController> logger, IServiceManagementApiHelper serviceManagementApiHelper, IAccessor<IEngine> engineAccessor)
+		private sealed class ServiceFieldSelector
+		{
+			public ServiceFieldSelector(string name, Func<Service, object> getValue)
+			{
+				Name = name;
+				GetValue = getValue;
+			}
+
+			public string Name { get; }
+
+			public Func<Service, object> GetValue { get; }
+		}
+
+		public ServiceInventoryController(
+			ILogger<ServiceInventoryController> logger,
+			IServiceManagementApiHelper serviceManagementApiHelper,
+			IAccessor<IEngine> engineAccessor,
+			IMonitoringServiceManager monitoringServices,
+			IServiceOrganizationRepository organizations,
+			IServiceItemImplementations itemImplementations)
 		{
 			_logger = logger ?? throw new ArgumentNullException(nameof(logger));
 			this.serviceManagementApiHelper = serviceManagementApiHelper ?? throw new ArgumentNullException(nameof(serviceManagementApiHelper));
 			this.engineAccessor = engineAccessor ?? throw new ArgumentNullException(nameof(engineAccessor));
+			this.monitoringServices = monitoringServices ?? throw new ArgumentNullException(nameof(monitoringServices));
+			this.organizations = organizations ?? throw new ArgumentNullException(nameof(organizations));
+			this.itemImplementations = itemImplementations ?? throw new ArgumentNullException(nameof(itemImplementations));
 			_translator = new ODataSdmTranslator<Service>();
 		}
 
@@ -160,10 +206,9 @@
 		public IApiResult CreateService([FromBody] CreateServiceRequest request)
 		{
 			/* TODO:
-			 * 1.organizationId is accepted but not saved. The SDM Service model has no field for it.
-			 * 2.Status isn't set explicitly. I assumed DOM starts new services as new; this needs checking on a live system.
-			 * 3.Same ID race as Service Order.Two requests at the same moment could get the same service ID.
-			 * 4.400 for a missing mandatory configuration parameter isn't covered. Configuration versions start empty.
+			 * 1.Status isn't set explicitly. I assumed DOM starts new services as new; this needs checking on a live system.
+			 * 2.Same ID race as Service Order.Two requests at the same moment could get the same service ID.
+			 * 3.400 for a missing mandatory configuration parameter isn't covered. Configuration versions start empty.
 			*/
 
 			_logger.LogInformation("CreateService called with name={Name}", request?.Name);
@@ -184,6 +229,7 @@
 				}
 
 				var category = ResolveCategory(request.Category);
+				ValidateOrganization(request.OrganizationId);
 
 				var services = serviceManagementApiHelper.ServiceInventory.Services;
 				string name = request.Name.Trim();
@@ -192,24 +238,35 @@
 					return Conflict(CreateError("Conflict", $"A service with name '{name}' already exists.", 409));
 				}
 
-				var existingServiceIds = services.Read(new TRUEFilterElement<Service>()).Select(s => s.ServiceID);
+				var existingServiceIds = services.Read(new TRUEFilterElement<Service>()).Select(s => s.ServiceID).ToList();
+				string serviceId = String.IsNullOrWhiteSpace(request.ServiceId) ? GenerateServiceId(existingServiceIds) : request.ServiceId.Trim();
+				if (existingServiceIds.Any(id => String.Equals(id, serviceId, StringComparison.OrdinalIgnoreCase)))
+				{
+					return Conflict(CreateError("Conflict", $"A service with ID '{serviceId}' already exists.", 409));
+				}
+
+				bool generateMonitoringService = request.GenerateMonitoringService ?? false;
+				if (generateMonitoringService && monitoringServices.Exists(name))
+				{
+					return Conflict(CreateError("Conflict", $"A DataMiner service with name '{name}' already exists.", 409));
+				}
 
 				var service = new Service
 				{
 					Identifier = Guid.NewGuid().ToString(),
-					ServiceID = GenerateServiceId(existingServiceIds),
+					ServiceID = serviceId,
 					Name = name,
-					Description = request.Description ?? String.Empty,
+					Description = request.Description ?? specification?.Description ?? String.Empty,
 					Icon = !String.IsNullOrWhiteSpace(request.Icon) ? request.Icon.Trim() : category?.Icon ?? String.Empty,
 					StartTime = request.StartTime?.ToUniversalTime(),
 					EndTime = request.EndTime?.ToUniversalTime(),
-					GenerateMonitoringService = request.GenerateMonitoringService ?? false,
-					MonitoringService = String.Empty,
+					GenerateMonitoringService = generateMonitoringService,
+					MonitoringService = request.MonitoringService?.Trim() ?? String.Empty,
 					CategoryId = category != null ? new SdmObjectReference<ServiceCategory>(category.Identifier) : null,
 					ServiceSpecificationId = specification != null ? new SdmObjectReference<ServiceSpecification>(specification.Identifier) : null,
 					ServiceItems = request.ServiceItems != null
 						? request.ServiceItems.Select(ToServiceItem).ToList()
-						: specification?.ServiceItems?.ToList() ?? new List<ServiceItem>(),
+						: CopySpecificationItems(specification),
 					ServiceItemsRelationships = request.ServiceItemRelationships != null
 						? request.ServiceItemRelationships.Select(ToRelationship).ToList()
 						: specification?.ServiceItemsRelationships?.ToList() ?? new List<ServiceItemRelationship>(),
@@ -217,6 +274,14 @@
 				};
 
 				services.Create(service);
+
+				// Resolve the monitoring service before the organization association.
+				string error = (generateMonitoringService ? RunAfterSave(service, "DataMiner monitoring service", () => monitoringServices.Create(service.Name, service.Icon)) : null)
+					?? (request.OrganizationId.HasValue ? RunAfterSave(service, "organization", () => organizations.SetOrganization(Guid.Parse(service.Identifier), request.OrganizationId)) : null);
+				if (error != null)
+				{
+					return InternalServerError(CreateError("Internal server error", error, 500));
+				}
 
 				var created = services.Read(ServiceExposers.ServiceID.Equal(service.ServiceID)).FirstOrDefault() ?? service;
 				return Created(created);
@@ -375,11 +440,19 @@
 				return NotFound();
 			}
 
-			object result = full
-				? (object)new FullServiceBuilder(serviceManagementApiHelper).Build(new[] { service }).First()
-				: service;
+			if (full)
+			{
+				var fullService = new FullServiceBuilder(serviceManagementApiHelper).Build(new[] { service }).First();
+				return Ok(SelectFields(fullService, fields));
+			}
 
-			return Ok(SelectFields(result, fields));
+			var requestedFields = ParseRequestedFields(fields);
+			if (requestedFields.Count == 0)
+			{
+				return Ok(service);
+			}
+
+			return Ok(ToServiceResponses(new[] { service }, requestedFields).First());
 		}
 
 		[HttpGet("{id}/transition")]
@@ -499,14 +572,15 @@
 				};
 
 				var search = new ServiceParameterSearch(new TimedServiceSearchDataSource(new ServiceSearchDataSource(serviceManagementApiHelper), _logger));
-				var services = search.Find(query);
+				var requestedFields = ParseRequestedFields(fields);
+				var services = ToServiceResponses(search.Find(query), requestedFields);
 
-				if (SplitCommaSeparatedValues(fields).Count == 0)
+				if (requestedFields.Count == 0)
 				{
 					return Ok(services);
 				}
 
-				return Ok(services.Select(s => SelectFields(s, fields)).ToList());
+				return Ok(services.Cast<object>().ToList());
 			}
 			catch (InvalidQueryException ex)
 			{
@@ -556,7 +630,7 @@
 				var services = serviceManagementApiHelper.ServiceInventory.Services;
 				var engine = engineAccessor.Value;
 
-				// Same behavior as the Service_StateTransitions script.
+				// Apply the requested service state transition.
 				switch (transition.Value)
 				{
 					case SlcServicemanagementIds.Behaviors.Service_Behavior.TransitionsEnum.Reserved_To_Active:
@@ -601,8 +675,7 @@
 		public IApiResult UpdateService([FromRoute] string id, [FromBody] JObject patch)
 		{
 			/* TODO:
-			 * 1. organizationId is ignored, as in Create. The SDM Service model has no field for it.
-			 * 2. A targetStatus change only updates the status; the extra Service_StateTransitions steps (service order item completion) are not done, as in TransitionService.
+			 * 1. A targetStatus change only updates the status; related service-order-item completion steps are not performed here.
 			 */
 
 			_logger.LogInformation("UpdateService called with id={Id}", id);
@@ -674,10 +747,26 @@
 					service.GenerateMonitoringService = request.GenerateMonitoringService ?? false;
 				}
 
+				if (Has(patch, "monitoringService"))
+				{
+					service.MonitoringService = request.MonitoringService?.Trim() ?? String.Empty;
+				}
+
 				if (Has(patch, "category"))
 				{
 					var category = ResolveCategory(request.Category);
 					service.CategoryId = category != null ? new SdmObjectReference<ServiceCategory>(category.Identifier) : null;
+					if (!Has(patch, "icon"))
+					{
+						// The service logo follows the selected category.
+						service.Icon = category?.Icon ?? String.Empty;
+					}
+				}
+
+				bool updateOrganization = Has(patch, "organizationId");
+				if (updateOrganization)
+				{
+					ValidateOrganization(request.OrganizationId);
 				}
 
 				if (Has(patch, "serviceSpecificationId"))
@@ -749,6 +838,14 @@
 					services.TransitionStatus(stored, transition.Value);
 				}
 
+				string error = updateOrganization
+					? RunAfterSave(service, "organization", () => organizations.SetOrganization(Guid.Parse(service.Identifier), request.OrganizationId))
+					: null;
+				if (error != null)
+				{
+					return InternalServerError(CreateError("Internal server error", error, 500));
+				}
+
 				var updated = services.Read(ServiceExposers.Identifier.Equal(service.Identifier)).FirstOrDefault() ?? service;
 				return Ok(updated);
 			}
@@ -774,6 +871,26 @@
 			var response = new ErrorResponse();
 			response.Errors.Add(new Error { Title = title, Details = details, Code = code });
 			return response;
+		}
+
+		private static List<ServiceItem> CopySpecificationItems(ServiceSpecification specification)
+		{
+			// The optional item type is left empty,
+			// because setting it can fail with DomInstanceSectionInvalidFieldValueTypes on some systems.
+			return specification?.ServiceItems?
+				.Where(item => item != null)
+				.Select(item => new ServiceItem
+				{
+					ServiceItemID = item.ServiceItemID,
+					Label = item.Label,
+					Script = item.Script,
+					DefinitionReference = item.DefinitionReference,
+					ImplementationReference = item.ImplementationReference,
+					Type = null,
+					Icon = item.Icon,
+				})
+				.ToList()
+				?? new List<ServiceItem>();
 		}
 
 		private static string GenerateServiceId(IEnumerable<string> existingServiceIds)
@@ -900,24 +1017,11 @@
 				throw new InvalidQueryException($"'serviceItems[{index}]' must not be null.");
 			}
 
-			SlcServicemanagementIds.Enums.ServiceItemTypesEnum? type = null;
-			if (!String.IsNullOrWhiteSpace(item.Type))
-			{
-				string normalized = item.Type.Replace(" ", String.Empty).Replace("_", String.Empty);
-				if (!Enum.TryParse(normalized, true, out SlcServicemanagementIds.Enums.ServiceItemTypesEnum parsed)
-					|| !Enum.IsDefined(typeof(SlcServicemanagementIds.Enums.ServiceItemTypesEnum), parsed))
-				{
-					throw new InvalidQueryException($"'serviceItems[{index}].type' has an invalid value '{item.Type}'.");
-				}
-
-				type = parsed;
-			}
-
 			return new ServiceItem
 			{
 				ServiceItemID = item.ServiceItemId ?? index,
 				Label = item.Label,
-				Type = type,
+				Type = ParseItemType(item.Type, $"serviceItems[{index}].type"),
 				Script = item.Script,
 				DefinitionReference = item.DefinitionReference,
 				ImplementationReference = item.ImplementationReference,
@@ -935,6 +1039,11 @@
 			if (String.IsNullOrWhiteSpace(request.Name))
 			{
 				throw new InvalidQueryException("'name' is required.");
+			}
+
+			if (!String.IsNullOrWhiteSpace(request.ServiceId) && !ServiceIdPattern.IsMatch(request.ServiceId.Trim()))
+			{
+				throw new InvalidQueryException("'serviceId' must use the format SERVICE-<number>.");
 			}
 
 			if (request.StartTime.HasValue && request.EndTime.HasValue && request.EndTime.Value < request.StartTime.Value)
@@ -1138,7 +1247,7 @@
 
 		private bool HasActiveLinkedReference(ServiceItem serviceItem)
 		{
-			// Same rule as the 'SLC_SM_Delete Service Item' script: a linked service that still exists blocks removal.
+			// A linked service that still exists blocks removal.
 			if (!Guid.TryParse(serviceItem.ImplementationReference, out Guid referenceId) || referenceId == Guid.Empty)
 			{
 				return false;
@@ -1234,6 +1343,156 @@
 			catch (Exception ex)
 			{
 				_logger.LogWarning(ex, "Could not delete {Kind} {Id}", kind, id);
+			}
+		}
+
+		/// <summary>
+		/// Runs a step that must follow the service save. Returns an error message when it fails, otherwise <see langword="null"/>.
+		/// </summary>
+		private string RunAfterSave(Service service, string description, Action action)
+		{
+			try
+			{
+				action();
+				return null;
+			}
+			catch (Exception ex)
+			{
+				_logger.LogError(ex, "Saving the {Description} of service {ServiceId} failed: {Message}", description, service.ServiceID, ex.Message);
+				return $"Service '{service.ServiceID}' was saved, but its {description} could not be saved.";
+			}
+		}
+
+		/// <summary>
+		/// Reads a lookup table. Returns an empty table, with a warning, when it cannot be read.
+		/// </summary>
+		private IReadOnlyDictionary<TKey, TValue> ReadOrEmpty<TKey, TValue>(string description, Func<IReadOnlyDictionary<TKey, TValue>> read)
+		{
+			try
+			{
+				return read() ?? new Dictionary<TKey, TValue>();
+			}
+			catch (Exception ex)
+			{
+				_logger.LogWarning(ex, "Reading {Description} failed: {Message}", description, ex.Message);
+				return new Dictionary<TKey, TValue>();
+			}
+		}
+
+		/// <summary>
+		/// Projects requested service fields and adds catalog and organization metadata only when needed.
+		/// </summary>
+		private List<JObject> ToServiceResponses(IEnumerable<Service> services, IReadOnlyCollection<string> requestedFields)
+		{
+			var list = services.ToList();
+			if (list.Count == 0)
+			{
+				return new List<JObject>();
+			}
+
+			var requestedFieldSet = new HashSet<string>(requestedFields, StringComparer.OrdinalIgnoreCase);
+			bool isProjection = requestedFieldSet.Count > 0;
+			bool includeCategoryMetadata = !isProjection
+				|| requestedFieldSet.Contains("CategoryName")
+				|| requestedFieldSet.Contains("CategoryType");
+			bool includeSpecificationMetadata = !isProjection || requestedFieldSet.Contains("ServiceSpecificationName");
+			bool includeOrganizationMetadata = !isProjection
+				|| requestedFieldSet.Contains("OrganizationId")
+				|| requestedFieldSet.Contains("OrganizationName");
+			var projectionSerializer = isProjection ? JsonSerializer.CreateDefault() : null;
+
+			var categories = includeCategoryMetadata
+				? ReadOrEmpty("service categories", () => serviceManagementApiHelper.ServiceCatalog.ServiceCategories
+					.Read(new TRUEFilterElement<ServiceCategory>())
+					.GroupBy(c => c.Identifier, StringComparer.OrdinalIgnoreCase)
+					.ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase))
+				: new Dictionary<string, ServiceCategory>(StringComparer.OrdinalIgnoreCase);
+			var specifications = includeSpecificationMetadata
+				? ReadOrEmpty("service specifications", () => serviceManagementApiHelper.ServiceCatalog.ServiceSpecifications
+					.Read(new TRUEFilterElement<ServiceSpecification>())
+					.GroupBy(s => s.Identifier, StringComparer.OrdinalIgnoreCase)
+					.ToDictionary(g => g.Key, g => g.First().Name, StringComparer.OrdinalIgnoreCase))
+				: new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+			var serviceOrganizations = includeOrganizationMetadata
+				? ReadOrEmpty("service organizations", () => organizations.ReadServiceOrganizationIds(
+					list.Select(s => Guid.TryParse(s.Identifier, out var id) ? id : Guid.Empty)))
+				: new Dictionary<Guid, Guid>();
+			var organizationNames = includeOrganizationMetadata && serviceOrganizations.Count > 0
+				? ReadOrEmpty("organizations", organizations.ReadOrganizationNames)
+				: new Dictionary<Guid, string>();
+
+			return list.Select(service =>
+			{
+				string categoryId = includeCategoryMetadata ? service.CategoryId.Identifier : null;
+				string specificationId = includeSpecificationMetadata ? service.ServiceSpecificationId.Identifier : null;
+				var category = categoryId != null && categories.TryGetValue(categoryId, out var c) ? c : null;
+				Guid? organizationId = includeOrganizationMetadata
+					&& Guid.TryParse(service.Identifier, out var serviceGuid)
+					&& serviceOrganizations.TryGetValue(serviceGuid, out var o)
+					? o
+					: (Guid?)null;
+
+				var result = isProjection
+					? ProjectServiceFields(service, requestedFields, projectionSerializer)
+					: JObject.FromObject(service);
+
+				if (!isProjection || requestedFieldSet.Contains("StatusName"))
+				{
+					result["StatusName"] = ToApiStatus(service.Status.ToString());
+				}
+				if (!isProjection || requestedFieldSet.Contains("CategoryName"))
+				{
+					result["CategoryName"] = category?.Name;
+				}
+				if (!isProjection || requestedFieldSet.Contains("CategoryType"))
+				{
+					result["CategoryType"] = category?.Type;
+				}
+				if (!isProjection || requestedFieldSet.Contains("ServiceSpecificationName"))
+				{
+					result["ServiceSpecificationName"] = specificationId != null && specifications.TryGetValue(specificationId, out var specificationName) ? specificationName : null;
+				}
+				if (!isProjection || requestedFieldSet.Contains("OrganizationId"))
+				{
+					result["OrganizationId"] = organizationId;
+				}
+				if (!isProjection || requestedFieldSet.Contains("OrganizationName"))
+				{
+					result["OrganizationName"] = organizationId.HasValue && organizationNames.TryGetValue(organizationId.Value, out var organizationName) ? organizationName : null;
+				}
+				return result;
+			}).ToList();
+		}
+
+		private static JObject ProjectServiceFields(Service service, IReadOnlyCollection<string> requestedFields, JsonSerializer serializer)
+		{
+			var result = new JObject();
+			foreach (string field in requestedFields)
+			{
+				if (!ServiceFieldSelectors.TryGetValue(field, out var selector))
+				{
+					continue;
+				}
+
+				var value = selector.GetValue(service);
+				result[selector.Name] = value == null ? JValue.CreateNull() : JToken.FromObject(value, serializer);
+			}
+
+			return result;
+		}
+
+		private static List<string> ParseRequestedFields(string fields)
+		{
+			return SplitCommaSeparatedValues(fields)
+				.Distinct(StringComparer.OrdinalIgnoreCase)
+				.ToList();
+		}
+
+		private void ValidateOrganization(Guid? organizationId)
+		{
+			if (organizationId.HasValue && !organizations.ReadOrganizationNames().ContainsKey(organizationId.Value))
+			{
+				throw new InvalidQueryException($"Organization '{organizationId}' does not exist.");
 			}
 		}
 	}

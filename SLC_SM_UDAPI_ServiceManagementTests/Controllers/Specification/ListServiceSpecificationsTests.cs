@@ -48,13 +48,13 @@
 			Add("B");
 			var result = controller.ListServiceSpecifications();
 			Assert.AreEqual(200, StatusCode(result));
-			Assert.AreEqual(2, Value<List<ServiceSpecification>>(result).Count);
+			Assert.AreEqual(2, Value<List<JObject>>(result).Count);
 		}
 
 		[TestMethod]
 		public void List_Empty_ReturnsEmptyList()
 		{
-			Assert.AreEqual(0, Value<List<ServiceSpecification>>(controller.ListServiceSpecifications()).Count);
+			Assert.AreEqual(0, Value<List<JObject>>(controller.ListServiceSpecifications()).Count);
 		}
 
 		[TestMethod]
@@ -161,7 +161,7 @@
 
 		private static string[] Names(IApiResult result)
 		{
-			return Value<List<ServiceSpecification>>(result).Select(s => s.Name).ToArray();
+			return Value<List<JObject>>(result).Select(s => s.Value<string>("Name")).ToArray();
 		}
 
 		private static int StatusCode(IApiResult result)

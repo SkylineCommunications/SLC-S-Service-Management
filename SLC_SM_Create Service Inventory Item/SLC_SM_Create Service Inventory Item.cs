@@ -247,29 +247,37 @@ namespace SLC_SM_Create_Service_Inventory_Item
 				instance.ServiceConfigurationId = null;
 			}
 
-			if (instance.ServiceSpecificationId != null && !String.IsNullOrWhiteSpace(instance.ServiceSpecificationId.Identifier))
-			{
-				var spec = sdmHelper.ServiceCatalog.ServiceSpecifications
-					.Read(SdmModels.ServiceSpecificationExposers.Identifier.Equal(instance.ServiceSpecificationId.Identifier))
-					.FirstOrDefault();
-
-				if (spec != null)
+			// Implementation references (bookings, jobs, linked services) belong to the source service and are not copied.
+			var duplicatedItems = (source.ServiceItems ?? new List<SdmModels.ServiceItem>())
+				.Where(item => item != null)
+				.Select(item => new SdmModels.ServiceItem
 				{
-					instance.ServiceItems = spec.ServiceItems != null
-						? spec.ServiceItems.ToList()
-						: new List<SdmModels.ServiceItem>();
-					instance.ServiceItemsRelationships = spec.ServiceItemsRelationships != null
-						? spec.ServiceItemsRelationships.ToList()
-						: new List<SdmModels.ServiceItemRelationship>();
-				}
-			}
+					ServiceItemID = item.ServiceItemID,
+					Label = item.Label,
+					Script = item.Script,
+					DefinitionReference = item.DefinitionReference,
+					ImplementationReference = String.Empty,
+					Type = item.Type,
+					Icon = item.Icon,
+				})
+				.ToList();
+			instance.ServiceItemsRelationships = (source.ServiceItemsRelationships ?? new List<SdmModels.ServiceItemRelationship>())
+				.Where(relationship => relationship != null)
+				.Select(relationship => new SdmModels.ServiceItemRelationship
+				{
+					Id = relationship.Id,
+					ParentServiceItem = relationship.ParentServiceItem,
+					ChildServiceItem = relationship.ChildServiceItem,
+				})
+				.ToList();
 
-			instance.ServiceItems = SanitizeServiceItemsForCreate(instance.ServiceItems);
+			instance.ServiceItems = SanitizeServiceItemsForCreate(duplicatedItems);
 			sdmHelper.ServiceInventory.Services.Create(instance);
 
-			if ((bool)instance.GenerateMonitoringService)
+			if (duplicatedItems.Any(item => item.Type != null))
 			{
-				TryCreateDmsService(instance.Name, instance.Icon);
+				instance.ServiceItems = duplicatedItems;
+				sdmHelper.ServiceInventory.Services.Update(instance);
 			}
 		}
 
@@ -891,7 +899,8 @@ namespace SLC_SM_Create_Service_Inventory_Item
 		private Guid CreateServiceItemFromOrderItem(IServiceManagementApiHelper sdmHelper, SdmModels.ServiceOrderItem serviceOrderItem)
 		{
 			var newServiceId = Guid.NewGuid();
-			var serviceIds = sdmHelper.ServiceInventory.Services.Read(new TRUEFilterElement<SdmModels.Service>()).Select(x => x.ServiceID).Where(x => !String.IsNullOrWhiteSpace(x)).ToList();
+			var existingServices = sdmHelper.ServiceInventory.Services.Read(new TRUEFilterElement<SdmModels.Service>()).ToList();
+			var serviceIds = existingServices.Select(x => x.ServiceID).Where(x => !String.IsNullOrWhiteSpace(x)).ToList();
 			var maxValue = serviceIds
 				.Select(x =>
 				{
@@ -920,7 +929,7 @@ namespace SLC_SM_Create_Service_Inventory_Item
 			{
 				Identifier = newServiceId.ToString(),
 				ServiceID = $"SERVICE-{maxValue + 1:00000}",
-				Name = serviceOrderItem.Name,
+				Name = GenerateUniqueServiceName(serviceOrderItem.Name, existingServices.Select(service => service.Name)),
 				Description = serviceOrderItem.Name,
 				StartTime = serviceOrderItem.StartTime,
 				EndTime = serviceOrderItem.EndTime,
@@ -1217,6 +1226,28 @@ namespace SLC_SM_Create_Service_Inventory_Item
 				.DefaultIfEmpty()
 				.Max();
 			return $"SERVICE-{highest + 1:00000}";
+		}
+
+		private static string GenerateUniqueServiceName(string requestedName, IEnumerable<string> existingServiceNames)
+		{
+			string baseName = String.IsNullOrWhiteSpace(requestedName) ? "Service" : requestedName.Trim();
+			var names = new HashSet<string>(
+				(existingServiceNames ?? Enumerable.Empty<string>()).Where(name => !String.IsNullOrWhiteSpace(name)),
+				StringComparer.OrdinalIgnoreCase);
+
+			if (!names.Contains(baseName))
+			{
+				return baseName;
+			}
+
+			for (long suffix = 2; ; suffix++)
+			{
+				string candidate = $"{baseName} ({suffix})";
+				if (!names.Contains(candidate))
+				{
+					return candidate;
+				}
+			}
 		}
 
 		private void AddServiceItemForOrder(Guid domId, IServiceManagementApiHelper sdmHelper)

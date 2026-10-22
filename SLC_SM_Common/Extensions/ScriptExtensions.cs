@@ -62,7 +62,42 @@
 				return;
 			}
 
-			engine.ExitFail("Runtime operation failed.");
+			engine.ExitFail(GetErrorMessage(exception));
+		}
+
+		public static string GetErrorMessage(Exception exception)
+		{
+			var messages = new List<string>();
+			var pending = new Queue<Exception>();
+			pending.Enqueue(exception);
+
+			while (pending.Count > 0 && messages.Count < 5)
+			{
+				var current = pending.Dequeue();
+				if (current == null)
+				{
+					continue;
+				}
+
+				if (current is AggregateException aggregate)
+				{
+					foreach (var inner in aggregate.InnerExceptions)
+					{
+						pending.Enqueue(inner);
+					}
+
+					continue;
+				}
+
+				if (!String.IsNullOrWhiteSpace(current.Message) && !messages.Contains(current.Message))
+				{
+					messages.Add(current.Message);
+				}
+
+				pending.Enqueue(current.InnerException);
+			}
+
+			return messages.Count == 0 ? "Runtime operation failed." : String.Join(" ", messages);
 		}
 
 		public static T ReadScriptParamFromApp<T>(this IEngine engine, string name)

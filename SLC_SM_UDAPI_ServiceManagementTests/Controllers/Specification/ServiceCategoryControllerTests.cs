@@ -8,7 +8,6 @@
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 	using Skyline.DataMiner.SDM;
 	using SLC_SM_UDAPI_ServiceManagement.Controllers;
-	using SLC_SM_UDAPI_ServiceManagement.Models;
 	using SLC_SM_UDAPI_ServiceManagement.Models.Inventory;
 
 	[TestClass]

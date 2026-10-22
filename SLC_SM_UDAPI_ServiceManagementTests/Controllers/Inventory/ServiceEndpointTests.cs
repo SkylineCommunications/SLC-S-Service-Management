@@ -3,9 +3,8 @@
 	using System.Collections.Generic;
 	using Moq;
 	using Newtonsoft.Json.Linq;
-	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
-	using SLC_SM_UDAPI_ServiceManagement.Models;
+	using Skyline.DataMiner.SDM;
 	using SLC_SM_UDAPI_ServiceManagement.Models.Inventory;
 
 	using ServiceStatus = DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Service_Behavior.StatusesEnum;
@@ -31,6 +30,24 @@
 			var value = Value<JObject>(Controller.GetService(service.ServiceID, "name"));
 			Assert.AreEqual(1, value.Count);
 			Assert.AreEqual("Svc", (string)value["Name"]);
+		}
+
+		[TestMethod]
+		public void GetService_WithOrganizationFields_ReadsOrganizationForSelectedService()
+		{
+			var service = AddService("Svc");
+			var serviceIdentifier = Guid.Parse(service.Identifier);
+			var organizationId = Guid.NewGuid();
+			OrganizationNames[organizationId] = "Skyline";
+			ServiceOrganizations[serviceIdentifier] = organizationId;
+
+			var value = Value<JObject>(Controller.GetService(service.ServiceID, "OrganizationId,OrganizationName"));
+
+			Assert.AreEqual(2, value.Count);
+			Assert.AreEqual(organizationId, (Guid)value["OrganizationId"]);
+			Assert.AreEqual("Skyline", (string)value["OrganizationName"]);
+			Organizations.Verify(o => o.ReadServiceOrganizationIds(It.Is<IEnumerable<Guid>>(ids => ids.SequenceEqual(new[] { serviceIdentifier }))), Times.Once);
+			Organizations.Verify(o => o.ReadOrganizationNames(), Times.Once);
 		}
 
 		[DataTestMethod]
@@ -317,6 +334,238 @@
 			var result = Controller.TransitionService(service.ServiceID, new TransitionServiceRequest { TargetStatus = "designed" });
 			Assert.AreEqual(409, StatusCode(result));
 			Assert.AreEqual("busy", ErrorDetail(result));
+		}
+
+		// ---- POST /service: script parity ----
+		[TestMethod]
+		public void CreateService_CustomServiceId_UsesIt()
+		{
+			AddService("Existing", number: 7);
+			Assert.AreEqual(201, StatusCode(Controller.CreateService(new CreateServiceRequest { Name = "New", ServiceId = " SERVICE-00100 " })));
+			Assert.AreEqual("SERVICE-00100", StoredServices.Single(s => s.Name == "New").ServiceID);
+		}
+
+		[TestMethod]
+		public void CreateService_InvalidServiceId_Returns400()
+		{
+			var result = Controller.CreateService(new CreateServiceRequest { Name = "New", ServiceId = "SVC-1" });
+			Assert.AreEqual(400, StatusCode(result));
+			StringAssert.Contains(ErrorDetail(result), "'serviceId'");
+		}
+
+		[TestMethod]
+		public void CreateService_ServiceIdInUse_Returns409()
+		{
+			var existing = AddService("Existing", number: 3);
+			Assert.AreEqual(409, StatusCode(Controller.CreateService(new CreateServiceRequest { Name = "New", ServiceId = existing.ServiceID })));
+			Services.Verify(r => r.Create(It.IsAny<Service>()), Times.Never);
+		}
+
+		[TestMethod]
+		public void CreateService_GenerateMonitoringService_CreatesDataMinerService()
+		{
+			StoredCategories.Add(new ServiceCategory { Identifier = Guid.NewGuid().ToString(), Name = "Video", Icon = "video.svg" });
+			var request = new CreateServiceRequest
+			{
+				Name = "New",
+				GenerateMonitoringService = true,
+				MonitoringService = " Linked ",
+				Category = new ServiceRequestCategory { Name = "Video" },
+			};
+
+			Assert.AreEqual(201, StatusCode(Controller.CreateService(request)));
+
+			var created = StoredServices.Single(s => s.Name == "New");
+			Assert.AreEqual(true, created.GenerateMonitoringService);
+			Assert.AreEqual("Linked", created.MonitoringService);
+			MonitoringServices.Verify(m => m.Create("New", "video.svg"), Times.Once);
+		}
+
+		[TestMethod]
+		public void CreateService_DataMinerServiceExists_Returns409AndWritesNothing()
+		{
+			MonitoringServices.Setup(m => m.Exists("New")).Returns(true);
+			Assert.AreEqual(409, StatusCode(Controller.CreateService(new CreateServiceRequest { Name = "New", GenerateMonitoringService = true })));
+			Services.Verify(r => r.Create(It.IsAny<Service>()), Times.Never);
+			MonitoringServices.Verify(m => m.Create(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+		}
+
+		[TestMethod]
+		public void CreateService_DataMinerServiceFails_Returns500AndKeepsService()
+		{
+			MonitoringServices.Setup(m => m.Create(It.IsAny<string>(), It.IsAny<string>())).Throws(new TimeoutException("dms details"));
+
+			var result = Controller.CreateService(new CreateServiceRequest { Name = "New", GenerateMonitoringService = true });
+
+			Assert.AreEqual(500, StatusCode(result));
+			StringAssert.Contains(ErrorDetail(result), "DataMiner monitoring service");
+			Assert.IsFalse(ErrorDetail(result).Contains("dms details"));
+			Assert.AreEqual(1, StoredServices.Count(s => s.Name == "New"));
+		}
+
+		[TestMethod]
+		public void CreateService_UnknownOrganization_Returns400()
+		{
+			Assert.AreEqual(400, StatusCode(Controller.CreateService(new CreateServiceRequest { Name = "New", OrganizationId = Guid.NewGuid() })));
+			Services.Verify(r => r.Create(It.IsAny<Service>()), Times.Never);
+		}
+
+		[TestMethod]
+		public void CreateService_Organization_SavesOrganization()
+		{
+			var organizationId = Guid.NewGuid();
+			OrganizationNames[organizationId] = "Skyline";
+
+			Assert.AreEqual(201, StatusCode(Controller.CreateService(new CreateServiceRequest { Name = "New", OrganizationId = organizationId })));
+
+			var created = StoredServices.Single(s => s.Name == "New");
+			Organizations.Verify(o => o.SetOrganization(Guid.Parse(created.Identifier), organizationId), Times.Once);
+		}
+
+		[TestMethod]
+		public void CreateService_FromSpecification_CopiesDescriptionAndClearsItemType()
+		{
+			var specification = new ServiceSpecification
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				Name = "Spec",
+				Description = "From spec",
+				ServiceItems = new List<ServiceItem>
+				{
+					new ServiceItem { ServiceItemID = 1, Label = "Item", Type = Enum.GetValues(typeof(DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Enums.ServiceItemTypesEnum)).Cast<DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Enums.ServiceItemTypesEnum>().First() },
+				},
+				ServiceItemsRelationships = new List<ServiceItemRelationship>(),
+			};
+			StoredSpecifications.Add(specification);
+
+			var request = new CreateServiceRequest { Name = "New", ServiceSpecificationId = Guid.Parse(specification.Identifier) };
+			Assert.AreEqual(201, StatusCode(Controller.CreateService(request)));
+
+			var created = StoredServices.Single(s => s.Name == "New");
+			Assert.AreEqual("From spec", created.Description);
+			Assert.AreEqual("Item", created.ServiceItems.Single().Label);
+			Assert.IsNull(created.ServiceItems.Single().Type);
+		}
+
+		// ---- PATCH /service/{id}: script parity ----
+		[TestMethod]
+		public void UpdateService_MonitoringServiceAndOrganization_AreSaved()
+		{
+			var service = AddService();
+			var organizationId = Guid.NewGuid();
+			OrganizationNames[organizationId] = "Skyline";
+
+			var patch = new JObject { ["monitoringService"] = " Linked ", ["organizationId"] = organizationId.ToString() };
+			Assert.AreEqual(200, StatusCode(Controller.UpdateService(service.ServiceID, patch)));
+
+			Assert.AreEqual("Linked", service.MonitoringService);
+			Organizations.Verify(o => o.SetOrganization(Guid.Parse(service.Identifier), organizationId), Times.Once);
+		}
+
+		[TestMethod]
+		public void UpdateService_NullOrganization_ClearsOrganization()
+		{
+			var service = AddService();
+			Assert.AreEqual(200, StatusCode(Controller.UpdateService(service.ServiceID, new JObject { ["organizationId"] = null })));
+			Organizations.Verify(o => o.SetOrganization(Guid.Parse(service.Identifier), null), Times.Once);
+		}
+
+		[TestMethod]
+		public void UpdateService_UnknownOrganization_Returns400AndWritesNothing()
+		{
+			var service = AddService();
+			Assert.AreEqual(400, StatusCode(Controller.UpdateService(service.ServiceID, new JObject { ["organizationId"] = Guid.NewGuid().ToString() })));
+			Services.Verify(r => r.Update(It.IsAny<Service>()), Times.Never);
+			Organizations.Verify(o => o.SetOrganization(It.IsAny<Guid>(), It.IsAny<Guid?>()), Times.Never);
+		}
+
+		[TestMethod]
+		public void UpdateService_CategoryWithoutIcon_UsesCategoryIcon()
+		{
+			var service = AddService();
+			service.Icon = "old.svg";
+			StoredCategories.Add(new ServiceCategory { Identifier = Guid.NewGuid().ToString(), Name = "Video", Icon = "video.svg" });
+
+			Assert.AreEqual(200, StatusCode(Controller.UpdateService(service.ServiceID, new JObject { ["category"] = new JObject { ["name"] = "Video" } })));
+			Assert.AreEqual("video.svg", service.Icon);
+
+			Assert.AreEqual(200, StatusCode(Controller.UpdateService(service.ServiceID, new JObject { ["category"] = null })));
+			Assert.AreEqual(String.Empty, service.Icon);
+		}
+
+		// ---- GET /service ----
+		[TestMethod]
+		public void ListServices_AddsStatusCatalogAndOrganizationNames()
+		{
+			var category = new ServiceCategory { Identifier = Guid.NewGuid().ToString(), Name = "Video", Type = "Broadcast" };
+			var specification = new ServiceSpecification { Identifier = Guid.NewGuid().ToString(), Name = "Spec" };
+			StoredCategories.Add(category);
+			StoredSpecifications.Add(specification);
+
+			var service = AddService("Svc", ServiceStatus.Active);
+			service.CategoryId = new SdmObjectReference<ServiceCategory>(category.Identifier);
+			service.ServiceSpecificationId = new SdmObjectReference<ServiceSpecification>(specification.Identifier);
+			var organizationId = Guid.NewGuid();
+			OrganizationNames[organizationId] = "Skyline";
+			ServiceOrganizations[Guid.Parse(service.Identifier)] = organizationId;
+
+			var item = Value<List<JObject>>(Controller.ListServices()).Single();
+
+			Assert.AreEqual(service.ServiceID, (string)item["ServiceID"]);
+			Assert.AreEqual("active", (string)item["StatusName"]);
+			Assert.AreEqual("Video", (string)item["CategoryName"]);
+			Assert.AreEqual("Broadcast", (string)item["CategoryType"]);
+			Assert.AreEqual("Spec", (string)item["ServiceSpecificationName"]);
+			Assert.AreEqual(organizationId, (Guid)item["OrganizationId"]);
+			Assert.AreEqual("Skyline", (string)item["OrganizationName"]);
+		}
+
+		[TestMethod]
+		public void ListServices_OrganizationLookupFails_StillReturnsServices()
+		{
+			AddService("Svc");
+			Organizations.Setup(o => o.ReadServiceOrganizationIds(It.IsAny<IEnumerable<Guid>>())).Throws(new InvalidOperationException());
+
+			var item = Value<List<JObject>>(Controller.ListServices()).Single();
+
+			Assert.AreEqual("Svc", (string)item["Name"]);
+			Assert.AreEqual(JTokenType.Null, item["OrganizationId"].Type);
+		}
+
+		[TestMethod]
+		public void ListServices_WithFields_ReturnsOnlyRequestedFields()
+		{
+			AddService("Svc");
+			var item = Value<List<object>>(Controller.ListServices(fields: "name,statusName")).Cast<JObject>().Single();
+			Assert.AreEqual(2, item.Count);
+			Assert.AreEqual("new", (string)item["StatusName"]);
+		}
+
+		[TestMethod]
+		public void ListServices_WithSummaryFields_SkipsOrganizationLookupsAndHeavyProperties()
+		{
+			var category = new ServiceCategory { Identifier = Guid.NewGuid().ToString(), Name = "Video", Type = "Broadcast" };
+			var specification = new ServiceSpecification { Identifier = Guid.NewGuid().ToString(), Name = "Spec" };
+			StoredCategories.Add(category);
+			StoredSpecifications.Add(specification);
+			var service = AddService("Svc", ServiceStatus.Active);
+			service.CategoryId = new SdmObjectReference<ServiceCategory>(category.Identifier);
+			service.ServiceSpecificationId = new SdmObjectReference<ServiceSpecification>(specification.Identifier);
+
+			const string fields = "Identifier,ServiceID,Name,StatusName,CategoryName,CategoryType,ServiceSpecificationId,ServiceSpecificationName";
+			var item = Value<List<object>>(Controller.ListServices(fields: fields)).Cast<JObject>().Single();
+
+			Assert.AreEqual(fields.Split(',').Length, item.Count);
+			Assert.AreEqual("Svc", (string)item["Name"]);
+			Assert.AreEqual("active", (string)item["StatusName"]);
+			Assert.AreEqual("Video", (string)item["CategoryName"]);
+			Assert.AreEqual("Broadcast", (string)item["CategoryType"]);
+			Assert.AreEqual("Spec", (string)item["ServiceSpecificationName"]);
+			Assert.IsFalse(item.ContainsKey("ServiceItems"));
+			Assert.IsFalse(item.ContainsKey("ConfigurationVersions"));
+			Assert.IsFalse(item.ContainsKey("ServiceScripts"));
+			Organizations.Verify(o => o.ReadServiceOrganizationIds(It.IsAny<IEnumerable<Guid>>()), Times.Never);
+			Organizations.Verify(o => o.ReadOrganizationNames(), Times.Never);
 		}
 	}
 }

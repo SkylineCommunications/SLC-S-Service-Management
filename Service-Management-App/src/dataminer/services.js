@@ -1,36 +1,47 @@
-import { adHocDataSourceQuery, runQuery } from './gqi.js';
-import { formatDataMinerDateTime } from './dateTime.js';
+import { formatDataMinerDateTime, getDataMinerTimestamp } from './dateTime.js';
+import {
+    addInventoryServiceItem,
+    addServiceScript,
+    createInventoryService,
+    deleteInventoryService,
+    deleteInventoryServiceItem,
+    deleteServiceScript,
+    duplicateInventoryService,
+    fetchMonitoringServiceList,
+    fetchServiceRecord,
+    fetchServiceConfigurationList,
+    fetchServiceItemList,
+    fetchServiceList,
+    fetchServiceScriptList,
+    saveServiceConfiguration,
+    transitionInventoryService,
+    updateInventoryService,
+    updateInventoryServiceItem,
+    updateServiceScript,
+} from './udapi.js';
 
-const SERVICES_SOURCE = {
-    scriptName: 'SLC_SM_GQIDS_Get Services',
-    libraryName: 'GetServices',
-    typeFullName: 'SLC_SM_GQIDS_Get_Services.GetServices',
-    typeName: 'GetServices',
+export {
+    addInventoryServiceItem,
+    addServiceScript,
+    createInventoryService,
+    deleteInventoryService,
+    deleteInventoryServiceItem,
+    deleteServiceScript,
+    duplicateInventoryService,
+    saveServiceConfiguration,
+    transitionInventoryService,
+    updateInventoryService,
+    updateInventoryServiceItem,
+    updateServiceScript,
 };
-const MONITORING_SERVICES_SOURCE = {
-    scriptName: 'SLC_SM_GQIDS_Get Monitoring Services',
-    libraryName: 'GetMonitoringServices',
-    typeFullName: 'SLC_SM_GQIDS_Get_Monitoring_Services.GetMonitoringServices',
-    typeName: 'GetMonitoringServices',
-};
-const SERVICE_ITEMS_SOURCE = {
-    scriptName: 'SLC_SM_GQIDS_Get Service Items',
-    libraryName: 'GetServiceItems',
-    typeFullName: 'SLC_SM_GQIDS_Get_Service_Items.EventManagerGetMultipleSections',
-    typeName: 'EventManagerGetMultipleSections',
-};
-const SERVICE_SCRIPTS_SOURCE = {
-    scriptName: 'SLC_SM_GQIDS_Get Service Scripts',
-    libraryName: 'Get Service Scripts',
-    typeFullName: 'SLCSMGQIDSGetServiceScripts.GetServiceScripts',
-    typeName: 'GetServiceScripts',
-};
-const SERVICE_CONFIGURATIONS_SOURCE = {
-    scriptName: 'SLC_SM_GQIDS_Get Service Configurations',
-    libraryName: 'GetServiceConfigurations',
-    typeFullName: 'SLC_SM_GQIDS_Get_Service_Configurations.GetServiceConfigurations',
-    typeName: 'GetServiceConfigurations',
-};
+
+export function isUdapiService(service) {
+    return Boolean(String(service?.serviceId ?? service?.id ?? '').trim());
+}
+
+export function serviceApiId(service) {
+    return String(service?.serviceId ?? service?.id ?? '').trim();
+}
 
 export const SERVICE_STATUSES = ['New', 'Designed', 'Reserved', 'Active', 'Terminated', 'Retired'];
 export const SERVICE_TRANSITIONS = {
@@ -41,51 +52,6 @@ export const SERVICE_TRANSITIONS = {
     active: [{ label: 'Terminate', next: 'Terminated' }],
 };
 export const SERVICE_INVENTORY_SCRIPTS = {
-    create: {
-        name: 'SLC_SM_Create Service Inventory Item',
-        interactive: false,
-        parameterDefinitions: [{ id: 1, name: 'DOM ID' }, { id: 2, name: 'Action' }, { id: 20, name: 'Payload' }],
-    },
-    edit: {
-        name: 'SLC_SM_Create Service Inventory Item',
-        interactive: false,
-        parameterDefinitions: [{ id: 1, name: 'DOM ID' }, { id: 2, name: 'Action' }, { id: 20, name: 'Payload' }],
-    },
-    duplicate: {
-        name: 'SLC_SM_Create Service Inventory Item',
-        interactive: false,
-        parameterDefinitions: [{ id: 1, name: 'DOM ID' }, { id: 2, name: 'Action' }, { id: 20, name: 'Payload' }],
-    },
-    initializeFromOrderItem: {
-        name: 'SLC_SM_Create Service Inventory Item',
-        interactive: false,
-        parameterDefinitions: [{ id: 1, name: 'DOM ID' }, { id: 2, name: 'Action' }, { id: 20, name: 'Payload' }],
-    },
-    addItem: {
-        name: 'SLC_SM_IAS_Add Service Item',
-        interactive: false,
-        parameterDefinitions: [{ id: 10, name: 'DOM ID' }, { id: 11, name: 'Service Item Label' }, { id: 12, name: 'Action' }, { id: 20, name: 'Payload' }],
-    },
-    editItem: {
-        name: 'SLC_SM_IAS_Add Service Item',
-        interactive: false,
-        parameterDefinitions: [{ id: 10, name: 'DOM ID' }, { id: 11, name: 'Service Item Label' }, { id: 12, name: 'Action' }, { id: 20, name: 'Payload' }],
-    },
-    delete: {
-        name: 'SLC_SM_Delete_Service',
-        interactive: false,
-        parameterDefinitions: [{ id: 10, name: 'DOM ID' }, { id: 99, name: 'Skip Confirmation' }],
-    },
-    deleteItem: {
-        name: 'SLC_SM_Delete Service Item',
-        interactive: false,
-        parameterDefinitions: [{ id: 1, name: 'Service Item Label' }, { id: 10, name: 'DOM ID' }, { id: 99, name: 'Skip Confirmation' }],
-    },
-    transition: {
-        name: 'Service_StateTransitions',
-        interactive: false,
-        parameterDefinitions: [{ id: 2, name: 'ServiceReference' }, { id: 3, name: 'PreviousState' }, { id: 4, name: 'NextState' }],
-    },
     // Runs the service item's own (interactive) script, e.g. a Booking Manager wizard, and stores the resulting reference.
     launchItemScript: {
         name: 'Launch Interactive Subscript',
@@ -93,88 +59,159 @@ export const SERVICE_INVENTORY_SCRIPTS = {
         parameterDefinitions: [{ id: 3, name: 'DOM ID' }, { id: 4, name: 'Item Label' }],
     },
 };
-export const SERVICE_CONFIGURATION_SCRIPTS = {
-    save: {
-        name: 'SLC_SM_IAS_Service_Configuration',
-        interactive: false,
-        parameterDefinitions: [{ id: 10, name: 'DOM ID' }, { id: 20, name: 'Payload' }],
-    },
-};
-export const SERVICE_SCRIPT_SCRIPTS = {
-    manage: {
-        name: 'SLC_SM_IAS_Manage Service Scripts',
-        interactive: false,
-        parameterDefinitions: [
-            { id: 2, name: 'Action' },
-            { id: 3, name: 'Service Id' },
-            { id: 4, name: 'Script Name' },
-            { id: 5, name: 'Script Description' },
-            { id: 6, name: 'Original Script Description' },
-            { id: 20, name: 'Payload' },
-        ],
-    },
-};
 const ACTIVE_STATUSES = new Set(['active', 'reserved', 'designed']);
+const SERVICE_LIST_FIELDS = [
+    'Identifier',
+    'ServiceID',
+    'Name',
+    'StatusName',
+    'StartTime',
+    'EndTime',
+    'Icon',
+    'MonitoringService',
+    'CategoryId',
+    'CategoryName',
+    'CategoryType',
+    'ServiceSpecificationId',
+    'ServiceSpecificationName',
+].join(',');
 
 export function isActiveService(service) {
     return ACTIVE_STATUSES.has(service.status.trim().toLowerCase());
 }
 
-function time(value) {
-    return value && !/^No (Start|End) Time$/i.test(value) ? formatDataMinerDateTime(value) : '';
+function udapiTime(value) {
+    return getDataMinerTimestamp(value) > 0 ? formatDataMinerDateTime(value) : '';
 }
 
-export async function fetchServices(domId = '') {
-    const args = domId ? { 'DOM ID': domId } : {};
-    const rows = await runQuery(adHocDataSourceQuery(SERVICES_SOURCE, args));
-    return rows.map(row => ({
-        id: row['DOM ID'] ?? '',
-        serviceId: row['Service ID'] ?? '',
-        name: row['Service Name'] ?? '',
-        status: row['Service Status'] ?? '',
-        start: time(row['Service Start']),
-        end: time(row['Service End']),
-        category: row['Service Category'] ?? '',
-        categoryType: row['Service Category Type'] ?? '',
-        logo: row['Service Logo'] ?? '',
-        specification: row['Service Specification'] ?? '',
-        alarmLevel: row['Alarm Level'] ?? '',
-        organization: row['Service Organization'] ?? '',
-        linkedService: row['Monitoring Service'] ?? '',
-        relatedOrders: String(row['Related Service Orders'] ?? '').split(',').map(value => value.trim()).filter(Boolean),
-        relatedOrderCount: Number(row['Related Service Order Count'] ?? 0),
-    }));
+function mapUdapiService(service) {
+    const status = String(service.StatusName ?? '');
+    return {
+        id: service.Identifier ?? '',
+        serviceId: service.ServiceID ?? '',
+        name: service.Name ?? '',
+        status: status ? status[0].toUpperCase() + status.slice(1) : '',
+        start: udapiTime(service.StartTime),
+        end: udapiTime(service.EndTime),
+        category: service.CategoryName ?? '',
+        categoryType: service.CategoryType ?? '',
+        logo: service.Icon ?? '',
+        specification: service.ServiceSpecificationName ?? '',
+        specificationId: service.ServiceSpecificationId?.Identifier ?? service.ServiceSpecificationId ?? '',
+        organization: service.OrganizationName ?? '',
+        organizationId: service.OrganizationId ?? '',
+        linkedService: service.MonitoringService ?? '',
+    };
+}
+
+export async function fetchServices() {
+    return (await fetchServiceList(SERVICE_LIST_FIELDS)).map(mapUdapiService);
+}
+
+export async function fetchServiceDetails(serviceId) {
+    const service = await fetchServiceRecord(serviceId, 'OrganizationId,OrganizationName');
+    return service ? mapUdapiService(service) : null;
 }
 
 export async function fetchMonitoringServices() {
-    const rows = await runQuery(adHocDataSourceQuery(MONITORING_SERVICES_SOURCE));
-    return rows.map(row => ({ id: row['Monitoring Service ID'] ?? '', name: row['Monitoring Service Name'] ?? '' })).filter(service => service.name.trim());
+    const services = await fetchMonitoringServiceList();
+    return services
+        .map(service => ({ id: service.id ?? service.Id ?? '', name: service.name ?? service.Name ?? '' }))
+        .filter(service => service.name.trim());
 }
 
 export async function fetchServiceItems(serviceId) {
-    const rows = await runQuery(adHocDataSourceQuery(SERVICE_ITEMS_SOURCE, { 'DOM ID': serviceId }));
-    return rows.map(row => ({
-        id: row['Service Item ID'] ?? '',
-        label: row.Label ?? '',
-        type: row['Service Item Type'] ?? '',
-        definition: row['Definition Reference'] ?? '',
-        implementationReference: row['Implementation Reference'] ?? '',
-        script: row['Service Item Script'] ?? '',
-        implementation: row['Implementation Reference Name'] ?? '',
-        implementationState: row['Implementation State'] ?? '',
-        monitoringState: row['Monitoring Service State'] ?? '',
-    }));
+    return (await fetchServiceItemList(serviceId)).map(mapUdapiServiceItem);
+}
+
+// SDM ServiceItemTypesEnum (serialized as a number by the UDAPI) -> display value of the Get Service Items data source.
+const SERVICE_ITEM_TYPES = { 0: 'Workflow', 1: 'Service', 2: 'SRM Booking' };
+
+export function mapUdapiServiceItem(item) {
+    const pick = (...names) => names.map(name => item?.[name]).find(value => value !== undefined && value !== null);
+    const rawType = pick('Type', 'type');
+    const id = pick('ServiceItemID', 'serviceItemID');
+    return {
+        id: id === undefined ? '' : String(id),
+        label: String(pick('Label', 'label') ?? ''),
+        type: rawType === undefined ? 'Service' : SERVICE_ITEM_TYPES[rawType] ?? String(rawType),
+        definition: String(pick('DefinitionReference', 'definitionReference') ?? ''),
+        implementationReference: String(pick('ImplementationReference', 'implementationReference') ?? ''),
+        script: String(pick('Script', 'script') ?? ''),
+        implementation: String(pick('ImplementationName') ?? ''),
+        implementationState: String(pick('ImplementationState') ?? ''),
+        monitoringState: String(pick('MonitoringServiceState') ?? ''),
+    };
+}
+
+export async function fetchInventoryServiceItems(service) {
+    const id = serviceApiId(service);
+    return id ? fetchServiceItems(id) : [];
 }
 
 export async function fetchServiceScripts(serviceId) {
-    const rows = await runQuery(adHocDataSourceQuery(SERVICE_SCRIPTS_SOURCE, { 'Service Name': serviceId }));
-    return rows
-        .map(row => ({ name: row['Script Name'] ?? '', description: row.Description ?? '' }))
+    const scripts = await fetchServiceScriptList(serviceId);
+    return scripts
+        .map(script => ({ name: script.Name ?? script.name ?? '', description: script.Description ?? script.description ?? '' }))
         .filter(script => script.name.trim() || script.description.trim());
 }
 
-export async function fetchServiceConfigurations(serviceId, configurationType = 'Service') {
-    const rows = await runQuery(adHocDataSourceQuery(SERVICE_CONFIGURATIONS_SOURCE, { 'DOM ID': serviceId, 'Configuration Type': configurationType }));
+const CONFIGURATION_COLUMNS = {
+    versionId: 'Version ID',
+    versionName: 'Version Name',
+    versionDescription: 'Version Description',
+    versionStart: 'Version Start',
+    versionEnd: 'Version End',
+    isActive: 'Is Active',
+    recordType: 'Record Type',
+    configurationId: 'Configuration ID',
+    parameterId: 'Parameter ID',
+    parameterValueId: 'Parameter Value ID',
+    parameterName: 'Parameter Name',
+    parameterType: 'Parameter Type',
+    parameterValue: 'Parameter Value',
+    mandatory: 'Mandatory',
+    profileId: 'Profile ID',
+    profileName: 'Profile Name',
+    profileDefinitionId: 'Profile Definition ID',
+    profileDefinitionName: 'Profile Definition Name',
+    profileReusable: 'Profile Reusable',
+    profileMandatory: 'Profile Mandatory',
+    nestedProfileId: 'Nested Profile ID',
+    nestedProfileName: 'Nested Profile Name',
+    nestedProfileDefinitionId: 'Nested Profile Definition ID',
+    nestedProfileDefinitionName: 'Nested Profile Definition Name',
+    parameterLabel: 'Parameter Label',
+    parameterIsLinked: 'Parameter Is Linked',
+    parameterUnit: 'Parameter Unit',
+    parameterUnitId: 'Parameter Unit ID',
+    parameterStart: 'Parameter Start',
+    parameterEnd: 'Parameter End',
+    parameterStepSize: 'Parameter Step Size',
+    parameterDecimals: 'Parameter Decimals',
+    parameterOptions: 'Parameter Options',
+    parameterFixed: 'Parameter Fixed',
+    parameterNotApplicable: 'Parameter N/A',
+    exposeAtOrder: 'Expose At Order',
+    mandatoryAtOrder: 'Mandatory At Order',
+    mandatoryAtService: 'Mandatory At Service',
+};
+
+export function mapUdapiConfigurationRecord(record) {
+    const lowerCased = Object.fromEntries(Object.entries(record ?? {}).map(([key, value]) => [key.toLowerCase(), value]));
+    return Object.fromEntries(Object.entries(CONFIGURATION_COLUMNS).map(([key, column]) => [column, lowerCased[key.toLowerCase()] ?? '']));
+}
+
+export function mapUdapiConfigurationRecords(records) {
+    return mapServiceConfigurationRows((records ?? []).map(mapUdapiConfigurationRecord));
+}
+
+export async function fetchServiceConfigurations(serviceId) {
+    return mapUdapiConfigurationRecords(await fetchServiceConfigurationList(serviceId));
+}
+
+// Groups rows with the columns of the Get_ServiceConfigurations data source into versions, profiles and available items.
+export function mapServiceConfigurationRows(rows) {
     const versions = new Map();
     const availableParameters = [];
     const availableProfiles = [];
@@ -196,11 +233,13 @@ export async function fetchServiceConfigurations(serviceId, configurationType = 
     });
     const parseDiscreteOptions = (raw, parameterName) => {
         if (!raw) return [];
-        let parsed;
-        try {
-            parsed = JSON.parse(String(raw));
-        } catch (error) {
-            throw new Error(`Discrete options for configuration parameter "${parameterName || 'unknown'}" are invalid: ${error.message}`);
+        let parsed = raw;
+        if (!Array.isArray(raw)) {
+            try {
+                parsed = JSON.parse(String(raw));
+            } catch (error) {
+                throw new Error(`Discrete options for configuration parameter "${parameterName || 'unknown'}" are invalid: ${error.message}`);
+            }
         }
         if (!Array.isArray(parsed)) {
             throw new Error(`Discrete options for configuration parameter "${parameterName || 'unknown'}" are not an array.`);
@@ -209,11 +248,11 @@ export async function fetchServiceConfigurations(serviceId, configurationType = 
             if (!option || typeof option !== 'object') {
                 throw new Error(`Discrete option ${index + 1} for configuration parameter "${parameterName || 'unknown'}" is invalid.`);
             }
-            const value = String(option.Value ?? '').trim();
+            const value = String(option.Value ?? option.value ?? '').trim();
             if (!value) {
                 throw new Error(`Discrete option ${index + 1} for configuration parameter "${parameterName || 'unknown'}" has no value.`);
             }
-            return { id: String(option.Id ?? value), value };
+            return { id: String(option.Id ?? option.id ?? value), value };
         });
     };
     const addUnique = (items, item) => {

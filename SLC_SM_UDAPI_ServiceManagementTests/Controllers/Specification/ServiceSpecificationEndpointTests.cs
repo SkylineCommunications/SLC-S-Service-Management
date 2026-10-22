@@ -9,8 +9,10 @@
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 	using Skyline.DataMiner.SDM;
 	using SLC_SM_UDAPI_ServiceManagement.Controllers;
-	using SLC_SM_UDAPI_ServiceManagement.Models;
+	using SLC_SM_UDAPI_ServiceManagement.Models.Inventory;
 	using SLC_SM_UDAPI_ServiceManagement.Models.Specification;
+
+	using ParameterType = DomHelpers.SlcConfigurations.SlcConfigurationsIds.Enums.Type;
 
 	/// <summary>
 	/// Tests for GET {id}, POST, PATCH and DELETE of the service specification controller.
@@ -23,7 +25,9 @@
 		[TestInitialize]
 		public void Initialize()
 		{
-			controller = new ServiceSpecificationController(Mock.Of<ILogger<ServiceSpecificationController>>(), Helper.Object);
+			controller = new ServiceSpecificationController(
+				Mock.Of<ILogger<ServiceSpecificationController>>(),
+				Helper.Object);
 			AttachContext(controller);
 		}
 
@@ -34,7 +38,7 @@
 			var spec = AddSpec("A");
 			var result = controller.GetServiceSpecification(spec.Identifier);
 			Assert.AreEqual(200, StatusCode(result));
-			Assert.AreEqual("A", Value<ServiceSpecification>(result).Name);
+			Assert.AreEqual("A", Value<JObject>(result).Value<string>("Name"));
 		}
 
 		[TestMethod]
@@ -66,7 +70,11 @@
 			Assert.AreEqual(201, StatusCode(result));
 			Assert.AreEqual(1, Specifications.Count);
 			Assert.AreEqual("Feed", Specifications[0].Name);
-			Assert.AreEqual(0, Specifications[0].ServiceItems.Count);
+
+			// The DOM definition requires a Service Items section, so an empty placeholder item is stored.
+			Assert.AreEqual(1, Specifications[0].ServiceItems.Count);
+			Assert.IsNull(Specifications[0].ServiceItems[0].Label);
+			Assert.IsNull(Specifications[0].ServiceItems[0].ServiceItemID);
 		}
 
 		[TestMethod]
@@ -311,6 +319,58 @@
 			Assert.AreEqual(400, StatusCode(controller.UpdateServiceSpecification(spec.Identifier, null)));
 		}
 
+		// ---- Specification service items ----
+		[TestMethod]
+		public void AddServiceSpecificationItem_ReplacesPlaceholderAndAssignsNextId()
+		{
+			var spec = AddSpec("A");
+			spec.ServiceItems = new List<ServiceItem> { new ServiceItem() };
+
+			var result = controller.AddServiceSpecificationItem(spec.Identifier, new ServiceRequestItem { Label = " Workflow ", Type = "Workflow" });
+
+			Assert.AreEqual(201, StatusCode(result));
+			Assert.AreEqual(1, spec.ServiceItems.Count);
+			Assert.AreEqual(0L, spec.ServiceItems[0].ServiceItemID);
+			Assert.AreEqual("Workflow", spec.ServiceItems[0].Label);
+		}
+
+		[TestMethod]
+		public void UpdateServiceSpecificationItem_PartialPatchKeepsOtherFields()
+		{
+			var spec = AddSpec("A");
+			spec.ServiceItems = new List<ServiceItem>
+			{
+				new ServiceItem { ServiceItemID = 4, Label = "Old", DefinitionReference = "definition", Script = "script" },
+			};
+
+			var result = controller.UpdateServiceSpecificationItem(spec.Identifier, "4", new JObject { ["label"] = "New" });
+
+			Assert.AreEqual(200, StatusCode(result));
+			Assert.AreEqual(4L, spec.ServiceItems[0].ServiceItemID);
+			Assert.AreEqual("New", spec.ServiceItems[0].Label);
+			Assert.AreEqual("definition", spec.ServiceItems[0].DefinitionReference);
+			Assert.AreEqual("script", spec.ServiceItems[0].Script);
+		}
+
+		[TestMethod]
+		public void DeleteServiceSpecificationItem_RemovesRelationshipsAndRestoresPlaceholder()
+		{
+			var spec = AddSpec("A");
+			spec.ServiceItems = new List<ServiceItem> { new ServiceItem { ServiceItemID = 4, Label = "Only item" } };
+			spec.ServiceItemsRelationships = new List<ServiceItemRelationship>
+			{
+				new ServiceItemRelationship { ParentServiceItem = "4", ChildServiceItem = "5" },
+			};
+
+			Assert.AreEqual(204, StatusCode(controller.DeleteServiceSpecificationItem(spec.Identifier, "4")));
+			Assert.AreEqual(1, spec.ServiceItems.Count);
+			Assert.IsTrue(String.IsNullOrWhiteSpace(spec.ServiceItems[0].Label));
+			Assert.IsNull(spec.ServiceItems[0].ServiceItemID);
+			Assert.AreEqual(1, spec.ServiceItemsRelationships.Count);
+			Assert.IsTrue(String.IsNullOrWhiteSpace(spec.ServiceItemsRelationships[0].ParentServiceItem));
+			Assert.IsTrue(String.IsNullOrWhiteSpace(spec.ServiceItemsRelationships[0].ChildServiceItem));
+		}
+
 		// ---- Delete ----
 		[TestMethod]
 		public void Delete_Unreferenced_Returns204AndRemovesOwnedObjects()
@@ -367,6 +427,73 @@
 		public void Delete_InvalidId_Returns400()
 		{
 			Assert.AreEqual(400, StatusCode(controller.DeleteServiceSpecification("x")));
+		}
+
+		// ---- Configuration ----
+		[TestMethod]
+		public void GetConfiguration_EmptySpecification_ReturnsItsVersion()
+		{
+			Catalog.SetupGet(c => c.DiscreteParameterOptions).Returns(Repository(new List<DiscreteParameterOptions>()).Object);
+			Catalog.SetupGet(c => c.DiscreteValues).Returns(Repository(new List<DiscreteValue>()).Object);
+			Catalog.SetupGet(c => c.NumberParameterOptions).Returns(Repository(new List<NumberParameterOptions>()).Object);
+			Catalog.SetupGet(c => c.ConfigurationUnits).Returns(Repository(new List<ConfigurationUnit>()).Object);
+			Catalog.SetupGet(c => c.ConfigurationParameterValues).Returns(Repository(new List<ConfigurationParameterValue>()).Object);
+			var spec = AddSpec("A");
+
+			var result = controller.GetServiceSpecificationConfiguration(spec.Identifier);
+
+			Assert.AreEqual(200, StatusCode(result));
+			var version = Value<List<SpecificationConfigurationRecord>>(result).Single(r => r.RecordType == "Version");
+			Assert.AreEqual(spec.Identifier, version.VersionId);
+			Assert.AreEqual("A", version.VersionName);
+			Assert.IsTrue(version.IsActive);
+		}
+
+		[TestMethod]
+		public void SaveConfiguration_DuplicateVersionName_Returns409()
+		{
+			AddSpec("Other");
+			var spec = AddSpec("A");
+
+			var result = controller.SaveServiceSpecificationConfiguration(spec.Identifier, new JObject { ["Name"] = " other " });
+
+			Assert.AreEqual(409, StatusCode(result));
+			Assert.AreEqual("A", spec.Name);
+		}
+
+		[TestMethod]
+		public void SaveConfiguration_AddsParameterAndReturnsSavedVersion()
+		{
+			var parameter = AddWithId(ConfigurationParameters, new ConfigurationParameter
+			{
+				Name = "Bandwidth",
+				Type = ParameterType.Text,
+			});
+			var spec = AddSpec("A");
+			var body = new JObject
+			{
+				["parameters"] = new JArray
+				{
+					new JObject
+					{
+						["parameterId"] = parameter.Identifier,
+						["value"] = "100",
+					},
+				},
+			};
+
+			var result = controller.SaveServiceSpecificationConfiguration(spec.Identifier, body);
+			int statusCode = StatusCode(result);
+			Assert.AreEqual(200, statusCode, statusCode == 200 ? String.Empty : ErrorDetail(result));
+
+			var records = Value<List<SpecificationConfigurationRecord>>(result);
+			Assert.IsTrue(records.Any(record => record.RecordType == "Version" && record.VersionId == spec.Identifier));
+			var savedParameter = records.Single(record => record.RecordType == "Parameter");
+			Assert.AreEqual(parameter.Identifier, savedParameter.ParameterId);
+			Assert.AreEqual("100", savedParameter.ParameterValue);
+			Assert.AreEqual(1, ConfigValues.Count);
+			Assert.AreEqual(1, ConfigurationParameterValues.Count);
+			Assert.AreEqual(ConfigValues[0].Identifier, spec.ConfigurationParameters.Single().Identifier);
 		}
 
 		private ServiceSpecification AddSpec(string name, string description = null)

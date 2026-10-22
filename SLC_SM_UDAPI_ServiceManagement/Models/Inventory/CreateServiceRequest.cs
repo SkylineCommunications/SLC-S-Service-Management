@@ -30,6 +30,10 @@ namespace SLC_SM_UDAPI_ServiceManagement.Models.Inventory
 		[JsonProperty("icon")]
 		public string Icon { get; set; }
 
+		/// <summary>Gets or sets the linked DataMiner service (for example "dmaId/serviceId").</summary>
+		[JsonProperty("monitoringService")]
+		public string MonitoringService { get; set; }
+
 		/// <summary>Gets or sets the name (required).</summary>
 		[JsonProperty("name")]
 		public string Name { get; set; }
@@ -37,6 +41,10 @@ namespace SLC_SM_UDAPI_ServiceManagement.Models.Inventory
 		/// <summary>Gets or sets the organization ID.</summary>
 		[JsonProperty("organizationId")]
 		public Guid? OrganizationId { get; set; }
+
+		/// <summary>Gets or sets the service ID (SERVICE-xxxxx). Generated when empty; only used on create.</summary>
+		[JsonProperty("serviceId")]
+		public string ServiceId { get; set; }
 
 		/// <summary>Gets or sets the service item relationships.</summary>
 		[JsonProperty("serviceItemRelationships")]

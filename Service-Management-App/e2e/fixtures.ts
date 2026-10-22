@@ -10,11 +10,11 @@ export const CONNECTION_GUID = '00000000-1111-4222-8333-444444444444';
 export async function serveAppAtBasePath(page: Page): Promise<void> { await page.route(`**${APP_BASE}**`, async route => { const url = new URL(route.request().url()); url.pathname = url.pathname.slice(APP_BASE.length - 1); await route.continue({ url: url.toString() }); }); }
 export async function setSessionCookie(context: BrowserContext): Promise<void> { await context.addCookies([{ name: 'DMAConnection', value: CONNECTION_GUID, domain: 'localhost', path: '/' }]); }
 
-// Sample rows returned by the mocked "Get_ServiceOrders" GQI ad hoc data source.
+// Sample rows returned by the mocked "Get_ServiceOrders" GQI ad hoc data source; OrderId is the UDAPI route key.
 export const SAMPLE_ORDERS = [
-    { 'Order ID': '6f1c2a90-1b2c-4d3e-8f40-5a6b7c8d9e01', Name: 'Network refresh', Description: 'Replace core switches', Priority: 'High', 'External ID': 'SO-1042', 'Related Organization': 'Skyline Broadcast', State: 'In Progress', Start: '2026-10-20T17:30:00.000Z', End: '2026-10-20T19:45:00.000Z' },
-    { 'Order ID': '7a2d3b81-2c3d-4e5f-9a51-6b7c8d9e0f12', Name: 'Studio expansion', Description: 'Add studio B', Priority: 'Medium', 'External ID': '', 'Related Organization': 'Acme Media', State: 'New' },
-    { 'Order ID': '8b3e4c72-3d4e-4f60-ab62-7c8d9e0f1a23', Name: 'Backup link', Description: 'Secondary contribution link', Priority: 'Low', 'External ID': 'SO-1038', 'Related Organization': 'Skyline Broadcast', State: 'Completed' },
+    { 'Order ID': '6f1c2a90-1b2c-4d3e-8f40-5a6b7c8d9e01', OrderId: 'ORDER-000001', Name: 'Network refresh', Description: 'Replace core switches', Priority: 'High', 'External ID': 'SO-1042', 'Related Organization': 'Skyline Broadcast', State: 'In Progress', Start: '2026-10-20T17:30:00.000Z', End: '2026-10-20T19:45:00.000Z' },
+    { 'Order ID': '7a2d3b81-2c3d-4e5f-9a51-6b7c8d9e0f12', OrderId: 'ORDER-000002', Name: 'Studio expansion', Description: 'Add studio B', Priority: 'Medium', 'External ID': '', 'Related Organization': 'Acme Media', State: 'New' },
+    { 'Order ID': '8b3e4c72-3d4e-4f60-ab62-7c8d9e0f1a23', OrderId: 'ORDER-000003', Name: 'Backup link', Description: 'Secondary contribution link', Priority: 'Low', 'External ID': 'SO-1038', 'Related Organization': 'Skyline Broadcast', State: 'Completed' },
 ];
 // Deliberately not in the C# column order: the app must map cells by column name, not by index.
 const COLUMNS = ['State', 'Name', 'Order ID', 'Related Organization', 'Priority', 'External ID', 'Description', 'End', 'Start'];
@@ -39,7 +39,7 @@ const SERVICE_ITEMS_TYPE = 'SLC_SM_GQIDS_Get_Service_Items.EventManagerGetMultip
 const CONFIGURATIONS_TYPE = 'SLC_SM_GQIDS_Get_Service_Configurations.GetServiceConfigurations';
 const PAGE_SIZE = 2;
 
-export const SAMPLE_SERVICE = { 'DOM ID': 'service-1', 'Service ID': 'SVC-TEST-001', 'Service Name': 'Test service', 'Service Status': 'Active', 'Service Start': '9/1/2026 8:00:00 AM', 'Service End': 'No End Time', 'Service Category': 'Connectivity', 'Service Category Type': 'Channel', 'Service Logo': '', 'Service Specification': 'Managed switching', 'Alarm Level': '0', 'Service Organization': 'Skyline Broadcast', 'Monitoring Service': 'Monitoring service 1', 'Related Service Orders': 'Network refresh', 'Related Service Order Count': '1' };
+export const SAMPLE_SERVICE = { 'DOM ID': 'service-1', 'Service ID': 'SERVICE-1', 'Service Name': 'Test service', 'Service Status': 'Active', 'Service Start': '9/1/2026 8:00:00 AM', 'Service End': 'No End Time', 'Service Category': 'Connectivity', 'Service Category Type': 'Channel', 'Service Logo': '', 'Service Specification': 'Managed switching', 'Alarm Level': '0', 'Service Organization': 'Skyline Broadcast', 'Monitoring Service': 'Monitoring service 1', 'Related Service Orders': 'Network refresh', 'Related Service Order Count': '1' };
 const SERVICE_COLUMNS = ['DOM ID', 'Service ID', 'Service Name', 'Service Status', 'Service Start', 'Service End', 'Service Category', 'Service Category Type', 'Service Logo', 'Service Specification', 'Alarm Level', 'Service Organization', 'Monitoring Service', 'Related Service Orders', 'Related Service Order Count'];
 const MONITORING_SERVICE_COLUMNS = ['Monitoring Service ID', 'Monitoring Service Name'];
 const DOCUMENT_HUB_COLUMNS = ['Bucket', 'File Name', 'Icon', 'Extension', 'Directory'];
@@ -67,6 +67,11 @@ export const SAMPLE_SPECIFICATION = { 'Specification ID': 'spec-1', Name: 'Manag
 const SPECIFICATION_COLUMNS = ['Specification ID', 'Name', 'Description', 'Created At', 'Created By', 'Last Modified', 'Last Modified By', 'Service Item Count'];
 const SERVICE_ITEM_COLUMNS = ['Actions', 'Label', 'Service Item ID', 'Service Item Type', 'Definition Reference', 'Service Item Script', 'Implementation Reference', 'Implementation Reference Name', 'Implementation Reference Link', 'Implementation Reference Has Value', 'Implementation Reference Name Has Value', 'Implementation Reference Link Has Value', 'Implementation State', 'Implementation Reference Custom Link', 'Implementation Reference Custom Link Has Value', 'Monitoring Service State', 'Monitoring Service DMA ID/SID', 'Log'];
 const CONFIGURATION_COLUMNS = ['Version ID', 'Version Name', 'Version Description', 'Version Start', 'Version End', 'Is Active', 'Record Type', 'Configuration ID', 'Parameter ID', 'Parameter Value ID', 'Parameter Name', 'Parameter Type', 'Parameter Value', 'Mandatory', 'Profile ID', 'Profile Name', 'Profile Definition ID', 'Profile Definition Name', 'Profile Reusable', 'Profile Mandatory', 'Nested Profile ID', 'Nested Profile Name', 'Nested Profile Definition ID', 'Nested Profile Definition Name', 'Parameter Label', 'Parameter Is Linked', 'Parameter Unit', 'Parameter Unit ID', 'Parameter Start', 'Parameter End', 'Parameter Step Size', 'Parameter Decimals', 'Parameter Options', 'Parameter Fixed', 'Parameter N/A', 'Expose At Order', 'Mandatory At Order', 'Mandatory At Service'];
+// GQI configuration row -> UDAPI SpecificationConfigurationRecord (camelCase keys).
+const toConfigurationRecord = (row: Record<string, unknown>) => Object.fromEntries(CONFIGURATION_COLUMNS.map(column => [
+    column === 'Parameter N/A' ? 'parameterNotApplicable' : column.split(' ').map((word, index) => index === 0 ? word.toLowerCase() : word[0] + word.slice(1).toLowerCase()).join(''),
+    row[column] ?? '',
+]));
 const SAMPLE_SPECIFICATION_CONFIGURATIONS = [
     { 'Version ID': 'spec-1', 'Version Name': 'Current version', 'Version Description': 'Current specification configuration', 'Version Start': '9/1/2026 8:00:00 AM', 'Version End': 'No End Time', 'Is Active': 'true', 'Record Type': 'Profile', 'Configuration ID': 'spec-profile-config', 'Parameter ID': '', 'Parameter Value ID': '', 'Parameter Name': '', 'Parameter Type': '', 'Parameter Value': '', Mandatory: 'false', 'Profile ID': 'spec-profile-config', 'Profile Name': 'Transport profile', 'Profile Definition ID': 'profile-definition', 'Profile Definition Name': 'Transport profile', 'Profile Reusable': 'false', 'Profile Mandatory': 'true', 'Nested Profile ID': '', 'Nested Profile Name': '', 'Nested Profile Definition ID': '', 'Nested Profile Definition Name': '' },
     { 'Version ID': 'spec-1', 'Version Name': 'Current version', 'Version Description': 'Current specification configuration', 'Version Start': '9/1/2026 8:00:00 AM', 'Version End': 'No End Time', 'Is Active': 'true', 'Record Type': 'Parameter', 'Configuration ID': 'spec-discrete-config', 'Parameter ID': 'parameter-discrete', 'Parameter Value ID': 'parameter-discrete-value', 'Parameter Name': 'Polarization', 'Parameter Type': 'Discrete', 'Parameter Value': 'Horizontal', 'Parameter Label': 'Polarization', 'Parameter Is Linked': 'false', 'Parameter Options': '[{"Id":"horizontal","Value":"Horizontal"},{"Id":"vertical","Value":"Vertical"}]', Mandatory: 'false', 'Profile ID': '', 'Profile Name': '', 'Profile Definition ID': '', 'Profile Definition Name': '', 'Profile Reusable': 'false', 'Profile Mandatory': 'false', 'Nested Profile ID': '', 'Nested Profile Name': '', 'Nested Profile Definition ID': '', 'Nested Profile Definition Name': '' },
@@ -248,13 +253,78 @@ async function mockIasWebSocket(page: Page, mock: GqiMock, orders: Record<string
 
 async function json(route: Route, status: number, body: unknown): Promise<void> { await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) }); }
 
+// UDAPI order (item) records: Priority as the enum number, StatusName as the camelCase enum name, dates as ISO strings.
+const udapiDate = (value?: string) => { const time = Date.parse(value ?? ''); return Number.isNaN(time) ? null : new Date(time).toISOString(); };
+const udapiReference = (value?: string) => value ? { Identifier: value } : null;
+const camelCase = (value?: string) => String(value ?? '').replace(/\s+(\w)/g, (_, letter: string) => letter.toUpperCase()).replace(/^\w/, letter => letter.toLowerCase());
+function toUdapiOrder(row: Record<string, string>) {
+    const completion = row.Start || row.End ? { RequestedStartDate: udapiDate(row.Start), RequestedCompletedDate: udapiDate(row.End), CompletionDate: null } : null;
+    return { Identifier: row['Order ID'], OrderId: row.OrderId, Name: row.Name, Description: row.Description, Priority: ['High', 'Medium', 'Low'].indexOf(row.Priority), ExternalID: row['External ID'], StatusName: camelCase(row.State), OrganizationId: SAMPLE_ORGANIZATIONS.find(organization => organization['Organization Name'] === row['Related Organization'])?.['Organization ID'] ?? null, OrganizationName: row['Related Organization'] || null, CompletionInfo: completion, CreatedAt: null };
+}
+function toUdapiOrderItem(row: Record<string, string>) {
+    const end = udapiDate(row.End);
+    return { Identifier: row.ID, Name: row.Name, Action: row.Action, Description: row.Description, StatusName: camelCase(row.Status), StartTime: udapiDate(row.Start), EndTime: end, IndefiniteRuntime: !end, ServiceInfo: { ServiceCategoryId: udapiReference(row['Category ID']), SpecificationId: udapiReference(row['Service Specification ID']), ServiceId: udapiReference(row.ServiceId) }, ServiceCategoryName: row.Category || null, ServiceSpecificationName: row['Service Specification'] || null, ServiceName: row.Service || null };
+}
+// UDAPI service records: the SDM Service properties plus the lookups added by GET service.
+function toUdapiService(row: Record<string, string>) {
+    return { Identifier: row['DOM ID'], ServiceID: row['Service ID'], Name: row['Service Name'], StatusName: row['Service Status'].toLowerCase(), StartTime: udapiDate(row['Service Start']), EndTime: udapiDate(row['Service End']), Icon: row['Service Logo'] || null, MonitoringService: row['Monitoring Service'] || null, CategoryName: row['Service Category'] || null, CategoryType: row['Service Category Type'] || null, ServiceSpecificationName: row['Service Specification'] || null, OrganizationId: SAMPLE_ORGANIZATIONS.find(organization => organization['Organization Name'] === row['Service Organization'])?.['Organization ID'] ?? null, OrganizationName: row['Service Organization'] || null };
+}
+function selectUdapiFields(
+    record: Record<string, unknown>,
+    request: { QueryParameters?: { fields?: string[] } },
+) {
+    const requested = new Set(
+        (request.QueryParameters?.fields ?? [])
+            .flatMap(field => field.split(','))
+            .map(field => field.trim().toLowerCase())
+            .filter(Boolean),
+    );
+    if (requested.size === 0) return record;
+    return Object.fromEntries(Object.entries(record).filter(([name]) => requested.has(name.toLowerCase())));
+}
+function applyServiceRequest(row: Record<string, string>, body: any, categories: Record<string, string>[]) {
+    if ('serviceId' in body) row['Service ID'] = body.serviceId;
+    if ('name' in body) row['Service Name'] = body.name;
+    if ('startTime' in body) row['Service Start'] = body.startTime ?? '';
+    if ('endTime' in body) row['Service End'] = body.endTime ?? 'No End Time';
+    if ('category' in body) {
+        const category = categories.find(item => item['Category Name'] === body.category?.name);
+        Object.assign(row, { 'Service Category': category?.['Category Name'] ?? '', 'Service Category Type': category?.['Category Type'] ?? '', 'Service Logo': category?.['Category Icon'] ?? '' });
+    }
+    if ('serviceSpecificationId' in body) row['Service Specification'] = body.serviceSpecificationId === SAMPLE_SPECIFICATION['Specification ID'] ? SAMPLE_SPECIFICATION.Name : '';
+    if ('organizationId' in body) row['Service Organization'] = SAMPLE_ORGANIZATIONS.find(organization => organization['Organization ID'] === body.organizationId)?.['Organization Name'] ?? '';
+    if ('monitoringService' in body) row['Monitoring Service'] = body.monitoringService ?? '';
+    return row;
+}
+// UDAPI service items: the SDM ServiceItem properties (Type as SDM enum number) plus the computed implementation states.
+const SERVICE_ITEM_TYPE_VALUES: Record<string, number> = { workflow: 0, service: 1, srmbooking: 2 };
+const SERVICE_ITEM_TYPE_NAMES = ['Workflow', 'Service', 'SRMBooking'];
+function toUdapiServiceItem(row: Record<string, string>) {
+    return { ServiceItemID: Number(row['Service Item ID']), Label: row.Label, Type: SERVICE_ITEM_TYPE_VALUES[row['Service Item Type'].replace(/[\s_]/g, '').toLowerCase()] ?? 1, DefinitionReference: row['Definition Reference'] || '', ImplementationReference: row['Implementation Reference'] || '', Script: row['Service Item Script'] || '', Icon: '', ImplementationName: '', ImplementationState: row['Implementation State'] || '', MonitoringServiceState: row['Monitoring Service State'] || '' };
+}
+function applyServiceItemRequest(row: Record<string, string>, body: any) {
+    if ('label' in body) row.Label = String(body.label ?? '').trim();
+    if ('type' in body) row['Service Item Type'] = SERVICE_ITEM_TYPE_NAMES[SERVICE_ITEM_TYPE_VALUES[String(body.type || 'Service').replace(/[\s_]/g, '').toLowerCase()] ?? 1];
+    if ('definitionReference' in body) row['Definition Reference'] = body.definitionReference ?? '';
+    if ('implementationReference' in body) row['Implementation Reference'] = body.implementationReference ?? '';
+    if ('script' in body) row['Service Item Script'] = body.script ?? '';
+    return row;
+}
+
 export async function mockDataMinerApi(page: Page, mode: GqiMode = 'ok'): Promise<GqiMock> {
     const mock: GqiMock = { mode, itemsFail: false, calls: [], ias: { messages: [], continues: [], executeError: null, launchError: null, subscriptError: null } };
     const orders = SAMPLE_ORDERS.map(order => ({ ...order }));
+    const orderItems = Object.fromEntries(Object.entries(SAMPLE_ORDER_ITEMS).map(([orderId, items]) => [orderId, items.map(item => ({ ...item }))]));
     const serviceItems = SAMPLE_SERVICE_ITEMS.map(item => ({ ...item }));
     const sessions = new Map<string, { columns: string[]; rows: Record<string, string>[]; offset: number }>();
     const serviceScripts = SAMPLE_SERVICE_SCRIPTS.map(script => ({ ...script }));
+    const serviceScriptsById = new Map<string, Record<string, string>[]>([[SAMPLE_SERVICE['Service ID'], serviceScripts]]);
+    const serviceItemsByDomId = new Map<string, Record<string, string>[]>([[SAMPLE_SERVICE['DOM ID'], serviceItems]]);
+    const serviceConfigurationOverrides = new Map<string, Record<string, unknown>[]>();
+    const orderItemConfigurationOverrides = new Map<string, Record<string, unknown>[]>();
     const categories = SAMPLE_CATEGORIES.map(category => ({ ...category }));
+    const services: Record<string, string>[] = [{ ...SAMPLE_SERVICE }];
+    const monitoringServices = [{ Id: 'monitoring-1', Name: 'Monitoring service 1' }];
     let sessionCount = 0;
     await serveAppAtBasePath(page);
     await mockIasWebSocket(page, mock, orders, serviceItems);
@@ -279,6 +349,243 @@ export async function mockDataMinerApi(page: Page, mode: GqiMode = 'ok'): Promis
         if (body.connection !== CONNECTION_GUID) return json(route, 500, { Message: 'Unexpected connection', ExceptionType: 'System.ArgumentException' });
         if (mock.mode === 'expired') return json(route, 500, { Message: 'No connection was found.', ExceptionType: 'Skyline.DataMiner.Web.Common.NoConnectionWebApiException' });
         const script = body.script ?? {};
+        if (script.Name === 'SLC_SM_UDAPI_ServiceManagement') {
+            const raw = (script.Parameters ?? []).find((parameter: any) => parameter.Name === 'Request')?.Value ?? '';
+            let request: any;
+            try { request = JSON.parse(raw); } catch { return json(route, 200, { d: { ErrorCode: -1, Output: [] } }); }
+            const respond = (status: number, response: unknown = '') => json(route, 200, { d: { ErrorCode: 0, Output: [{ Name: 'StatusCode', Value: String(status) }, { Name: 'Response', Value: typeof response === 'string' ? response : JSON.stringify(response) }] } });
+            const notFound = () => respond(404, { error: [{ errorCode: 'NotFound', detail: 'Not found', faultingNode: '', title: 'Not found' }] });
+            const [resource, id, subResource, subId, subAction] = String(request.Route ?? '').replace(/^service-management\/v1\//, '').split('/').map(decodeURIComponent);
+            const requestBody = request.Body ? JSON.parse(request.Body) : {};
+            const baseConfigurationRecords = (ownerId: string) => (serviceConfigurationOverrides.get(ownerId) ?? SAMPLE_SPECIFICATION_CONFIGURATIONS.map(row => ({ ...row }))).map(toConfigurationRecord);
+            if (resource === 'monitoringService' && request.RequestMethod === 1) return respond(200, monitoringServices);
+            if (resource === 'serviceOrder') {
+                if (mock.mode === 'error' || (subResource === 'item' && mock.itemsFail)) return respond(500, { error: [{ errorCode: 'InternalServerError', detail: 'DOM manager is unavailable.', faultingNode: '', title: 'Internal server error' }] });
+                if (!id && request.RequestMethod === 1) return respond(200, mock.mode === 'empty' ? [] : orders.map(toUdapiOrder));
+                const order = orders.find(row => row.OrderId === id);
+                if (!order) return notFound();
+                if (!subResource && request.RequestMethod === 4) {
+                    orders.splice(orders.indexOf(order), 1);
+                    delete orderItems[order['Order ID']];
+                    return respond(204);
+                }
+                if (!subResource && request.RequestMethod === 5) {
+                    if ('name' in requestBody) order.Name = requestBody.name;
+                    return respond(200, toUdapiOrder(order));
+                }
+                const items = orderItems[order['Order ID']] ??= [];
+                if (subResource === 'item' && !subId && request.RequestMethod === 1) return respond(200, items.map(toUdapiOrderItem));
+                if (subResource === 'item' && !subId && request.RequestMethod === 3) {
+                    const created = { ID: `item-${items.length + 1}`, Name: requestBody.name, Action: requestBody.action, Status: 'New', Description: requestBody.description ?? '', 'Service Specification ID': requestBody.serviceSpecificationId ?? '', 'Service Specification': requestBody.serviceSpecificationId === SAMPLE_SPECIFICATION['Specification ID'] ? SAMPLE_SPECIFICATION.Name : '' };
+                    items.push(created);
+                    return respond(201, toUdapiOrderItem(created));
+                }
+                const itemIndex = items.findIndex(item => item.ID === subId);
+                if (subResource === 'item' && subId && itemIndex < 0) return notFound();
+                if (subResource === 'item' && subId && subAction === 'configuration') {
+                    const key = `${id}:${subId}`;
+                    if (request.RequestMethod === 1) {
+                        const rows = orderItemConfigurationOverrides.get(key) ?? SAMPLE_SPECIFICATION_CONFIGURATIONS.filter(row => !['AvailableProfile', 'AvailableNestedProfile', 'Profile', 'ProfileParameter', 'NestedProfile', 'NestedProfileParameter'].includes(row['Record Type'])).map(row => ({ ...row }));
+                        return respond(200, rows.map(toConfigurationRecord));
+                    }
+                    if (request.RequestMethod === 2) {
+                        orderItemConfigurationOverrides.set(key, SAMPLE_SPECIFICATION_CONFIGURATIONS.map(row => ({ ...row })));
+                        return respond(200, orderItemConfigurationOverrides.get(key)!.map(toConfigurationRecord));
+                    }
+                }
+                if (subResource === 'item' && subId && subAction === 'initializeService' && request.RequestMethod === 3) {
+                    const item = items[itemIndex];
+                    const linked = services.find(service => service['DOM ID'] === item.ServiceId);
+                    if (linked) return respond(200, toUdapiService(linked));
+                    if (!item['Service Specification ID']) {
+                        return respond(400, { error: [{ errorCode: 'InvalidRequest', detail: 'A service specification must be assigned before initializing a service.', faultingNode: '', title: 'Invalid request' }] });
+                    }
+                    const nextServiceNumber = Math.max(0, ...services.map(service => Number(service['Service ID'].match(/^SERVICE-(\d+)$/)?.[1] ?? 0))) + 1;
+                    const created = {
+                        'DOM ID': `service-${services.length + 1}`,
+                        'Service ID': `SERVICE-${nextServiceNumber}`,
+                        'Service Name': item.Name || 'New service',
+                        'Service Status': 'New',
+                        'Service Start': item.Start || 'No Start Time',
+                        'Service End': item.End || 'No End Time',
+                        'Service Category': categories.find(category => category['Category ID'] === item['Category ID'])?.['Category Name'] ?? '',
+                        'Service Category Type': categories.find(category => category['Category ID'] === item['Category ID'])?.['Category Type'] ?? '',
+                        'Service Logo': '',
+                        'Service Specification': SAMPLE_SPECIFICATION.Name,
+                        'Service Organization': '',
+                        'Monitoring Service': '',
+                    };
+                    services.push(created);
+                    serviceItemsByDomId.set(created['DOM ID'], []);
+                    item.ServiceId = created['DOM ID'];
+                    item.Service = created['Service Name'];
+                    return respond(201, toUdapiService(created));
+                }
+                if (subResource === 'item' && subId && subAction === 'transition' && request.RequestMethod === 3) {
+                    items[itemIndex].Status = String(requestBody.targetStatus ?? items[itemIndex].Status);
+                    return respond(200, toUdapiOrderItem(items[itemIndex]));
+                }
+                if (subResource === 'item' && request.RequestMethod === 5) {
+                    Object.assign(items[itemIndex], { Name: requestBody.name ?? items[itemIndex].Name, Action: requestBody.action ?? items[itemIndex].Action, Description: requestBody.description ?? items[itemIndex].Description });
+                    return respond(200, toUdapiOrderItem(items[itemIndex]));
+                }
+                if (subResource === 'item' && request.RequestMethod === 4) {
+                    items.splice(itemIndex, 1);
+                    return respond(204);
+                }
+            }
+            if (resource === 'service') {
+                if (!id && request.RequestMethod === 1) return respond(200, services.map(service => selectUdapiFields(toUdapiService(service), request)));
+                if (!id && request.RequestMethod === 3) {
+                    if (services.some(row => row['Service ID'] === requestBody.serviceId)) return respond(409, { error: [{ errorCode: 'Conflict', detail: `Service ID '${requestBody.serviceId}' is already in use.`, faultingNode: '', title: 'Conflict' }] });
+                    const created = applyServiceRequest({ 'DOM ID': `service-${services.length + 1}`, 'Service Status': 'New', 'Service Logo': '', 'Service Category': '', 'Service Category Type': '', 'Service Specification': '', 'Service Organization': '', 'Monitoring Service': '' }, requestBody, categories);
+                    services.push(created);
+                    return respond(201, toUdapiService(created));
+                }
+                const service = services.find(row => row['Service ID'] === id);
+                if (!service) return notFound();
+                if (!subResource && request.RequestMethod === 1) return respond(200, selectUdapiFields(toUdapiService(service), request));
+                if (!subResource && request.RequestMethod === 4) {
+                    services.splice(services.indexOf(service), 1);
+                    serviceItemsByDomId.delete(service['DOM ID']);
+                    serviceConfigurationOverrides.delete(service['DOM ID']);
+                    serviceScriptsById.delete(service['Service ID']);
+                    return respond(204);
+                }
+                if (!subResource && request.RequestMethod === 5) return respond(200, toUdapiService(applyServiceRequest(service, requestBody, categories)));
+                if (subResource === 'transition' && request.RequestMethod === 3) {
+                    const target = String(requestBody.targetStatus ?? '');
+                    service['Service Status'] = target.charAt(0).toUpperCase() + target.slice(1).toLowerCase();
+                    return respond(200, toUdapiService(service));
+                }
+                if (subResource === 'relatedOrder' && request.RequestMethod === 1) {
+                    const related = orders.flatMap(order => (orderItems[order['Order ID']] ?? [])
+                        .filter(item => item.ServiceId === service['DOM ID'])
+                        .map(item => ({
+                            OrderInstanceId: order['Order ID'],
+                            OrderId: order.OrderId,
+                            OrderName: order.Name,
+                            ServiceOrderItemId: item.ID,
+                            Action: item.Action,
+                            State: item.Status,
+                        })));
+                    return respond(200, related);
+                }
+                if (subResource === 'configuration') {
+                    if (request.RequestMethod === 1) return respond(200, baseConfigurationRecords(service['DOM ID']));
+                    if (request.RequestMethod === 2) {
+                        serviceConfigurationOverrides.set(service['DOM ID'], SAMPLE_SPECIFICATION_CONFIGURATIONS.map(row => ({ ...row })));
+                        return respond(200, baseConfigurationRecords(service['DOM ID']));
+                    }
+                }
+                if (subResource === 'script') {
+                    const scripts = serviceScriptsById.get(service['Service ID']) ?? [];
+                    const toScript = (scriptRow: Record<string, string>) => ({ Name: scriptRow['Script Name'], Description: scriptRow.Description });
+                    if (request.RequestMethod === 1) return respond(200, scripts.map(toScript));
+                    const description = String(requestBody.description ?? '').trim();
+                    const originalDescription = String(requestBody.originalDescription ?? '').trim();
+                    const name = String(requestBody.name ?? '').trim();
+                    if (request.RequestMethod === 3) {
+                        if (!name || !description) return respond(400, { error: [{ errorCode: 'InvalidRequest', detail: "'name' and 'description' are required.", faultingNode: '', title: 'Invalid request' }] });
+                        if (scripts.some(scriptRow => scriptRow.Description.toLowerCase() === description.toLowerCase())) return respond(409, { error: [{ errorCode: 'Conflict', detail: 'A service script with this description already exists.', faultingNode: '', title: 'Conflict' }] });
+                        const created = { 'Script Name': name, Description: description };
+                        scripts.push(created);
+                        serviceScriptsById.set(service['Service ID'], scripts);
+                        return respond(201, toScript(created));
+                    }
+                    const index = scripts.findIndex(scriptRow => scriptRow.Description.toLowerCase() === (request.RequestMethod === 5 ? originalDescription : description).toLowerCase());
+                    if (index < 0) return notFound();
+                    if (request.RequestMethod === 5) {
+                        if (!name || !description) return respond(400, { error: [{ errorCode: 'InvalidRequest', detail: "'originalDescription', 'name' and 'description' are required.", faultingNode: '', title: 'Invalid request' }] });
+                        scripts[index] = { 'Script Name': name, Description: description };
+                        return respond(200, toScript(scripts[index]));
+                    }
+                    if (request.RequestMethod === 4) {
+                        scripts.splice(index, 1);
+                        return respond(204);
+                    }
+                }
+                if (subResource === 'duplicate' && request.RequestMethod === 3) {
+                    const nextServiceNumber = Math.max(0, ...services.map(row => Number(row['Service ID'].match(/^SERVICE-(\d+)$/)?.[1] ?? 0))) + 1;
+                    const created = {
+                        ...service,
+                        'DOM ID': `service-${services.length + 1}`,
+                        'Service ID': `SERVICE-${nextServiceNumber}`,
+                        'Service Name': `${service['Service Name']} (Copy)`,
+                        'Service Status': 'New',
+                        'Monitoring Service': '',
+                    };
+                    services.push(created);
+                    const sourceItems = serviceItemsByDomId.get(service['DOM ID']) ?? [];
+                    serviceItemsByDomId.set(created['DOM ID'], sourceItems.map(item => ({ ...item, 'Implementation Reference': '' })));
+                    serviceConfigurationOverrides.set(created['DOM ID'], (serviceConfigurationOverrides.get(service['DOM ID']) ?? SAMPLE_SPECIFICATION_CONFIGURATIONS).map(row => ({ ...row })));
+                    serviceScriptsById.set(created['Service ID'], (serviceScriptsById.get(service['Service ID']) ?? []).map(scriptRow => ({ ...scriptRow })));
+                    return respond(201, toUdapiService(created));
+                }
+                if (subResource === 'item') {
+                    const items = serviceItemsByDomId.get(service['DOM ID']) ?? [];
+                    const conflict = (label: string) => respond(409, { error: [{ errorCode: 'Conflict', detail: `Service item label '${label}' is already in use on service '${id}'.`, faultingNode: '', title: 'Conflict' }] });
+                    const labelInUse = (label: string, except?: Record<string, string>) => items.some(row => row !== except && row.Label.toLowerCase() === label.toLowerCase());
+                    if (!subId && request.RequestMethod === 1) return respond(200, items.map(toUdapiServiceItem));
+                    if (!subId && request.RequestMethod === 3) {
+                        const label = String(requestBody.label ?? '').trim();
+                        if (labelInUse(label)) return conflict(label);
+                        const created = applyServiceItemRequest({ 'Service Item ID': String(Math.max(-1, ...items.map(row => Number(row['Service Item ID']))) + 1), 'Service Item Type': 'Service', 'Implementation State': '', 'Monitoring Service State': '' }, requestBody);
+                        items.push(created);
+                        serviceItemsByDomId.set(service['DOM ID'], items);
+                        return respond(201, toUdapiServiceItem(created));
+                    }
+                    const item = items.find(row => row['Service Item ID'] === subId);
+                    if (!item) return notFound();
+                    if (request.RequestMethod === 5) {
+                        if ('label' in requestBody && labelInUse(String(requestBody.label).trim(), item)) return conflict(String(requestBody.label).trim());
+                        return respond(200, toUdapiServiceItem(applyServiceItemRequest(item, requestBody)));
+                    }
+                    if (request.RequestMethod === 4) {
+                        items.splice(items.indexOf(item), 1);
+                        serviceItemsByDomId.set(service['DOM ID'], items);
+                        return respond(204);
+                    }
+                }
+            }
+            if (resource === 'serviceCategory') {
+                const index = categories.findIndex(item => item['Category ID'] === id);
+                if (request.RequestMethod === 1 && !id) return respond(200, categories.map(item => ({ id: item['Category ID'], name: item['Category Name'], type: item['Category Type'], icon: item['Category Icon'] })));
+                if (request.RequestMethod === 3 && !id) {
+                    const created = { 'Category ID': `category-${categories.length + 1}`, 'Category Name': requestBody.name, 'Category Type': requestBody.type, 'Category Icon': requestBody.icon || '' };
+                    categories.push(created);
+                    return respond(201, { id: created['Category ID'], name: created['Category Name'], type: created['Category Type'], icon: created['Category Icon'] });
+                }
+                if (request.RequestMethod === 5 && id) {
+                    if (index < 0) return notFound();
+                    Object.assign(categories[index], { 'Category Name': requestBody.name, 'Category Type': requestBody.type, 'Category Icon': requestBody.icon || '' });
+                    return respond(200, { id, name: requestBody.name, type: requestBody.type, icon: requestBody.icon || '' });
+                }
+                if (request.RequestMethod === 4 && id) {
+                    if (index < 0) return notFound();
+                    categories.splice(index, 1);
+                    return respond(204);
+                }
+            }
+            if (resource === 'serviceSpecification' && request.RequestMethod === 1 && !id) {
+                return respond(200, [SAMPLE_SPECIFICATION].map(row => ({ Identifier: row['Specification ID'], Name: row.Name, Description: row.Description, CreatedAt: '2026-09-01T14:40:53Z', CreatedBy: row['Created By'], LastModified: '2026-09-02T22:13:44Z', LastModifiedBy: row['Created By'], ServiceItems: Array.from({ length: Number(row['Service Item Count']) }, (_, index) => ({ ID: index, Label: `Item ${index + 1}` })) })));
+            }
+            if (resource === 'serviceSpecification' && request.RequestMethod === 1 && id && !subResource) {
+                // The DOM definition always stores an empty placeholder item next to the real ones; Type is the SDM enum number.
+                return respond(200, { ServiceItems: [
+                    { ServiceItemID: null, Label: null, Type: null, DefinitionReference: null, Script: null, ImplementationReference: null },
+                    { ServiceItemID: 1, Label: 'Switch booking', Type: 2, DefinitionReference: 'Switching Booking Manager', Script: 'SRM_Booking Wizard', ImplementationReference: null },
+                ] });
+            }
+            if (resource === 'serviceSpecification' && subResource === 'configuration' && [1, 2].includes(request.RequestMethod)) {
+                const rows = id === 'unconfigured-spec'
+                    ? [...SAMPLE_SPECIFICATION_CONFIGURATIONS.filter(row => !row['Version ID']), { 'Record Type': 'Version', 'Version ID': id, 'Version Name': 'Unconfigured', 'Is Active': 'true' }]
+                    : SAMPLE_SPECIFICATION_CONFIGURATIONS;
+                return respond(200, rows.map(toConfigurationRecord));
+            }
+            if (resource === 'serviceSpecification' && [3, 4, 5].includes(request.RequestMethod)) return respond(request.RequestMethod === 3 ? 201 : request.RequestMethod === 4 ? 204 : 200, request.RequestMethod === 4 ? '' : { Identifier: id || 'spec-new', Name: requestBody.name ?? '' });
+            return respond(405, { error: [{ errorCode: 'MethodNotAllowed', detail: `Unsupported request ${request.RequestMethod} ${request.Route}`, faultingNode: '', title: 'Method not allowed' }] });
+        }
         if (script.Name !== 'SLC_SM_IAS_Add Service Order' && script.Name !== 'SLC_SM_IAS_Manage Service Scripts' && script.Name !== 'SLC_SM_AS_ManageServiceCategory' && script.Name !== 'SLC_SM_AS_DeleteServiceCategory') return json(route, 500, { Message: `Unexpected Automation script ${script.Name}`, ExceptionType: 'System.ArgumentException' });
         const values = Object.fromEntries((script.Parameters ?? []).map((parameter: any) => {
             let value = '';
@@ -344,7 +651,7 @@ export async function mockDataMinerApi(page: Page, mode: GqiMode = 'ok'): Promis
                 ? SAMPLE_SPECIFICATION_CONFIGURATIONS.filter(row => !row['Version ID'])
                 : SAMPLE_SPECIFICATION_CONFIGURATIONS;
             const columns = isOrders ? COLUMNS : isRelatedServiceOrders ? relatedServiceOrderColumns : isItems ? ITEM_COLUMNS : isServices ? SERVICE_COLUMNS : isMonitoringServices ? MONITORING_SERVICE_COLUMNS : isDocumentHubLogos ? DOCUMENT_HUB_COLUMNS : isOrganizations ? ORGANIZATION_COLUMNS : isCategories ? CATEGORY_COLUMNS : isServiceScripts ? SERVICE_SCRIPT_COLUMNS : isSpecifications ? SPECIFICATION_COLUMNS : isServiceItems ? SERVICE_ITEM_COLUMNS : CONFIGURATION_COLUMNS;
-            const rows = isOrders ? mock.mode === 'empty' ? [] : orders : isRelatedServiceOrders ? relatedServiceOrderRows : isItems ? SAMPLE_ORDER_ITEMS[args['DOM ID']] ?? [] : isServices ? [SAMPLE_SERVICE] : isMonitoringServices ? [{ 'Monitoring Service ID': 'monitoring-1', 'Monitoring Service Name': 'Monitoring service 1' }] : isDocumentHubLogos ? SAMPLE_DOCUMENT_HUB_LOGOS : isOrganizations ? SAMPLE_ORGANIZATIONS : isCategories ? categories : isServiceScripts ? serviceScripts : isSpecifications ? [SAMPLE_SPECIFICATION] : isServiceItems ? args['DOM ID'] === SAMPLE_SERVICE['DOM ID'] ? serviceItems : [] : isConfigurations ? configurationRows : SAMPLE_SPECIFICATION_CONFIGURATIONS;
+            const rows = isOrders ? mock.mode === 'empty' ? [] : orders : isRelatedServiceOrders ? relatedServiceOrderRows : isItems ? orderItems[args['DOM ID']] ?? [] : isServices ? services : isMonitoringServices ? [{ 'Monitoring Service ID': 'monitoring-1', 'Monitoring Service Name': 'Monitoring service 1' }] : isDocumentHubLogos ? SAMPLE_DOCUMENT_HUB_LOGOS : isOrganizations ? SAMPLE_ORGANIZATIONS : isCategories ? categories : isServiceScripts ? serviceScripts : isSpecifications ? [SAMPLE_SPECIFICATION] : isServiceItems ? args['DOM ID'] === SAMPLE_SERVICE['DOM ID'] ? serviceItems : [] : isConfigurations ? configurationRows : SAMPLE_SPECIFICATION_CONFIGURATIONS;
             sessions.set(id, { columns, rows, offset: 0 });
             return json(route, 200, { d: { __type: 'Skyline.DataMiner.Web.Common.v1.DMAGenericInterfaceSessionInfo', ID: id, Columns: columns.map(name => ({ Name: name, ID: name, ClientType: 'string', ServerType: 'string', IsDiscreet: false, Discreets: [] })) } });
         }

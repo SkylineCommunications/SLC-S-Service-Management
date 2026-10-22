@@ -3,6 +3,12 @@ import { APP_ROOT_URL, APP_URL, SAMPLE_ORDERS, SAMPLE_SERVICE, mockDataMinerApi,
 import type { GqiMock } from './fixtures';
 
 const count = (mock: GqiMock, method: string) => mock.calls.filter(call => call.method === method).length;
+const udapiRequests = (mock: GqiMock) => mock.calls
+    .filter(call => call.method === 'ExecuteAutomationScriptWithOutput' && call.body.script?.Name === 'SLC_SM_UDAPI_ServiceManagement')
+    .map(call => JSON.parse(call.body.script.Parameters.find((parameter: any) => parameter.Name === 'Request')?.Value ?? '{}'));
+const ORDERS_ROUTE = 'service-management/v1/serviceOrder';
+const SERVICES_ROUTE = 'service-management/v1/service';
+const orderListCount = (mock: GqiMock) => udapiRequests(mock).filter(request => request.Route === ORDERS_ROUTE && request.RequestMethod === 1).length;
 
 test.describe('Service Management workspace', () => {
     let mock: GqiMock;
@@ -55,9 +61,12 @@ test.describe('Service Management workspace', () => {
         await expect(form.getByText('Name already exists!', { exact: true })).toBeVisible();
         await expect(save).toBeDisabled();
 
-        await form.getByRole('textbox', { name: 'Service ID' }).fill('SVC-TEST-001');
+        await form.getByRole('textbox', { name: 'Service ID' }).fill('SERVICE-1');
         await expect(form.getByText('Service ID already exists!', { exact: true })).toBeVisible();
         await form.getByRole('textbox', { name: 'Service ID' }).fill('SVC-NEW-001');
+        await expect(form.getByText('Service ID must look like SERVICE-123.', { exact: true })).toBeVisible();
+        await expect(save).toBeDisabled();
+        await form.getByRole('textbox', { name: 'Service ID' }).fill('SERVICE-2');
         await form.getByRole('textbox', { name: 'Name' }).fill('New service');
         await expect(save).toBeEnabled();
 
@@ -87,6 +96,41 @@ test.describe('Service Management workspace', () => {
         await expect(form.getByRole('button', { name: 'Add item', exact: true })).toBeDisabled();
         await form.getByRole('textbox', { name: 'Label' }).fill('');
         await expect(form.getByRole('button', { name: 'Add item', exact: true })).toBeEnabled();
+    });
+    test('lists, adds, edits and deletes service items through the UDAPI item routes', { tag: ['@S2', '@S5'] }, async ({ page }) => {
+        const itemsRoute = `${SERVICES_ROUTE}/SERVICE-1/item`;
+        const lastRequest = (method: number) => udapiRequests(mock).filter(request => request.RequestMethod === method && String(request.Route).startsWith(itemsRoute)).at(-1);
+        await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: /Services/ }).click();
+        await page.locator('.service-row').filter({ hasText: 'Test service' }).getByRole('button', { name: 'Open details of Test service' }).click();
+        const details = page.getByRole('dialog', { name: 'Test service' });
+        const rows = details.locator('.service-items-table tbody tr');
+        await expect(rows.filter({ hasText: 'Encoder booking' })).toContainText('SRM Booking');
+        await expect(rows.filter({ hasText: 'Encoder booking' })).toContainText('Not Implemented');
+        expect(lastRequest(1).Route).toBe(itemsRoute);
+
+        await details.getByRole('button', { name: 'Add item', exact: true }).click();
+        const addForm = page.getByRole('form', { name: 'Add service item' });
+        await addForm.getByRole('textbox', { name: 'Label' }).fill('Playout workflow');
+        await addForm.getByRole('combobox', { name: 'Type' }).selectOption('Workflow');
+        await addForm.getByRole('textbox', { name: 'Definition reference' }).fill('Playout');
+        await addForm.getByRole('button', { name: 'Add item', exact: true }).click();
+        await expect(rows.filter({ hasText: 'Playout workflow' })).toContainText('Workflow');
+        expect(JSON.parse(lastRequest(3).Body)).toEqual({ label: 'Playout workflow', type: 'Workflow', definitionReference: 'Playout', implementationReference: '', script: '' });
+
+        await details.getByRole('button', { name: 'Edit Playout workflow', exact: true }).click();
+        const editForm = page.getByRole('form', { name: 'Edit service item' });
+        await editForm.getByRole('textbox', { name: 'Label' }).fill('Playout workflow 2');
+        await editForm.getByRole('button', { name: 'Save', exact: true }).click();
+        await expect(rows.filter({ hasText: 'Playout workflow 2' })).toBeVisible();
+        expect(lastRequest(5).Route).toBe(`${itemsRoute}/3`);
+        expect(JSON.parse(lastRequest(5).Body)).toMatchObject({ label: 'Playout workflow 2', type: 'Workflow' });
+
+        await details.getByRole('button', { name: 'Delete Playout workflow 2', exact: true }).click();
+        await page.getByRole('alertdialog', { name: 'Confirm deletion' }).getByRole('button', { name: 'Delete', exact: true }).click();
+        await expect(rows.filter({ hasText: 'Playout workflow 2' })).toHaveCount(0);
+        expect(lastRequest(4).Route).toBe(`${itemsRoute}/3`);
+        expect(mock.calls.some(call => /^SLC_SM_(IAS_Add Service Item|Delete Service Item)$/.test(call.body.script?.Name ?? ''))).toBeFalsy();
+        expect(mock.calls.some(call => call.method === 'OpenQuerySession' && JSON.parse(call.body.query?.Options?.[0]?.Value?.Value ?? '{}').ScriptName === 'SLC_SM_GQIDS_Get Service Items')).toBeFalsy();
     });
     test('keeps the background inert for the service item IAS dialog and restores focus when closed', { tag: '@A5' }, async ({ page }) => {
         await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: /Services/ }).click();
@@ -127,13 +171,87 @@ test.describe('Service Management workspace', () => {
         await details.getByRole('button', { name: 'Edit', exact: true }).click();
         const form = page.getByRole('form', { name: 'Edit service' });
         await expect(form.getByRole('combobox', { name: 'Organization' })).toHaveValue('Skyline Broadcast');
-        const targetedServiceCall = mock.calls.find(call => {
-            if (call.method !== 'OpenQuerySession') return false;
-            const descriptor = JSON.parse(call.body.query.Options[0].Value.Value);
-            return descriptor.ScriptName === 'SLC_SM_GQIDS_Get Services'
-                && call.body.query.Child.Options[0].Value.some((option: any) => option.ID === 'DOM ID' && option.Value.Value === 'service-1');
+        const serviceReads = udapiRequests(mock).filter(request => request.RequestMethod === 1);
+        expect(serviceReads.filter(request => request.Route === SERVICES_ROUTE)).toHaveLength(1);
+        expect(serviceReads.find(request => request.Route === `${SERVICES_ROUTE}/SERVICE-1`)).toMatchObject({
+            QueryParameters: { fields: ['OrganizationId,OrganizationName'] },
         });
-        expect(targetedServiceCall).toBeTruthy();
+        expect(mock.calls.some(call => call.method === 'OpenQuerySession' && JSON.parse(call.body.query.Options[0].Value.Value).ScriptName === 'SLC_SM_GQIDS_Get Services')).toBeFalsy();
+    });
+    test('loads lightweight service summaries and defers configuration until the tab opens', { tag: '@S3' }, async ({ page }) => {
+        await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: /Services/ }).click();
+        const row = page.locator('.service-row').filter({ hasText: 'Test service' });
+        await expect(row).toBeVisible();
+
+        const listRequest = udapiRequests(mock).find(request => request.Route === SERVICES_ROUTE && request.RequestMethod === 1);
+        const fields = listRequest.QueryParameters.fields.join(',');
+        expect(fields).toContain('Name');
+        expect(fields).toContain('StatusName');
+        expect(fields).toContain('CategoryName');
+        expect(fields).not.toMatch(/ServiceItems|ServiceItemRelationships|ServiceConfigurationId|ConfigurationVersions|ServiceScripts|OrganizationId|OrganizationName/);
+        expect(udapiRequests(mock).some(request => request.Route === `${SERVICES_ROUTE}/SERVICE-1/configuration`)).toBeFalsy();
+
+        await row.getByRole('button', { name: 'Open details of Test service' }).click();
+        const details = page.getByRole('dialog');
+        await expect(details).toBeVisible();
+        await expect.poll(() => udapiRequests(mock).some(request => request.Route === `${SERVICES_ROUTE}/SERVICE-1/item`)).toBeTruthy();
+        await expect.poll(() => udapiRequests(mock).some(request => request.Route === `${SERVICES_ROUTE}/SERVICE-1/relatedOrder`)).toBeTruthy();
+        await expect.poll(() => udapiRequests(mock).some(request => request.Route === `${SERVICES_ROUTE}/SERVICE-1/script`)).toBeTruthy();
+        expect(udapiRequests(mock).some(request => request.Route === `${SERVICES_ROUTE}/SERVICE-1/configuration`)).toBeFalsy();
+
+        await details.getByRole('button', { name: 'Configurations', exact: true }).click();
+        await expect.poll(() => udapiRequests(mock).some(request => request.Route === `${SERVICES_ROUTE}/SERVICE-1/configuration`)).toBeTruthy();
+    });
+    test('creates, edits, re-logos and transitions services through the UDAPI service routes', { tag: ['@S3', '@S6'] }, async ({ page }) => {
+        const lastRequest = (method: number) => udapiRequests(mock).filter(request => request.RequestMethod === method && String(request.Route).startsWith(SERVICES_ROUTE)).at(-1);
+        await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: /Services/ }).click();
+
+        await page.getByRole('button', { name: 'Add service', exact: true }).click();
+        const createForm = page.getByRole('form', { name: 'New service' });
+        await createForm.getByRole('textbox', { name: 'Service ID' }).fill('SERVICE-7');
+        await createForm.getByRole('textbox', { name: 'Name' }).fill('UDAPI service');
+        await createForm.getByRole('combobox', { name: 'Category' }).selectOption('Production');
+        await createForm.getByRole('combobox', { name: 'Service specification' }).selectOption('Managed switching');
+        await createForm.getByRole('combobox', { name: 'Organization' }).selectOption('Acme Media');
+        await createForm.getByRole('checkbox', { name: 'Indefinite (no end time)' }).check();
+        await createForm.getByRole('checkbox', { name: 'Link service' }).check();
+        await createForm.getByRole('combobox', { name: 'Linked service' }).selectOption({ label: 'Monitoring service 1' });
+        await createForm.getByRole('button', { name: 'Create', exact: true }).click();
+        await expect(createForm).toBeHidden();
+        const create = lastRequest(3);
+        expect(create.Route).toBe(SERVICES_ROUTE);
+        expect(JSON.parse(create.Body)).toMatchObject({ serviceId: 'SERVICE-7', name: 'UDAPI service', category: { name: 'Production' }, serviceSpecificationId: 'spec-1', organizationId: 'org-1', endTime: null, generateMonitoringService: true, monitoringService: 'monitoring-1' });
+        const createdRow = page.locator('.service-row').filter({ hasText: 'UDAPI service' });
+        await expect(createdRow).toBeVisible();
+
+        await createdRow.getByRole('button', { name: 'Open details of UDAPI service' }).click();
+        const details = page.getByRole('dialog', { name: 'UDAPI service' });
+        await details.getByRole('button', { name: 'Edit', exact: true }).click();
+        const editForm = page.getByRole('form', { name: 'Edit service' });
+        await editForm.getByRole('textbox', { name: 'Name' }).fill('UDAPI service renamed');
+        await editForm.getByRole('combobox', { name: 'Organization' }).selectOption('');
+        await editForm.getByRole('button', { name: 'Save', exact: true }).click();
+        await expect(editForm).toBeHidden();
+        const edit = lastRequest(5);
+        expect(edit.Route).toBe(`${SERVICES_ROUTE}/SERVICE-7`);
+        const editBody = JSON.parse(edit.Body);
+        expect(editBody).toMatchObject({ name: 'UDAPI service renamed', organizationId: null });
+        expect(editBody).not.toHaveProperty('serviceId');
+        expect(editBody).not.toHaveProperty('serviceSpecificationId');
+
+        await page.getByRole('dialog', { name: 'UDAPI service renamed' }).getByRole('button', { name: 'Design', exact: true }).click();
+        await expect.poll(() => lastRequest(3)?.Route).toBe(`${SERVICES_ROUTE}/SERVICE-7/transition`);
+        expect(JSON.parse(lastRequest(3).Body)).toEqual({ targetStatus: 'Designed' });
+
+        await page.keyboard.press('Escape');
+        await page.getByRole('button', { name: 'Set logo for UDAPI service renamed' }).click();
+        const logoForm = page.getByRole('form', { name: 'Assign service logo' });
+        await logoForm.getByRole('combobox', { name: 'Logo category' }).selectOption('Connectivity');
+        await logoForm.getByRole('button', { name: 'Apply logo', exact: true }).click();
+        await expect(logoForm).toBeHidden();
+        expect(lastRequest(5).Route).toBe(`${SERVICES_ROUTE}/SERVICE-7`);
+        expect(JSON.parse(lastRequest(5).Body)).toEqual({ category: { name: 'Connectivity' } });
+        expect(mock.calls.some(call => /^SLC_SM_(Create Service Inventory Item|Service_StateTransitions)$/.test(call.body.script?.Name ?? ''))).toBeFalsy();
     });
     test('manages service categories from the Catalog subpage', { tag: '@S3' }, async ({ page }) => {
         await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: /Settings/ }).click();
@@ -146,7 +264,19 @@ test.describe('Service Management workspace', () => {
         await form.getByRole('combobox', { name: 'Document Hub logo' }).selectOption('/Public/DocumentHub/connectivity.svg');
         await form.getByRole('button', { name: 'Create', exact: true }).click();
         await expect(page.getByText('Broadcast', { exact: true })).toBeVisible();
-        expect(mock.calls.some(call => call.method === 'ExecuteAutomationScriptWithOutput' && call.body.script?.Name === 'SLC_SM_AS_ManageServiceCategory')).toBeTruthy();
+        const udapiCall = mock.calls.find(call => call.method === 'ExecuteAutomationScriptWithOutput' && call.body.script?.Name === 'SLC_SM_UDAPI_ServiceManagement' && JSON.parse(call.body.script.Parameters?.[0]?.Value ?? '{}').RequestMethod === 3);
+        expect(udapiCall).toBeTruthy();
+        const request = JSON.parse(udapiCall!.body.script.Parameters[0].Value);
+        expect(request).toMatchObject({ Route: 'service-management/v1/serviceCategory', RouteParameters: {} });
+        expect(JSON.parse(request.Body)).toEqual({ name: 'Broadcast', type: 'Channel', icon: '/Public/DocumentHub/connectivity.svg' });
+        expect(udapiCall!.body.script.Parameters[0]).toMatchObject({ ParameterId: 2, Name: 'Request' });
+        const logoQuery = mock.calls.find(call => call.method === 'OpenQuerySession'
+            && JSON.parse(call.body.query?.Options?.[0]?.Value?.Value ?? '{}').ScriptName === 'SLC_SM_DS_GetDocumentHubLogos');
+        expect(logoQuery).toBeTruthy();
+        expect(JSON.parse(logoQuery!.body.query.Options[0].Value.Value)).toMatchObject({
+            LibraryName: 'SLCSMDSGetDocumentHubLogos',
+            TypeFullName: 'SLCSMDSGetDocumentHubLogos.SLCSMDSGetDocumentHubLogos',
+        });
     });
     test('disables service category creation until name and type are valid', { tag: '@C4' }, async ({ page }) => {
         await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: /Settings/ }).click();
@@ -185,37 +315,84 @@ test.describe('Service Management workspace', () => {
         const related = dialog.getByRole('heading', { name: 'Related service orders' }).locator('..');
         await expect(related).toContainText('1');
         await expect(dialog).toContainText('Network refresh');
-        const relatedOrdersCall = mock.calls.find(call => {
+        expect(udapiRequests(mock)).toContainEqual(expect.objectContaining({
+            Route: `${SERVICES_ROUTE}/SERVICE-1/relatedOrder`,
+            RequestMethod: 1,
+        }));
+        expect(mock.calls.some(call => {
             if (call.method !== 'OpenQuerySession') return false;
             const descriptor = JSON.parse(call.body.query.Options[0].Value.Value);
             return descriptor.TypeFullName === 'SLC_SM_GQIDS_Get_Related_Service_Orders.GetRelatedServiceOrders';
-        });
-        expect(relatedOrdersCall?.body.query.Child.Options[0].Value).toEqual(expect.arrayContaining([
-            expect.objectContaining({ ID: 'Service ID', Value: expect.objectContaining({ Value: 'service-1' }) }),
-        ]));
+        })).toBeFalsy();
     });
     test('loads service configuration only for the selected service when requested', { tag: '@C3' }, async ({ page }) => {
         await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: /Services/ }).click();
         const serviceRow = page.locator('.service-row').filter({ hasText: 'Test service' });
-        const configurationCalls = () => mock.calls.filter(call => {
-            if (call.method !== 'OpenQuerySession') return false;
-            const descriptor = JSON.parse(call.body.query.Options[0].Value.Value);
-            return descriptor.ScriptName === 'SLC_SM_GQIDS_Get Service Configurations';
-        });
+        const configurationRoute = `${SERVICES_ROUTE}/SERVICE-1/configuration`;
+        const configurationRequests = () => udapiRequests(mock).filter(request => request.Route === configurationRoute);
 
-        expect(configurationCalls()).toHaveLength(0);
+        expect(configurationRequests()).toHaveLength(0);
         await serviceRow.getByRole('button', { name: 'Open details of Test service' }).click();
         const dialog = page.getByRole('dialog');
         await expect(dialog.getByRole('button', { name: 'Configurations', exact: true })).toBeVisible();
-        expect(configurationCalls()).toHaveLength(0);
+        expect(configurationRequests()).toHaveLength(0);
 
         await dialog.getByRole('button', { name: 'Configurations', exact: true }).click();
         await expect(dialog.getByRole('heading', { name: 'Service configuration' })).toBeVisible();
-        await expect.poll(() => configurationCalls().length).toBeGreaterThan(0);
-        const configurationCall = configurationCalls()[0];
-        expect(configurationCall.body.query.Child.Options[0].Value).toEqual(expect.arrayContaining([
-            expect.objectContaining({ ID: 'DOM ID', Value: expect.objectContaining({ Value: 'service-1' }) }),
-            expect.objectContaining({ ID: 'Configuration Type', Value: expect.objectContaining({ Value: 'Service' }) }),
+        await expect.poll(() => configurationRequests().length).toBeGreaterThan(0);
+        expect(configurationRequests()[0]).toMatchObject({ RequestMethod: 1, Route: configurationRoute });
+        expect(mock.calls.some(call => {
+            if (call.method !== 'OpenQuerySession') return false;
+            const descriptor = JSON.parse(call.body.query.Options[0].Value.Value);
+            return descriptor.ScriptName === 'SLC_SM_GQIDS_Get Service Configurations';
+        })).toBeFalsy();
+    });
+    test('saves service configurations through the UDAPI PUT route', { tag: '@C3' }, async ({ page }) => {
+        await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: /Services/ }).click();
+        const serviceRow = page.locator('.service-row').filter({ hasText: 'Test service' });
+        await serviceRow.getByRole('button', { name: 'Open details of Test service' }).click();
+        const dialog = page.getByRole('dialog');
+        await dialog.getByRole('button', { name: 'Configurations', exact: true }).click();
+        await expect(dialog.getByRole('heading', { name: 'Service configuration' })).toBeVisible();
+        await dialog.getByRole('button', { name: 'Expand standalone parameters' }).click();
+        await dialog.getByRole('combobox', { name: 'Value for Polarization' }).selectOption({ label: 'Vertical' });
+        await dialog.getByRole('button', { name: 'Save configuration', exact: true }).click();
+        await expect.poll(() => udapiRequests(mock).some(request =>
+            request.Route === `${SERVICES_ROUTE}/SERVICE-1/configuration` && request.RequestMethod === 2,
+        )).toBeTruthy();
+        const saveRequest = udapiRequests(mock).find(request =>
+            request.Route === `${SERVICES_ROUTE}/SERVICE-1/configuration` && request.RequestMethod === 2,
+        );
+        expect(JSON.parse(saveRequest.Body).Parameters).toEqual(expect.arrayContaining([
+            expect.objectContaining({ ParameterId: 'parameter-discrete', Value: 'Vertical' }),
+        ]));
+    });
+    test('adds a new service configuration parameter through the UDAPI PUT route', { tag: '@C3' }, async ({ page }) => {
+        await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: /Services/ }).click();
+        const serviceRow = page.locator('.service-row').filter({ hasText: 'Test service' });
+        await serviceRow.getByRole('button', { name: 'Open details of Test service' }).click();
+        const dialog = page.getByRole('dialog');
+        await dialog.getByRole('button', { name: 'Configurations', exact: true }).click();
+        await expect(dialog.getByRole('heading', { name: 'Service configuration' })).toBeVisible();
+
+        const parameters = dialog.locator('.native-configuration-parameters');
+        await parameters.getByRole('combobox', { name: 'Select parameter to add' }).selectOption('parameter-1');
+        await parameters.getByRole('button', { name: 'Add', exact: true }).click();
+        await dialog.getByRole('spinbutton', { name: 'Value for Symbol Rate' }).fill('2500');
+        await dialog.getByRole('button', { name: 'Save configuration', exact: true }).click();
+
+        const saveRequest = () => udapiRequests(mock).find(request =>
+            request.Route === `${SERVICES_ROUTE}/SERVICE-1/configuration` && request.RequestMethod === 2,
+        );
+        await expect.poll(saveRequest).toBeTruthy();
+        expect(JSON.parse(saveRequest().Body).Parameters).toEqual(expect.arrayContaining([
+            expect.objectContaining({
+                ConfigurationId: '',
+                ParameterId: 'parameter-1',
+                ParameterValueId: '',
+                Value: '2500',
+                Mandatory: false,
+            }),
         ]));
     });
     test('opens logo assignment from the service table icon', { tag: '@S3' }, async ({ page }) => {
@@ -275,15 +452,11 @@ test.describe('Service Management workspace', () => {
         await expect(dialog.getByLabel('Select parameter to add')).toHaveCSS('width', '240px');
         await expect(dialog.getByLabel('Select profile to add')).toHaveCSS('width', '240px');
 
-        const configurationCall = mock.calls.find(call => {
-            if (call.method !== 'OpenQuerySession') return false;
-            const descriptor = JSON.parse(call.body.query.Options[0].Value.Value);
-            return descriptor.ScriptName === 'SLC_SM_GQIDS_Get Service Configurations';
-        });
-        expect(configurationCall?.body.query.Child.Options[0].Value).toEqual(expect.arrayContaining([
-            expect.objectContaining({ ID: 'DOM ID', Value: expect.objectContaining({ Value: 'spec-1' }) }),
-            expect.objectContaining({ ID: 'Configuration Type', Value: expect.objectContaining({ Value: 'Specification' }) }),
-        ]));
+        const configurationCall = mock.calls.find(call => call.method === 'ExecuteAutomationScriptWithOutput'
+            && call.body.script?.Name === 'SLC_SM_UDAPI_ServiceManagement'
+            && JSON.parse(call.body.script.Parameters?.[0]?.Value ?? '{}').Route === 'service-management/v1/serviceSpecification/spec-1/configuration');
+        expect(configurationCall).toBeTruthy();
+        expect(JSON.parse(configurationCall!.body.script.Parameters[0].Value)).toMatchObject({ RequestMethod: 1 });
 
         await dialog.getByRole('button', { name: 'Collapse profiles' }).click();
         await expect(dialog.getByRole('button', { name: 'Expand profiles' })).toBeVisible();
@@ -316,6 +489,20 @@ test.describe('Service Management workspace', () => {
         await expect(dialog.locator('.configuration-profile-card')).toHaveCount(2);
         await expect(dialog.getByRole('button', { name: /^(Expand|Collapse) Transport profile$/ })).toBeVisible();
     });
+    test('loads specification items through the UDAPI instead of GQI', { tag: '@C2' }, async ({ page }) => {
+        await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: 'inventory_2 Catalog' }).click();
+        await page.locator('.catalog-row').filter({ hasText: 'Managed switching' }).getByRole('button', { name: 'Open details of Managed switching' }).click();
+        const dialog = page.getByRole('dialog');
+        const rows = dialog.locator('.service-items-table tbody tr');
+        await expect(rows).toHaveCount(1);
+        for (const text of ['Switch booking', 'SRM Booking', 'Switching Booking Manager']) await expect(rows.first()).toContainText(text);
+        const itemRequest = mock.calls
+            .filter(call => call.method === 'ExecuteAutomationScriptWithOutput' && call.body.script?.Name === 'SLC_SM_UDAPI_ServiceManagement')
+            .map(call => JSON.parse(call.body.script.Parameters?.[0]?.Value ?? '{}'))
+            .find(request => request.Route === 'service-management/v1/serviceSpecification/spec-1');
+        expect(itemRequest).toMatchObject({ RequestMethod: 1, QueryParameters: { fields: ['ServiceItems'] } });
+        expect(mock.calls.some(call => call.method === 'OpenQuerySession' && JSON.parse(call.body.query?.Options?.[0]?.Value?.Value ?? '{}').ScriptName === 'SLC_SM_GQIDS_Get Service Items')).toBeFalsy();
+    });
     test('keeps a new configuration version inactive until activation', { tag: '@C7' }, async ({ page }) => {
         await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: 'inventory_2 Catalog' }).click();
         await page.locator('.catalog-row').filter({ hasText: 'Managed switching' }).getByRole('button', { name: 'Open details of Managed switching' }).click();
@@ -326,7 +513,37 @@ test.describe('Service Management workspace', () => {
         await expect(dialog.getByText('Inactive until Activate', { exact: true })).toBeVisible();
         await expect(dialog.getByRole('button', { name: 'Delete configuration', exact: true })).toBeDisabled();
     });
-    test('manages service operations through the Automation script contract', { tag: '@W8' }, async ({ page }) => {
+    test('saves specification configurations through the UDAPI PUT route', { tag: '@C2' }, async ({ page }) => {
+        await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: 'inventory_2 Catalog' }).click();
+        await page.locator('.catalog-row').filter({ hasText: 'Managed switching' }).getByRole('button', { name: 'Open details of Managed switching' }).click();
+        const dialog = page.getByRole('dialog');
+        await dialog.getByRole('button', { name: 'Configurations', exact: true }).click();
+        await expect(dialog.getByRole('heading', { name: 'Specification configuration' })).toBeVisible();
+        const configurationRoute = 'service-management/v1/serviceSpecification/spec-1/configuration';
+        const configurationReadCount = () => udapiRequests(mock).filter(request =>
+            request.Route === configurationRoute && request.RequestMethod === 1,
+        ).length;
+        const readsBeforeSave = configurationReadCount();
+        await dialog.getByRole('button', { name: 'Expand standalone parameters' }).click();
+        await dialog.getByRole('combobox', { name: 'Value for Polarization' }).selectOption({ label: 'Vertical' });
+        await dialog.getByRole('textbox', { name: 'Version name' }).fill('Managed switching v2');
+        await dialog.getByRole('button', { name: 'Save configuration', exact: true }).click();
+        const saveRequest = () => mock.calls
+            .filter(call => call.method === 'ExecuteAutomationScriptWithOutput' && call.body.script?.Name === 'SLC_SM_UDAPI_ServiceManagement')
+            .map(call => JSON.parse(call.body.script.Parameters?.[0]?.Value ?? '{}'))
+            .find(request => request.RequestMethod === 2);
+        await expect.poll(saveRequest).toBeTruthy();
+        expect(saveRequest().Route).toBe('service-management/v1/serviceSpecification/spec-1/configuration');
+        expect(JSON.parse(saveRequest().Body).Parameters).toEqual(expect.arrayContaining([expect.objectContaining({ Value: 'Vertical' })]));
+        // The specification is its own configuration version, so the version name is sent as the specification name.
+        expect(JSON.parse(saveRequest().Body)).toMatchObject({ Name: 'Managed switching v2' });
+        expect(JSON.parse(saveRequest().Body)).not.toHaveProperty('VersionName');
+        expect(mock.calls.some(call => call.body.script?.Name === 'SLC_SM_IAS_Service_Spec_Configuration')).toBeFalsy();
+        await expect.poll(configurationReadCount).toBeGreaterThan(readsBeforeSave);
+        await expect(dialog.getByLabel('Version name')).toBeVisible();
+        await expect(dialog.getByRole('button', { name: 'Save configuration', exact: true })).toBeEnabled();
+    });
+    test('manages service operations through the UDAPI script routes', { tag: '@W8' }, async ({ page }) => {
         await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: /Services/ }).click();
         const serviceRow = page.locator('.service-row').filter({ hasText: 'Test service' });
         await expect(serviceRow).toBeVisible();
@@ -343,18 +560,10 @@ test.describe('Service Management workspace', () => {
         await addForm.getByRole('button', { name: 'Add operation' }).click();
         await expect(panel.getByText('Provisioning operation', { exact: true })).toBeVisible();
 
-        const getParameter = (call: any, name: string) => {
-            const parameter = call.body.script.Parameters.find((candidate: any) => candidate.Name === name);
-            return JSON.parse(parameter.Value)[0];
-        };
-        const addCall = mock.calls.filter(call => call.method === 'ExecuteAutomationScriptWithOutput').at(-1);
-        expect(addCall?.body.script.Name).toBe('SLC_SM_IAS_Manage Service Scripts');
-        expect(getParameter(addCall, 'Action')).toBe('Add');
-        expect(getParameter(addCall, 'Service Id')).toBe(SAMPLE_SERVICE['DOM ID']);
-        expect(getParameter(addCall, 'Script Name')).toBe('Provision service');
-        expect(getParameter(addCall, 'Script Description')).toBe('Provisioning operation');
-        expect(getParameter(addCall, 'Original Script Description')).toBe('Provisioning operation');
-        expect(getParameter(addCall, 'Payload')).toBe('{}');
+        const scriptsRoute = `${SERVICES_ROUTE}/SERVICE-1/script`;
+        const addRequest = udapiRequests(mock).find(request => request.Route === scriptsRoute && request.RequestMethod === 3);
+        expect(addRequest).toBeTruthy();
+        expect(JSON.parse(addRequest.Body)).toEqual({ name: 'Provision service', description: 'Provisioning operation' });
 
         await panel.getByRole('button', { name: 'Edit operation Provisioning operation' }).click();
         const editForm = page.getByRole('form', { name: 'Edit service operation' });
@@ -362,21 +571,27 @@ test.describe('Service Management workspace', () => {
         await editForm.getByRole('button', { name: 'Save operation' }).click();
         await expect(panel.getByText('Provisioning updated', { exact: true })).toBeVisible();
         await expect(panel.getByText('Provisioning operation', { exact: true })).toHaveCount(0);
-        const updateCall = mock.calls.filter(call => call.method === 'ExecuteAutomationScriptWithOutput').at(-1);
-        expect(getParameter(updateCall, 'Action')).toBe('Update');
-        expect(getParameter(updateCall, 'Original Script Description')).toBe('Provisioning operation');
-        expect(getParameter(updateCall, 'Script Description')).toBe('Provisioning updated');
+        const updateRequest = udapiRequests(mock).find(request => request.Route === scriptsRoute && request.RequestMethod === 5);
+        expect(JSON.parse(updateRequest.Body)).toEqual({
+            originalDescription: 'Provisioning operation',
+            name: 'Provision service',
+            description: 'Provisioning updated',
+        });
 
         await panel.getByRole('button', { name: 'Delete operation Provisioning updated' }).click();
         const confirmation = page.getByRole('alertdialog', { name: 'Confirm deletion' });
         await confirmation.getByRole('button', { name: 'Delete', exact: true }).click();
         await expect(panel.getByText('Provisioning updated', { exact: true })).toHaveCount(0);
-        const removeCall = mock.calls.filter(call => call.method === 'ExecuteAutomationScriptWithOutput').at(-1);
-        expect(getParameter(removeCall, 'Action')).toBe('Remove');
-        expect(getParameter(removeCall, 'Original Script Description')).toBe('Provisioning updated');
-        expect(mock.calls.filter(call => call.method === 'OpenQuerySession').length).toBeGreaterThanOrEqual(4);
+        const deleteRequest = udapiRequests(mock).find(request => request.Route === scriptsRoute && request.RequestMethod === 4);
+        expect(JSON.parse(deleteRequest.Body)).toEqual({ description: 'Provisioning updated' });
+        expect(mock.calls.some(call => call.body.script?.Name === 'SLC_SM_IAS_Manage Service Scripts')).toBeFalsy();
+        expect(mock.calls.some(call => {
+            if (call.method !== 'OpenQuerySession') return false;
+            const descriptor = JSON.parse(call.body.query.Options[0].Value.Value);
+            return descriptor.ScriptName === 'SLC_SM_GQIDS_Get Service Scripts';
+        })).toBeFalsy();
     });
-    test('lists service orders from the Get_ServiceOrders GQI data source', { tag: ['@G1', '@G2'] }, async ({ page }) => {
+    test('lists service orders from the Service Management UDAPI', { tag: ['@G1', '@G2'] }, async ({ page }) => {
         const rows = page.locator('.order-row');
         await expect(rows).toHaveCount(3);
         const network = rows.filter({ hasText: 'Network refresh' });
@@ -387,15 +602,14 @@ test.describe('Service Management workspace', () => {
         await expect(page.getByTestId('open-orders')).toHaveText('2');
         await expect(page.getByText('3 orders in total')).toBeVisible();
         await expect(page.getByText('8% this month')).toHaveCount(0);
-        expect(count(mock, 'OpenQuerySession')).toBe(1);
-        expect(count(mock, 'GetNextQuerySessionPage')).toBe(2);
-        await expect.poll(() => count(mock, 'CloseQuerySession')).toBe(1);
+        expect(orderListCount(mock)).toBe(1);
+        expect(count(mock, 'OpenQuerySession')).toBe(0);
     });
     test.describe('service order date serialization', () => {
         test.use({ timezoneId: 'America/Los_Angeles' });
         test('preserves the requested completion date when editing an order', { tag: '@W1' }, async ({ page }) => {
             await page.locator('.order-row').filter({ hasText: 'Network refresh' }).getByRole('button', { name: 'Open details of Network refresh' }).click();
-            await page.getByRole('dialog', { name: 'Network refresh' }).getByRole('button', { name: 'Edit', exact: true }).click();
+            await page.getByRole('dialog', { name: 'Network refresh' }).locator('.drawer-header-actions').getByRole('button', { name: 'Edit', exact: true }).click();
 
             const form = page.getByRole('form', { name: 'Edit service order' });
             await expect(form.getByLabel('Requested start date')).toHaveValue('2026-10-20T10:30');
@@ -403,25 +617,24 @@ test.describe('Service Management workspace', () => {
             await form.getByRole('textbox', { name: 'Label' }).fill('Network refresh updated');
             await form.getByRole('button', { name: 'Save', exact: true }).click();
 
-            const saveCall = mock.calls
-                .filter(call => call.method === 'ExecuteAutomationScriptWithOutput' && call.body.script?.Name === 'SLC_SM_IAS_Add Service Order')
-                .at(-1);
-            expect(saveCall).toBeTruthy();
-            const parameters = Object.fromEntries(saveCall!.body.script.Parameters.map((parameter: any) => [
-                parameter.Name,
-                JSON.parse(parameter.Value ?? '[]')?.[0] ?? '',
-            ]));
-            expect(parameters.Action).toBe('Edit');
-            const payload = JSON.parse(parameters.Payload);
-            expect(payload.RequestedStart).toBe('2026-10-20T17:30:00.000Z');
-            expect(payload.RequestedEnd).toBe('2026-10-20T19:45:00.000Z');
+            await expect.poll(() => udapiRequests(mock).filter(request => request.RequestMethod === 5)).toHaveLength(1);
+            const patch = udapiRequests(mock).find(request => request.RequestMethod === 5);
+            expect(patch.Route).toBe(`${ORDERS_ROUTE}/${SAMPLE_ORDERS[0].OrderId}`);
+            const body = JSON.parse(patch.Body);
+            expect(body).toEqual({
+                name: 'Network refresh updated',
+                description: 'Replace core switches',
+                externalId: 'SO-1042',
+                priority: 'high',
+                completionInfo: { requestedStartDate: '2026-10-20T17:30:00.000Z', requestedCompletedDate: '2026-10-20T19:45:00.000Z' },
+            });
+            expect(mock.calls.some(call => call.body.script?.Name === 'SLC_SM_IAS_Add Service Order')).toBeFalsy();
         });
     });
-    test('refresh re-runs the GQI query', { tag: '@G3' }, async ({ page }) => {
+    test('refresh re-runs the UDAPI order list request', { tag: '@G3' }, async ({ page }) => {
         await expect(page.locator('.order-row')).toHaveCount(3);
         await page.getByRole('button', { name: 'Refresh', exact: true }).click();
-        await expect.poll(() => count(mock, 'OpenQuerySession')).toBe(2);
-        await expect.poll(() => count(mock, 'CloseQuerySession')).toBe(2);
+        await expect.poll(() => orderListCount(mock)).toBe(2);
         await expect(page.locator('.order-row')).toHaveCount(3);
         await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toBeEnabled();
     });
@@ -438,8 +651,7 @@ test.describe('Service Management workspace', () => {
         await expect(items).toHaveCount(2);
         for (const text of ['Core switch A', 'In Progress', 'Add', 'Managed switching', 'Core network', '9/1/2026 8:00:00 AM']) await expect(items.first()).toContainText(text);
         await expect(items.nth(1)).not.toContainText('No Start Time');
-        const itemQuery = mock.calls.find(call => call.method === 'OpenQuerySession' && call.body.query.Child.Options[0].Value.length);
-        expect(itemQuery?.body.query.Child.Options[0].Value[0]).toMatchObject({ ID: 'DOM ID', Value: { Value: SAMPLE_ORDERS[0]['Order ID'] } });
+        expect(udapiRequests(mock).some(request => request.Route === `${ORDERS_ROUTE}/${SAMPLE_ORDERS[0].OrderId}/item` && request.RequestMethod === 1)).toBeTruthy();
         await page.keyboard.press('Escape');
         await expect(panel).toHaveCount(0);
         expect(new URL(page.url()).hash).toBe('#orders');
@@ -448,22 +660,21 @@ test.describe('Service Management workspace', () => {
         await page.getByRole('button', { name: 'Close order details' }).click();
         await expect(page.getByRole('dialog')).toHaveCount(0);
     });
-    test('blocks service initialization until the specification is configured', { tag: '@W3' }, async ({ page }) => {
+    test('initializes a service when its specification has no configuration', { tag: '@W3' }, async ({ page }) => {
         await page.locator('.order-row').filter({ hasText: 'Network refresh' }).getByRole('button', { name: 'Open details of Network refresh' }).click();
         const panel = page.getByRole('dialog', { name: 'Network refresh' });
         const item = panel.locator('.order-item').filter({ hasText: 'Core switch B' });
         const initialize = item.getByRole('button', { name: 'Initialize service for Core switch B' });
         await expect(initialize).toBeEnabled();
         await initialize.click();
-        await expect(item.getByRole('note')).toContainText('Configure the service specification before initializing a service.');
-        await expect(initialize).toBeDisabled();
+        await expect(item.getByRole('button', { name: 'Open service Core switch B' })).toBeVisible();
+        const requests = udapiRequests(mock);
+        const initializeRequests = requests.filter(request => request.Route.endsWith('/initializeService'));
+        expect(initializeRequests).toHaveLength(1);
+        expect(initializeRequests[0].Route).toBe(`${ORDERS_ROUTE}/${SAMPLE_ORDERS[0].OrderId}/item/a2/initializeService`);
+        expect(initializeRequests[0].RequestMethod).toBe(3);
+        expect(requests.some(request => request.Route === 'service-management/v1/serviceSpecification/unconfigured-spec/configuration')).toBe(false);
         await expect.poll(() => mock.calls.filter(call => call.method === 'ExecuteAutomationScriptWithOutput' && call.body.script?.Name === 'SLC_SM_Create Service Inventory Item')).toHaveLength(0);
-        expect(mock.calls.some(call => {
-            if (call.method !== 'OpenQuerySession') return false;
-            const descriptor = JSON.parse(call.body.query.Options[0].Value.Value);
-            return descriptor.ScriptName === 'SLC_SM_GQIDS_Get Service Configurations'
-                && call.body.query.Child.Options[0].Value.some((option: any) => option.ID === 'DOM ID' && option.Value.Value === 'unconfigured-spec');
-        })).toBeTruthy();
     });
     test('disables order-item creation until IAS-required selections are valid', { tag: '@D5' }, async ({ page }) => {
        await page.locator('.order-row').filter({ hasText: 'Network refresh' }).getByRole('button', { name: 'Open details of Network refresh' }).click();
@@ -481,6 +692,38 @@ test.describe('Service Management workspace', () => {
        await expect(itemForm.getByRole('button', { name: 'Add item', exact: true })).toBeDisabled();
        await itemForm.getByLabel('End time').fill('2100-01-01T08:00');
        await expect(itemForm.getByRole('button', { name: 'Add item', exact: true })).toBeEnabled();
+    });
+    test('adds, edits and deletes order items through the UDAPI item routes', { tag: '@D6' }, async ({ page }) => {
+        const itemsRoute = `${ORDERS_ROUTE}/${SAMPLE_ORDERS[1].OrderId}/item`;
+        const lastRequest = (method: number) => udapiRequests(mock).filter(request => request.RequestMethod === method).at(-1);
+        await page.locator('.order-row').filter({ hasText: 'Studio expansion' }).getByRole('button', { name: 'Open details of Studio expansion' }).click();
+        const panel = page.getByRole('dialog', { name: 'Studio expansion' });
+        await expect(panel).toContainText('This order has no items.');
+
+        await panel.getByRole('button', { name: 'Add item', exact: true }).click();
+        const addForm = page.getByRole('form', { name: 'Add service order item' });
+        await addForm.getByRole('textbox', { name: 'Label' }).fill('Studio B uplink');
+        await addForm.getByRole('combobox', { name: 'Service specification' }).selectOption({ label: 'Managed switching' });
+        await addForm.getByRole('button', { name: 'Add item', exact: true }).click();
+        await expect(panel.locator('.order-item').filter({ hasText: 'Studio B uplink' })).toContainText('Managed switching');
+        expect(lastRequest(3).Route).toBe(itemsRoute);
+        expect(JSON.parse(lastRequest(3).Body)).toMatchObject({ name: 'Studio B uplink', action: 'Add', indefiniteRuntime: true, startTime: null, endTime: null, serviceSpecificationId: 'spec-1' });
+
+        await panel.locator('.order-item').filter({ hasText: 'Studio B uplink' }).getByRole('button', { name: 'Edit', exact: true }).click();
+        const editForm = page.getByRole('form', { name: 'Edit service order item' });
+        await editForm.getByRole('textbox', { name: 'Label' }).fill('Studio B uplink 2');
+        await editForm.getByRole('button', { name: 'Save', exact: true }).click();
+        await expect(panel.locator('.order-item').filter({ hasText: 'Studio B uplink 2' })).toBeVisible();
+        expect(lastRequest(5).Route).toBe(`${itemsRoute}/item-1`);
+        const patch = JSON.parse(lastRequest(5).Body);
+        expect(patch).toMatchObject({ name: 'Studio B uplink 2', action: 'Add' });
+        expect(patch).not.toHaveProperty('serviceSpecificationId');
+
+        await panel.locator('.order-item').filter({ hasText: 'Studio B uplink 2' }).getByRole('button', { name: 'Delete', exact: true }).click();
+        await page.getByRole('alertdialog', { name: 'Confirm deletion' }).getByRole('button', { name: 'Delete', exact: true }).click();
+        await expect(panel).toContainText('This order has no items.');
+        expect(lastRequest(4).Route).toBe(`${itemsRoute}/item-1`);
+        expect(mock.calls.some(call => /^SLC_SM_(IAS_Add Service Order Item|Delete Service Order Item)$/.test(call.body.script?.Name ?? ''))).toBeFalsy();
     });
     test('order details can be deep linked and show an item error with retry', { tag: ['@D3', '@D4'] }, async ({ page }) => {
         mock.itemsFail = true;
@@ -501,7 +744,7 @@ test.describe('Service Management workspace', () => {
 
 test.describe('Orders data states', () => {
     test.beforeEach(async ({ context }) => { await setSessionCookie(context); });
-    test('shows an error with retry when the GQI query fails', { tag: '@G4' }, async ({ page }) => {
+    test('shows an error with retry when the order list request fails', { tag: '@G4' }, async ({ page }) => {
         const mock = await mockDataMinerApi(page, 'error');
         await page.goto(APP_URL);
         const alert = page.getByRole('alert');
@@ -520,7 +763,7 @@ test.describe('Orders data states', () => {
         await expect(page.getByText('No service orders yet.')).toBeVisible();
         await expect(page.getByTestId('open-orders')).toHaveText('0');
     });
-    test('redirects to DataMiner authentication when the GQI call reports an expired connection', { tag: '@G6' }, async ({ page }) => {
+    test('redirects to DataMiner authentication when the order list call reports an expired connection', { tag: '@G6' }, async ({ page }) => {
         await mockDataMinerApi(page, 'expired');
         const deepLink = `${APP_ROOT_URL}#orders/${encodeURIComponent(SAMPLE_ORDERS[0]['Order ID'])}`;
         await page.goto(deepLink);

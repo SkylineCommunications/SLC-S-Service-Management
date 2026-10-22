@@ -19,6 +19,7 @@ namespace SLC_SM_IAS_Service_Spec_Configuration
 	using System.Collections.Generic;
 	using System.Globalization;
 	using System.Linq;
+	using Library.Dom;
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
@@ -111,7 +112,7 @@ namespace SLC_SM_IAS_Service_Spec_Configuration
 			var definitions = ReadProfileDefinitions(helper);
 			DeleteSpecificationProfiles(helper, payload);
 			specification.ConfigurationProfiles = SaveProfiles(helper, payload.Profiles, definitions);
-			helper.ServiceCatalog.ServiceSpecifications.CreateOrUpdate(new[] { specification });
+			helper.CreateOrUpdateSpecification(specification);
 		}
 
 		private static ServiceSpecification ReadSpecification(ServiceManagementApiHelper helper, Guid domId)

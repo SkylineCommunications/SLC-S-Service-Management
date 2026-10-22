@@ -6,6 +6,7 @@ namespace SLC_SM_IAS_Service_Spec_Configuration.Presenters
 	using System.Text.RegularExpressions;
 	using DomHelpers.SlcConfigurations;
 	using Library;
+	using Library.Dom;
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
@@ -124,7 +125,7 @@ namespace SLC_SM_IAS_Service_Spec_Configuration.Presenters
 			StoreStandaloneConfigurations();
 			StoreProfiles();
 
-			apiHelper.ServiceCatalog.ServiceSpecifications.CreateOrUpdate(new[] { instance });
+			apiHelper.CreateOrUpdateSpecification(instance);
 		}
 
 		private void DeleteRemovedItems()

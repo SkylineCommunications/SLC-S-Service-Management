@@ -36,6 +36,13 @@ namespace Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions
 			value.DiscreteOptionsId = definition.DiscreteOptionsId;
 			value.TextOptionsId = definition.TextOptionsId;
 
+			if (String.IsNullOrWhiteSpace(raw))
+			{
+				value.DoubleValue = null;
+				value.StringValue = definition.Type == SlcConfigurationsIds.Enums.Type.Number ? null : String.Empty;
+				return;
+			}
+
 			if (definition.Type == SlcConfigurationsIds.Enums.Type.Number)
 			{
 				if (!Double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out var number))
