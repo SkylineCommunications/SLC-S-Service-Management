@@ -1,4 +1,4 @@
-import { DataMinerApiError, DataMinerAuthError, launchInteractiveAutomationScript, detachAutomationScript } from './gqi.js';
+import { DataMinerApiError, DataMinerAuthError, launchInteractiveAutomationScript, detachAutomationScript } from './automation.js';
 import { getConnectionFromCookie, redirectToAuth } from './session.js';
 
 // Headless Interactive Automation Script (IAS) client.

@@ -1,4 +1,4 @@
-import { executeAutomationScript, readScriptOutputs } from './gqi.js';
+import { executeAutomationScript, readScriptOutputs } from './automation.js';
 
 // Runs the Service Management UDAPI routes through the UDAPI script with the user's session; the script returns the HTTP status and body as outputs.
 const UDAPI_SCRIPT = {

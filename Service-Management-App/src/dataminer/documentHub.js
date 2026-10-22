@@ -1,4 +1,4 @@
-import { executeAutomationScript, readScriptOutputs } from './gqi.js';
+import { executeAutomationScript, readScriptOutputs } from './automation.js';
 
 const DOCUMENT_HUB_SCRIPT = {
     name: 'SLC_SM_AS_GetDocumentHubLogos',
