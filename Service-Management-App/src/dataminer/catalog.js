@@ -1,5 +1,5 @@
 import { formatDataMinerDateTime } from './dateTime.js';
-import { adHocDataSourceQuery, runQuery } from './gqi.js';
+import { fetchDocumentHubLogos } from './documentHub.js';
 import { mapUdapiConfigurationRecords, mapUdapiServiceItem } from './services.js';
 import {
     addCatalogSpecificationItem,
@@ -56,17 +56,6 @@ export async function fetchServiceSpecifications() {
 
 export async function fetchServiceCategories() {
     return fetchCatalogCategories();
-}
-
-export async function fetchDocumentHubLogos() {
-    const rows = await runQuery(adHocDataSourceQuery({
-        scriptName: 'SLC_SM_DS_GetDocumentHubLogos',
-        libraryName: 'SLCSMDSGetDocumentHubLogos',
-        typeFullName: 'SLCSMDSGetDocumentHubLogos.SLCSMDSGetDocumentHubLogos',
-    }));
-    return rows
-        .map(row => ({ id: row.Icon ?? row['File Name'] ?? '', name: row['File Name'] ?? '', icon: row.Icon ?? '' }))
-        .filter(logo => logo.name.trim() && logo.icon.trim());
 }
 
 // Configuration record property (UDAPI) -> Get_ServiceConfigurations column (GQI).
@@ -128,6 +117,7 @@ export {
     deleteCatalogCategory,
     deleteCatalogSpecification,
     deleteCatalogSpecificationItem,
+    fetchDocumentHubLogos,
     saveCatalogSpecificationConfiguration,
     updateCatalogCategory,
     updateCatalogSpecification,

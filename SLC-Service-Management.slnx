@@ -22,6 +22,7 @@
     </Project>
     <Project Path="SLC_SM_AS_Service Item ContextMenu Actions/SLC_SM_AS_Service Item ContextMenu Actions.csproj" />
     <Project Path="SLC_SM_AS_SetIcon/SLC_SM_AS_SetIcon.csproj" />
+    <Project Path="SLC_SM_AS_GetDocumentHubLogos/SLC_SM_AS_GetDocumentHubLogos.csproj" />
     <Project Path="SLC_SM_Create Job For Service Item/SLC_SM_Create Job For Service Item.csproj" />
     <Project Path="SLC_SM_Create Service Inventory Item/SLC_SM_Create Service Inventory Item.csproj" />
     <Project Path="SLC_SM_Delete Service Item/SLC_SM_Delete Service Item.csproj" />

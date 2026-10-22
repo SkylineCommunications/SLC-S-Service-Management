@@ -270,13 +270,13 @@ test.describe('Service Management workspace', () => {
         expect(request).toMatchObject({ Route: 'service-management/v1/serviceCategory', RouteParameters: {} });
         expect(JSON.parse(request.Body)).toEqual({ name: 'Broadcast', type: 'Channel', icon: '/Public/DocumentHub/connectivity.svg' });
         expect(udapiCall!.body.script.Parameters[0]).toMatchObject({ ParameterId: 2, Name: 'Request' });
-        const logoQuery = mock.calls.find(call => call.method === 'OpenQuerySession'
-            && JSON.parse(call.body.query?.Options?.[0]?.Value?.Value ?? '{}').ScriptName === 'SLC_SM_DS_GetDocumentHubLogos');
-        expect(logoQuery).toBeTruthy();
-        expect(JSON.parse(logoQuery!.body.query.Options[0].Value.Value)).toMatchObject({
-            LibraryName: 'SLCSMDSGetDocumentHubLogos',
-            TypeFullName: 'SLCSMDSGetDocumentHubLogos.SLCSMDSGetDocumentHubLogos',
-        });
+        const logoScript = mock.calls.find(call => call.method === 'ExecuteAutomationScriptWithOutput'
+            && call.body.script?.Name === 'SLC_SM_AS_GetDocumentHubLogos');
+        expect(logoScript).toBeTruthy();
+        expect(logoScript!.body.script.Parameters).toEqual(expect.arrayContaining([
+            expect.objectContaining({ ParameterId: 2, Name: 'Bucket Name' }),
+            expect.objectContaining({ ParameterId: 3, Name: 'Name Filter' }),
+        ]));
     });
     test('disables service category creation until name and type are valid', { tag: '@C4' }, async ({ page }) => {
         await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: /Settings/ }).click();

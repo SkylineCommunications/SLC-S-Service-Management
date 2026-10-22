@@ -854,6 +854,15 @@ export default function mockDataMiner() {
                     if (body.connection !== CONNECTION) return send(res, 500, { Message: 'Unexpected connection' });
                     const script = body.script || {};
                     const parameters = script.Parameters || [];
+                    if (script.Name === 'SLC_SM_AS_GetDocumentHubLogos') {
+                        const bucketName = scriptParameter(parameters, 'Bucket Name');
+                        const nameFilter = scriptParameter(parameters, 'Name Filter');
+                        const files = DOCUMENT_HUB_LOGOS
+                            .filter(file => !bucketName || file.Bucket.toLowerCase() === bucketName.toLowerCase())
+                            .filter(file => !nameFilter || file['File Name'].toLowerCase().includes(nameFilter.toLowerCase()))
+                            .map(file => ({ bucket: file.Bucket, fileName: file['File Name'], icon: file.Icon, extension: file.Extension, directory: file.Directory }));
+                        return send(res, 200, { d: { ErrorCode: 0, Output: [{ Name: 'Response', Value: JSON.stringify(files) }] } });
+                    }
                     if (script.Name === 'SLC_SM_UDAPI_ServiceManagement') {
                         const raw = parameters.find(parameter => parameter.Name === 'Request')?.Value || '';
                         let request;

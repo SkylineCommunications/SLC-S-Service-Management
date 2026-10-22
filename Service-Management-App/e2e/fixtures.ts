@@ -349,6 +349,19 @@ export async function mockDataMinerApi(page: Page, mode: GqiMode = 'ok'): Promis
         if (body.connection !== CONNECTION_GUID) return json(route, 500, { Message: 'Unexpected connection', ExceptionType: 'System.ArgumentException' });
         if (mock.mode === 'expired') return json(route, 500, { Message: 'No connection was found.', ExceptionType: 'Skyline.DataMiner.Web.Common.NoConnectionWebApiException' });
         const script = body.script ?? {};
+        if (script.Name === 'SLC_SM_AS_GetDocumentHubLogos') {
+            const parameter = (name: string) => {
+                const raw = (script.Parameters ?? []).find((item: any) => item.Name === name)?.Value ?? '';
+                return raw === '[]' ? '' : String(raw).replace(/^\["?|"?\]$/g, '');
+            };
+            const bucketName = parameter('Bucket Name');
+            const nameFilter = parameter('Name Filter');
+            const files = SAMPLE_DOCUMENT_HUB_LOGOS
+                .filter(file => !bucketName || file.Bucket.toLowerCase() === bucketName.toLowerCase())
+                .filter(file => !nameFilter || file['File Name'].toLowerCase().includes(nameFilter.toLowerCase()))
+                .map(file => ({ bucket: file.Bucket, fileName: file['File Name'], icon: file.Icon, extension: file.Extension, directory: file.Directory }));
+            return json(route, 200, { d: { ErrorCode: 0, Output: [{ Name: 'Response', Value: JSON.stringify(files) }] } });
+        }
         if (script.Name === 'SLC_SM_UDAPI_ServiceManagement') {
             const raw = (script.Parameters ?? []).find((parameter: any) => parameter.Name === 'Request')?.Value ?? '';
             let request: any;
