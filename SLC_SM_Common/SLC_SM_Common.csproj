@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project Sdk="Skyline.DataMiner.Sdk">
   <PropertyGroup>
     <TargetFramework>net48</TargetFramework>
@@ -17,7 +17,7 @@
     <PackageReference Include="Skyline.DataMiner.Dev.Automation" Version="10.6.10.1" />
     <PackageReference Include="Skyline.DataMiner.ProjectApi.ServiceManagementSKA13" Version="1.0.27" />
     <PackageReference Include="Skyline.DataMiner.Utils.InteractiveAutomationScriptToolkit" Version="10.6.3.7" />
-    <PackageReference Include="Skyline.DataMiner.Utils.SecureCoding.Analyzers" Version="2.2.3">
+    <PackageReference Include="Skyline.DataMiner.Utils.SecureCoding.Analyzers" Version="3.0.1">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
