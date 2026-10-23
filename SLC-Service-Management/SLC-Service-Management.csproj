@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project Sdk="Skyline.DataMiner.Sdk">
   <PropertyGroup>
     <TargetFramework>net48</TargetFramework>
@@ -7,20 +7,25 @@
   <PropertyGroup>
     <DataMinerType>Package</DataMinerType>
     <GenerateDataMinerPackage>True</GenerateDataMinerPackage>
-    <Version>1.0.15</Version>
+    <Version>1.0.88</Version>
     <VersionComment>Initial Version</VersionComment>
     <!-- Do NOT fill in the Organization Token here. This points to either an Environment Variable skyline__sdk__catalogpublishtoken holding the organization token or a Visual Studio User Secret holding the token. -->
     <CatalogPublishKeyName>skyline:sdk:dataminertoken</CatalogPublishKeyName>
     <CatalogDefaultDownloadKeyName>skyline:sdk:dataminertoken</CatalogDefaultDownloadKeyName>
     <UserSecretsId>c77184c7-44bc-4fa1-bbac-614d79915f0e</UserSecretsId>
   </PropertyGroup>
+  <Target Name="BuildWebApp" BeforeTargets="BeforeBuild">
+    <Exec Command="npm ci" WorkingDirectory="$(ProjectDir)..\Service-Management-App" />
+    <Exec Command="npm run build" WorkingDirectory="$(ProjectDir)..\Service-Management-App" />
+  </Target>
   <ItemGroup>
     <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
     <PackageReference Include="Skyline.DataMiner.Core.AppPackageInstaller" Version="4.0.0" />
     <PackageReference Include="Skyline.DataMiner.Core.DataMinerSystem.Automation" Version="1.1.3.8" />
     <PackageReference Include="Skyline.DataMiner.Core.DataMinerSystem.Common" Version="1.1.3.8" />
-    <PackageReference Include="Skyline.DataMiner.Dev.Automation" Version="10.6.3" />
-    <PackageReference Include="Skyline.DataMiner.Utils.SecureCoding.Analyzers" Version="2.2.3">
+    <PackageReference Include="Skyline.DataMiner.Utils.AppInstallerHelper" Version="2.0.1-prerelease33" />
+    <PackageReference Include="Skyline.DataMiner.Dev.Automation" Version="10.6.10.1" />
+    <PackageReference Include="Skyline.DataMiner.Utils.SecureCoding.Analyzers" Version="3.0.1">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
@@ -35,7 +40,6 @@
       <MediaOpsLiveVersion>0.0.0</MediaOpsLiveVersion>
       <MediaOpsPlanVersion>1.7.0-alpha003</MediaOpsPlanVersion>
     </PropertyGroup>
-
     <ItemGroup>
       <MediaOpsFallbackDependency Include="Solutions.MediaOps.Live">
         <PackageId>skyline.dataminer.dev.utils.solutions.mediaops.live</PackageId>
@@ -47,19 +51,15 @@
         <PackageVersion>$(MediaOpsPlanVersion)</PackageVersion>
         <DllName>Skyline.DataMiner.Dev.Utils.Solutions.MediaOps.Plan.dll</DllName>
       </MediaOpsFallbackDependency>
-
       <ResolvedMediaOpsFallbackDependency Include="@(MediaOpsFallbackDependency)" Condition="Exists('$(NuGetPackageRoot)%(MediaOpsFallbackDependency.PackageId)\%(MediaOpsFallbackDependency.PackageVersion)\lib\net48\%(MediaOpsFallbackDependency.DllName)')">
         <SourcePath>$(NuGetPackageRoot)%(MediaOpsFallbackDependency.PackageId)\%(MediaOpsFallbackDependency.PackageVersion)\lib\net48\%(MediaOpsFallbackDependency.DllName)</SourcePath>
         <SetupTargetDir>$(SetupDependenciesRoot)\%(MediaOpsFallbackDependency.Identity)</SetupTargetDir>
         <CompanionTargetDir>$(CompanionRoot)\%(MediaOpsFallbackDependency.Identity)</CompanionTargetDir>
       </ResolvedMediaOpsFallbackDependency>
     </ItemGroup>
-
-    <MakeDir Directories="@(ResolvedMediaOpsFallbackDependency->'%(SetupTargetDir)')" />
-    <MakeDir Directories="@(ResolvedMediaOpsFallbackDependency->'%(CompanionTargetDir)')" />
-
+    <MakeDir Directories="@(ResolvedMediaOpsFallbackDependency-&gt;'%(SetupTargetDir)')" />
+    <MakeDir Directories="@(ResolvedMediaOpsFallbackDependency-&gt;'%(CompanionTargetDir)')" />
     <Copy SourceFiles="%(ResolvedMediaOpsFallbackDependency.SourcePath)" DestinationFolder="%(ResolvedMediaOpsFallbackDependency.SetupTargetDir)" SkipUnchangedFiles="true" />
-
     <Copy SourceFiles="%(ResolvedMediaOpsFallbackDependency.SourcePath)" DestinationFolder="%(ResolvedMediaOpsFallbackDependency.CompanionTargetDir)" SkipUnchangedFiles="true" />
   </Target>
 </Project>

@@ -1,4 +1,5 @@
 using System;
+using System.Drawing;
 using System.IO;
 using System.Linq;
 
@@ -8,6 +9,7 @@ using Skyline.DataMiner.Net.AppPackages;
 using Skyline.DataMiner.Net.Exceptions;
 using Skyline.DataMiner.Net.Messages;
 using Skyline.DataMiner.Net.Messages.Advanced;
+using Skyline.DataMiner.Utils.AppInstallerHelper;
 
 /// <summary>
 ///     DataMiner Script Class.
@@ -57,6 +59,16 @@ internal class Script
 
 			installer.Log("Importing DOM...");
 			ImportDom(engine, installer);
+
+			var installerHelper = new AppInstallerHelper(Engine.SLNetRaw, context);
+			installerHelper.InstallDefaultContent();
+
+			installerHelper.WebApplications.RegisterStaticApp(
+				id: "service-management",
+				name: "Service Management",
+				url: "/public/service-management",
+				icon: "ms-Icon--BuildDefinition",
+				color: Color.FromArgb(220, 38, 38));
 
 			RegisterSolution(engine, installer, context);
 		}

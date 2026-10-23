@@ -7,7 +7,8 @@ Revision History:
 
 DATE		VERSION		AUTHOR			COMMENTS
 
-20/08/2026	1.0.0.1		SKA			Initial version
+20/08/2026	1.0.0.1		SKA			    Initial version
+09/10/2026	1.0.0.2		SKA, Skyline	DataMinerApp support
 ****************************************************************************
 */
 
@@ -33,7 +34,7 @@ namespace SLCSMDSGetDocumentHubLogos
 	{
 		private const string DataSourceName = "SLC_SM_DS_GetDocumentHubLogos";
 
-		private readonly GQIStringArgument _bucketNameArgument = new GQIStringArgument("Bucket Name") { IsRequired = true };
+		private readonly GQIStringArgument _bucketNameArgument = new GQIStringArgument("Bucket Name");
 		private readonly GQIStringArgument _nameFilterArgument = new GQIStringArgument("Name Filter");
 
 		private GQIDMS _dms;
@@ -65,11 +66,6 @@ namespace SLCSMDSGetDocumentHubLogos
 		{
 			try
 			{
-				if (String.IsNullOrWhiteSpace(_bucketName))
-				{
-					return new GQIPage(Array.Empty<GQIRow>());
-				}
-
 				IDocumentHubApiHelper helper = _dms.GetDocumentHubApiHelper();
 				var bucket = GetBucketByName(helper, _bucketName);
 				if (bucket == null)
@@ -159,20 +155,20 @@ namespace SLCSMDSGetDocumentHubLogos
 
 		private static DocumentBucket GetBucketByName(IDocumentHubApiHelper helper, string bucketName)
 		{
-			if (helper == null || String.IsNullOrWhiteSpace(bucketName))
+			if (helper == null)
 			{
 				return null;
 			}
 
-			var normalizedName = bucketName.Trim();
-
-			var bucket = helper.DocumentBuckets
-				.Read(DocumentBucketExposers.Name.Equal(normalizedName))
-				.FirstOrDefault();
-
-			if (bucket != null)
+			if (!String.IsNullOrWhiteSpace(bucketName))
 			{
-				return bucket;
+				var bucket = helper.DocumentBuckets
+					.Read(DocumentBucketExposers.Name.Equal(bucketName.Trim()))
+					.FirstOrDefault();
+				if (bucket != null)
+				{
+					return bucket;
+				}
 			}
 
 			return helper.DocumentBuckets

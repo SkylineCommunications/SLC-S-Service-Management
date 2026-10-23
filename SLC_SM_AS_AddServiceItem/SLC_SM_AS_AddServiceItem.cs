@@ -17,6 +17,7 @@ namespace SLCSMASAddServiceItem
 	using System.Collections.Generic;
 	using System.Linq;
 	using DomHelpers.SlcServicemanagement;
+	using Library.Dom;
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
@@ -105,7 +106,7 @@ namespace SLCSMASAddServiceItem
 				}
 
 				HandleServiceItemUpdate(spec.ServiceItems, newSection);
-				api.ServiceCatalog.ServiceSpecifications.Update(spec);
+				api.UpdateSpecification(spec);
 				return;
 			}
 
