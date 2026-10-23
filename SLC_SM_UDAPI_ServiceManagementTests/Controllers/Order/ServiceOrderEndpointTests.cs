@@ -6,6 +6,7 @@
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 	using SLC_SM_UDAPI_ServiceManagement.Models.Order;
+	using SLDataGateway.API.Types.Querying;
 
 	using OrderTransition = DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Serviceorder_Behavior.TransitionsEnum;
 
@@ -42,6 +43,7 @@
 		public void ListServiceOrders_RepositoryThrows_Returns500()
 		{
 			Orders.Setup(r => r.Read(It.IsAny<FilterElement<ServiceOrder>>())).Throws(new InvalidOperationException());
+			Orders.Setup(r => r.Read(It.IsAny<IQuery<ServiceOrder>>())).Throws(new InvalidOperationException());
 			Assert.AreEqual(500, StatusCode(Controller.ListServiceOrders()));
 		}
 

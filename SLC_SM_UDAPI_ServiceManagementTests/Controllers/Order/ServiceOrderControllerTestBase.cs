@@ -8,6 +8,7 @@
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 	using Skyline.DataMiner.SDM;
 	using Skyline.DataMiner.Utils.UserDefinedApiToolkit;
+	using SLDataGateway.API.Types.Querying;
 	using SLC_SM_UDAPI_ServiceManagement.Controllers;
 	using Cfg = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.Configurations;
 
@@ -48,6 +49,7 @@
 
 			Orders = new Mock<IServiceOrderRepository>();
 			Orders.Setup(r => r.Read(It.IsAny<FilterElement<ServiceOrder>>())).Returns(() => StoredOrders.ToList());
+			Orders.Setup(r => r.Read(It.IsAny<IQuery<ServiceOrder>>())).Returns<IQuery<ServiceOrder>>(q => StoredOrders.Where(q.Filter.getLambda()).ToList());
 			Orders.Setup(r => r.Update(It.IsAny<ServiceOrder>())).Returns<ServiceOrder>(o => o);
 			Orders.Setup(r => r.Create(It.IsAny<IEnumerable<ServiceOrder>>())).Returns<IEnumerable<ServiceOrder>>(o => o.ToList());
 			Orders.Setup(r => r.TransitionStatus(It.IsAny<ServiceOrder>(), It.IsAny<OrderTransition>())).Returns<ServiceOrder, OrderTransition>((o, t) => o);

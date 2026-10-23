@@ -252,6 +252,56 @@ async function mockIasWebSocket(page: Page, mock: GqiMock, orders: Record<string
 }
 
 async function json(route: Route, status: number, body: unknown): Promise<void> { await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) }); }
+function cursorPage<T>(rows: T[], request: any, getSortKey: (row: T) => string, getIdentifier: (row: T) => string = getSortKey, getSecondarySortKey: (row: T) => string = () => '', descending = false, secondaryDescending = descending, metrics: any = null): { items: T[]; totalCount: number; pageInfo: any; metrics?: any } {
+    const query = request.QueryParameters ?? {};
+    const limit = Math.min(500, Math.max(1, Number(query.limit?.[0] ?? 100)));
+    const decodeCursor = (value: string) => {
+        if (!value) return { sortKey: '', secondarySortKey: '', identifier: '' };
+        const decoded = Buffer.from(value, 'base64').toString('utf8');
+        try {
+            const cursor = JSON.parse(decoded);
+            return { sortKey: String(cursor.PrimarySortKey ?? cursor.SortKey ?? cursor.sortKey ?? ''), secondarySortKey: String(cursor.SecondarySortKey ?? cursor.secondarySortKey ?? ''), identifier: String(cursor.Identifier ?? cursor.identifier ?? '') };
+        }
+        catch {
+            return { sortKey: decoded, secondarySortKey: '', identifier: decoded };
+        }
+    };
+    const after = decodeCursor(query.after?.[0] ?? '');
+    const before = decodeCursor(query.before?.[0] ?? '');
+    const compareKey = (left: string, right: string, isDescending: boolean) => {
+        const comparison = left.localeCompare(right);
+        return isDescending ? -comparison : comparison;
+    };
+    const compare = (left: T, right: T) => compareKey(getSortKey(left), getSortKey(right), descending)
+        || compareKey(getSecondarySortKey(left), getSecondarySortKey(right), secondaryDescending)
+        || getIdentifier(left).localeCompare(getIdentifier(right));
+    const compareToCursor = (row: T, cursor: { sortKey: string; secondarySortKey: string; identifier: string }) => compareKey(getSortKey(row), cursor.sortKey, descending)
+        || compareKey(getSecondarySortKey(row), cursor.secondarySortKey, secondaryDescending)
+        || getIdentifier(row).localeCompare(cursor.identifier);
+    const ordered = [...rows].sort(compare);
+    const directionBefore = Boolean(query.before?.[0]);
+    const candidates = directionBefore
+        ? ordered.filter(row => compareToCursor(row, before) < 0).reverse()
+        : ordered.filter(row => !query.after?.[0] || compareToCursor(row, after) > 0);
+    const hasMore = candidates.length > limit;
+    const items = candidates.slice(0, limit);
+    if (directionBefore) items.reverse();
+    const encode = (row: T) => Buffer.from(JSON.stringify({ primarySortKey: getSortKey(row), secondarySortKey: getSecondarySortKey(row), identifier: getIdentifier(row) }), 'utf8').toString('base64');
+    const first = items[0];
+    const last = items[items.length - 1];
+    const response = {
+        items,
+        totalCount: rows.length,
+        pageInfo: {
+            nextAfterCursor: directionBefore || !hasMore ? (directionBefore && last ? encode(last) : null) : encode(last),
+            nextBeforeCursor: directionBefore ? (hasMore && first ? encode(first) : null) : (query.after?.[0] && first ? encode(first) : null),
+            hasNextPage: directionBefore || hasMore,
+            hasPreviousPage: directionBefore ? hasMore : Boolean(query.after?.[0]),
+        },
+    };
+    if (query.includeMetrics?.[0] === 'true' && metrics !== null) response.metrics = metrics;
+    return response;
+}
 
 // UDAPI order (item) records: Priority as the enum number, StatusName as the camelCase enum name, dates as ISO strings.
 const udapiDate = (value?: string) => { const time = Date.parse(value ?? ''); return Number.isNaN(time) ? null : new Date(time).toISOString(); };
@@ -259,7 +309,7 @@ const udapiReference = (value?: string) => value ? { Identifier: value } : null;
 const camelCase = (value?: string) => String(value ?? '').replace(/\s+(\w)/g, (_, letter: string) => letter.toUpperCase()).replace(/^\w/, letter => letter.toLowerCase());
 function toUdapiOrder(row: Record<string, string>) {
     const completion = row.Start || row.End ? { RequestedStartDate: udapiDate(row.Start), RequestedCompletedDate: udapiDate(row.End), CompletionDate: null } : null;
-    return { Identifier: row['Order ID'], OrderId: row.OrderId, Name: row.Name, Description: row.Description, Priority: ['High', 'Medium', 'Low'].indexOf(row.Priority), ExternalID: row['External ID'], StatusName: camelCase(row.State), OrganizationId: SAMPLE_ORGANIZATIONS.find(organization => organization['Organization Name'] === row['Related Organization'])?.['Organization ID'] ?? null, OrganizationName: row['Related Organization'] || null, CompletionInfo: completion, CreatedAt: null };
+    return { Identifier: row['Order ID'], OrderId: row.OrderId, Name: row.Name, Description: row.Description, Priority: ['High', 'Medium', 'Low'].indexOf(row.Priority), ExternalID: row['External ID'], StatusName: camelCase(row.State), OrganizationId: SAMPLE_ORGANIZATIONS.find(organization => organization['Organization Name'] === row['Related Organization'])?.['Organization ID'] ?? null, OrganizationName: row['Related Organization'] || null, CompletionInfo: completion };
 }
 function toUdapiOrderItem(row: Record<string, string>) {
     const end = udapiDate(row.End);
@@ -374,7 +424,28 @@ export async function mockDataMinerApi(page: Page, mode: GqiMode = 'ok'): Promis
             if (resource === 'monitoringService' && request.RequestMethod === 1) return respond(200, monitoringServices);
             if (resource === 'serviceOrder') {
                 if (mock.mode === 'error' || (subResource === 'item' && mock.itemsFail)) return respond(500, { error: [{ errorCode: 'InternalServerError', detail: 'DOM manager is unavailable.', faultingNode: '', title: 'Internal server error' }] });
-                if (!id && request.RequestMethod === 1) return respond(200, mock.mode === 'empty' ? [] : orders.map(toUdapiOrder));
+                if (id === 'overview' && request.RequestMethod === 1) {
+                    const orderRows = mock.mode === 'empty' ? [] : orders.map(toUdapiOrder);
+                    const closed = new Set(['completed', 'cancelled', 'rejected', 'failed']);
+                    const attention = new Set(['held', 'assessCancellation', 'pendingCancellation', 'partiallyFailed', 'failed', 'rejected']);
+                    return respond(200, {
+                        items: orderRows.slice(0, 6),
+                        totalCount: orderRows.length,
+                        openCount: orderRows.filter(order => !closed.has(order.StatusName)).length,
+                        attentionCount: orderRows.filter(order => attention.has(order.StatusName)).length,
+                        completedCount: orderRows.filter(order => order.StatusName === 'completed').length,
+                    });
+                }
+                if (!id && request.RequestMethod === 1) {
+                    const orderRows = mock.mode === 'empty' ? [] : orders.map(toUdapiOrder);
+                    return respond(200, request.QueryParameters?.pagination?.[0] === 'cursor'
+                        ? cursorPage(orderRows, request, row => row.OrderId || '', row => row.Identifier, () => '', true, true, {
+                            openCount: orderRows.filter(order => !new Set(['completed', 'cancelled', 'rejected', 'failed']).has(order.StatusName)).length,
+                            attentionCount: orderRows.filter(order => new Set(['held', 'assessCancellation', 'pendingCancellation', 'partiallyFailed', 'failed', 'rejected']).has(order.StatusName)).length,
+                            completedCount: orderRows.filter(order => order.StatusName === 'completed').length,
+                        })
+                        : orderRows);
+                }
                 const order = orders.find(row => row.OrderId === id);
                 if (!order) return notFound();
                 if (!subResource && request.RequestMethod === 4) {
@@ -448,7 +519,25 @@ export async function mockDataMinerApi(page: Page, mode: GqiMode = 'ok'): Promis
                 }
             }
             if (resource === 'service') {
-                if (!id && request.RequestMethod === 1) return respond(200, services.map(service => selectUdapiFields(toUdapiService(service), request)));
+                if (id === 'overview' && request.RequestMethod === 1) {
+                    const serviceRows = services.map(service => toUdapiService(service));
+                    const active = new Set(['active', 'reserved', 'designed']);
+                    return respond(200, {
+                        items: serviceRows.slice(0, 6),
+                        totalCount: serviceRows.length,
+                        activeCount: serviceRows.filter(service => active.has(service.StatusName)).length,
+                        retiredCount: serviceRows.filter(service => service.StatusName === 'retired').length,
+                    });
+                }
+                if (!id && request.RequestMethod === 1) {
+                    const serviceRows = services.map(service => selectUdapiFields(toUdapiService(service), request));
+                    return respond(200, request.QueryParameters?.pagination?.[0] === 'cursor'
+                        ? cursorPage(serviceRows, request, row => row.ServiceID, row => row.Identifier, () => '', true, true, {
+                            activeCount: serviceRows.filter(service => new Set(['active', 'reserved', 'designed']).has(service.StatusName)).length,
+                            retiredCount: serviceRows.filter(service => service.StatusName === 'retired').length,
+                        })
+                        : serviceRows);
+                }
                 if (!id && request.RequestMethod === 3) {
                     if (services.some(row => row['Service ID'] === requestBody.serviceId)) return respond(409, { error: [{ errorCode: 'Conflict', detail: `Service ID '${requestBody.serviceId}' is already in use.`, faultingNode: '', title: 'Conflict' }] });
                     const created = applyServiceRequest({ 'DOM ID': `service-${services.length + 1}`, 'Service Status': 'New', 'Service Logo': '', 'Service Category': '', 'Service Category Type': '', 'Service Specification': '', 'Service Organization': '', 'Monitoring Service': '' }, requestBody, categories);
@@ -580,8 +669,15 @@ export async function mockDataMinerApi(page: Page, mode: GqiMode = 'ok'): Promis
                     return respond(204);
                 }
             }
+            if (resource === 'serviceSpecification' && request.RequestMethod === 1 && id === 'overview') {
+                const specification = { Identifier: SAMPLE_SPECIFICATION['Specification ID'], Name: SAMPLE_SPECIFICATION.Name, Description: SAMPLE_SPECIFICATION.Description, CreatedAt: '2026-09-01T14:40:53Z', CreatedBy: SAMPLE_SPECIFICATION['Created By'], LastModified: '2026-09-02T22:13:44Z', LastModifiedBy: SAMPLE_SPECIFICATION['Created By'], ServiceItems: Array.from({ length: Number(SAMPLE_SPECIFICATION['Service Item Count']) }, (_, index) => ({ ID: index, Label: `Item ${index + 1}` })) };
+                return respond(200, { items: [specification], totalCount: 1, totalItemCount: specification.ServiceItems.length });
+            }
             if (resource === 'serviceSpecification' && request.RequestMethod === 1 && !id) {
-                return respond(200, [SAMPLE_SPECIFICATION].map(row => ({ Identifier: row['Specification ID'], Name: row.Name, Description: row.Description, CreatedAt: '2026-09-01T14:40:53Z', CreatedBy: row['Created By'], LastModified: '2026-09-02T22:13:44Z', LastModifiedBy: row['Created By'], ServiceItems: Array.from({ length: Number(row['Service Item Count']) }, (_, index) => ({ ID: index, Label: `Item ${index + 1}` })) })));
+                const specificationRows = [SAMPLE_SPECIFICATION, ...Array.from({ length: 11 }, (_, index) => ({ ...SAMPLE_SPECIFICATION, 'Specification ID': `spec-${index + 2}`, Name: `A Specification ${index + 2}` }))].map(row => ({ Identifier: row['Specification ID'], Name: row.Name, Description: row.Description, CreatedAt: '2026-09-01T14:40:53Z', CreatedBy: row['Created By'], LastModified: '2026-09-02T22:13:44Z', LastModifiedBy: row['Created By'], ServiceItems: Array.from({ length: Number(row['Service Item Count']) }, (_, index) => ({ ID: index, Label: `Item ${index + 1}` })) }));
+                return respond(200, request.QueryParameters?.pagination?.[0] === 'cursor' ? cursorPage(specificationRows, request, row => row.Name, row => row.Identifier, () => '', true, true, {
+                    totalItemCount: specificationRows.reduce((total, row) => total + row.ServiceItems.length, 0),
+                }) : specificationRows);
             }
             if (resource === 'serviceSpecification' && request.RequestMethod === 1 && id && !subResource) {
                 // The DOM definition always stores an empty placeholder item next to the real ones; Type is the SDM enum number.

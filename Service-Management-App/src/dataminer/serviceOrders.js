@@ -10,6 +10,8 @@ import {
     fetchServiceOrderItemConfigurationList,
     fetchServiceOrderItemList,
     fetchServiceOrderList,
+    fetchServiceOrderCursorPage,
+    fetchServiceOrderOverview,
     initializeServiceFromOrderItem,
     saveServiceOrderItemConfiguration,
     transitionServiceOrder,
@@ -104,8 +106,6 @@ function mapUdapiOrder(order) {
         start: formatDataMinerDateTime(udapiDate(completion.RequestedStartDate)),
         end: formatDataMinerDateTime(udapiDate(completion.RequestedCompletedDate)),
         completionDate: udapiDate(completion.CompletionDate) || null,
-        createdAt: formatDataMinerDateTime(udapiDate(order.CreatedAt)),
-        createdAtTimestamp: getDataMinerTimestamp(udapiDate(order.CreatedAt)),
     };
 }
 
@@ -130,6 +130,22 @@ function mapUdapiOrderItem(item) {
 
 export async function fetchServiceOrders() {
     return (await fetchServiceOrderList()).map(mapUdapiOrder);
+}
+
+export async function fetchServiceOrderPage(options) {
+    const page = await fetchServiceOrderCursorPage(options);
+    return {
+        ...page,
+        items: page.items.map(mapUdapiOrder),
+    };
+}
+
+export async function fetchServiceOrderOverviewData(options = {}) {
+    const overview = await fetchServiceOrderOverview(options);
+    return {
+        ...overview,
+        items: overview.items.map(mapUdapiOrder),
+    };
 }
 
 export async function fetchRelatedServiceOrders(serviceId) {

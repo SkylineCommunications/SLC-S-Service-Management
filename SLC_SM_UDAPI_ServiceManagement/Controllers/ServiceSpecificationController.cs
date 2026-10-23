@@ -17,6 +17,7 @@
 	using Skyline.DataMiner.SDM;
 	using Skyline.DataMiner.Utils.UserDefinedApiToolkit;
 	using SLC_SM_UDAPI_ServiceManagement.Exceptions;
+	using SLC_SM_UDAPI_ServiceManagement.Helpers;
 	using SLC_SM_UDAPI_ServiceManagement.Models;
 	using SLC_SM_UDAPI_ServiceManagement.Models.Specification;
 	using ItemType = DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Enums.ServiceItemTypesEnum;
@@ -242,7 +243,12 @@
 			[FromQuery] int limit = 100,
 			[FromQuery] string fields = null,
 			[FromQuery] string sort = null,
-			[FromQuery] string name = null)
+			[FromQuery] string name = null,
+			[FromQuery] string pagination = null,
+			[FromQuery] string after = null,
+			[FromQuery] string before = null,
+			[FromQuery] bool includeTotalCount = true,
+			[FromQuery] bool includeMetrics = false)
 		{
 			_logger.LogInformation("ListServiceSpecifications called with offset={Offset}, limit={Limit}, fields={Fields}, sort={Sort}, name={Name}", offset, limit, fields, sort, name);
 
@@ -272,6 +278,11 @@
 
 			try
 			{
+				if (String.Equals(pagination, "cursor", StringComparison.OrdinalIgnoreCase))
+				{
+					return ListServiceSpecificationsCursor(limit, fields, after, before, offset, sort, name, includeTotalCount, includeMetrics);
+				}
+
 				IEnumerable<ServiceSpecification> specifications = serviceManagementApiHelper.ServiceCatalog.ServiceSpecifications
 					.Read(new TRUEFilterElement<ServiceSpecification>())
 					?? Enumerable.Empty<ServiceSpecification>();
@@ -304,6 +315,121 @@
 			{
 				_logger.LogError(ex, "ListServiceSpecifications failed: {Message}", ex.Message);
 				return InternalServerError(CreateError("Internal server error", "An unexpected error occurred while retrieving the service specifications.", 500));
+			}
+		}
+
+		private IApiResult ListServiceSpecificationsCursor(
+			int limit,
+			string fields,
+			string after,
+			string before,
+			int offset,
+			string sort,
+			string name,
+			bool includeTotalCount,
+			bool includeMetrics)
+		{
+			if (offset != 0 || !String.IsNullOrWhiteSpace(sort) || !String.IsNullOrWhiteSpace(name))
+			{
+				return BadRequest(CreateError("Invalid query", "Cursor pagination currently supports an unfiltered, name-ordered list only.", 400));
+			}
+
+			if (limit < 1 || limit > MaxLimit)
+			{
+				return BadRequest(CreateError("Invalid query", $"'limit' must be between 1 and {MaxLimit} for cursor pagination.", 400));
+			}
+
+			if (!String.IsNullOrWhiteSpace(after) && !String.IsNullOrWhiteSpace(before))
+			{
+				return BadRequest(CreateError("Invalid query", "Only one of 'after' or 'before' can be supplied.", 400));
+			}
+
+			var repository = serviceManagementApiHelper.ServiceCatalog.ServiceSpecifications as IReadableRepository<ServiceSpecification>;
+			if (repository == null)
+			{
+				return InternalServerError(CreateError("Internal server error", "The service-specification repository does not support cursor pagination.", 500));
+			}
+
+			var direction = String.IsNullOrWhiteSpace(before) ? CursorDirection.After : CursorDirection.Before;
+			var cursor = String.IsNullOrWhiteSpace(before) ? after : before;
+			var page = repository.ReadCursorPage(
+				ServiceSpecificationExposers.Name,
+				specification => specification.Name ?? String.Empty,
+				CursorKeySerialization.SerializeString,
+				CursorKeySerialization.DeserializeString,
+				ServiceSpecificationExposers.Identifier,
+				specification => specification.Identifier,
+				CursorKeySerialization.SerializeString,
+				CursorKeySerialization.DeserializeString,
+				filter: null,
+				cursor: cursor,
+				limit: limit,
+				direction: direction,
+				descending: true,
+				secondaryDescending: true,
+				includeTotalCount: includeTotalCount && !includeMetrics);
+			var requestedFields = SplitCommaSeparatedValues(fields);
+			var items = page.Items
+				.Select(JObject.FromObject)
+				.Select(item => requestedFields.Count == 0 ? item : SelectFields(item, requestedFields))
+				.ToList();
+			var metrics = includeMetrics ? serviceManagementApiHelper.Overview.ReadServiceSpecifications() : null;
+			return Ok(new CursorPageResponse<JObject>
+			{
+				Items = items,
+				TotalCount = metrics?.TotalCount ?? page.TotalCount,
+				Metrics = metrics == null ? null : JObject.FromObject(metrics),
+				PageInfo = new CursorPageInfo
+				{
+					NextAfterCursor = page.NextAfterCursor,
+					NextBeforeCursor = page.NextBeforeCursor,
+					HasNextPage = page.HasNextPage,
+					HasPreviousPage = page.HasPreviousPage,
+				},
+			});
+		}
+
+		[HttpGet("overview")]
+		public IApiResult GetServiceSpecificationOverview([FromQuery] int limit = 6)
+		{
+			if (limit < 1 || limit > 50)
+			{
+				return BadRequest(CreateError("Invalid request", "'limit' must be between 1 and 50.", 400));
+			}
+
+			try
+			{
+				var repository = serviceManagementApiHelper.ServiceCatalog.ServiceSpecifications as IReadableRepository<ServiceSpecification>;
+				if (repository == null)
+				{
+					return InternalServerError(CreateError("Internal server error", "The service-specification repository does not support overview reads.", 500));
+				}
+
+				var page = repository.ReadCursorPage(
+					ServiceSpecificationExposers.Name,
+					specification => specification.Name ?? String.Empty,
+					CursorKeySerialization.SerializeString,
+					CursorKeySerialization.DeserializeString,
+					ServiceSpecificationExposers.Identifier,
+					specification => specification.Identifier,
+					CursorKeySerialization.SerializeString,
+					CursorKeySerialization.DeserializeString,
+					limit: limit,
+					descending: true,
+					secondaryDescending: true);
+				var overview = serviceManagementApiHelper.Overview.ReadServiceSpecifications();
+
+				return Ok(new ServiceSpecificationOverviewResponse
+				{
+					Items = page.Items.Select(JObject.FromObject).ToList(),
+					TotalCount = overview.TotalCount,
+					TotalItemCount = overview.TotalItemCount,
+				});
+			}
+			catch (Exception ex)
+			{
+				_logger.LogError(ex, "GetServiceSpecificationOverview failed: {Message}", ex.Message);
+				return InternalServerError(CreateError("Internal server error", "An unexpected error occurred while retrieving the service-specification overview.", 500));
 			}
 		}
 

@@ -11,6 +11,8 @@ import {
     fetchCatalogCategories,
     fetchCatalogSpecification,
     fetchCatalogSpecificationConfiguration,
+    fetchCatalogSpecificationCursorPage,
+    fetchCatalogSpecificationOverview,
     fetchCatalogSpecificationList,
     saveCatalogSpecificationConfiguration,
     updateCatalogCategory,
@@ -52,6 +54,22 @@ export async function fetchSpecificationItems(specificationId) {
 
 export async function fetchServiceSpecifications() {
     return (await fetchCatalogSpecificationList()).map(mapUdapiSpecification);
+}
+
+export async function fetchServiceSpecificationPage(options = {}) {
+    const page = await fetchCatalogSpecificationCursorPage(options);
+    return {
+        ...page,
+        items: page.items.map(mapUdapiSpecification),
+    };
+}
+
+export async function fetchServiceSpecificationOverview(options = {}) {
+    const overview = await fetchCatalogSpecificationOverview(options);
+    return {
+        ...overview,
+        items: overview.items.map(mapUdapiSpecification),
+    };
 }
 
 export async function fetchServiceCategories() {

@@ -18,6 +18,29 @@ test.describe('Service Management workspace', () => {
         await expect(page.locator('.order-row').filter({ hasText: 'Network refresh' })).toBeVisible();
         for (const name of ['Services', 'Catalog', 'Settings']) { await page.getByRole('link', { name }).click(); await expect(page.getByRole('heading', { name, exact: true })).toBeVisible(); }
     });
+    test('loads the overview through bounded summary routes', { tag: '@G7' }, async ({ page }) => {
+        await page.goto(`${APP_ROOT_URL}#overview`);
+        await expect(page.getByRole('heading', { name: 'Service Management', exact: true })).toBeVisible();
+        const overviewRequests = udapiRequests(mock).filter(request => String(request.Route).endsWith('/overview'));
+        expect(overviewRequests.map(request => request.Route).sort()).toEqual([
+            'service-management/v1/service/overview',
+            'service-management/v1/serviceOrder/overview',
+            'service-management/v1/serviceSpecification/overview',
+        ]);
+        expect(overviewRequests.every(request => request.QueryParameters?.limit?.[0] === '6')).toBeTruthy();
+    });
+    test('uses cursor pagination for specifications and shows the maximum page', { tag: '@G8' }, async ({ page }) => {
+        await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: 'Catalog' }).click();
+        const pagination = page.locator('.table-pagination');
+        await expect(pagination.getByText('Page 1 of 2', { exact: true })).toBeVisible();
+        const specificationRequests = () => udapiRequests(mock).filter(request => request.Route === 'service-management/v1/serviceSpecification' && request.RequestMethod === 1);
+        expect(specificationRequests().at(-1).QueryParameters.pagination).toEqual(['cursor']);
+        expect(specificationRequests().at(-1).QueryParameters.includeTotalCount).toEqual(['true']);
+        await pagination.getByRole('button', { name: 'Next', exact: true }).click();
+        await expect(pagination.getByText('Page 2 of 2', { exact: true })).toBeVisible();
+        expect(specificationRequests().at(-1).QueryParameters.after?.[0]).toBeTruthy();
+        expect(specificationRequests().at(-1).QueryParameters.includeTotalCount).toEqual(['false']);
+    });
     test('does not expose the removed order IAS launcher', { tag: '@A4' }, async ({ page }) => {
         const orderRow = page.locator('.order-row').filter({ hasText: 'Network refresh' });
         await orderRow.getByRole('button', { name: 'Open details of Network refresh' }).click();
@@ -303,7 +326,7 @@ test.describe('Service Management workspace', () => {
         await form.getByRole('textbox', { name: 'Label' }).fill('Managed switching');
         await expect(form.getByText('Name already exists!', { exact: true })).toBeVisible();
         await expect(form.getByRole('button', { name: 'Create', exact: true })).toBeDisabled();
-        await expect(form.getByRole('textbox', { name: 'Label' })).toHaveAttribute('placeholder', 'Specification #00002');
+        await expect(form.getByRole('textbox', { name: 'Label' })).toHaveAttribute('placeholder', 'Specification #00013');
         await form.getByRole('textbox', { name: 'Label' }).fill('');
         await expect(form.getByRole('button', { name: 'Create', exact: true })).toBeEnabled();
     });

@@ -27,6 +27,12 @@ namespace SLC_SM_Setup_UDAPI
 				route: "serviceOrder");
 
 			InstallEndpoint(
+				apiId: Constants.ApiDefinitions.ServiceOrder_Overview_UDAPI_Id,
+				name: "Service Order - Overview",
+				description: "UDAPI to retrieve service-order metrics and a bounded recent-order preview.",
+				route: "serviceOrder/overview");
+
+			InstallEndpoint(
 				apiId: Constants.ApiDefinitions.ServiceOrder_ById_UDAPI_Id,
 				name: "Service Order - Order By Id",
 				description: "UDAPI to retrieve, update or delete a service order by id.",
@@ -74,6 +80,12 @@ namespace SLC_SM_Setup_UDAPI
 				name: "Service Inventory - Service List",
 				description: "UDAPI to create or retrieve services.",
 				route: "service");
+
+			InstallEndpoint(
+				apiId: Constants.ApiDefinitions.ServiceInventory_Overview_UDAPI_Id,
+				name: "Service Inventory - Overview",
+				description: "UDAPI to retrieve service metrics and a bounded inventory preview.",
+				route: "service/overview");
 
 			InstallEndpoint(
 				apiId: Constants.ApiDefinitions.ServiceInventory_ById_UDAPI_Id,
@@ -141,6 +153,12 @@ namespace SLC_SM_Setup_UDAPI
 				name: "Service Specification - Service Specification List",
 				description: "UDAPI to list or create service specifications.",
 				route: "serviceSpecification");
+
+			InstallEndpoint(
+				apiId: Constants.ApiDefinitions.ServiceSpecification_Overview_UDAPI_Id,
+				name: "Service Specification - Overview",
+				description: "UDAPI to retrieve specification metrics and a bounded catalog preview.",
+				route: "serviceSpecification/overview");
 
 			InstallEndpoint(
 				apiId: Constants.ApiDefinitions.ServiceSpecification_ById_UDAPI_Id,

@@ -34,7 +34,6 @@ let ORDERS = Array.from({ length: 42 }, (_, i) => {
         'Related Organization': ORGANIZATIONS[i % ORGANIZATIONS.length],
         State: STATES[i % STATES.length],
         Start: `9/${(i % 9) + 1}/2026 ${String((i % 9) + 1)}:00:00 AM`,
-        'Created At': `8/${(i % 28) + 1}/2026 10:00:00 AM`,
     };
 });
 
@@ -398,7 +397,6 @@ function toUdapiOrder(row) {
         OrganizationId: organizationId,
         OrganizationName: row['Related Organization'] || null,
         CompletionInfo: start || end ? { RequestedStartDate: start || null, RequestedCompletedDate: end || null, CompletionDate: null } : null,
-        CreatedAt: toIsoDate(row['Created At']) || null,
     };
 }
 
@@ -480,6 +478,57 @@ function applyServiceRequest(row, body) {
     return row;
 }
 
+function cursorPage(rows, request, getSortKey, getIdentifier = getSortKey, getSecondarySortKey = () => '', descending = false, secondaryDescending = descending, metrics = null) {
+    const query = request.QueryParameters || {};
+    const limit = Math.min(500, Math.max(1, Number(query.limit?.[0] || 100)));
+    const decode = value => {
+        if (!value) return { sortKey: '', secondarySortKey: '', identifier: '' };
+        const decoded = Buffer.from(value, 'base64').toString('utf8');
+        try {
+            const cursor = JSON.parse(decoded);
+            return { sortKey: String(cursor.primarySortKey ?? cursor.PrimarySortKey ?? cursor.sortKey ?? cursor.SortKey ?? ''), secondarySortKey: String(cursor.secondarySortKey ?? cursor.SecondarySortKey ?? ''), identifier: String(cursor.identifier ?? cursor.Identifier ?? '') };
+        }
+        catch {
+            return { sortKey: decoded, secondarySortKey: '', identifier: decoded };
+        }
+    };
+    const after = decode(query.after?.[0]);
+    const before = decode(query.before?.[0]);
+    const compareKey = (left, right, isDescending) => {
+        const comparison = left.localeCompare(right);
+        return isDescending ? -comparison : comparison;
+    };
+    const compare = (left, right) => compareKey(getSortKey(left), getSortKey(right), descending)
+        || compareKey(getSecondarySortKey(left), getSecondarySortKey(right), secondaryDescending)
+        || getIdentifier(left).localeCompare(getIdentifier(right));
+    const compareToCursor = (row, cursor) => compareKey(getSortKey(row), cursor.sortKey, descending)
+        || compareKey(getSecondarySortKey(row), cursor.secondarySortKey, secondaryDescending)
+        || getIdentifier(row).localeCompare(cursor.identifier);
+    const ordered = [...rows].sort(compare);
+    const directionBefore = Boolean(query.before?.[0]);
+    const candidates = directionBefore
+        ? ordered.filter(row => compareToCursor(row, before) < 0).reverse()
+        : ordered.filter(row => !query.after?.[0] || compareToCursor(row, after) > 0);
+    const hasMore = candidates.length > limit;
+    const items = candidates.slice(0, limit);
+    if (directionBefore) items.reverse();
+    const encode = row => Buffer.from(JSON.stringify({ primarySortKey: getSortKey(row), secondarySortKey: getSecondarySortKey(row), identifier: getIdentifier(row) }), 'utf8').toString('base64');
+    const first = items[0];
+    const last = items[items.length - 1];
+    const response = {
+        items,
+        totalCount: rows.length,
+        pageInfo: {
+            nextAfterCursor: directionBefore && last ? encode(last) : (!directionBefore && hasMore && last ? encode(last) : null),
+            nextBeforeCursor: directionBefore && hasMore && first ? encode(first) : (!directionBefore && query.after?.[0] && first ? encode(first) : null),
+            hasNextPage: directionBefore || hasMore,
+            hasPreviousPage: directionBefore ? hasMore : Boolean(query.after?.[0]),
+        },
+    };
+    if (query.includeMetrics?.[0] === 'true' && metrics !== null) response.metrics = metrics;
+    return response;
+}
+
 // Emulates the SLC_SM_UDAPI_ServiceManagement Run entry point for the routes used by the app.
 function handleUdapiRequest(request) {
     const error = (status, title, detail) => ({ status, response: { error: [{ errorCode: title.replace(/\s/g, ''), detail, faultingNode: '', title }] } });
@@ -518,6 +567,19 @@ function handleUdapiRequest(request) {
         }
     }
     if (resource === 'serviceSpecification') {
+        if (id === 'overview' && request.RequestMethod === 1) {
+            const items = SPECIFICATIONS.slice(0, 6).map(row => ({
+                Identifier: row['Specification ID'],
+                Name: row.Name,
+                Description: row.Description,
+                CreatedAt: toIsoDate(row['Created At']),
+                CreatedBy: row['Created By'],
+                LastModified: toIsoDate(row['Last Modified']),
+                LastModifiedBy: row['Last Modified By'],
+                ServiceItems: Array.from({ length: Number(row['Service Item Count']) || 0 }, (_, itemIndex) => ({ ID: itemIndex, Label: `Item ${itemIndex + 1}` })),
+            }));
+            return { status: 200, response: { items, totalCount: SPECIFICATIONS.length, totalItemCount: SPECIFICATIONS.reduce((total, row) => total + (Number(row['Service Item Count']) || 0), 0) } };
+        }
         const index = id ? SPECIFICATIONS.findIndex(row => row['Specification ID'] === id) : -1;
         if (id && index < 0) return error(404, 'Not found', `Service specification '${id}' was not found.`);
         const toSpecification = row => ({
@@ -538,7 +600,12 @@ function handleUdapiRequest(request) {
             if ([1, 2].includes(request.RequestMethod)) return { status: 200, response: serviceConfigurationsFor(id).map(toConfigurationRecord) };
         }
         if (request.RequestMethod === 1 && !subResource) {
-            if (!id) return { status: 200, response: SPECIFICATIONS.map(toSpecification) };
+            if (!id) {
+                const rows = SPECIFICATIONS.map(toSpecification);
+                return request.QueryParameters?.pagination?.[0] === 'cursor'
+                    ? { status: 200, response: cursorPage(rows, request, row => row.Name, row => row.Identifier, () => '', true, true, { totalItemCount: rows.reduce((total, row) => total + row.ServiceItems.length, 0) }) }
+                    : { status: 200, response: rows };
+            }
             const itemTypes = { Workflow: 0, Service: 1, SRMBooking: 2, 'SRM Booking': 2 };
             const ServiceItems = serviceItemsFor(id).map(row => ({ ServiceItemID: Number(row['Service Item ID']), Label: row.Label, Type: itemTypes[row['Service Item Type']] ?? 1, DefinitionReference: row['Definition Reference'], Script: row['Service Item Script'], ImplementationReference: row['Implementation Reference'] }));
             const specification = { ...toSpecification(SPECIFICATIONS[index]), ServiceItems };
@@ -564,7 +631,31 @@ function handleUdapiRequest(request) {
         }
     }
     if (resource === 'serviceOrder') {
-        if (!id && request.RequestMethod === 1) return { status: 200, response: ORDERS.map(toUdapiOrder) };
+        if (id === 'overview' && request.RequestMethod === 1) {
+            const rows = ORDERS.map(toUdapiOrder);
+            const closed = new Set(['completed', 'cancelled', 'rejected', 'failed']);
+            const attention = new Set(['held', 'assessCancellation', 'pendingCancellation', 'partiallyFailed', 'failed', 'rejected']);
+            return {
+                status: 200,
+                response: {
+                    items: rows.slice(0, 6),
+                    totalCount: rows.length,
+                    openCount: rows.filter(row => !closed.has(row.StatusName)).length,
+                    attentionCount: rows.filter(row => attention.has(row.StatusName)).length,
+                    completedCount: rows.filter(row => row.StatusName === 'completed').length,
+                },
+            };
+        }
+        if (!id && request.RequestMethod === 1) {
+            const rows = ORDERS.map(toUdapiOrder);
+            return request.QueryParameters?.pagination?.[0] === 'cursor'
+                ? { status: 200, response: cursorPage(rows, request, row => row.OrderId || '', row => row.Identifier, () => '', true, true, {
+                    openCount: rows.filter(row => !new Set(['completed', 'cancelled', 'rejected', 'failed']).has(row.StatusName)).length,
+                    attentionCount: rows.filter(row => new Set(['held', 'assessCancellation', 'pendingCancellation', 'partiallyFailed', 'failed', 'rejected']).has(row.StatusName)).length,
+                    completedCount: rows.filter(row => row.StatusName === 'completed').length,
+                }) }
+                : { status: 200, response: rows };
+        }
         const order = id ? ORDERS.find(row => orderIdFor(row['Order ID']) === id) : null;
         if (id && !order) return error(404, 'Not found', `Service order '${id}' does not exist.`);
         if (order && !subResource && request.RequestMethod === 4) {
@@ -669,7 +760,28 @@ function handleUdapiRequest(request) {
         }
     }
     if (resource === 'service') {
-        if (!id && request.RequestMethod === 1) return { status: 200, response: SERVICES.map(toUdapiService) };
+        if (id === 'overview' && request.RequestMethod === 1) {
+            const rows = SERVICES.map(toUdapiService);
+            const active = new Set(['active', 'reserved', 'designed']);
+            return {
+                status: 200,
+                response: {
+                    items: rows.slice(0, 6),
+                    totalCount: rows.length,
+                    activeCount: rows.filter(row => active.has(row.StatusName)).length,
+                    retiredCount: rows.filter(row => row.StatusName === 'retired').length,
+                },
+            };
+        }
+        if (!id && request.RequestMethod === 1) {
+            const rows = SERVICES.map(toUdapiService);
+            return request.QueryParameters?.pagination?.[0] === 'cursor'
+                ? { status: 200, response: cursorPage(rows, request, row => row.ServiceID, row => row.Identifier, () => '', true, true, {
+                    activeCount: rows.filter(row => new Set(['active', 'reserved', 'designed']).has(row.StatusName)).length,
+                    retiredCount: rows.filter(row => row.StatusName === 'retired').length,
+                }) }
+                : { status: 200, response: rows };
+        }
         if (!id && request.RequestMethod === 3) {
             if (!body.name?.trim()) return error(400, 'Invalid request', "'name' is required.");
             if (body.serviceId && !/^SERVICE-\d+$/.test(body.serviceId)) return error(400, 'Invalid request', "'serviceId' must use the format SERVICE-<number>.");

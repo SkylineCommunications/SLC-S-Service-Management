@@ -87,6 +87,24 @@ export async function fetchCatalogSpecificationList() {
     return Array.isArray(payload) ? payload : [];
 }
 
+export async function fetchCatalogSpecificationCursorPage({ limit = 100, after = '', before = '', fields = '', includeTotalCount = true, includeMetrics = false } = {}) {
+    const payload = await callServiceManagementUdapi('serviceSpecification', {
+        query: { pagination: 'cursor', limit, after, before, fields, includeTotalCount, includeMetrics },
+    });
+    if (!payload || !Array.isArray(payload.items)) {
+        throw new UdapiError('The Service Specification API returned an invalid cursor page.');
+    }
+    return payload;
+}
+
+export async function fetchCatalogSpecificationOverview({ limit = 6 } = {}) {
+    const payload = await callServiceManagementUdapi('serviceSpecification/overview', { query: { limit } });
+    if (!payload || !Array.isArray(payload.items)) {
+        throw new UdapiError('The Service Specification API returned an invalid overview response.');
+    }
+    return payload;
+}
+
 export async function fetchCatalogSpecification(id, fields) {
     if (!id) throw new UdapiError('No service specification was selected.');
     return callServiceManagementUdapi(`serviceSpecification/${encodeURIComponent(id)}`, { query: { fields } });
@@ -180,6 +198,24 @@ export async function fetchServiceOrderList() {
     return Array.isArray(payload) ? payload : [];
 }
 
+export async function fetchServiceOrderCursorPage({ limit = 100, after = '', before = '', includeTotalCount = true, includeMetrics = false } = {}) {
+    const payload = await callServiceManagementUdapi('serviceOrder', {
+        query: { pagination: 'cursor', limit, after, before, includeTotalCount, includeMetrics },
+    });
+    if (!payload || !Array.isArray(payload.items)) {
+        throw new UdapiError('The Service Order API returned an invalid cursor page.');
+    }
+    return payload;
+}
+
+export async function fetchServiceOrderOverview({ limit = 6 } = {}) {
+    const payload = await callServiceManagementUdapi('serviceOrder/overview', { query: { limit } });
+    if (!payload || !Array.isArray(payload.items)) {
+        throw new UdapiError('The Service Order API returned an invalid overview response.');
+    }
+    return payload;
+}
+
 export async function createServiceOrder(body) {
     return callServiceManagementUdapi('serviceOrder', { method: 'POST', body });
 }
@@ -267,6 +303,24 @@ function serviceRoute(serviceId, ...segments) {
 export async function fetchServiceList(fields) {
     const payload = await callServiceManagementUdapi('service', { query: { fields } });
     return Array.isArray(payload) ? payload : [];
+}
+
+export async function fetchServiceCursorPage({ limit = 100, after = '', before = '', fields = '', includeTotalCount = true, includeMetrics = false } = {}) {
+    const payload = await callServiceManagementUdapi('service', {
+        query: { pagination: 'cursor', limit, after, before, fields, includeTotalCount, includeMetrics },
+    });
+    if (!payload || !Array.isArray(payload.items)) {
+        throw new UdapiError('The Service API returned an invalid cursor page.');
+    }
+    return payload;
+}
+
+export async function fetchServiceOverview({ limit = 6 } = {}) {
+    const payload = await callServiceManagementUdapi('service/overview', { query: { limit } });
+    if (!payload || !Array.isArray(payload.items)) {
+        throw new UdapiError('The Service API returned an invalid overview response.');
+    }
+    return payload;
 }
 
 export async function fetchServiceRecord(serviceId, fields) {

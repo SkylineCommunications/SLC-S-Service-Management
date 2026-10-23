@@ -6,7 +6,6 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 	using DomHelpers.SlcServicemanagement;
 	using Microsoft.Extensions.Logging;
 	using Newtonsoft.Json.Linq;
-	using Skyline.DataMiner.Net.Apps.DataMinerObjectModel;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
@@ -14,6 +13,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 	using Skyline.DataMiner.Utils.UserDefinedApiToolkit;
 	using SLC_SM_UDAPI_ServiceManagement.Models.Order;
 	using SLC_SM_UDAPI_ServiceManagement.Exceptions;
+	using SLC_SM_UDAPI_ServiceManagement.Helpers;
 	using SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory;
 	using SLC_SM_UDAPI_ServiceManagement.Models;
 	using ConfigurationModels = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.Configurations;
@@ -646,7 +646,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 		/// </summary>
 		/// <remarks>
 		/// <para><c>GET service-management/v1/serviceOrder/{id}</c>. The full order is read; <paramref name="fields"/> only limits the response.</para>
-		/// <para>Adds <c>StatusName</c>, <c>OrganizationName</c> and <c>CreatedAt</c> (UTC) to the order; see <see cref="ToOrderResponses"/>.</para>
+		/// <para>Adds <c>StatusName</c> and <c>OrganizationName</c> to the order; see <see cref="ToOrderResponses"/>.</para>
 		/// </remarks>
 		/// <param name="id">The order ID.</param>
 		/// <param name="fields">Optional comma-separated list of top-level properties to return (case-insensitive). Unknown names are ignored.</param>
@@ -674,10 +674,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 				}
 
 				// TODO: update read with selected fields when SDM API supports it, to avoid reading all fields when only a subset is requested.
-				var metadataFilter = Guid.TryParse(order.Identifier, out var domId)
-					? DomInstanceExposers.Id.Equal(domId)
-					: null;
-				var response = ToOrderResponses(new[] { order }, metadataFilter)[0];
+				var response = ToOrderResponses(new[] { order })[0];
 				var requestedFields = SplitCommaSeparatedValues(fields);
 				if (requestedFields.Count == 0)
 				{
@@ -856,7 +853,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 		/// <summary>
 		/// Lists service orders, optionally filtered and sorted.
 		/// </summary>
-		/// <remarks><c>GET service-management/v1/serviceOrder</c>. Adds <c>StatusName</c>, <c>OrganizationName</c> and <c>CreatedAt</c> (UTC) to each order; see <see cref="ToOrderResponses"/>.</remarks>
+		/// <remarks><c>GET service-management/v1/serviceOrder</c>. Adds <c>StatusName</c> and <c>OrganizationName</c> to each order; see <see cref="ToOrderResponses"/>.</remarks>
 		/// <param name="offset">Number of orders to skip.</param>
 		/// <param name="limit">Maximum number of orders to return.</param>
 		/// <param name="fields">Optional comma-separated list of properties to return.</param>
@@ -879,13 +876,23 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 					[FromQuery] string externalId = null,
 					[FromQuery] string organizationId = null,
 					[FromQuery(Name = "requestedStartDate.gte")] long? requestedStartDateGte = null,
-					[FromQuery(Name = "requestedStartDate.lte")] long? requestedStartDateLte = null)
+					[FromQuery(Name = "requestedStartDate.lte")] long? requestedStartDateLte = null,
+					[FromQuery] string pagination = null,
+					[FromQuery] string after = null,
+					[FromQuery] string before = null,
+					[FromQuery] bool includeTotalCount = true,
+					[FromQuery] bool includeMetrics = false)
 		{
 			_logger.LogInformation("ListServiceOrders called with parameters:\noffset={Offset}\nlimit={Limit}\nfields={Fields}\nsort={Sort}\nstatus={Status}\npriority={Priority}\nexternalId={ExternalId}\norganizationId={OrganizationId}\nrequestedStartDate.gte={RequestedStartDateGte}\nrequestedStartDate.lte={RequestedStartDateLte}",
 				offset, limit, fields, sort, status, priority, externalId, organizationId, requestedStartDateGte, requestedStartDateLte);
 
 			try
 			{
+				if (String.Equals(pagination, "cursor", StringComparison.OrdinalIgnoreCase))
+				{
+					return ListServiceOrdersCursor(limit, fields, after, before, offset, sort, status, priority, externalId, organizationId, requestedStartDateGte, requestedStartDateLte, includeTotalCount, includeMetrics);
+				}
+
 				var query = new ListServiceOrdersQuery
 				{
 					Offset = offset,
@@ -903,7 +910,8 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 				var search = new ServiceOrderSearch(new TimedServiceOrderSearchDataSource(new ServiceOrderSearchDataSource(_serviceManagementApiHelper), _logger));
 				var orders = search.Find(query);
 
-				return Ok(ToOrderResponses(orders, DomInstanceExposers.DomDefinitionId.Equal(SlcServicemanagementIds.Definitions.ServiceOrders.Id)));
+				var response = ToOrderResponses(orders);
+				return Ok(response);
 			}
 			catch (InvalidQueryException ex)
 			{
@@ -915,6 +923,132 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 				_logger.LogError(ex, "ListServiceOrders failed: {Message}", ex.Message);
 				return InternalServerError(CreateError("Internal server error", "An unexpected error occurred while listing service orders.", 500));
 			}
+		}
+
+		private IApiResult ListServiceOrdersCursor(
+			int limit,
+			string fields,
+			string after,
+			string before,
+			int offset,
+			string sort,
+			string status,
+			string priority,
+			string externalId,
+			string organizationId,
+			long? requestedStartDateGte,
+			long? requestedStartDateLte,
+			bool includeTotalCount,
+			bool includeMetrics)
+		{
+			if (offset != 0 || !String.IsNullOrWhiteSpace(sort) || !String.IsNullOrWhiteSpace(status)
+				|| !String.IsNullOrWhiteSpace(priority) || !String.IsNullOrWhiteSpace(externalId)
+				|| !String.IsNullOrWhiteSpace(organizationId) || requestedStartDateGte.HasValue || requestedStartDateLte.HasValue)
+			{
+				return BadRequest(CreateError("Invalid query", "Cursor pagination currently supports an unfiltered, creation-time/OrderId-ordered list only.", 400));
+			}
+
+			if (limit < 1 || limit > 500)
+			{
+				return BadRequest(CreateError("Invalid query", "'limit' must be between 1 and 500 for cursor pagination.", 400));
+			}
+
+			if (!String.IsNullOrWhiteSpace(after) && !String.IsNullOrWhiteSpace(before))
+			{
+				return BadRequest(CreateError("Invalid query", "Only one of 'after' or 'before' can be supplied.", 400));
+			}
+
+			var repository = _serviceManagementApiHelper.ServiceOrder.ServiceOrders as IReadableRepository<ServiceOrder>;
+			if (repository == null)
+			{
+				return InternalServerError(CreateError("Internal server error", "The service-order repository does not support cursor pagination.", 500));
+			}
+
+			var direction = String.IsNullOrWhiteSpace(before) ? CursorDirection.After : CursorDirection.Before;
+			var cursor = String.IsNullOrWhiteSpace(before) ? after : before;
+			var page = repository.ReadCursorPage(
+				ServiceOrderExposers.OrderId,
+				order => order.OrderId ?? String.Empty,
+				CursorKeySerialization.SerializeString,
+				CursorKeySerialization.DeserializeString,
+				ServiceOrderExposers.Identifier,
+				order => order.Identifier,
+				CursorKeySerialization.SerializeString,
+				CursorKeySerialization.DeserializeString,
+				filter: null,
+				cursor: cursor,
+				limit: limit,
+				direction: direction,
+				descending: true,
+				secondaryDescending: true,
+				includeTotalCount: includeTotalCount && !includeMetrics);
+			var items = ToOrderResponses(page.Items);
+			var metrics = includeMetrics ? _serviceManagementApiHelper.Overview.ReadServiceOrders() : null;
+
+			return Ok(new CursorPageResponse<JObject>
+			{
+				Items = String.IsNullOrWhiteSpace(fields) ? items : items.Select(item => SelectFields(item, SplitCommaSeparatedValues(fields))).ToList(),
+				TotalCount = metrics?.TotalCount ?? page.TotalCount,
+				Metrics = metrics == null ? null : JObject.FromObject(metrics),
+				PageInfo = new CursorPageInfo
+				{
+					NextAfterCursor = page.NextAfterCursor,
+					NextBeforeCursor = page.NextBeforeCursor,
+					HasNextPage = page.HasNextPage,
+					HasPreviousPage = page.HasPreviousPage,
+				},
+			});
+		}
+
+		[HttpGet("overview")]
+		public IApiResult GetServiceOrderOverview([FromQuery] int limit = 6)
+		{
+			if (limit < 1 || limit > 50)
+			{
+				return BadRequest(CreateError("Invalid request", "'limit' must be between 1 and 50.", 400));
+			}
+
+			try
+			{
+				var repository = _serviceManagementApiHelper.ServiceOrder.ServiceOrders as IReadableRepository<ServiceOrder>;
+				if (repository == null)
+				{
+					return InternalServerError(CreateError("Internal server error", "The service-order repository does not support overview reads.", 500));
+				}
+
+				var recentOrders = ReadRecentServiceOrders(repository, limit);
+				var overview = _serviceManagementApiHelper.Overview.ReadServiceOrders();
+
+				return Ok(new ServiceOrderOverviewResponse
+				{
+					Items = ToOrderResponses(recentOrders),
+					TotalCount = overview.TotalCount,
+					OpenCount = overview.OpenCount,
+					AttentionCount = overview.AttentionCount,
+					CompletedCount = overview.CompletedCount,
+				});
+			}
+			catch (Exception ex)
+			{
+				_logger.LogError(ex, "GetServiceOrderOverview failed: {Message}", ex.Message);
+				return InternalServerError(CreateError("Internal server error", "An unexpected error occurred while retrieving the service-order overview.", 500));
+			}
+		}
+
+		private IReadOnlyList<ServiceOrder> ReadRecentServiceOrders(IReadableRepository<ServiceOrder> repository, int limit)
+		{
+			return repository.ReadCursorPage(
+				ServiceOrderExposers.OrderId,
+				order => order.OrderId ?? String.Empty,
+				CursorKeySerialization.SerializeString,
+				CursorKeySerialization.DeserializeString,
+				ServiceOrderExposers.Identifier,
+				order => order.Identifier,
+				CursorKeySerialization.SerializeString,
+				CursorKeySerialization.DeserializeString,
+				limit: limit,
+				descending: true,
+				secondaryDescending: true).Items;
 		}
 
 		/// <summary>
@@ -1722,26 +1856,20 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 		}
 
 		/// <summary>
-		/// Serializes orders and adds <c>StatusName</c> (API status name), <c>OrganizationName</c> and <c>CreatedAt</c> (UTC) when known.
+		/// Serializes orders and adds <c>StatusName</c> (API status name) and <c>OrganizationName</c>.
 		/// </summary>
 		/// <param name="orders">The orders.</param>
-		/// <param name="metadataFilter">Filter on the order DOM instances for <c>CreatedAt</c>, or <see langword="null"/> to skip it.</param>
 		/// <returns>The JSON objects, in the same order.</returns>
-		private List<JObject> ToOrderResponses(IEnumerable<ServiceOrder> orders, FilterElement<DomInstance> metadataFilter)
+		private List<JObject> ToOrderResponses(IEnumerable<ServiceOrder> orders)
 		{
 			var list = orders.ToList();
 			var organizations = list.Any(o => o.OrganizationId.HasValue) ? ReadOrganizationNames() : new Dictionary<Guid, string>();
-			var createdAt = list.Count > 0 && metadataFilter != null ? ReadCreatedAt(metadataFilter) : new Dictionary<string, DateTime>();
 
 			return list.Select(order =>
 			{
 				var result = JObject.FromObject(order);
 				result["StatusName"] = ToApiStatus(order.Status.ToString());
 				result["OrganizationName"] = order.OrganizationId.HasValue && organizations.TryGetValue(order.OrganizationId.Value, out var name) ? name : null;
-				if (createdAt.TryGetValue(order.Identifier ?? String.Empty, out var created))
-				{
-					result["CreatedAt"] = created;
-				}
 
 				return result;
 			}).ToList();
@@ -1860,29 +1988,6 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 			{
 				_logger.LogWarning(ex, "Reading organizations failed: {Message}", ex.Message);
 				return new Dictionary<Guid, string>();
-			}
-		}
-
-		/// <summary>Reads the creation time (UTC) of service orders from the DOM metadata. Returns an empty map, with a warning, when it cannot be read.</summary>
-		/// <param name="filter">Filter on the service order DOM instances.</param>
-		/// <returns>The creation times by order identifier.</returns>
-		private Dictionary<string, DateTime> ReadCreatedAt(FilterElement<DomInstance> filter)
-		{
-			try
-			{
-				var domHelper = new DomHelper(_engineAccessor.Value.SendSLNetMessages, SlcServicemanagementIds.ModuleId);
-				var result = new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
-				foreach (var instance in domHelper.DomInstances.Read(filter) ?? new List<DomInstance>())
-				{
-					result[instance.ID.Id.ToString()] = new ServiceOrdersInstance(instance).CreatedAt.UtcDateTime;
-				}
-
-				return result;
-			}
-			catch (Exception ex)
-			{
-				_logger.LogWarning(ex, "Reading service order metadata failed: {Message}", ex.Message);
-				return new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
 			}
 		}
 

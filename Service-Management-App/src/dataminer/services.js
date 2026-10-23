@@ -12,6 +12,8 @@ import {
     fetchServiceConfigurationList,
     fetchServiceItemList,
     fetchServiceList,
+    fetchServiceCursorPage,
+    fetchServiceOverview,
     fetchServiceScriptList,
     saveServiceConfiguration,
     transitionInventoryService,
@@ -106,6 +108,22 @@ function mapUdapiService(service) {
 
 export async function fetchServices() {
     return (await fetchServiceList(SERVICE_LIST_FIELDS)).map(mapUdapiService);
+}
+
+export async function fetchServicePage(options = {}) {
+    const page = await fetchServiceCursorPage({ ...options, fields: SERVICE_LIST_FIELDS });
+    return {
+        ...page,
+        items: page.items.map(mapUdapiService),
+    };
+}
+
+export async function fetchServiceOverviewData(options = {}) {
+    const overview = await fetchServiceOverview(options);
+    return {
+        ...overview,
+        items: overview.items.map(mapUdapiService),
+    };
 }
 
 export async function fetchServiceDetails(serviceId) {

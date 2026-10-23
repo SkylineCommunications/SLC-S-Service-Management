@@ -16,6 +16,7 @@
 	using Skyline.DataMiner.SDM.OData;
 	using Skyline.DataMiner.Utils.UserDefinedApiToolkit;
 	using SLC_SM_UDAPI_ServiceManagement.Exceptions;
+	using SLC_SM_UDAPI_ServiceManagement.Helpers;
 	using SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory;
 	using SLC_SM_UDAPI_ServiceManagement.Models;
 	using SLC_SM_UDAPI_ServiceManagement.Models.Inventory;
@@ -548,13 +549,23 @@
 			[FromQuery] string serviceSpecificationId = null,
 			[FromQuery] string sort = null,
 			[FromQuery] long? startDate = null,
-			[FromQuery] string status = null)
+			[FromQuery] string status = null,
+			[FromQuery] string pagination = null,
+			[FromQuery] string after = null,
+			[FromQuery] string before = null,
+			[FromQuery] bool includeTotalCount = true,
+			[FromQuery] bool includeMetrics = false)
 		{
 			_logger.LogInformation("ListServices called with parameters:\ncategoryId={CategoryId}\nendDate={EndDate}\nfields={Fields}\nlimit={Limit}\nname={Name}\noffset={Offset}\norganizationId={OrganizationId}\nparameter={Parameter}\nprofileDefinition={ProfileDefinition}\nserviceSpecificationId={ServiceSpecificationId}\nsort={Sort}\nstartDate={StartDate}\nstatus={Status}",
 				categoryId, endDate, fields, limit, name, offset, organizationId, JsonConvert.SerializeObject(parameter), profileDefinition, serviceSpecificationId, sort, startDate, JsonConvert.SerializeObject(status));
 
 			try
 			{
+				if (String.Equals(pagination, "cursor", StringComparison.OrdinalIgnoreCase))
+				{
+					return ListServicesCursor(limit, fields, after, before, offset, name, status, categoryId, serviceSpecificationId, organizationId, parameter, profileDefinition, sort, startDate, endDate, includeTotalCount, includeMetrics);
+				}
+
 				var query = new ListServicesQuery
 				{
 					CategoryId = categoryId,
@@ -573,7 +584,8 @@
 
 				var search = new ServiceParameterSearch(new TimedServiceSearchDataSource(new ServiceSearchDataSource(serviceManagementApiHelper), _logger));
 				var requestedFields = ParseRequestedFields(fields);
-				var services = ToServiceResponses(search.Find(query), requestedFields);
+				var matchedServices = search.Find(query);
+				var services = ToServiceResponses(matchedServices, requestedFields);
 
 				if (requestedFields.Count == 0)
 				{
@@ -591,6 +603,131 @@
 			{
 				_logger.LogError(ex, "ListServices failed: {Message}", ex.Message);
 				return InternalServerError(CreateError("Internal server error", "An unexpected error occurred while listing the services.", 500));
+			}
+		}
+
+		private IApiResult ListServicesCursor(
+			int limit,
+			string fields,
+			string after,
+			string before,
+			int offset,
+			string name,
+			string status,
+			string categoryId,
+			string serviceSpecificationId,
+			string organizationId,
+			IEnumerable<string> parameter,
+			string profileDefinition,
+			string sort,
+			long? startDate,
+			long? endDate,
+			bool includeTotalCount,
+			bool includeMetrics)
+		{
+			if (offset != 0 || !String.IsNullOrWhiteSpace(name) || !String.IsNullOrWhiteSpace(status)
+				|| !String.IsNullOrWhiteSpace(categoryId) || !String.IsNullOrWhiteSpace(serviceSpecificationId)
+				|| !String.IsNullOrWhiteSpace(organizationId) || (parameter != null && parameter.Any())
+				|| !String.IsNullOrWhiteSpace(profileDefinition) || !String.IsNullOrWhiteSpace(sort)
+				|| startDate.HasValue || endDate.HasValue)
+			{
+				return BadRequest(CreateError("Invalid query", "Cursor pagination currently supports an unfiltered, ServiceID-ordered list only.", 400));
+			}
+
+			if (limit < 1 || limit > 500)
+			{
+				return BadRequest(CreateError("Invalid query", "'limit' must be between 1 and 500 for cursor pagination.", 400));
+			}
+
+			if (!String.IsNullOrWhiteSpace(after) && !String.IsNullOrWhiteSpace(before))
+			{
+				return BadRequest(CreateError("Invalid query", "Only one of 'after' or 'before' can be supplied.", 400));
+			}
+
+			var repository = serviceManagementApiHelper.ServiceInventory.Services as IReadableRepository<Service>;
+			if (repository == null)
+			{
+				return InternalServerError(CreateError("Internal server error", "The service repository does not support cursor pagination.", 500));
+			}
+
+			var direction = String.IsNullOrWhiteSpace(before) ? CursorDirection.After : CursorDirection.Before;
+			var cursor = String.IsNullOrWhiteSpace(before) ? after : before;
+			var page = repository.ReadCursorPage(
+				ServiceExposers.ServiceID,
+				service => service.ServiceID ?? String.Empty,
+				CursorKeySerialization.SerializeString,
+				CursorKeySerialization.DeserializeString,
+				ServiceExposers.Identifier,
+				service => service.Identifier,
+				CursorKeySerialization.SerializeString,
+				CursorKeySerialization.DeserializeString,
+				filter: null,
+				cursor: cursor,
+				limit: limit,
+				direction: direction,
+				descending: true,
+				secondaryDescending: true,
+				includeTotalCount: includeTotalCount && !includeMetrics);
+			var items = ToServiceResponses(page.Items, ParseRequestedFields(fields));
+			var metrics = includeMetrics ? serviceManagementApiHelper.Overview.ReadServices() : null;
+
+			return Ok(new CursorPageResponse<JObject>
+			{
+				Items = items,
+				TotalCount = metrics?.TotalCount ?? page.TotalCount,
+				Metrics = metrics == null ? null : JObject.FromObject(metrics),
+				PageInfo = new CursorPageInfo
+				{
+					NextAfterCursor = page.NextAfterCursor,
+					NextBeforeCursor = page.NextBeforeCursor,
+					HasNextPage = page.HasNextPage,
+					HasPreviousPage = page.HasPreviousPage,
+				},
+			});
+		}
+
+		[HttpGet("overview")]
+		public IApiResult GetServiceOverview([FromQuery] int limit = 6)
+		{
+			if (limit < 1 || limit > 50)
+			{
+				return BadRequest(CreateError("Invalid request", "'limit' must be between 1 and 50.", 400));
+			}
+
+			try
+			{
+				var repository = serviceManagementApiHelper.ServiceInventory.Services as IReadableRepository<Service>;
+				if (repository == null)
+				{
+					return InternalServerError(CreateError("Internal server error", "The service repository does not support overview reads.", 500));
+				}
+
+				var page = repository.ReadCursorPage(
+					ServiceExposers.ServiceID,
+					service => service.ServiceID ?? String.Empty,
+					CursorKeySerialization.SerializeString,
+					CursorKeySerialization.DeserializeString,
+					ServiceExposers.Identifier,
+					service => service.Identifier,
+					CursorKeySerialization.SerializeString,
+					CursorKeySerialization.DeserializeString,
+					limit: limit,
+					descending: true,
+					secondaryDescending: true);
+				var overview = serviceManagementApiHelper.Overview.ReadServices();
+
+				return Ok(new ServiceOverviewResponse
+				{
+					Items = ToServiceOverviewResponses(page.Items),
+					TotalCount = overview.TotalCount,
+					ActiveCount = overview.ActiveCount,
+					RetiredCount = overview.RetiredCount,
+				});
+			}
+			catch (Exception ex)
+			{
+				_logger.LogError(ex, "GetServiceOverview failed: {Message}", ex.Message);
+				return InternalServerError(CreateError("Internal server error", "An unexpected error occurred while retrieving the service overview.", 500));
 			}
 		}
 
@@ -1377,6 +1514,47 @@
 				_logger.LogWarning(ex, "Reading {Description} failed: {Message}", description, ex.Message);
 				return new Dictionary<TKey, TValue>();
 			}
+		}
+
+		private List<JObject> ToServiceOverviewResponses(IEnumerable<Service> services)
+		{
+			var list = services.ToList();
+			var specificationNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+			FilterElement<ServiceSpecification> specificationFilter = null;
+			foreach (var specificationId in list
+				.Select(service => service.ServiceSpecificationId.Identifier)
+				.Where(id => !String.IsNullOrWhiteSpace(id))
+				.Distinct(StringComparer.OrdinalIgnoreCase))
+			{
+				var current = ServiceSpecificationExposers.Identifier.Equal(specificationId);
+				specificationFilter = specificationFilter == null ? current : specificationFilter.OR(current);
+			}
+
+			if (specificationFilter != null)
+			{
+				foreach (var specification in serviceManagementApiHelper.ServiceCatalog.ServiceSpecifications.Read(specificationFilter) ?? Enumerable.Empty<ServiceSpecification>())
+				{
+					specificationNames[specification.Identifier] = specification.Name;
+				}
+			}
+
+			return list.Select(service =>
+			{
+				var response = new JObject
+				{
+					["Identifier"] = service.Identifier,
+					["ServiceID"] = service.ServiceID,
+					["Name"] = service.Name,
+					["StatusName"] = ToApiStatus(service.Status.ToString()),
+				};
+				var specificationId = service.ServiceSpecificationId.Identifier;
+				if (specificationId != null && specificationNames.TryGetValue(specificationId, out var specificationName))
+				{
+					response["ServiceSpecificationName"] = specificationName;
+				}
+
+				return response;
+			}).ToList();
 		}
 
 		/// <summary>

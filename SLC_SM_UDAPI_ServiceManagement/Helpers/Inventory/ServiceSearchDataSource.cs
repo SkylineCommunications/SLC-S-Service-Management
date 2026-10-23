@@ -10,20 +10,22 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 	using Skyline.DataMiner.SDM;
 
+	using SLC_SM_UDAPI_ServiceManagement.Controllers;
 	/// <summary>
 	/// <see cref="IServiceSearchDataSource"/> that filters on the server, in batches of OR-ed filters.
 	/// </summary>
 	public sealed class ServiceSearchDataSource : IServiceSearchDataSource
 	{
 		private const int BatchSize = 200;
+		private const int CursorPageSize = 500;
 
 		private readonly IServiceManagementApiHelper serviceManagement;
-
 		/// <summary>
 		/// Initializes a new instance of the <see cref="ServiceSearchDataSource"/> class.
 		/// </summary>
 		/// <param name="serviceManagement">Service Management API helper.</param>
-		public ServiceSearchDataSource(IServiceManagementApiHelper serviceManagement)
+		public ServiceSearchDataSource(
+			IServiceManagementApiHelper serviceManagement)
 		{
 			this.serviceManagement = serviceManagement ?? throw new ArgumentNullException(nameof(serviceManagement));
 		}
@@ -127,7 +129,20 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 		/// <inheritdoc/>
 		public IReadOnlyList<Service> GetServices()
 		{
-			return serviceManagement.ServiceInventory.Services.Read(new TRUEFilterElement<Service>()).ToList();
+			var repository = serviceManagement.ServiceInventory.Services;
+			var readableRepository = repository as IReadableRepository<Service>;
+			if (readableRepository == null)
+			{
+				return repository.Read(new TRUEFilterElement<Service>()).ToList();
+			}
+
+			var result = new List<Service>();
+			foreach (var page in readableRepository.ReadCursorPages(pageSize: CursorPageSize))
+			{
+				result.AddRange(page);
+			}
+
+			return result;
 		}
 
 		/// <inheritdoc/>

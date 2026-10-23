@@ -10,6 +10,7 @@
 		{
 			// Service Order
 			public static readonly ApiDefinitionId ServiceOrder_UDAPI_Id = new ApiDefinitionId(Guid.Parse("5f003c88-b62d-4776-b332-bb060791f8ef"));
+			public static readonly ApiDefinitionId ServiceOrder_Overview_UDAPI_Id = new ApiDefinitionId(Guid.Parse("d5f7c2a1-7e44-4a63-9d1b-2f6c8e0b4a17"));
 
 			public static readonly ApiDefinitionId ServiceOrder_ById_UDAPI_Id = new ApiDefinitionId(Guid.Parse("59490290-9655-4295-aa27-55fa680a2c50"));
 			public static readonly ApiDefinitionId ServiceOrder_ById_Transitions_UDAPI_Id = new ApiDefinitionId(Guid.Parse("80a19507-a3cf-4820-af0c-6c4e11133ff6"));
@@ -21,6 +22,7 @@
 
 			// Service Inventory
 			public static readonly ApiDefinitionId ServiceInventory_UDAPI_Id = new ApiDefinitionId(Guid.Parse("8b27f8d4-f5d0-4d9f-b7f1-7e5e6db4e5c2"));
+			public static readonly ApiDefinitionId ServiceInventory_Overview_UDAPI_Id = new ApiDefinitionId(Guid.Parse("c4a81e2f-6b53-4d90-a7c2-1e5f9b3d8a64"));
 
 			public static readonly ApiDefinitionId ServiceInventory_ById_UDAPI_Id = new ApiDefinitionId(Guid.Parse("5f9c2a71-3c8b-44e9-a6f3-91d7b2c84f6e"));
 			public static readonly ApiDefinitionId ServiceInventory_ById_Transitions_UDAPI_Id = new ApiDefinitionId(Guid.Parse("8150ce8c-313b-431c-84a1-c7e263c061cb"));
@@ -36,6 +38,7 @@
 
 			// Service Specification
 			public static readonly ApiDefinitionId ServiceSpecification_UDAPI_Id = new ApiDefinitionId(Guid.Parse("f41b17ff-13e6-468a-80cd-2933df07c55a"));
+			public static readonly ApiDefinitionId ServiceSpecification_Overview_UDAPI_Id = new ApiDefinitionId(Guid.Parse("a9e3d7b2-5c41-4f86-b0d4-2e7a6c1f9b35"));
 
 			public static readonly ApiDefinitionId ServiceSpecification_ById_UDAPI_Id = new ApiDefinitionId(Guid.Parse("ee87680c-a2b2-47b6-81d4-f20070c5d007"));
 

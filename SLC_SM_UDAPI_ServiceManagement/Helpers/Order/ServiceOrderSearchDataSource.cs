@@ -7,16 +7,18 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Order
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
+	using Skyline.DataMiner.SDM;
 
+	using SLC_SM_UDAPI_ServiceManagement.Controllers;
 	/// <summary>
 	/// <see cref="IServiceOrderSearchDataSource"/> that reads from the Service Management API, in batches of OR-ed filters.
 	/// </summary>
 	public sealed class ServiceOrderSearchDataSource : IServiceOrderSearchDataSource
 	{
 		private const int BatchSize = 200;
+		private const int CursorPageSize = 500;
 
 		private readonly IServiceManagementApiHelper serviceManagement;
-
 		/// <summary>
 		/// Initializes a new instance of the <see cref="ServiceOrderSearchDataSource"/> class.
 		/// </summary>
@@ -61,7 +63,20 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Order
 		/// <inheritdoc/>
 		public IReadOnlyList<ServiceOrder> GetServiceOrders()
 		{
-			return serviceManagement.ServiceOrder.ServiceOrders.Read(new TRUEFilterElement<ServiceOrder>()).ToList();
+			var repository = serviceManagement.ServiceOrder.ServiceOrders;
+			var readableRepository = repository as IReadableRepository<ServiceOrder>;
+			if (readableRepository == null)
+			{
+				return repository.Read(new TRUEFilterElement<ServiceOrder>()).ToList();
+			}
+
+			var result = new List<ServiceOrder>();
+			foreach (var page in readableRepository.ReadCursorPages(pageSize: CursorPageSize))
+			{
+				result.AddRange(page);
+			}
+
+			return result;
 		}
 	}
 }
