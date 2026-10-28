@@ -29,6 +29,7 @@
 	public partial class ServiceInventoryController : ControllerBase
 	{
 		private static readonly Regex ServiceIdPattern = new Regex(@"^SERVICE-\d+$", RegexOptions.Compiled);
+
 		private static readonly Dictionary<string, ServiceFieldSelector> ServiceFieldSelectors =
 			new Dictionary<string, ServiceFieldSelector>(StringComparer.OrdinalIgnoreCase)
 			{
