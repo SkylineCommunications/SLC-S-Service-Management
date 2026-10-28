@@ -1,0 +1,39 @@
+name: k6 API tests
+
+on:
+  workflow_call:
+    inputs:
+      path:
+        description: Glob of k6 scripts in the caller repository
+        type: string
+        default: tests/k6/*.js
+      environment:
+        description: GitHub environment holding DMA_URL (and optionally SM_API_URL) vars and the SM_API_KEY secret
+        type: string
+        default: dataminer-ovo-mole
+      runs-on:
+        description: JSON runner spec (must be able to reach the DMA; a DaaS is reachable from hosted runners)
+        type: string
+        default: '"ubuntu-latest"'
+
+permissions:
+  contents: read
+
+jobs:
+  k6:
+    name: k6
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    environment: ${{ inputs.environment }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: grafana/setup-k6-action@43b9fc21641a76002687994433dd586f56e791b1 # v1.2.2
+      - uses: grafana/run-k6-action@4082a08c7e40cf6d65863911077dfb60ae0a4f04 # v1.5.0
+        env:
+          DMA_URL: ${{ vars.DMA_URL }}
+          SM_API_URL: ${{ vars.SM_API_URL }}
+          SM_API_KEY: ${{ secrets.SM_API_KEY }}
+        with:
+          path: ${{ inputs.path }}

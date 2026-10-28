@@ -1,0 +1,9 @@
+<ProjectReferences xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns="http://www.skyline.be/projectReferences">
+	<!--
+		No solution project is packaged into this Test Package: the solution under test is deployed as its own
+		.dmapp (TestPackageContent\Dependencies, see 1.TestPackageSetup.ps1). The SDK includes every project when
+		nothing is included, so include-all followed by exclude-all is the supported way to express "nothing".
+	-->
+	<ProjectReference Include="..\*\*.csproj" />
+	<ProjectReference Exclude="..\*\*.csproj" />
+</ProjectReferences>

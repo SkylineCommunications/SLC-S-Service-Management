@@ -1,0 +1,60 @@
+name: CI/CD
+
+on:
+  pull_request:
+    branches: ['2.0.X']
+  push:
+    branches: ['2.0.X', 'dev/workflows']
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  unit-tests:
+    name: Unit tests
+    uses: ./.github/workflows/node-unit-tests.yml
+    with:
+      working-directory: Service-Management-App
+
+  playwright-mock:
+    name: Playwright (mock data)
+    uses: ./.github/workflows/playwright-tests.yml
+    with:
+      working-directory: Service-Management-App
+      test-script: test:e2e
+      report-name: playwright-report-mock
+
+  qaops:
+    name: QAOps (RC)
+    needs: [unit-tests, playwright-mock]
+    # Pull requests only run the fast local checks. Other branches still build the .dmapp for the deploy job, but only
+    # 2.0.X runs it on QAOps, which provisions a DataMiner and consumes a token use.
+    if: github.event_name != 'pull_request'
+    uses: ./.github/workflows/qaops-tests.yml
+    with:
+      run-on-qaops: ${{ github.ref == 'refs/heads/2.0.X' }}
+    secrets:
+      QAOPS_TOKEN: ${{ secrets.QAOPS_TOKEN }}
+      DATAMINER_TOKEN: ${{ secrets.DATAMINER_TOKEN }}
+
+  deploy-daas:
+    name: Deploy to DaaS
+    needs: qaops
+    uses: ./.github/workflows/deploy-daas.yml
+    with:
+      mode: volatile
+      dmapp-artifact-name: ${{ needs.qaops.outputs.dmapp-artifact-name }}
+    secrets:
+      DAAS_SYSTEM_TOKEN: ${{ secrets.DAAS_SYSTEM_TOKEN }}
+
+  k6-api:
+    name: k6 (API smoke on DaaS)
+    needs: deploy-daas
+    uses: ./.github/workflows/k6-tests.yml
+    secrets: inherit

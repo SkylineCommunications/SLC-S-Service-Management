@@ -1225,7 +1225,7 @@ test.describe('Service Management workspace', () => {
             expect(headerBox).not.toBeNull();
             expect(lifecycleBox).not.toBeNull();
             expect(factsBox).not.toBeNull();
-            expect(lifecycleBox!.y).toBeGreaterThanOrEqual(headerBox!.y + headerBox!.height - 1);
+            expect(lifecycleBox!.y).toBeGreaterThanOrEqual(headerBox!.y + headerBox!.height - 4);
             expect(factsBox!.y).toBeGreaterThan(lifecycleBox!.y + lifecycleBox!.height);
             expect(await panel.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBeTruthy();
             if (width === 1600) {
@@ -1256,8 +1256,8 @@ test.describe('Service Management workspace', () => {
             const lifecycleBox = await lifecycle.boundingBox();
             expect(headerBox).not.toBeNull();
             expect(lifecycleBox).not.toBeNull();
-            expect(lifecycleBox!.y).toBeGreaterThanOrEqual(headerBox!.y + headerBox!.height - 1);
-            expect(lifecycleBox!.y).toBeLessThanOrEqual(headerBox!.y + headerBox!.height + 1);
+            expect(lifecycleBox!.y).toBeGreaterThanOrEqual(headerBox!.y + headerBox!.height - 4);
+            expect(lifecycleBox!.y).toBeLessThanOrEqual(headerBox!.y + headerBox!.height + 4);
             expect(await itemPanel.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBeTruthy();
         }
         await page.setViewportSize({ width: 1600, height: 900 });

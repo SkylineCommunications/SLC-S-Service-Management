@@ -19,6 +19,19 @@
     <Exec Command="npm ci" WorkingDirectory="$(ProjectDir)..\Service-Management-App" />
     <Exec Command="npm run build" WorkingDirectory="$(ProjectDir)..\Service-Management-App" />
   </Target>
+  <!-- Bundle the .dmapp into the QAOps Test Package so its setup script can deploy the solution on the test DataMiner. -->
+  <Target Name="CopyDmappToTestPackage" AfterTargets="DmappCreation" Condition="Exists('$(MSBuildThisFileDirectory)..\SLC-Service-Management.QAOps\SLC-Service-Management.QAOps.csproj')">
+    <PropertyGroup>
+      <_TestPackageDependencies>$(MSBuildThisFileDirectory)..\SLC-Service-Management.QAOps\TestPackageContent\Dependencies</_TestPackageDependencies>
+    </PropertyGroup>
+    <ItemGroup>
+      <_SolutionDmapp Include="$(OutDir)DataMinerBuild\*.dmapp" />
+      <_StaleBundledDmapp Include="$(_TestPackageDependencies)\SLC-Service-Management.*.dmapp" />
+    </ItemGroup>
+    <Delete Files="@(_StaleBundledDmapp)" />
+    <MakeDir Directories="$(_TestPackageDependencies)" />
+    <Copy SourceFiles="@(_SolutionDmapp)" DestinationFolder="$(_TestPackageDependencies)" />
+  </Target>
   <ItemGroup>
     <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
     <PackageReference Include="Skyline.DataMiner.Core.AppPackageInstaller" Version="4.0.0" />

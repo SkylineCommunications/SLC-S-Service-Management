@@ -8,7 +8,9 @@
     "dev:mock": "vite --mode mock",
     "build": "vite build",
     "preview": "vite preview",
-    "test:e2e": "playwright test"
+    "test:unit": "node --test \"src/**/*.test.js\"",
+    "test:e2e": "playwright test",
+    "test:e2e:live": "playwright test -c playwright.live.config.ts"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^5.0.2",
