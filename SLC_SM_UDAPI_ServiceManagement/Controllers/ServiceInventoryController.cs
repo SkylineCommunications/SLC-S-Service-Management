@@ -644,30 +644,31 @@
 				return BadRequest(CreateError("Invalid query", "Only one of 'after' or 'before' can be supplied.", 400));
 			}
 
-			var repository = serviceManagementApiHelper.ServiceInventory.Services as IReadableRepository<Service>;
-			if (repository == null)
+			CursorPage<Service> page;
+			try
 			{
-				return InternalServerError(CreateError("Internal server error", "The service repository does not support cursor pagination.", 500));
+				page = ((IReadableRepository<Service>)serviceManagementApiHelper.ServiceInventory.Services).ReadCursorPage(
+					ServiceExposers.ServiceID,
+					service => service.ServiceID ?? String.Empty,
+					CursorKeySerialization.SerializeString,
+					CursorKeySerialization.DeserializeString,
+					ServiceExposers.Identifier,
+					service => service.Identifier,
+					CursorKeySerialization.SerializeString,
+					CursorKeySerialization.DeserializeString,
+					filter: null,
+					limit: limit,
+					cursor: String.IsNullOrWhiteSpace(before) ? after : before,
+					direction: String.IsNullOrWhiteSpace(before) ? CursorDirection.After : CursorDirection.Before,
+					descending: true,
+					secondaryDescending: true,
+					includeTotalCount: includeTotalCount && !includeMetrics);
+			}
+			catch (ArgumentException)
+			{
+				return BadRequest(CreateError("Invalid query", "The cursor is not valid. Reload the list from the first page.", 400));
 			}
 
-			var direction = String.IsNullOrWhiteSpace(before) ? CursorDirection.After : CursorDirection.Before;
-			var cursor = String.IsNullOrWhiteSpace(before) ? after : before;
-			var page = repository.ReadCursorPage(
-				ServiceExposers.ServiceID,
-				service => service.ServiceID ?? String.Empty,
-				CursorKeySerialization.SerializeString,
-				CursorKeySerialization.DeserializeString,
-				ServiceExposers.Identifier,
-				service => service.Identifier,
-				CursorKeySerialization.SerializeString,
-				CursorKeySerialization.DeserializeString,
-				filter: null,
-				cursor: cursor,
-				limit: limit,
-				direction: direction,
-				descending: true,
-				secondaryDescending: true,
-				includeTotalCount: includeTotalCount && !includeMetrics);
 			var items = ToServiceResponses(page.Items, ParseRequestedFields(fields));
 			var metrics = includeMetrics ? serviceManagementApiHelper.Overview.ReadServices() : null;
 

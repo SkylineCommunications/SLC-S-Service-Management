@@ -22,7 +22,7 @@
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
-    <PackageReference Include="Skyline.DataMiner.ProjectApi.ServiceManagementSKA13" Version="1.0.31" />
+    <PackageReference Include="Skyline.DataMiner.ProjectApi.ServiceManagementSKA13" Version="1.0.32" />
     <PackageReference Include="Skyline.DataMiner.SDM.OData" Version="1.0.0" />
     <PackageReference Include="Skyline.DataMiner.Utils.UserDefinedApiToolkit" Version="10.6.8.4-rc1" />
     <PackageReference Include="Skyline.DataMiner.Utils.SecureCoding.Analyzers" Version="3.0.1">

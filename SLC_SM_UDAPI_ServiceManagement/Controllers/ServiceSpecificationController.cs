@@ -344,30 +344,31 @@
 				return BadRequest(CreateError("Invalid query", "Only one of 'after' or 'before' can be supplied.", 400));
 			}
 
-			var repository = serviceManagementApiHelper.ServiceCatalog.ServiceSpecifications as IReadableRepository<ServiceSpecification>;
-			if (repository == null)
+			CursorPage<ServiceSpecification> page;
+			try
 			{
-				return InternalServerError(CreateError("Internal server error", "The service-specification repository does not support cursor pagination.", 500));
+				page = ((IReadableRepository<ServiceSpecification>)serviceManagementApiHelper.ServiceCatalog.ServiceSpecifications).ReadCursorPage(
+					ServiceSpecificationExposers.Name,
+					specification => specification.Name ?? String.Empty,
+					CursorKeySerialization.SerializeString,
+					CursorKeySerialization.DeserializeString,
+					ServiceSpecificationExposers.Identifier,
+					specification => specification.Identifier,
+					CursorKeySerialization.SerializeString,
+					CursorKeySerialization.DeserializeString,
+					filter: null,
+					limit: limit,
+					cursor: String.IsNullOrWhiteSpace(before) ? after : before,
+					direction: String.IsNullOrWhiteSpace(before) ? CursorDirection.After : CursorDirection.Before,
+					descending: true,
+					secondaryDescending: true,
+					includeTotalCount: includeTotalCount && !includeMetrics);
+			}
+			catch (ArgumentException)
+			{
+				return BadRequest(CreateError("Invalid query", "The cursor is not valid. Reload the list from the first page.", 400));
 			}
 
-			var direction = String.IsNullOrWhiteSpace(before) ? CursorDirection.After : CursorDirection.Before;
-			var cursor = String.IsNullOrWhiteSpace(before) ? after : before;
-			var page = repository.ReadCursorPage(
-				ServiceSpecificationExposers.Name,
-				specification => specification.Name ?? String.Empty,
-				CursorKeySerialization.SerializeString,
-				CursorKeySerialization.DeserializeString,
-				ServiceSpecificationExposers.Identifier,
-				specification => specification.Identifier,
-				CursorKeySerialization.SerializeString,
-				CursorKeySerialization.DeserializeString,
-				filter: null,
-				cursor: cursor,
-				limit: limit,
-				direction: direction,
-				descending: true,
-				secondaryDescending: true,
-				includeTotalCount: includeTotalCount && !includeMetrics);
 			var requestedFields = SplitCommaSeparatedValues(fields);
 			var items = page.Items
 				.Select(JObject.FromObject)

@@ -199,14 +199,18 @@ function ConfigurationParameterValueEditor({ parameter, disabled = false, onChan
     const options = Array.isArray(parameter.options) ? parameter.options : [];
     const isDiscrete = String(parameter.type || '').trim().toLowerCase() === 'discrete';
     const isNumber = String(parameter.type || '').trim().toLowerCase() === 'number';
+    if (disabled) {
+        const text = currentValue && isNumber && parameter.unit ? `${currentValue} ${parameter.unit}` : currentValue;
+        return <span className="parameter-value-text" title={text} aria-label={ariaLabel}>{text || '—'}</span>;
+    }
     if (isNumber) {
-        return <input className={disabled ? 'reusable' : ''} type="number" min={parameter.start || undefined} max={parameter.end || undefined} step={parameter.step || 'any'} value={currentValue} disabled={disabled} onChange={event => onChange(event.target.value)} aria-label={ariaLabel} />;
+        return <input className="parameter-value-input number" type="number" min={parameter.start || undefined} max={parameter.end || undefined} step={parameter.step || 'any'} value={currentValue} onChange={event => onChange(event.target.value)} aria-label={ariaLabel} />;
     }
     if (!isDiscrete) {
-        return <input className={disabled ? 'reusable' : ''} value={currentValue} disabled={disabled} onChange={event => onChange(event.target.value)} aria-label={ariaLabel} />;
+        return <input className="parameter-value-input text" value={currentValue} onChange={event => onChange(event.target.value)} aria-label={ariaLabel} />;
     }
     const hasCurrentValue = currentValue && !options.some(option => option.value === currentValue);
-    return <select className={disabled ? 'reusable' : ''} value={currentValue} disabled={disabled} onChange={event => onChange(event.target.value)} aria-label={ariaLabel}>
+    return <select className="parameter-value-input discrete" value={currentValue} onChange={event => onChange(event.target.value)} aria-label={ariaLabel}>
         <option value="">Select value…</option>
         {hasCurrentValue && <option value={currentValue}>{currentValue} (current)</option>}
         {options.map(option => <option value={option.value} key={`${option.id}-${option.value}`}>{option.value}</option>)}
@@ -214,7 +218,40 @@ function ConfigurationParameterValueEditor({ parameter, disabled = false, onChan
     </select>;
 }
 
-function NativeConfigurationProfileView({ profile, profilePath, profilesAtLevel, availableProfiles, availableNestedProfiles, availableParameters, onBack, onAddProfileAtLevel, onAddNestedProfileDefinition, onAddNested, onRemoveNested, onAddParameter, onUpdateParameter, onUpdateProfileName, onRemoveParameter, onOpenNested }) {
+function ParameterLabelInput({ parameter, readOnly, onChange }) {
+    const name = parameter.name || parameter.id;
+    const label = parameter.label || '';
+    return readOnly
+        ? <span className="parameter-label-text" title={label || name}>{label || '—'}</span>
+        : <input className="parameter-label-input" type="text" value={label} placeholder="Add label" onChange={event => onChange(event.target.value)} aria-label={`Label for ${name}`} />;
+}
+
+function ProfileParameterHeader() {
+    return <div className="configuration-profile-parameter-row configuration-profile-parameter-header" aria-hidden="true"><span>Label</span><span>Parameter</span><span>Value</span><span /></div>;
+}
+
+function ProfileParameterList({ profileId, parameters, reusable, showValueDetails, showLifecycleDetails, onUpdateParameter, onRemoveParameter, className = '' }) {
+    if (showValueDetails || showLifecycleDetails) {
+        return <ConfigurationParameterTable
+            parameters={parameters}
+            readOnly={reusable}
+            showValueDetails={showValueDetails}
+            showLifecycleDetails={showLifecycleDetails}
+            lifecycleMode="Profile"
+            onValue={(parameterId, value) => onUpdateParameter(profileId, parameterId, value)}
+            onDetail={(parameterId, field, value) => onUpdateParameter(profileId, parameterId, value, field)}
+            onRemove={parameter => onRemoveParameter(profileId, parameter)}
+        />;
+    }
+    return <div className={`configuration-profile-parameters-list ${className}`}><ProfileParameterHeader />{parameters.map(parameter => <div className="configuration-profile-parameter-row" key={parameter.valueId || parameter.id}>
+        <ParameterLabelInput parameter={parameter} readOnly={reusable} onChange={label => onUpdateParameter(profileId, parameter.id, label, 'label')} />
+        <span className="configuration-profile-parameter-name">{parameter.name || parameter.id}</span>
+        <ConfigurationParameterValueEditor parameter={parameter} disabled={reusable} onChange={value => onUpdateParameter(profileId, parameter.id, value)} ariaLabel={`Value for ${parameter.name || parameter.id}`} />
+        {!reusable && <button className="table-icon-action danger" type="button" aria-label={`Delete profile parameter ${parameter.name || parameter.id}`} onClick={() => onRemoveParameter(profileId, parameter)}><span className="icon" aria-hidden="true">delete</span></button>}
+    </div>)}</div>;
+}
+
+function NativeConfigurationProfileView({ profile, profilePath, profilesAtLevel, availableProfiles, availableNestedProfiles, availableParameters, onBack, onAddProfileAtLevel, onAddNestedProfileDefinition, onAddNested, onRemoveNested, onAddParameter, onUpdateParameter, onUpdateProfileName, onRemoveParameter, onOpenNested, showValueDetails = false, showLifecycleDetails = false }) {
     const [nestedChoice, setNestedChoice] = useState('');
     const [parameterChoice, setParameterChoice] = useState('');
     const [profileChoice, setProfileChoice] = useState('');
@@ -303,11 +340,7 @@ function NativeConfigurationProfileView({ profile, profilePath, profilesAtLevel,
                     <button className="quiet-button" type="button" onClick={addParameter} disabled={!parameterChoice}>Add</button>
                 </div>}
             </div>
-            {parameters.length === 0 ? <div className="configuration-empty">No profile parameters are assigned.</div> : <div className="configuration-profile-parameters-list profile-parameter-editor-list">{parameters.map(parameter => <div className="configuration-profile-parameter-row" key={parameter.valueId || parameter.id}>
-                <span>{parameter.name || parameter.id}</span>
-                <ConfigurationParameterValueEditor parameter={parameter} disabled={reusable} onChange={value => onUpdateParameter(profile.id || profile.clientId, parameter.id, value)} ariaLabel={`Value for ${parameter.name || parameter.id}`} />
-                {!reusable && <button className="table-icon-action danger" type="button" aria-label={`Delete profile parameter ${parameter.name || parameter.id}`} onClick={() => onRemoveParameter(profile.id || profile.clientId, parameter)}><span className="icon" aria-hidden="true">delete</span></button>}
-            </div>)}</div>}
+            {parameters.length === 0 ? <div className="configuration-empty">No profile parameters are assigned.</div> : <ProfileParameterList profileId={profile.id || profile.clientId} parameters={parameters} reusable={reusable} showValueDetails={showValueDetails} showLifecycleDetails={showLifecycleDetails} onUpdateParameter={onUpdateParameter} onRemoveParameter={onRemoveParameter} className="profile-parameter-editor-list" />}
         </section>
         <section className="native-configuration-profiles native-profile-nested-profiles">
             <div className="service-items-heading">
@@ -349,7 +382,7 @@ function NativeConfigurationProfileView({ profile, profilePath, profilesAtLevel,
     </div>;
 }
 
-function ConfigurationProfileNodeV2({ profile, depth, availableProfiles, availableNestedProfiles, availableParameters, onAddNestedProfileDefinition, onAddNested, onRemoveNested, onAddParameter, onUpdateParameter, onUpdateProfileName, onRemoveParameter, onRemove, onOpenNested, showLifecycleDetails = false, onUpdateProfileLifecycle, initiallyExpanded = false }) {
+function ConfigurationProfileNodeV2({ profile, depth, availableProfiles, availableNestedProfiles, availableParameters, onAddNestedProfileDefinition, onAddNested, onRemoveNested, onAddParameter, onUpdateParameter, onUpdateProfileName, onRemoveParameter, onRemove, onOpenNested, showValueDetails = false, showLifecycleDetails = false, onUpdateProfileLifecycle, initiallyExpanded = false }) {
     const [collapsed, setCollapsed] = useState(!initiallyExpanded);
     const [nestedChoice, setNestedChoice] = useState('');
     const [nestedDefinitionChoice, setNestedDefinitionChoice] = useState('');
@@ -404,11 +437,7 @@ function ConfigurationProfileNodeV2({ profile, depth, availableProfiles, availab
                         <button className="quiet-button" type="button" onClick={addParameter} disabled={!parameterChoice}>Add</button>
                     </div>}
                 </div>
-                {parameters.length === 0 ? <span className="configuration-profile-empty">No profile parameters assigned.</span> : <div className="configuration-profile-parameters-list">{parameters.map(parameter => <div className="configuration-profile-parameter-row" key={parameter.valueId || parameter.id}>
-                    <span>{parameter.name || parameter.id}</span>
-                    <ConfigurationParameterValueEditor parameter={parameter} disabled={reusable} onChange={value => onUpdateParameter(parentId, parameter.id, value)} ariaLabel={`Value for ${parameter.name || parameter.id}`} />
-                    {!reusable && <button className="table-icon-action danger" type="button" aria-label={`Delete profile parameter ${parameter.name || parameter.id}`} onClick={() => onRemoveParameter(parentId, parameter)}><span className="icon" aria-hidden="true">delete</span></button>}
-                </div>)}</div>}
+                {parameters.length === 0 ? <span className="configuration-profile-empty">No profile parameters assigned.</span> : <ProfileParameterList profileId={parentId} parameters={parameters} reusable={reusable} showValueDetails={showValueDetails} showLifecycleDetails={showLifecycleDetails} onUpdateParameter={onUpdateParameter} onRemoveParameter={onRemoveParameter} />}
             </div>
             <div className="configuration-profile-nested">
                 <div className="configuration-subsection-heading">
@@ -443,7 +472,7 @@ function ConfigurationProfileNodeV2({ profile, depth, availableProfiles, availab
         </div>}
     </article>;
 }
-function ConfigurationProfilesSectionV2({ profiles, availableProfiles, availableNestedProfiles, availableParameters, onAdd, onAddReusable, onRemove, onAddNestedProfileDefinition, onAddNested, onRemoveNested, onAddParameter, onUpdateParameter, onUpdateProfileName, onRemoveParameter, onOpenNested, showLifecycleDetails = false, onUpdateProfileLifecycle }) {
+function ConfigurationProfilesSectionV2({ profiles, availableProfiles, availableNestedProfiles, availableParameters, onAdd, onAddReusable, onRemove, onAddNestedProfileDefinition, onAddNested, onRemoveNested, onAddParameter, onUpdateParameter, onUpdateProfileName, onRemoveParameter, onOpenNested, showValueDetails = false, showLifecycleDetails = false, onUpdateProfileLifecycle }) {
     const [collapsed, setCollapsed] = useState(false);
     const [expandedProfileId, setExpandedProfileId] = useState('');
     const [profileChoice, setProfileChoice] = useState('');
@@ -502,6 +531,7 @@ function ConfigurationProfilesSectionV2({ profiles, availableProfiles, available
             onRemoveParameter={onRemoveParameter}
             onRemove={onRemove}
             onOpenNested={onOpenNested}
+            showValueDetails={showValueDetails}
             showLifecycleDetails={showLifecycleDetails}
             onUpdateProfileLifecycle={onUpdateProfileLifecycle}
             initiallyExpanded={expandedProfileId === (profile.id || profile.clientId)}
@@ -509,9 +539,8 @@ function ConfigurationProfilesSectionV2({ profiles, availableProfiles, available
     </section>;
 }
 
-function NativeConfigurationParametersSection({ parameters, availableParameters, parameterToAdd, setParameterToAdd, addParameter, updateParameter, updateParameterDetail, updateParameterLifecycle, removeParameter, heading = 'Standalone parameters', emptyMessage = 'No standalone parameters are assigned to this version.', showValueDetails = false, showLifecycleDetails = false, lifecycleMode = 'Specification' }) {
+function NativeConfigurationParametersSection({ parameters, availableParameters, parameterToAdd, setParameterToAdd, addParameter, updateParameter, updateParameterDetail, removeParameter, heading = 'Standalone parameters', emptyMessage = 'No standalone parameters are assigned to this version.', showValueDetails = false, showLifecycleDetails = false, lifecycleMode = 'Specification' }) {
     const [collapsed, setCollapsed] = useState(true);
-    const isOrderItem = lifecycleMode === 'OrderItem';
     const addAndExpand = () => {
         addParameter();
         setCollapsed(false);
@@ -534,18 +563,63 @@ function NativeConfigurationParametersSection({ parameters, availableParameters,
                 <button className="quiet-button" type="button" onClick={addAndExpand} disabled={!parameterToAdd}>Add</button>
             </div>
         </div>
-        {!collapsed && (parameters.length === 0 ? <div className="configuration-empty"><span className="icon" aria-hidden="true">tune</span>{emptyMessage}</div> : <div className="native-configuration-table-wrap">
-            <table className="native-configuration-table">
-                <thead><tr>{showValueDetails ? <><th>Label</th><th>Parameter</th><th>Type</th><th>Link</th>{showLifecycleDetails && <th>N/A</th>}<th>Value</th><th>Unit</th><th>Start</th><th>End</th><th>Step size</th><th>Decimals</th><th>Values</th></> : <><th>Parameter</th><th>Type</th>{showLifecycleDetails && <th>N/A</th>}<th>Value</th></>}{!showLifecycleDetails && <th>Mandatory</th>}{showLifecycleDetails && (isOrderItem ? <><th>Fixed</th><th>Mandatory</th></> : <><th>Fixed</th><th>Expose at order</th><th>Mandatory at order</th><th>Mandatory at service</th></>)}<th></th></tr></thead>
-                <tbody>{parameters.map(parameter => <tr key={`${parameter.id}-${parameter.valueId || 'new'}`}>
-                    {showValueDetails ? <><td><strong>{parameter.label || parameter.name || parameter.id}</strong></td><td>{parameter.name || parameter.id}</td><td>{parameter.type || '—'}</td><td><input className="configuration-detail-checkbox" type="checkbox" checked={parameter.isLinked} disabled aria-label={`Link for ${parameter.name || parameter.id}`} /></td>{showLifecycleDetails && <td><input className="configuration-detail-checkbox" type="checkbox" checked={Boolean(parameter.notApplicable)} onChange={event => updateParameterLifecycle(parameter.id, 'notApplicable', event.target.checked)} aria-label={`N/A for ${parameter.name || parameter.id}`} /></td>}<td><ConfigurationParameterValueEditor parameter={parameter} onChange={value => updateParameter(parameter.id, value)} ariaLabel={`Value for ${parameter.name || parameter.id}`} /></td><td>{parameter.unit || '—'}</td>{['start', 'end', 'step', 'decimals'].map(field => <td key={field}>{String(parameter.type || '').toLowerCase() === 'number' ? <input className="configuration-detail-number" type="number" value={parameter[field] ?? ''} onChange={event => updateParameterDetail(parameter.id, field, event.target.value)} aria-label={`${field} for ${parameter.name || parameter.id}`} /> : '—'}</td>)}<td>{String(parameter.type || '').toLowerCase() === 'discrete' ? <button className="quiet-button parameter-values-button" type="button" disabled={!parameter.options?.length} aria-label={`Values for ${parameter.name || parameter.id}`}>…</button> : '—'}</td></> : <><td><strong>{parameter.name || parameter.id}</strong></td><td>{parameter.type || '—'}</td>{showLifecycleDetails && <td><input className="configuration-detail-checkbox" type="checkbox" checked={Boolean(parameter.notApplicable)} onChange={event => updateParameterLifecycle(parameter.id, 'notApplicable', event.target.checked)} aria-label={`N/A for ${parameter.name || parameter.id}`} /></td>}<td><ConfigurationParameterValueEditor parameter={parameter} onChange={value => updateParameter(parameter.id, value)} ariaLabel={`Value for ${parameter.name || parameter.id}`} /></td></>}
-                    {!showLifecycleDetails && <td><span className={parameter.mandatory ? 'parameter-required' : 'parameter-optional'}>{parameter.mandatory ? 'Required' : 'Optional'}</span></td>}
-                    {showLifecycleDetails && (isOrderItem ? <><td><input className="configuration-detail-checkbox" type="checkbox" checked={Boolean(parameter.fixed)} onChange={event => updateParameterLifecycle(parameter.id, 'fixed', event.target.checked)} aria-label={`Fixed for ${parameter.name || parameter.id}`} /></td><td><input className="configuration-detail-checkbox" type="checkbox" checked={Boolean(parameter.mandatory)} disabled aria-label={`Mandatory for ${parameter.name || parameter.id}`} /></td></> : <><td><input className="configuration-detail-checkbox" type="checkbox" checked={Boolean(parameter.fixed)} onChange={event => updateParameterLifecycle(parameter.id, 'fixed', event.target.checked)} aria-label={`Fixed for ${parameter.name || parameter.id}`} /></td><td><input className="configuration-detail-checkbox" type="checkbox" checked={Boolean(parameter.exposeAtOrder)} onChange={event => updateParameterLifecycle(parameter.id, 'exposeAtOrder', event.target.checked)} aria-label={`Expose at order for ${parameter.name || parameter.id}`} /></td><td><input className="configuration-detail-checkbox" type="checkbox" checked={Boolean(parameter.mandatoryAtOrder)} onChange={event => updateParameterLifecycle(parameter.id, 'mandatoryAtOrder', event.target.checked)} aria-label={`Mandatory at order for ${parameter.name || parameter.id}`} /></td><td><input className="configuration-detail-checkbox" type="checkbox" checked={Boolean(parameter.mandatoryAtService)} onChange={event => updateParameterLifecycle(parameter.id, 'mandatoryAtService', event.target.checked)} aria-label={`Mandatory at service for ${parameter.name || parameter.id}`} /></td></>)}
-                    <td><button className="table-icon-action danger" type="button" aria-label={`Delete ${parameter.name || parameter.id}`} onClick={() => removeParameter(parameter.id)}><span className="icon" aria-hidden="true">delete</span></button></td>
-                </tr>)}</tbody>
-            </table>
-        </div>)}
+        {!collapsed && (parameters.length === 0 ? <div className="configuration-empty"><span className="icon" aria-hidden="true">tune</span>{emptyMessage}</div> : <ConfigurationParameterTable
+            parameters={parameters}
+            showValueDetails={showValueDetails}
+            showLifecycleDetails={showLifecycleDetails}
+            lifecycleMode={lifecycleMode}
+            onValue={updateParameter}
+            onDetail={updateParameterDetail}
+            onRemove={parameter => removeParameter(parameter.id)}
+        />)}
     </section>;
+}
+
+// Shared by standalone and profile parameters. Profile parameters only have per-parameter N/A and Fixed;
+// their order/service lifecycle is set on the profile itself.
+function ConfigurationParameterTable({ parameters, readOnly = false, showValueDetails = false, showLifecycleDetails = false, lifecycleMode = 'Specification', onValue, onDetail, onRemove }) {
+    const isOrderItem = lifecycleMode === 'OrderItem';
+    const isProfile = lifecycleMode === 'Profile';
+    const showOrderLifecycle = showLifecycleDetails && !isOrderItem && !isProfile;
+    const checkbox = (parameter, field, label, editable = !readOnly) => <td><input className="configuration-detail-checkbox" type="checkbox" checked={Boolean(parameter[field])} disabled={!editable} onChange={event => onDetail(parameter.id, field, event.target.checked)} aria-label={`${label} for ${parameter.name || parameter.id}`} /></td>;
+    return <div className="native-configuration-table-wrap">
+        <table className={`native-configuration-table ${showValueDetails ? 'details' : ''}`}>
+            <thead><tr>
+                <th className="col-label">Label</th><th className="col-name">Parameter</th><th className="col-type">Type</th>
+                {showValueDetails && <th className="col-check">Link</th>}
+                {showLifecycleDetails && <th className="col-check">N/A</th>}
+                <th className="col-value">Value</th>
+                {showValueDetails && <><th className="col-small">Unit</th><th className="col-small">Start</th><th className="col-small">End</th><th className="col-small">Step size</th><th className="col-small">Decimals</th><th className="col-small">Values</th></>}
+                {!showLifecycleDetails && !isProfile && <th className="col-status">Mandatory</th>}
+                {showLifecycleDetails && <th className="col-check">Fixed</th>}
+                {showLifecycleDetails && isOrderItem && <th className="col-check">Mandatory</th>}
+                {showOrderLifecycle && <><th className="col-check">Expose at order</th><th className="col-check">Mandatory at order</th><th className="col-check">Mandatory at service</th></>}
+                {!readOnly && <th className="col-action"></th>}
+            </tr></thead>
+            <tbody>{parameters.map(parameter => {
+                const name = parameter.name || parameter.id;
+                const type = String(parameter.type || '').toLowerCase();
+                return <tr key={`${parameter.id}-${parameter.valueId || 'new'}`}>
+                    <td><ParameterLabelInput parameter={parameter} readOnly={readOnly} onChange={label => onDetail(parameter.id, 'label', label)} /></td>
+                    <td><strong>{name}</strong></td>
+                    <td>{parameter.type || '—'}</td>
+                    {showValueDetails && checkbox(parameter, 'isLinked', 'Link', false)}
+                    {showLifecycleDetails && checkbox(parameter, 'notApplicable', 'N/A')}
+                    <td><ConfigurationParameterValueEditor parameter={parameter} disabled={readOnly} onChange={value => onValue(parameter.id, value)} ariaLabel={`Value for ${name}`} /></td>
+                    {showValueDetails && <>
+                        <td>{parameter.unit || '—'}</td>
+                        {['start', 'end', 'step', 'decimals'].map(field => <td key={field}>{type !== 'number' ? '—' : readOnly ? (parameter[field] || '—') : <input className="configuration-detail-number" type="number" value={parameter[field] ?? ''} onChange={event => onDetail(parameter.id, field, event.target.value)} aria-label={`${field} for ${name}`} />}</td>)}
+                        <td>{type === 'discrete' ? <button className="quiet-button parameter-values-button" type="button" disabled={!parameter.options?.length} aria-label={`Values for ${name}`}>…</button> : '—'}</td>
+                    </>}
+                    {!showLifecycleDetails && !isProfile && <td><span className={parameter.mandatory ? 'parameter-required' : 'parameter-optional'}>{parameter.mandatory ? 'Required' : 'Optional'}</span></td>}
+                    {showLifecycleDetails && checkbox(parameter, 'fixed', 'Fixed')}
+                    {showLifecycleDetails && isOrderItem && checkbox(parameter, 'mandatory', 'Mandatory', false)}
+                    {showOrderLifecycle && <>{checkbox(parameter, 'exposeAtOrder', 'Expose at order')}{checkbox(parameter, 'mandatoryAtOrder', 'Mandatory at order')}{checkbox(parameter, 'mandatoryAtService', 'Mandatory at service')}</>}
+                    {!readOnly && <td><button className="table-icon-action danger" type="button" aria-label={`Delete ${name}`} onClick={() => onRemove(parameter)}><span className="icon" aria-hidden="true">delete</span></button></td>}
+                </tr>;
+            })}</tbody>
+        </table>
+    </div>;
 }
 
 function NativeServiceConfigurationsView({ service, actionState, onSave, onConfirm, fetchConfigurations = fetchServiceConfigurations, configurationOwnerId, heading = 'Service configuration', allowVersionDelete = true, allowVersionAdd = false, showVersionMetadata = true, supportsProfiles = true, allowInitialVersion = false, parameterHeading, parameterEmptyMessage, lifecycleMode = 'Specification' }) {
@@ -629,8 +703,8 @@ function NativeServiceConfigurationsView({ service, actionState, onSave, onConfi
     }, [configurations, versionId]);
     const update = (field, value) => setDraft(current => ({ ...current, [field]: value }));
     const updateParameter = (id, value) => setDraft(current => ({ ...current, parameters: current.parameters.map(parameter => parameter.id === id ? { ...parameter, value } : parameter) }));
-    const updateParameterDetail = (id, field, value) => setDraft(current => ({ ...current, parameters: current.parameters.map(parameter => parameter.id === id ? { ...parameter, [field]: value } : parameter) }));
-    const updateParameterLifecycle = (id, field, value) => setDraft(current => ({ ...current, parameters: current.parameters.map(parameter => parameter.id === id ? { ...parameter, [field]: value, ...(field === 'notApplicable' && value ? { value: '' } : {}) } : parameter) }));
+    const withDetail = (parameter, field, value) => ({ ...parameter, [field]: value, ...(field === 'notApplicable' && value ? { value: '' } : {}) });
+    const updateParameterDetail = (id, field, value) => setDraft(current => ({ ...current, parameters: current.parameters.map(parameter => parameter.id === id ? withDetail(parameter, field, value) : parameter) }));
     const addParameter = () => {
         const parameter = availableParameters.find(item => item.id === parameterToAdd);
         if (!parameter || !draft || draft.parameters.some(item => item.id === parameter.id)) return;
@@ -719,7 +793,7 @@ function NativeServiceConfigurationsView({ service, actionState, onSave, onConfi
         if (!parameter || !draft || !parameterId) return;
         setDraft(current => ({ ...current, profiles: mapProfileTree(current.profiles, profile => (profile.id === profileId || profile.clientId === profileId) ? { ...profile, parameters: profile.parameters.some(item => item.id === parameterId) ? profile.parameters : [...profile.parameters, { ...parameter, value: '', valueId: '', mandatory: false }] } : profile) }));
     };
-    const updateProfileParameter = (profileId, parameterId, value) => setDraft(current => ({ ...current, profiles: mapProfileTree(current.profiles, profile => (profile.id === profileId || profile.clientId === profileId) ? { ...profile, parameters: profile.parameters.map(parameter => parameter.id === parameterId ? { ...parameter, value } : parameter) } : profile) }));
+    const updateProfileParameter = (profileId, parameterId, value, field = 'value') => setDraft(current => ({ ...current, profiles: mapProfileTree(current.profiles, profile => (profile.id === profileId || profile.clientId === profileId) ? { ...profile, parameters: profile.parameters.map(parameter => parameter.id === parameterId ? withDetail(parameter, field, value) : parameter) } : profile) }));
     const updateProfileName = (profileId, name) => setDraft(current => ({ ...current, profiles: mapProfileTree(current.profiles, profile => (profile.id === profileId || profile.clientId === profileId) ? { ...profile, name } : profile) }));
     const updateProfileLifecycle = (profileId, field, value) => setDraft(current => ({ ...current, profiles: mapProfileTree(current.profiles, profile => (profile.id === profileId || profile.clientId === profileId) ? { ...profile, [field]: value } : profile) }));
     const removeProfileParameter = (profileId, parameter) => {
@@ -851,6 +925,7 @@ function NativeServiceConfigurationsView({ service, actionState, onSave, onConfi
                             onUpdateProfileLifecycle={updateProfileLifecycle}
                             onRemoveParameter={removeProfileParameter}
                             onOpenNested={openProfile}
+                            showValueDetails={showValueDetails}
                             showLifecycleDetails={showLifecycleDetails}
                         />
                         : <>
@@ -874,7 +949,7 @@ function NativeServiceConfigurationsView({ service, actionState, onSave, onConfi
                                     <label>End date<input type="datetime-local" value={dateTimeInputValue(draft.end)} onChange={event => update('end', event.target.value)} /></label>
                                 </div>
                             </section>}
-                            <NativeConfigurationParametersSection parameters={draft.parameters} availableParameters={availableParameters} parameterToAdd={parameterToAdd} setParameterToAdd={setParameterToAdd} addParameter={addParameter} updateParameter={updateParameter} updateParameterDetail={updateParameterDetail} updateParameterLifecycle={updateParameterLifecycle} removeParameter={removeParameter} heading={parameterHeading} emptyMessage={parameterEmptyMessage} showValueDetails={showValueDetails} showLifecycleDetails={showLifecycleDetails} lifecycleMode={lifecycleMode} />
+                            <NativeConfigurationParametersSection parameters={draft.parameters} availableParameters={availableParameters} parameterToAdd={parameterToAdd} setParameterToAdd={setParameterToAdd} addParameter={addParameter} updateParameter={updateParameter} updateParameterDetail={updateParameterDetail} removeParameter={removeParameter} heading={parameterHeading} emptyMessage={parameterEmptyMessage} showValueDetails={showValueDetails} showLifecycleDetails={showLifecycleDetails} lifecycleMode={lifecycleMode} />
                             {supportsProfiles && <ConfigurationProfilesSectionV2
                                 profiles={draft.profiles}
                                 availableProfiles={availableProfiles}
@@ -891,6 +966,9 @@ function NativeServiceConfigurationsView({ service, actionState, onSave, onConfi
                                 onUpdateProfileName={updateProfileName}
                                 onRemoveParameter={removeProfileParameter}
                                 onOpenNested={openProfile}
+                                showValueDetails={showValueDetails}
+                                showLifecycleDetails={showLifecycleDetails && lifecycleMode !== 'OrderItem'}
+                                onUpdateProfileLifecycle={updateProfileLifecycle}
                             />}
                         </>}
     </div>;

@@ -177,7 +177,10 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 			return !string.IsNullOrEmpty(id) && items.TryGetValue(id, out var item) ? item : null;
 		}
 
-		private static Dictionary<string, T> ReadById<T>(
+		/// <summary>
+		/// Reads the items with the given identifiers in batches of OR filters.
+		/// </summary>
+		internal static Dictionary<string, T> ReadById<T>(
 			IEnumerable<string> ids,
 			Func<string, FilterElement<T>> filterFor,
 			Func<FilterElement<T>, IEnumerable<T>> read,
@@ -239,7 +242,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 				f => this.serviceManagement.ServiceCatalog.ProfileDefinitions.Read(f),
 				d => d.Identifier);
 
-			var profiles = this.ReadProfileTree(serviceProfiles.Values.Select(p => p.ProfileId.Identifier));
+			var profiles = ReadProfileTree(this.serviceManagement, serviceProfiles.Values.Select(p => p.ProfileId.Identifier));
 
 			var parameterValues = ReadById(
 				configurationValues.Values.Select(v => v.ConfigurationParameterId.Identifier)
@@ -251,7 +254,10 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 			return new ResolveContext(configurationValues, serviceProfiles, definitions, profiles, parameterValues);
 		}
 
-		private Dictionary<string, Profile> ReadProfileTree(IEnumerable<string> rootIds)
+		/// <summary>
+		/// Reads the given profiles and all their nested profiles, one batched read per nesting level.
+		/// </summary>
+		internal static Dictionary<string, Profile> ReadProfileTree(IServiceManagementApiHelper serviceManagement, IEnumerable<string> rootIds)
 		{
 			var profiles = new Dictionary<string, Profile>(StringComparer.OrdinalIgnoreCase);
 			var level = rootIds.Where(id => !string.IsNullOrEmpty(id)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
@@ -261,7 +267,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 				var loaded = ReadById(
 					level,
 					id => ProfileExposers.Identifier.Equal(id),
-					f => this.serviceManagement.ServiceCatalog.Profiles.Read(f),
+					f => serviceManagement.ServiceCatalog.Profiles.Read(f),
 					p => p.Identifier);
 
 				foreach (var profile in loaded.Values)
