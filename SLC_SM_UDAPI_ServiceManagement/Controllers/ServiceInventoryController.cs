@@ -691,7 +691,7 @@
 			{
 				Items = items,
 				TotalCount = metrics?.TotalCount ?? page.TotalCount,
-				Metrics = metrics == null ? null : JObject.FromObject(metrics),
+				Metrics = CursorMetricsSerialization.ToJObject(metrics),
 				PageInfo = new CursorPageInfo
 				{
 					NextAfterCursor = page.NextAfterCursor,

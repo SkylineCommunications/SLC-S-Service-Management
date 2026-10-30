@@ -532,10 +532,12 @@ export async function mockDataMinerApi(page: Page, mode: GqiMode = 'ok'): Promis
                 }
                 if (!id && request.RequestMethod === 1) {
                     const serviceRows = services.map(service => selectUdapiFields(toUdapiService(service), request));
+                    // PascalCase mirrors the serialization of previously deployed UDAPI versions; the app normalizes keys.
                     return respond(200, request.QueryParameters?.pagination?.[0] === 'cursor'
                         ? cursorPage(serviceRows, request, row => row.ServiceID, row => row.Identifier, () => '', true, true, {
-                            activeCount: serviceRows.filter(service => new Set(['active', 'reserved', 'designed']).has(service.StatusName)).length,
-                            retiredCount: serviceRows.filter(service => service.StatusName === 'retired').length,
+                            TotalCount: serviceRows.length,
+                            ActiveCount: serviceRows.filter(service => new Set(['active', 'reserved', 'designed']).has(service.StatusName)).length,
+                            RetiredCount: serviceRows.filter(service => service.StatusName === 'retired').length,
                         })
                         : serviceRows);
                 }

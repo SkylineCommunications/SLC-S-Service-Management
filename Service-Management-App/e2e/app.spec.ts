@@ -723,6 +723,32 @@ test.describe('Service Management workspace', () => {
         await expect(page.locator('.service-row').filter({ hasText: 'Test service' })).toHaveCount(0);
         expect(udapiRequests(mock).some(request => request.Route === `${SERVICES_ROUTE}/service-1` && request.RequestMethod === 1)).toBe(true);
     });
+    test('keeps service header totals stable while switching status filters', { tag: '@S10' }, async ({ page }) => {
+        for (let number = 2; number <= 12; number++) {
+            mock.services!.push({ ...SAMPLE_SERVICE, 'DOM ID': `service-filler-${number}`, 'Service ID': `SERVICE-${number}`, 'Service Name': `Filler service ${number}`, 'Service Status': number <= 4 ? 'Retired' : 'Active' });
+        }
+        await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: /Services/ }).click();
+        const metrics = page.getByRole('region', { name: 'Service inventory metrics' });
+        const card = (name: string) => metrics.getByRole('button', { name: new RegExp(`^${name}`) }).locator('strong');
+        await expect(card('All services')).toHaveText('12');
+        await expect(card('Active')).toHaveText('9');
+        await expect(card('Retired')).toHaveText('3');
+        await page.evaluate(() => {
+            const target = document.querySelector('.services-metrics')!;
+            const seen: string[] = [];
+            (window as any).__serviceMetricSnapshots = seen;
+            new MutationObserver(() => seen.push(Array.from(target.querySelectorAll('strong')).map(node => node.textContent).join('|'))).observe(target, { subtree: true, childList: true, characterData: true });
+        });
+
+        for (const [name, title, count] of [['Retired', 'Retired services', '3 services'], ['Active', 'Active services', '9 services'], ['All services', 'All services', '12 services in total']]) {
+            await metrics.getByRole('button', { name: new RegExp(`^${name}`) }).click();
+            await expect(page.locator('#services-table-title')).toHaveText(title);
+            await expect(page.locator('.services-page .orders-total-copy')).toHaveText(count);
+            await expect(card('All services')).toHaveText('12');
+        }
+        const snapshots: string[] = await page.evaluate(() => (window as any).__serviceMetricSnapshots);
+        expect(snapshots.every(snapshot => snapshot === '12|9|3')).toBe(true);
+    });
     test('initializes a service when its specification has no configuration', { tag: '@W3' }, async ({ page }) => {
         await page.locator('.order-row').filter({ hasText: 'Network refresh' }).getByRole('button', { name: 'Open details of Network refresh' }).click();
         const panel = page.getByRole('dialog', { name: 'Network refresh' });

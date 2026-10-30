@@ -990,7 +990,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 			{
 				Items = String.IsNullOrWhiteSpace(fields) ? items : items.Select(item => SelectFields(item, SplitCommaSeparatedValues(fields))).ToList(),
 				TotalCount = metrics?.TotalCount ?? page.TotalCount,
-				Metrics = metrics == null ? null : JObject.FromObject(metrics),
+				Metrics = CursorMetricsSerialization.ToJObject(metrics),
 				PageInfo = new CursorPageInfo
 				{
 					NextAfterCursor = page.NextAfterCursor,
