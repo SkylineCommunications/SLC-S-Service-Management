@@ -541,8 +541,8 @@ function ConfigurationProfilesSectionV2({ profiles, availableProfiles, available
     </section>;
 }
 
-function NativeConfigurationParametersSection({ parameters, availableParameters, parameterToAdd, setParameterToAdd, addParameter, updateParameter, updateParameterDetail, removeParameter, heading = 'Standalone parameters', emptyMessage = 'No standalone parameters are assigned to this version.', showValueDetails = false, showLifecycleDetails = false, lifecycleMode = 'Specification' }) {
-    const [collapsed, setCollapsed] = useState(true);
+function NativeConfigurationParametersSection({ parameters, availableParameters, parameterToAdd, setParameterToAdd, addParameter, updateParameter, updateParameterDetail, removeParameter, heading = 'Standalone parameters', emptyMessage = 'No standalone parameters are assigned to this version.', showValueDetails = false, showLifecycleDetails = false, lifecycleMode = 'Specification', initiallyCollapsed = true }) {
+    const [collapsed, setCollapsed] = useState(initiallyCollapsed);
     const addAndExpand = () => {
         addParameter();
         setCollapsed(false);
@@ -584,8 +584,12 @@ function ConfigurationParameterTable({ parameters, readOnly = false, showValueDe
     const isProfile = lifecycleMode === 'Profile';
     const showOrderLifecycle = showLifecycleDetails && !isOrderItem && !isProfile;
     const checkbox = (parameter, field, label, editable = !readOnly) => <td><input className="configuration-detail-checkbox" type="checkbox" checked={Boolean(parameter[field])} disabled={!editable} onChange={event => onDetail(parameter.id, field, event.target.checked)} aria-label={`${label} for ${parameter.name || parameter.id}`} /></td>;
+    const wide = showValueDetails || showLifecycleDetails;
+    // Fixed table layout squeezes the Value column to nothing when detail columns are added, so scroll horizontally instead.
+    const checkColumns = (showValueDetails ? 1 : 0) + (showLifecycleDetails ? 2 + (isOrderItem ? 1 : 0) + (showOrderLifecycle ? 3 : 0) : 0);
+    const minWidth = wide ? 180 + 180 + 90 + 200 + checkColumns * 80 + (showValueDetails ? 6 * 90 : 0) + (!showLifecycleDetails && !isProfile ? 110 : 0) + (readOnly ? 0 : 48) : undefined;
     return <div className="native-configuration-table-wrap">
-        <table className={`native-configuration-table ${showValueDetails ? 'details' : ''}`}>
+        <table className={`native-configuration-table ${wide ? 'details' : ''}`} style={minWidth ? { minWidth } : undefined}>
             <thead><tr>
                 <th className="col-label">Label</th><th className="col-name">Parameter</th><th className="col-type">Type</th>
                 {showValueDetails && <th className="col-check">Link</th>}
@@ -624,7 +628,7 @@ function ConfigurationParameterTable({ parameters, readOnly = false, showValueDe
     </div>;
 }
 
-function NativeServiceConfigurationsView({ service, actionState, onSave, onDuplicateVersion, onConfirm, fetchConfigurations = fetchServiceConfigurations, configurationOwnerId, heading = 'Service configuration', allowVersionDelete = true, allowVersionAdd = false, showVersionMetadata = true, supportsProfiles = true, allowInitialVersion = false, parameterHeading, parameterEmptyMessage, lifecycleMode = 'Specification' }) {
+function NativeServiceConfigurationsView({ service, actionState, onSave, onDuplicateVersion, onConfirm, fetchConfigurations = fetchServiceConfigurations, configurationOwnerId, heading = 'Service configuration', allowVersionDelete = true, allowVersionAdd = false, showVersionMetadata = true, supportsProfiles = true, allowInitialVersion = false, parameterHeading, parameterEmptyMessage, lifecycleMode = 'Specification', eyebrow = 'Configurations', parametersExpanded = false }) {
     const configurationId = configurationOwnerId ? service.id : serviceApiId(service);
     const configurationFetcher = useCallback(
         () => configurationOwnerId ? fetchConfigurations(configurationOwnerId, configurationId) : fetchConfigurations(configurationId),
@@ -900,7 +904,7 @@ function NativeServiceConfigurationsView({ service, actionState, onSave, onDupli
     };
     return <div className="service-drawer-body native-configuration-view">
         <div className="service-drawer-heading">
-            <div><p className="eyebrow">Configurations</p><h2>{heading}</h2></div>
+            <div><p className="eyebrow">{eyebrow}</p><h2>{heading}</h2></div>
             <div className="configuration-view-actions">
                 <button className="quiet-button" type="button" onClick={() => setShowValueDetails(value => !value)}>{showValueDetails ? 'Hide Value Details' : 'Show Value Details'}</button>
                 <button className="quiet-button" type="button" onClick={() => setShowLifecycleDetails(value => !value)}>{showLifecycleDetails ? 'Hide Lifecycle Details' : 'Show Lifecycle Details'}</button>
@@ -959,7 +963,7 @@ function NativeServiceConfigurationsView({ service, actionState, onSave, onDupli
                                     <label>End date<input type="datetime-local" value={dateTimeInputValue(draft.end)} onChange={event => update('end', event.target.value)} /></label>
                                 </div>
                             </section>}
-                            <NativeConfigurationParametersSection parameters={draft.parameters} availableParameters={availableParameters} parameterToAdd={parameterToAdd} setParameterToAdd={setParameterToAdd} addParameter={addParameter} updateParameter={updateParameter} updateParameterDetail={updateParameterDetail} removeParameter={removeParameter} heading={parameterHeading} emptyMessage={parameterEmptyMessage} showValueDetails={showValueDetails} showLifecycleDetails={showLifecycleDetails} lifecycleMode={lifecycleMode} />
+                            <NativeConfigurationParametersSection parameters={draft.parameters} availableParameters={availableParameters} parameterToAdd={parameterToAdd} setParameterToAdd={setParameterToAdd} addParameter={addParameter} updateParameter={updateParameter} updateParameterDetail={updateParameterDetail} removeParameter={removeParameter} heading={parameterHeading} emptyMessage={parameterEmptyMessage} showValueDetails={showValueDetails} showLifecycleDetails={showLifecycleDetails} lifecycleMode={lifecycleMode} initiallyCollapsed={!parametersExpanded} />
                             {supportsProfiles && <ConfigurationProfilesSectionV2
                                 profiles={draft.profiles}
                                 availableProfiles={availableProfiles}
@@ -2037,95 +2041,188 @@ function useOrderItems(order, refreshKey = 0) {
     return { ...state, retry: () => setAttempt(value => value + 1) };
 }
 
-function OrderItems({ order, refreshKey, onAdd, onEdit, onDelete, onSelect, onInitialize, initializingItemId, busy }) {
-    const { status, items, error, retry } = useOrderItems(order, refreshKey);
+const ORDER_LIFECYCLE = ['New', 'Acknowledged', 'In Progress', 'Completed'];
+// Last main lifecycle step reached before an order or item leaves the main path.
+const ORDER_OFF_PATH_ANCHORS = { rejected: 0, held: 2, pending: 2, failed: 2, 'partially failed': 2, 'assess cancellation': 2, 'pending cancellation': 2, cancelled: 2 };
+const DANGER_TRANSITIONS = new Set(['Reject', 'Cancel', 'Confirm Cancellation']);
+function transitionDisplayLabel(label) { return label === 'Partially Failed' ? 'Partial fail' : label === 'Information Missing' ? 'Missing info' : label; }
+function orderShortId(order) { return String(order.id || '').split('-')[0].toUpperCase(); }
+function orderItemSchedule(item) {
+    if (item.start) return `${item.start} → ${item.end || 'no end date'}`;
+    return item.end ? `Until ${item.end}` : '';
+}
+
+function OrderLifecycle({ state, transitions, busy, onTransition, label = 'Order lifecycle', finalMessage = 'No further transitions are available for this order.' }) {
+    const key = String(state || '').trim().toLowerCase();
+    const mainIndex = ORDER_LIFECYCLE.findIndex(step => step.toLowerCase() === key);
+    const offPath = mainIndex === -1 && Boolean(key);
+    const reachedIndex = offPath ? ORDER_OFF_PATH_ANCHORS[key] ?? -1 : mainIndex;
+    const [primary, ...secondary] = transitions;
+    const transitionButton = (transition, extraClass = '') => <button className={`order-transition-action ${DANGER_TRANSITIONS.has(transition.label) ? 'danger' : extraClass || 'secondary'}`} type="button" key={`${transition.label}-${transition.next}`} onClick={() => onTransition(transition)} disabled={busy}><span className="icon" aria-hidden="true">{transitionIcon(transition.label)}</span><span>{transitionDisplayLabel(transition.label)}</span></button>;
+    return <section className="order-lifecycle-card" aria-label={label}>
+        <div className="order-lifecycle-main">
+            <ol className="order-stepper">
+                {ORDER_LIFECYCLE.map((step, index) => {
+                    const current = index === mainIndex;
+                    const done = index < mainIndex || (offPath && index <= reachedIndex) || (current && key === 'completed');
+                    return <li key={step} className={current ? 'current' : done ? 'done' : ''} aria-current={current ? 'step' : undefined}>{done && <span className="icon" aria-hidden="true">check</span>}{step}</li>;
+                })}
+                {offPath && <li className={`order-stepper-off ${stateTone(state)}`} aria-current="step">{state}</li>}
+            </ol>
+            {primary && transitionButton(primary, 'primary')}
+        </div>
+        {secondary.length > 0 && <div className="order-lifecycle-more"><span>Other actions</span>{secondary.map(transition => transitionButton(transition))}</div>}
+        {!primary && <p className="order-lifecycle-final"><span className="icon" aria-hidden="true">task_alt</span>{finalMessage}</p>}
+    </section>;
+}
+
+function orderItemAction(item) { return String(item?.action || '').trim().toLowerCase(); }
+
+function ServiceLinkButton({ item, busy, initializing, onInitialize, className = '' }) {
+    const action = orderItemAction(item);
+    const serviceLinked = Boolean(item.serviceId);
+    if (action === 'delete' && !serviceLinked) return null;
+    const canInitialize = Boolean(item.id && item.specificationId && !item.serviceId && action !== 'delete');
+    const title = serviceLinked
+        ? 'Open the service linked to this order item.'
+        : !item.specificationId
+            ? 'Assign a service specification before initializing a service.'
+            : undefined;
+    return <button
+        className={`initialize-button${serviceLinked ? ' initialized' : ''}${className ? ` ${className}` : ''}`}
+        type="button"
+        aria-label={serviceLinked ? `Open service ${item.service || 'linked to this order item'}` : `Initialize service for ${item.name || 'order item'}`}
+        title={title}
+        disabled={busy || initializing || (!serviceLinked && !canInitialize)}
+        onClick={() => {
+            if (serviceLinked) location.hash = `services/${encodeURIComponent(item.serviceId)}`;
+            else onInitialize(item);
+        }}
+    >
+        {!serviceLinked && <span className={initializing ? 'icon spin' : 'icon'} aria-hidden="true">{initializing ? 'refresh' : 'add_circle'}</span>}
+        {initializing ? 'Initializing…' : serviceLinked ? <><span className="initialize-button-label">Open service: {item.service || 'linked service'}</span><span className="icon" aria-hidden="true">arrow_forward</span></> : 'Initialize service'}
+    </button>;
+}
+
+function OrderItems({ itemsState, onAdd, onEdit, onDelete, onSelect, onInitialize, initializingItemId, busy }) {
+    const { status, items, error, retry } = itemsState;
     let body;
     if (status === 'error') body = <div className="list-message error" role="alert"><span className="icon" aria-hidden="true">error</span><div className="list-message-text"><strong>Order items could not be loaded</strong><span>{error}</span></div><button className="quiet-button" type="button" onClick={retry}>Retry</button></div>;
     else if (status === 'loading') body = <div className="list-message" role="status"><span className="icon spin" aria-hidden="true">refresh</span>Loading order items…</div>;
     else if (items.length === 0) body = <div className="list-message" role="status"><span className="icon" aria-hidden="true">inbox</span>This order has no items.</div>;
     else body = <ol className="item-list">{items.map((item, index) => {
-        const action = String(item.action || '').trim().toLowerCase();
-        const initializing = initializingItemId === item.id;
-        const serviceLinked = Boolean(item.serviceId);
-        const canInitialize = Boolean(item.id && item.specificationId && !item.serviceId && action !== 'delete');
-        const initializeTitle = serviceLinked
-            ? 'Open the service linked to this order item.'
-            : !item.specificationId
-                ? 'Assign a service specification before initializing a service.'
-                : action === 'delete'
-                    ? 'A service cannot be initialized for a delete order item.'
-                    : undefined;
-        return <li className="order-item selectable" key={`${item.id || item.name || 'item'}-${index}`} tabIndex={item.id ? 0 : -1} role={item.id ? 'button' : undefined} onClick={() => onSelect(item)} onKeyDown={event => { if (item.id && (event.key === 'Enter' || event.key === ' ') ) { event.preventDefault(); onSelect(item); } }}>
+        const action = orderItemAction(item);
+        const schedule = orderItemSchedule(item);
+        const meta = [
+            item.specification && <span key="specification">Specification: <strong>{item.specification}</strong></span>,
+            item.service && <span key="service">Target service: <strong>{item.service}</strong></span>,
+            item.category && <span key="category">{item.category}</span>,
+        ].filter(Boolean);
+        return <li className={`order-item order-item-card action-${action || 'none'}`} key={`${item.id || item.name || 'item'}-${index}`}>
             <div className="order-item-head">
-                <div className="order-item-title"><span className="order-item-name">{item.name || 'Unnamed item'}</span></div>
+                <div className="order-item-title">
+                    <div className="order-item-name-row">{item.action && <span className={`order-action-chip ${action}`}>{item.action}</span>}<span className="order-item-name">{item.name || 'Unnamed item'}</span></div>
+                    {meta.length > 0 && <p className="order-item-meta">{meta}</p>}
+                    {schedule && <p className="order-item-schedule"><span className="icon" aria-hidden="true">date_range</span>{schedule}</p>}
+                </div>
                 <span className={`state-badge ${stateTone(item.status)}`}>{item.status || 'Unknown'}</span>
             </div>
-            <dl className="item-facts">{[['Action', item.action], ['Category', item.category], ['Specification', item.specification], ['Service', item.service], ['Start date', item.start], ['End date', item.end]].map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value || '—'}</dd></div>)}</dl>
             {item.description && <p className="order-item-description">{item.description}</p>}
             <div className="order-item-actions">
-                <button className="item-action-button" type="button" onClick={event => { event.stopPropagation(); onEdit(item); }} disabled={busy}><span className="icon" aria-hidden="true">edit</span>Edit</button>
-                <button className="item-action-button danger" type="button" onClick={event => { event.stopPropagation(); onDelete(item); }} disabled={busy}><span className="icon" aria-hidden="true">delete</span>Delete</button>
-                {(action !== 'delete' || serviceLinked) && <button
-                    className={`initialize-button${serviceLinked ? ' initialized' : ''}`}
-                    type="button"
-                    aria-label={serviceLinked ? `Open service ${item.service || 'linked to this order item'}` : `Initialize service for ${item.name || 'order item'}`}
-                    title={initializeTitle}
-                    disabled={busy || initializing || (!serviceLinked && !canInitialize)}
-                    onClick={event => {
-                        event.stopPropagation();
-                        if (serviceLinked) {
-                            location.hash = `services/${encodeURIComponent(item.serviceId)}`;
-                        }
-                        else {
-                            onInitialize(item);
-                        }
-                    }}
-                >
-                    <span className={initializing ? 'icon spin' : 'icon'} aria-hidden="true">{initializing ? 'refresh' : serviceLinked ? 'dm_service' : 'add_circle'}</span>
-                    {initializing ? 'Initializing…' : serviceLinked ? item.service || 'Open linked service' : 'Initialize service'}
-                </button>}
+                <button className="item-action-button" type="button" onClick={() => onSelect(item)} disabled={!item.id} aria-label={`View ${item.name || 'order item'}`}><span className="icon" aria-hidden="true">visibility</span>View item</button>
+                <button className="item-action-button" type="button" onClick={() => onEdit(item)} disabled={busy}><span className="icon" aria-hidden="true">edit</span>Edit</button>
+                <button className="item-action-button danger" type="button" onClick={() => onDelete(item)} disabled={busy}><span className="icon" aria-hidden="true">delete</span>Delete</button>
+                <ServiceLinkButton item={item} busy={busy} initializing={initializingItemId === item.id} onInitialize={onInitialize} />
             </div>
         </li>;
     })}</ol>;
-    return <section className="drawer-section" aria-labelledby="order-items-title"><div className="drawer-section-heading order-items-heading"><div className="drawer-section-title"><h3 id="order-items-title">Order items</h3>{status === 'ready' && <span className="count-pill" data-testid="order-item-count">{items.length}</span>}</div><button className="primary-button add-item-button" type="button" onClick={onAdd} disabled={busy}><span className="icon" aria-hidden="true">add</span>Add item</button></div>{body}</section>;
+    return <section className="order-items-section" aria-labelledby="order-items-title"><div className="order-items-heading"><div className="order-items-title"><h3 id="order-items-title">Order items</h3>{status === 'ready' && <span className="count-pill" data-testid="order-item-count">{items.length}</span>}</div><button className="quiet-button add-item-button" type="button" onClick={onAdd} disabled={busy}><span className="icon" aria-hidden="true">add</span>Add item</button></div>{body}</section>;
 }
 
-function ServiceOrderItemDetailPanel({ order, item, onClose, onEdit, onTransition, onSaveConfiguration, onConfirmConfiguration, busy }) {
+function ServiceOrderItemDetailPanel({ order, item, onClose, onEdit, onTransition, onInitialize, initializing, onSaveConfiguration, onConfirmConfiguration, busy }) {
     const closeButton = useRef(null);
-    const [tab, setTab] = useState('item');
-    const lifecycle = ['New', 'Acknowledged', 'In Progress', 'Completed'];
+    const onCloseRef = useRef(onClose);
+    onCloseRef.current = onClose;
     const transitions = getOrderItemTransitions(item.status);
-    const currentIndex = lifecycle.findIndex(state => state.toLowerCase() === item.status.trim().toLowerCase());
+    const action = orderItemAction(item);
     useEffect(() => {
         const previous = document.activeElement;
         closeButton.current?.focus();
-        const onKey = event => { if (event.key === 'Escape') onClose(); };
-        document.addEventListener('keydown', onKey);
-        return () => { document.removeEventListener('keydown', onKey); previous?.focus?.(); };
-    }, [onClose]);
-    const details = [['Name', item.name], ['Action', item.action], ['State', item.status], ['Specification', item.specification], ['Service', item.service], ['Category', item.category], ['Start date', item.start], ['End date', item.end], ['Description', item.description]];
-    const transitionActions = <div className="item-transition-actions">{transitions.length === 0 ? <span className="service-related-empty">No transition is available from the current state.</span> : transitions.map(transition => <button className={`item-transition-button ${transition.label === 'Reject' || transition.label === 'Cancel' ? 'danger' : 'primary'}`} type="button" key={`${transition.label}-${transition.next}`} onClick={() => onTransition(item, transition)} disabled={busy}><span className="icon" aria-hidden="true">{transitionIcon(transition.label)}</span>{transition.label}</button>)}</div>;
-    return <div className="drawer-layer item-drawer-layer"><div className="drawer-backdrop" onClick={onClose} aria-hidden="true" /><aside className="drawer service-drawer item-detail-drawer" role="dialog" aria-modal="true" aria-labelledby="item-detail-title"><header className="service-drawer-topbar"><nav aria-label="Service order item sections"><button className={tab === 'item' ? 'service-tab active' : 'service-tab'} type="button" onClick={() => setTab('item')} aria-selected={tab === 'item'}><span className="icon" aria-hidden="true">assignment</span>Service Item</button><button className={tab === 'config' ? 'service-tab active' : 'service-tab'} type="button" onClick={() => setTab('config')} aria-selected={tab === 'config'}><span className="icon" aria-hidden="true">settings</span>Configurations</button></nav><button ref={closeButton} className="icon-button" type="button" aria-label="Close service order item details" onClick={onClose}><span className="icon">close</span></button></header>{tab === 'item' ? <div className="service-drawer-body"><div className="service-drawer-heading"><div><p className="eyebrow">Service Order Item</p><h2 id="item-detail-title">{item.name || 'Unnamed item'}</h2></div><button className="quiet-button drawer-action-button" type="button" onClick={onEdit} disabled={busy}><span className="icon" aria-hidden="true">edit</span>Edit</button></div><div className="service-lifecycle item-lifecycle" aria-label="Service order item lifecycle">{lifecycle.map((state, index) => <span className={index === currentIndex ? 'service-lifecycle-step current' : index < currentIndex ? 'service-lifecycle-step complete' : 'service-lifecycle-step'} key={state}>{state}</span>)}</div>{transitionActions}<section className="service-info-card item-info-card"><dl className="detail-grid service-detail-grid">{details.map(([label, value]) => <div key={label} className={label === 'Description' ? 'wide' : ''}><dt>{label}</dt><dd>{value || '—'}</dd></div>)}</dl></section></div> : <NativeServiceConfigurationsView service={item} actionState={{ status: busy ? 'running' : null }} onSave={onSaveConfiguration} onConfirm={onConfirmConfiguration} fetchConfigurations={fetchServiceOrderItemConfigurations} configurationOwnerId={order.orderId} heading="Order item configuration" allowVersionDelete={false} showVersionMetadata={false} supportsProfiles={false} parameterHeading="Configuration parameters" parameterEmptyMessage="No configuration parameters are assigned to this order item." lifecycleMode="OrderItem" />}</aside></div>;
+        // Capture phase so the order pop-up underneath does not also close on the same Escape.
+        const onKey = event => { if (event.key === 'Escape' && !event.defaultPrevented) { event.preventDefault(); onCloseRef.current(); } };
+        document.addEventListener('keydown', onKey, true);
+        return () => { document.removeEventListener('keydown', onKey, true); previous?.focus?.(); };
+    }, []);
+    const details = [
+        ['Service', item.serviceId
+            ? <button className="item-modal-link" type="button" onClick={() => { location.hash = `services/${encodeURIComponent(item.serviceId)}`; }}>{item.service || 'Linked service'}</button>
+            : item.service || <span className="item-modal-muted">Not linked yet</span>],
+        ['Specification', item.specification],
+        ['Category', item.category],
+        ['Start date', item.start],
+        ['End date', item.end || (item.start ? <span className="item-modal-muted">No end date</span> : '')],
+        ['Description', item.description],
+    ];
+    return <div className="drawer-layer order-modal-layer item-modal-layer"><div className="drawer-backdrop" onClick={onClose} aria-hidden="true" /><section className="order-modal item-modal" role="dialog" aria-modal="true" aria-labelledby="item-detail-title">
+        <header className="order-modal-header item-modal-header">
+            <div className="order-modal-heading">
+                <p className="eyebrow">Service order item · <span className="item-modal-order-ref">{order.orderId || order.name || 'Service order'}</span></p>
+                <div className="order-modal-title-row">
+                    {item.action && <span className={`order-action-chip ${action}`}>{item.action}</span>}
+                    <h2 id="item-detail-title">{item.name || 'Unnamed item'}</h2>
+                    <span className={`state-badge ${stateTone(item.status)}`}>{item.status || 'Unknown'}</span>
+                </div>
+            </div>
+            <div className="order-modal-actions">
+                <ServiceLinkButton item={item} busy={busy} initializing={initializing} onInitialize={onInitialize} />
+                <button className="quiet-button" type="button" onClick={onEdit} disabled={busy}><span className="icon" aria-hidden="true">edit</span>Edit</button>
+                <button ref={closeButton} className="icon-button" type="button" aria-label="Close service order item details" onClick={onClose}><span className="icon">close</span></button>
+            </div>
+        </header>
+        <div className="order-modal-body item-modal-body">
+            <OrderLifecycle state={item.status} transitions={transitions} busy={busy} onTransition={transition => onTransition(item, transition)} label="Service order item lifecycle" finalMessage="No further transitions are available for this item." />
+            <div className="item-modal-grid">
+                <section className="item-modal-card item-modal-overview" aria-labelledby="item-overview-title">
+                    <p className="eyebrow">Overview</p>
+                    <h3 id="item-overview-title">Service item details</h3>
+                    <dl className="item-modal-details">{details.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value || '—'}</dd></div>)}</dl>
+                </section>
+                <section className="item-modal-card item-modal-configuration">
+                    <NativeServiceConfigurationsView service={item} actionState={{ status: busy ? 'running' : null }} onSave={onSaveConfiguration} onConfirm={onConfirmConfiguration} fetchConfigurations={fetchServiceOrderItemConfigurations} configurationOwnerId={order.orderId} eyebrow="Parameters" heading="Configurations" allowVersionDelete={false} showVersionMetadata={false} supportsProfiles={false} parameterHeading="Configuration parameters" parameterEmptyMessage="No configuration parameters are assigned to this order item." lifecycleMode="OrderItem" parametersExpanded />
+                </section>
+            </div>
+        </div>
+    </section></div>;
 }
 
 function OrderDetailPanel({ order, onClose, onRunApi, onActionFailure, onConfirmDelete, onConfirmAction, onOrdersChanged, onDeleteOrder, onEditOrder, actionState }) {
     const closeButton = useRef(null);
     const [itemsRefreshKey, setItemsRefreshKey] = useState(0);
-    const [selectedItem, setSelectedItem] = useState(null);
+    const [selectedItemId, setSelectedItemId] = useState(null);
+    const lastSelectedItem = useRef(null);
     const [itemEditor, setItemEditor] = useState(null);
     const [initializingItemId, setInitializingItemId] = useState(null);
     const [pendingCancellationTransition, setPendingCancellationTransition] = useState(null);
     const busy = actionState?.status === 'running';
     const transitions = getOrderTransitions(order.state);
+    const itemsState = useOrderItems(order, itemsRefreshKey);
+    // Follow the selected item across reloads so the item pop-up shows fresh state after transitions and edits.
+    const freshSelectedItem = selectedItemId ? itemsState.items.find(item => item.id === selectedItemId) : null;
+    if (freshSelectedItem) lastSelectedItem.current = freshSelectedItem;
+    const selectedItem = selectedItemId ? freshSelectedItem || (itemsState.status === 'ready' ? null : lastSelectedItem.current) : null;
+    const closeSelectedItem = useCallback(() => setSelectedItemId(null), []);
+    const selectItem = useCallback(item => { lastSelectedItem.current = item; setSelectedItemId(item.id); }, []);
+    useEffect(() => {
+        if (selectedItemId && itemsState.status === 'ready' && !freshSelectedItem) setSelectedItemId(null);
+    }, [freshSelectedItem, itemsState.status, selectedItemId]);
     useEffect(() => {
         const previous = document.activeElement;
         closeButton.current?.focus();
-        const onKey = event => { if (event.key === 'Escape') onClose(); };
+        const onKey = event => { if (event.key === 'Escape' && !event.defaultPrevented) onClose(); };
         document.addEventListener('keydown', onKey);
         document.body.classList.add('drawer-open');
         return () => { document.removeEventListener('keydown', onKey); document.body.classList.remove('drawer-open'); previous?.focus?.(); };
     }, [onClose]);
-    const facts = [['External ID', order.externalId], ['Priority', order.priority], ['Related organization', order.organization], ['State', order.state]];
     const runOrderEdit = () => onEditOrder(order);
     const editItem = item => setItemEditor({ action: 'Edit', item });
     const deleteItem = async item => {
@@ -2149,7 +2246,6 @@ function OrderDetailPanel({ order, onClose, onRunApi, onActionFailure, onConfirm
         );
         if (!saved) return;
         setItemEditor(null);
-        setSelectedItem(null);
         setItemsRefreshKey(value => value + 1);
     };
     const initializeService = async item => {
@@ -2209,7 +2305,6 @@ function OrderDetailPanel({ order, onClose, onRunApi, onActionFailure, onConfirm
             () => transitionServiceOrderItem(order.orderId, item.id, transition.next),
             `${transition.label} order item`,
         )) return;
-        setSelectedItem(null);
         setItemsRefreshKey(value => value + 1);
     };
     const saveItemConfiguration = (item, values, refresh) => onRunApi(
@@ -2217,7 +2312,37 @@ function OrderDetailPanel({ order, onClose, onRunApi, onActionFailure, onConfirm
         'Saving order-item configuration',
         refresh,
     );
-    return <><div className="drawer-layer"><div className="drawer-backdrop" onClick={onClose} aria-hidden="true" /><aside className="drawer" role="dialog" aria-modal="true" aria-labelledby="order-detail-title"><header className="drawer-header"><div className="drawer-title"><p className="eyebrow">Service order</p><h2 id="order-detail-title">{order.name || 'Unnamed order'}</h2><div className="drawer-tags">{order.priority && <span className="order-priority">{order.priority} priority</span>}{order.organization && <span className="order-priority">{order.organization}</span>}</div></div><div className="drawer-header-actions"><button className="quiet-button drawer-action-button" type="button" onClick={runOrderEdit} disabled={busy}><span className="icon" aria-hidden="true">edit</span>Edit</button><button className="danger-button drawer-action-button" type="button" onClick={() => onDeleteOrder(order)} disabled={busy}><span className="icon" aria-hidden="true">delete</span>Delete</button><button ref={closeButton} className="icon-button" type="button" aria-label="Close order details" onClick={onClose}><span className="icon">close</span></button></div></header><div className="drawer-body"><section className="drawer-section" aria-labelledby="order-info-title"><div className="drawer-section-heading"><h3 id="order-info-title">Service order details</h3></div><div className="order-transition-panel"><div className="order-transition-panel-heading"><span className="eyebrow">Current state</span><span className={`state-badge ${stateTone(order.state)} order-transition-current`}>{order.state}</span></div><div className="order-transition-actions">{transitions.length === 0 ? <span className="service-related-empty">No transition is available from the current state.</span> : transitions.map(transition => <button className={`order-transition-action ${transition.label === 'Reject' || transition.label === 'Cancel' ? 'danger' : 'primary'}`} type="button" key={`${transition.label}-${transition.next}`} onClick={() => transitionOrder(order, transition)} disabled={busy}><span className="icon" aria-hidden="true">{transitionIcon(transition.label)}</span><span>{transition.label === 'Partially Failed' ? 'Partial fail' : transition.label === 'Information Missing' ? 'Missing info' : transition.label}</span></button>)}</div></div><dl className="detail-grid">{facts.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value || '—'}</dd></div>)}<div className="wide"><dt>Description</dt><dd>{order.description || 'No description'}</dd></div></dl></section><OrderItems order={order} refreshKey={itemsRefreshKey} onAdd={addItem} onEdit={editItem} onDelete={deleteItem} onSelect={setSelectedItem} onInitialize={initializeService} initializingItemId={initializingItemId} busy={busy} /></div></aside>{selectedItem && <ServiceOrderItemDetailPanel order={order} item={selectedItem} onClose={() => setSelectedItem(null)} onEdit={() => editItem(selectedItem)} onTransition={transitionOrderItem} onSaveConfiguration={(values, refresh) => saveItemConfiguration(selectedItem, values, refresh)} onConfirmConfiguration={onConfirmAction} busy={busy} />}</div>{itemEditor && <ServiceOrderItemDialog key={`${itemEditor.action}-${itemEditor.item?.id || 'new'}`} busy={actionState?.status === 'running'} order={order} action={itemEditor.action} initialItem={itemEditor.item} onClose={() => setItemEditor(null)} onSubmit={submitItem} />}{pendingCancellationTransition && <CancellationReasonDialog busy={busy} onClose={() => setPendingCancellationTransition(null)} onSubmit={submitCancellationReason} />}</>;
+    const shortId = orderShortId(order);
+    const priorityKey = String(order.priority || '').trim().toLowerCase() || 'none';
+    const requestedWindow = order.start || order.end ? <><span className="order-window-part">{order.start || 'Not set'}</span> <span className="order-window-part">→ {order.end || 'Not set'}</span></> : 'Not requested';
+    const itemCount = itemsState.items.length;
+    const completedItems = itemsState.items.filter(item => String(item.status || '').trim().toLowerCase() === 'completed').length;
+    const fulfillment = itemsState.status === 'loading' ? 'Loading items…' : itemsState.status === 'error' ? 'Unavailable' : itemCount === 0 ? 'No items yet' : `${completedItems} of ${itemCount} items completed`;
+    const fulfillmentPercent = itemCount ? Math.round((completedItems / itemCount) * 100) : 0;
+    return <><div className="drawer-layer order-modal-layer"><div className="drawer-backdrop" onClick={onClose} aria-hidden="true" /><section className="order-modal" role="dialog" aria-modal="true" aria-labelledby="order-detail-title">
+        <header className="order-modal-header">
+            <div className="order-modal-heading">
+                <p className="eyebrow">Service order{shortId && <> · ID {shortId}</>}</p>
+                <div className="order-modal-title-row"><h2 id="order-detail-title">{order.name || 'Unnamed order'}</h2>{order.priority && <span className={`priority-chip ${priorityKey}`}><span className="priority-dot" aria-hidden="true" />{order.priority} priority</span>}</div>
+            </div>
+            <div className="order-modal-actions">
+                <button className="quiet-button" type="button" onClick={runOrderEdit} disabled={busy}><span className="icon" aria-hidden="true">edit</span>Edit</button>
+                <button className="danger-button" type="button" onClick={() => onDeleteOrder(order)} disabled={busy}><span className="icon" aria-hidden="true">delete</span>Delete</button>
+                <button ref={closeButton} className="icon-button" type="button" aria-label="Close order details" onClick={onClose}><span className="icon">close</span></button>
+            </div>
+        </header>
+        <dl className="order-modal-facts">
+            <div><dt>Organization</dt><dd>{order.organization || '—'}</dd></div>
+            <div><dt>External ID</dt><dd>{order.externalId || '—'}</dd></div>
+            <div><dt>Requested window</dt><dd>{requestedWindow}</dd></div>
+            <div><dt>Fulfillment</dt><dd>{fulfillment}{itemsState.status === 'ready' && itemCount > 0 && <span className="order-fulfillment-bar" role="progressbar" aria-label="Completed order items" aria-valuemin={0} aria-valuemax={100} aria-valuenow={fulfillmentPercent}><span style={{ width: `${fulfillmentPercent}%` }} /></span>}</dd></div>
+        </dl>
+        <div className="order-modal-body">
+            {order.description && <p className="order-modal-description">{order.description}</p>}
+            <OrderLifecycle state={order.state} transitions={transitions} busy={busy} onTransition={transition => transitionOrder(order, transition)} />
+            <OrderItems itemsState={itemsState} onAdd={addItem} onEdit={editItem} onDelete={deleteItem}             onSelect={selectItem} onInitialize={initializeService} initializingItemId={initializingItemId} busy={busy} />
+        </div>
+                </section>{selectedItem && <ServiceOrderItemDetailPanel order={order} item={selectedItem} onClose={closeSelectedItem} onEdit={() => editItem(selectedItem)} onTransition={transitionOrderItem} onInitialize={initializeService} initializing={initializingItemId === selectedItem.id} onSaveConfiguration={(values, refresh) => saveItemConfiguration(selectedItem, values, refresh)} onConfirmConfiguration={onConfirmAction} busy={busy} />}</div>{itemEditor && <ServiceOrderItemDialog key={`${itemEditor.action}-${itemEditor.item?.id || 'new'}`} busy={actionState?.status === 'running'} order={order} action={itemEditor.action} initialItem={itemEditor.item} onClose={() => setItemEditor(null)} onSubmit={submitItem} />}{pendingCancellationTransition && <CancellationReasonDialog busy={busy} onClose={() => setPendingCancellationTransition(null)} onSubmit={submitCancellationReason} />}</>;
 }
 
 function OrdersPage({ selectedId }) {

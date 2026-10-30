@@ -658,7 +658,7 @@ test.describe('Service Management workspace', () => {
         test.use({ timezoneId: 'America/Los_Angeles' });
         test('preserves the requested completion date when editing an order', { tag: '@W1' }, async ({ page }) => {
             await page.locator('.order-row').filter({ hasText: 'Network refresh' }).getByRole('button', { name: 'Open details of Network refresh' }).click();
-            await page.getByRole('dialog', { name: 'Network refresh' }).locator('.drawer-header-actions').getByRole('button', { name: 'Edit', exact: true }).click();
+            await page.getByRole('dialog', { name: 'Network refresh' }).locator('.order-modal-actions').getByRole('button', { name: 'Edit', exact: true }).click();
 
             const form = page.getByRole('form', { name: 'Edit service order' });
             await expect(form.getByLabel('Requested start date')).toHaveValue('2026-10-20T10:30');
@@ -708,6 +708,43 @@ test.describe('Service Management workspace', () => {
         await expect(page.getByRole('dialog', { name: 'Studio expansion' })).toContainText('This order has no items.');
         await page.getByRole('button', { name: 'Close order details' }).click();
         await expect(page.getByRole('dialog')).toHaveCount(0);
+    });
+    test('shows the order pop-up with lifecycle progress, fulfillment and item cards', { tag: '@D7' }, async ({ page }) => {
+        await page.locator('.order-row').filter({ hasText: 'Network refresh' }).getByRole('button', { name: 'Open details of Network refresh' }).click();
+        const panel = page.getByRole('dialog', { name: 'Network refresh' });
+        await expect(panel.locator('.order-modal-header')).toContainText('Service order · ID 6F1C2A90');
+        await expect(panel.locator('.priority-chip')).toHaveText('High priority');
+        await expect(panel.locator('.order-stepper li.done')).toHaveText([/New$/, /Acknowledged$/]);
+        await expect(panel.locator('.order-stepper li[aria-current="step"]')).toHaveText('In Progress');
+        await expect(panel.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '0');
+        await expect(panel.locator('.order-modal-facts')).toContainText('0 of 2 items completed');
+        await expect(panel.locator('.order-item').first()).toHaveClass(/action-add/);
+        await expect(panel.locator('.order-item').nth(1)).toHaveClass(/action-modify/);
+        await panel.getByRole('button', { name: 'View Core switch A' }).click();
+        const itemPanel = page.getByRole('dialog', { name: 'Core switch A' });
+        await expect(itemPanel).toContainText('Primary site');
+        await itemPanel.getByRole('button', { name: 'Close service order item details' }).click();
+        await expect(itemPanel).toHaveCount(0);
+        await expect(panel).toBeVisible();
+    });
+    test('shows order item details as a pop-up that stays open across transitions and closes alone on Escape', { tag: '@D8' }, async ({ page }) => {
+        await page.locator('.order-row').filter({ hasText: 'Network refresh' }).getByRole('button', { name: 'Open details of Network refresh' }).click();
+        const panel = page.getByRole('dialog', { name: 'Network refresh' });
+        await panel.getByRole('button', { name: 'View Core switch B' }).click();
+        const itemPanel = page.getByRole('dialog', { name: 'Core switch B' });
+        await expect(itemPanel.locator('.item-modal-header')).toContainText('Service order item · ORDER-000001');
+        await expect(itemPanel.locator('.order-action-chip')).toHaveText('Modify');
+        await expect(itemPanel.locator('.item-modal-details')).toContainText('Not linked yet');
+        await expect(itemPanel.getByRole('button', { name: 'Initialize service for Core switch B' })).toBeVisible();
+        await expect(itemPanel.locator('.order-stepper li[aria-current="step"]')).toHaveText('New');
+        await expect(itemPanel.getByRole('button', { name: 'Reject' })).toBeVisible();
+        await expect(itemPanel.locator('.native-configuration-table')).toContainText('Polarization');
+        await itemPanel.getByRole('button', { name: 'Acknowledge' }).click();
+        await expect(itemPanel.locator('.order-stepper li[aria-current="step"]')).toHaveText('Acknowledged');
+        await expect(itemPanel).toBeVisible();
+        await page.keyboard.press('Escape');
+        await expect(itemPanel).toHaveCount(0);
+        await expect(panel).toBeVisible();
     });
     test('opens a linked service from an order item even when it is not on the loaded services page', { tag: '@S9' }, async ({ page }) => {
         for (let number = 2; number <= 12; number++) {
