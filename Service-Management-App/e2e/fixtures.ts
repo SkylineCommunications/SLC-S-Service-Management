@@ -94,7 +94,7 @@ export interface IasMock {
     launchError: string | null;
     subscriptError: string | null;
 }
-export interface GqiMock { mode: GqiMode; itemsFail: boolean; calls: { method: string; body: Record<string, any> }[]; ias: IasMock }
+export interface GqiMock { mode: GqiMode; itemsFail: boolean; calls: { method: string; body: Record<string, any> }[]; ias: IasMock; services?: Record<string, string>[] }
 
 export const IAS_SCRIPT_ID = 42;
 export const SUBSCRIPT_ID = 43;
@@ -374,6 +374,7 @@ export async function mockDataMinerApi(page: Page, mode: GqiMode = 'ok'): Promis
     const orderItemConfigurationOverrides = new Map<string, Record<string, unknown>[]>();
     const categories = SAMPLE_CATEGORIES.map(category => ({ ...category }));
     const services: Record<string, string>[] = [{ ...SAMPLE_SERVICE }];
+    mock.services = services;
     const monitoringServices = [{ Id: 'monitoring-1', Name: 'Monitoring service 1' }];
     let sessionCount = 0;
     await serveAppAtBasePath(page);
@@ -544,7 +545,8 @@ export async function mockDataMinerApi(page: Page, mode: GqiMode = 'ok'): Promis
                     services.push(created);
                     return respond(201, toUdapiService(created));
                 }
-                const service = services.find(row => row['Service ID'] === id);
+                // Mirrors the UDAPI: GET accepts the SERVICE-123 ID or the DOM GUID; other routes only the SERVICE-123 ID.
+                const service = services.find(row => row['Service ID'] === id || (!subResource && request.RequestMethod === 1 && row['DOM ID'] === id));
                 if (!service) return notFound();
                 if (!subResource && request.RequestMethod === 1) return respond(200, selectUdapiFields(toUdapiService(service), request));
                 if (!subResource && request.RequestMethod === 4) {

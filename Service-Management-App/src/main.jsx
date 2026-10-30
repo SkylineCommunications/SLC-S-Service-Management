@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { DataMinerAuthError } from './dataminer/transport.js';
 import { addCatalogSpecificationItem, createCatalogCategory, createCatalogSpecification, deleteCatalogCategory, deleteCatalogSpecification, deleteCatalogSpecificationItem, fetchDocumentHubLogos, fetchServiceCategories, fetchServiceSpecificationOverview, fetchServiceSpecificationPage, fetchServiceSpecifications, fetchServiceSpecificationConfigurations, fetchSpecificationItems, saveCatalogSpecificationConfiguration, updateCatalogCategory, updateCatalogSpecification, updateCatalogSpecificationItem } from './dataminer/catalog.js';
 import { addServiceOrderItem, createServiceOrder, deleteServiceOrder, deleteServiceOrderItem, fetchRelatedServiceOrders, fetchServiceOrderItemConfigurations, fetchServiceOrderItems, fetchServiceOrderOverviewData, fetchServiceOrderPage, fetchServiceOrders, fetchServiceOrganizations, getOrderItemTransitions, getOrderTransitions, isOpenOrder, transitionServiceOrder, transitionServiceOrderItem, updateServiceOrder, updateServiceOrderItem, saveServiceOrderItemConfiguration, initializeServiceFromOrderItem } from './dataminer/serviceOrders.js';
-import { addInventoryServiceItem, addServiceScript, createInventoryService, deleteInventoryService, deleteInventoryServiceItem, deleteServiceScript, duplicateInventoryService, duplicateServiceConfigurationVersion, fetchInventoryServiceItems, fetchMonitoringServices, fetchServiceConfigurations, fetchServiceDetails, fetchServiceOverviewData, fetchServicePage, fetchServiceScripts, fetchServices, isActiveService, saveServiceConfiguration as saveInventoryServiceConfiguration, serviceApiId, SERVICE_INVENTORY_SCRIPTS, SERVICE_TRANSITIONS, transitionInventoryService, updateInventoryService, updateInventoryServiceItem, updateServiceScript } from './dataminer/services.js';
+import { addInventoryServiceItem, addServiceScript, createInventoryService, deleteInventoryService, deleteInventoryServiceItem, deleteServiceScript, duplicateInventoryService, duplicateServiceConfigurationVersion, fetchInventoryServiceItems, fetchMonitoringServices, fetchServiceConfigurations, fetchServiceDetails, fetchServiceForDisplay, fetchServiceOverviewData, fetchServicePage, fetchServiceScripts, fetchServices, isActiveService, saveServiceConfiguration as saveInventoryServiceConfiguration, serviceApiId, SERVICE_INVENTORY_SCRIPTS, SERVICE_TRANSITIONS, transitionInventoryService, updateInventoryService, updateInventoryServiceItem, updateServiceScript } from './dataminer/services.js';
 import { getConnectionFromCookie, redirectToAuth } from './dataminer/session.js';
 import { IasDialog } from './IasDialog.jsx';
 import './styles.css';
@@ -1079,7 +1079,29 @@ function ServicesPage({ selectedId }) {
     const hasData = status === 'ready' || (loading && services.length > 0);
     const activeCount = cursorEnabled ? metrics?.activeCount : services.filter(isActiveService).length;
     const retiredCount = cursorEnabled ? metrics?.retiredCount : services.filter(service => service.status.trim().toLowerCase() === 'retired').length;
-    const selectedService = selectedId ? services.find(service => service.id === selectedId) : null;
+    const listedService = selectedId ? services.find(service => service.id === selectedId) : null;
+    const [fallbackService, setFallbackService] = useState(null);
+    const fallbackServiceRef = useRef(null);
+    fallbackServiceRef.current = fallbackService;
+    const listedServiceFound = Boolean(listedService);
+    useEffect(() => {
+        if (!selectedId || listedServiceFound) return undefined;
+        let cancelled = false;
+        const isRefresh = fallbackServiceRef.current?.id === selectedId;
+        fetchServiceForDisplay(selectedId)
+            .then(service => {
+                if (cancelled) return;
+                setFallbackService(service);
+                if (!service && !isRefresh) failAction('The selected service could not be found.');
+            })
+            .catch(error => {
+                if (!cancelled && !isRefresh) failAction(error?.message || 'The selected service could not be loaded.');
+            });
+        return () => { cancelled = true; };
+        // Refetch after list reloads (updatedAt) so edits to an off-page service are reflected.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [selectedId, listedServiceFound, updatedAt]);
+    const selectedService = listedService || (fallbackService?.id === selectedId ? fallbackService : null);
     const createService = () => setNewServiceOpen(true);
     const submitNewService = async (_values, fields) => {
         const created = await runApi(() => createInventoryService(fields), 'Creating service', reloadAndWait);

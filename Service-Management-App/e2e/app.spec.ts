@@ -709,6 +709,20 @@ test.describe('Service Management workspace', () => {
         await page.getByRole('button', { name: 'Close order details' }).click();
         await expect(page.getByRole('dialog')).toHaveCount(0);
     });
+    test('opens a linked service from an order item even when it is not on the loaded services page', { tag: '@S9' }, async ({ page }) => {
+        for (let number = 2; number <= 12; number++) {
+            mock.services!.push({ ...SAMPLE_SERVICE, 'DOM ID': `service-filler-${number}`, 'Service ID': `SERVICE-${number}`, 'Service Name': `Filler service ${number}` });
+        }
+        await page.locator('.order-row').filter({ hasText: 'Network refresh' }).getByRole('button', { name: 'Open details of Network refresh' }).click();
+        const item = page.getByRole('dialog', { name: 'Network refresh' }).locator('.order-item').filter({ hasText: 'Core switch A' });
+        await item.getByRole('button', { name: 'Open service Core network' }).click();
+
+        await expect(page.getByRole('dialog').getByRole('heading', { name: 'Test service' })).toBeVisible();
+        expect(new URL(page.url()).hash).toBe('#services/service-1');
+        await expect(page.locator('.service-row').filter({ hasText: 'Filler service 9' })).toHaveCount(1);
+        await expect(page.locator('.service-row').filter({ hasText: 'Test service' })).toHaveCount(0);
+        expect(udapiRequests(mock).some(request => request.Route === `${SERVICES_ROUTE}/service-1` && request.RequestMethod === 1)).toBe(true);
+    });
     test('initializes a service when its specification has no configuration', { tag: '@W3' }, async ({ page }) => {
         await page.locator('.order-row').filter({ hasText: 'Network refresh' }).getByRole('button', { name: 'Open details of Network refresh' }).click();
         const panel = page.getByRole('dialog', { name: 'Network refresh' });

@@ -427,13 +427,28 @@
 		{
 			_logger.LogInformation("GetService called with id={Id}, fields={Fields}, full={Full}", id, fields, full);
 
-			if (String.IsNullOrWhiteSpace(id) || !ServiceIdPattern.IsMatch(id))
+			if (String.IsNullOrWhiteSpace(id))
+			{
+				return NotFound();
+			}
+
+			string key = id.Trim();
+			FilterElement<Service> filter;
+			if (ServiceIdPattern.IsMatch(key))
+			{
+				filter = ServiceExposers.ServiceID.Equal(key);
+			}
+			else if (Guid.TryParse(key, out Guid domId) && domId != Guid.Empty)
+			{
+				filter = ServiceExposers.Identifier.Equal(domId.ToString());
+			}
+			else
 			{
 				return NotFound();
 			}
 
 			var service = serviceManagementApiHelper.ServiceInventory.Services
-				.Read(ServiceExposers.ServiceID.Equal(id))
+				.Read(filter)
 				.FirstOrDefault();
 
 			if (service == null)

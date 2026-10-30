@@ -133,6 +133,12 @@ export async function fetchServiceDetails(serviceId) {
     return service ? mapUdapiService(service) : null;
 }
 
+// Loads one service (by SERVICE-123 ID or DOM GUID) with the list fields, e.g. when it is not on the loaded page.
+export async function fetchServiceForDisplay(id) {
+    const service = await fetchServiceRecord(id, SERVICE_LIST_FIELDS);
+    return service ? mapUdapiService(service) : null;
+}
+
 export async function fetchMonitoringServices() {
     const services = await fetchMonitoringServiceList();
     return services
