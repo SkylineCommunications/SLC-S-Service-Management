@@ -93,14 +93,14 @@ test.describe('Service Management workspace', () => {
         await form.getByRole('textbox', { name: 'Name' }).fill('New service');
         await expect(save).toBeEnabled();
 
-        await form.getByLabel('Start time').fill('2020-01-01T08:00');
+        await form.getByLabel('Start date').fill('2020-01-01T08:00');
         await expect(form.getByText("Please make a selection which doesn't lie in the past.", { exact: true })).toBeVisible();
         await expect(save).toBeDisabled();
-        await form.getByLabel('Start time').fill('2099-01-01T08:00');
-        await form.getByRole('textbox', { name: /End time/ }).fill('2098-01-01T08:00');
-        await expect(form.getByText('End Time must come after the start time.', { exact: true })).toBeVisible();
+        await form.getByLabel('Start date').fill('2099-01-01T08:00');
+        await form.getByRole('textbox', { name: /End date/ }).fill('2098-01-01T08:00');
+        await expect(form.getByText('End date must come after the start date.', { exact: true })).toBeVisible();
         await expect(save).toBeDisabled();
-        await form.getByRole('textbox', { name: /End time/ }).fill('2100-01-01T08:00');
+        await form.getByRole('textbox', { name: /End date/ }).fill('2100-01-01T08:00');
 
         await form.getByRole('checkbox', { name: 'Link service' }).check();
         await expect(form.getByText('Selection is mandatory!', { exact: true })).toBeVisible();
@@ -236,7 +236,7 @@ test.describe('Service Management workspace', () => {
         await createForm.getByRole('combobox', { name: 'Category' }).selectOption('Production');
         await createForm.getByRole('combobox', { name: 'Service specification' }).selectOption('Managed switching');
         await createForm.getByRole('combobox', { name: 'Organization' }).selectOption('Acme Media');
-        await createForm.getByRole('checkbox', { name: 'Indefinite (no end time)' }).check();
+        await createForm.getByRole('checkbox', { name: 'Indefinite (no end date)' }).check();
         await createForm.getByRole('checkbox', { name: 'Link service' }).check();
         await createForm.getByRole('combobox', { name: 'Linked service' }).selectOption({ label: 'Monitoring service 1' });
         await createForm.getByRole('button', { name: 'Create', exact: true }).click();
@@ -709,11 +709,11 @@ test.describe('Service Management workspace', () => {
        await itemForm.getByRole('combobox', { name: 'Service specification' }).selectOption({ label: 'Managed switching' });
        await expect(itemForm.getByRole('button', { name: 'Add item', exact: true })).toBeEnabled();
        await itemForm.getByRole('checkbox', { name: 'Indefinite runtime' }).uncheck();
-       await itemForm.getByLabel('Start time').fill('2099-01-01T08:00');
-       await itemForm.getByLabel('End time').fill('2098-01-01T08:00');
-       await expect(itemForm.getByText('End Time must come after the start time.', { exact: true })).toBeVisible();
+       await itemForm.getByLabel('Start date').fill('2099-01-01T08:00');
+       await itemForm.getByLabel('End date').fill('2098-01-01T08:00');
+       await expect(itemForm.getByText('End date must come after the start date.', { exact: true })).toBeVisible();
        await expect(itemForm.getByRole('button', { name: 'Add item', exact: true })).toBeDisabled();
-       await itemForm.getByLabel('End time').fill('2100-01-01T08:00');
+       await itemForm.getByLabel('End date').fill('2100-01-01T08:00');
        await expect(itemForm.getByRole('button', { name: 'Add item', exact: true })).toBeEnabled();
     });
     test('adds, edits and deletes order items through the UDAPI item routes', { tag: '@D6' }, async ({ page }) => {
