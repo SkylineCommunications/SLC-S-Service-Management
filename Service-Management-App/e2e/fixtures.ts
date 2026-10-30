@@ -607,6 +607,16 @@ export async function mockDataMinerApi(page: Page, mode: GqiMode = 'ok'): Promis
                         return respond(204);
                     }
                 }
+                if (subResource === 'configurationVersion' && subAction === 'duplicate' && request.RequestMethod === 3) {
+                    const rows = serviceConfigurationOverrides.get(service['DOM ID']) ?? SAMPLE_SPECIFICATION_CONFIGURATIONS.map(row => ({ ...row }));
+                    const sourceRows = rows.filter(row => row['Version ID'] === subId);
+                    if (sourceRows.length === 0) return notFound();
+                    const versionIds = new Set(rows.map(row => row['Version ID']));
+                    const copyId = `${subId}-copy-${versionIds.size}`;
+                    const copyName = `${sourceRows[0]['Version Name']} (Copy)`;
+                    serviceConfigurationOverrides.set(service['DOM ID'], [...rows, ...sourceRows.map(row => ({ ...row, 'Version ID': copyId, 'Version Name': copyName, 'Is Active': 'false' }))]);
+                    return respond(201, { Identifier: copyId, VersionName: copyName });
+                }
                 if (subResource === 'duplicate' && request.RequestMethod === 3) {
                     const nextServiceNumber = Math.max(0, ...services.map(row => Number(row['Service ID'].match(/^SERVICE-(\d+)$/)?.[1] ?? 0))) + 1;
                     const created = {

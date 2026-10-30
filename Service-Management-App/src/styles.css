@@ -182,6 +182,7 @@ input[type="search"]::-ms-clear, input[type="search"]::-ms-reveal { display:none
 .confirm-backdrop { position:absolute; inset:0; background:rgb(5 10 18 / 62%); animation:fade-in .16s ease; }
 .confirm-dialog { position:relative; width:min(430px, 100%); padding:24px; display:grid; grid-template-columns:auto 1fr; gap:14px; border:1px solid var(--color5); border-radius:10px; background:var(--color1); box-shadow:0 20px 60px rgb(0 0 0 / 32%); animation:confirm-rise .18s ease; }
 .confirm-icon { width:34px; height:34px; display:grid; place-items:center; border:1px solid color-mix(in srgb, var(--palette-color3) 48%, var(--color5)); border-radius:8px; background:color-mix(in srgb, var(--palette-color3) 12%, var(--color1)); color:var(--palette-color3); font-size:19px; }
+.confirm-icon.confirm-icon-neutral { border-color:color-mix(in srgb, var(--focus-color) 48%, var(--color5)); background:color-mix(in srgb, var(--focus-color) 12%, var(--color1)); color:var(--hyperlink); }
 .confirm-copy h2 { margin:1px 0 6px; font-size:17px; line-height:22px; }
 .confirm-copy p { margin:0; color:var(--color10); font-size:13px; line-height:19px; overflow-wrap:anywhere; }
 .confirm-actions { grid-column:1 / -1; display:flex; justify-content:flex-end; gap:8px; padding-top:8px; }

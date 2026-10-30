@@ -172,6 +172,41 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 		}
 
 		/// <summary>
+		/// Duplicates a single configuration version of a service as a new, inactive version.
+		/// </summary>
+		[HttpPost("{id}/configurationVersion/{versionId}/duplicate")]
+		public IApiResult DuplicateConfigurationVersion([FromRoute] string id, [FromRoute] string versionId)
+		{
+			try
+			{
+				var service = FindService(id);
+				if (service == null)
+				{
+					return NotFound(CreateError("Not found", $"Service '{id?.Trim()}' does not exist.", 404));
+				}
+
+				if (String.IsNullOrWhiteSpace(versionId) || !Guid.TryParse(versionId.Trim(), out var versionGuid))
+				{
+					return NotFound(CreateError("Not found", $"Configuration version '{versionId?.Trim()}' does not exist.", 404));
+				}
+
+				var duplicate = new ServiceDuplicator(serviceManagementApiHelper)
+					.DuplicateConfigurationVersion(service, versionGuid.ToString());
+				if (duplicate == null)
+				{
+					return NotFound(CreateError("Not found", $"Configuration version '{versionGuid}' does not exist for service '{service.ServiceID}'.", 404));
+				}
+
+				return Created(new FullServiceBuilder(serviceManagementApiHelper).BuildVersion(duplicate));
+			}
+			catch (Exception ex)
+			{
+				_logger.LogError(ex, "DuplicateConfigurationVersion failed for service {ServiceId}, version {VersionId}: {Message}", id, versionId, ex.Message);
+				return InternalServerError(CreateError("Internal server error", "An unexpected error occurred while duplicating the configuration version.", 500));
+			}
+		}
+
+		/// <summary>
 		/// Lists the scripts configured on a service.
 		/// </summary>
 		[HttpGet("{id}/script")]

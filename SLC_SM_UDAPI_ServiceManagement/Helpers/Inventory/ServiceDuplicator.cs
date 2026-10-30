@@ -117,28 +117,100 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 			var duplicates = new List<string>();
 			foreach (var sourceVersion in data.Versions.OrderBy(version => version.VersionName))
 			{
-				var state = new VersionDuplicationState();
-				var parameters = DuplicateVersionParameters(sourceVersion, data, state);
-				var profiles = DuplicateVersionProfiles(sourceVersion, newServiceId, data, state);
-				RemapLinkedConsumers(state);
-
-				string duplicateId = Guid.NewGuid().ToString();
-				var duplicateVersion = new ServiceConfigurationVersion
-				{
-					Identifier = duplicateId,
-					VersionName = $"{sourceVersion.VersionName} (Copy)",
-					Description = sourceVersion.Description,
-					StartDate = sourceVersion.StartDate,
-					EndDate = sourceVersion.EndDate,
-					Parameters = parameters,
-					Profiles = profiles,
-				};
-				_api.ServiceInventory.ServiceConfigurationVersions.Create(duplicateVersion);
-				versionMap[sourceVersion.Identifier] = duplicateId;
-				duplicates.Add(duplicateId);
+				var duplicateVersion = DuplicateVersion(sourceVersion, $"{sourceVersion.VersionName} (Copy)", newServiceId, data);
+				versionMap[sourceVersion.Identifier] = duplicateVersion.Identifier;
+				duplicates.Add(duplicateVersion.Identifier);
 			}
 
 			return duplicates;
+		}
+
+		/// <summary>
+		/// Duplicates one configuration version of a service as a new, inactive version of the same service.
+		/// </summary>
+		/// <returns>The new version, or <c>null</c> when the version does not belong to the service.</returns>
+		public ServiceConfigurationVersion DuplicateConfigurationVersion(Service service, string versionId)
+		{
+			if (service == null)
+			{
+				throw new ArgumentNullException(nameof(service));
+			}
+
+			if (String.IsNullOrWhiteSpace(versionId))
+			{
+				return null;
+			}
+
+			versionId = versionId.Trim();
+			var serviceVersionIds = new HashSet<string>(
+				(service.ConfigurationVersions ?? new List<SdmObjectReference<ServiceConfigurationVersion>>())
+					.Where(reference => !String.IsNullOrWhiteSpace(reference.Identifier))
+					.Select(reference => reference.Identifier),
+				StringComparer.OrdinalIgnoreCase);
+			if (!String.IsNullOrWhiteSpace(service.ServiceConfigurationId.Identifier))
+			{
+				serviceVersionIds.Add(service.ServiceConfigurationId.Identifier);
+			}
+
+			if (!serviceVersionIds.Contains(versionId))
+			{
+				return null;
+			}
+
+			var data = LoadConfigurationData(new HashSet<string>(serviceVersionIds, StringComparer.OrdinalIgnoreCase));
+			var sourceVersion = data.Versions.FirstOrDefault(version => String.Equals(version.Identifier, versionId, StringComparison.OrdinalIgnoreCase));
+			if (sourceVersion == null)
+			{
+				return null;
+			}
+
+			string name = GenerateUniqueVersionName(sourceVersion.VersionName, data.Versions.Select(version => version.VersionName));
+			var duplicate = DuplicateVersion(sourceVersion, name, service.ServiceID, data);
+
+			var references = service.ConfigurationVersions ?? new List<SdmObjectReference<ServiceConfigurationVersion>>();
+			references.Add(new SdmObjectReference<ServiceConfigurationVersion>(duplicate.Identifier));
+			service.ConfigurationVersions = references;
+			_api.ServiceInventory.Services.Update(service);
+
+			return duplicate;
+		}
+
+		private ServiceConfigurationVersion DuplicateVersion(
+			ServiceConfigurationVersion sourceVersion,
+			string versionName,
+			string serviceId,
+			ConfigurationDuplicationData data)
+		{
+			var state = new VersionDuplicationState();
+			var parameters = DuplicateVersionParameters(sourceVersion, data, state);
+			var profiles = DuplicateVersionProfiles(sourceVersion, serviceId, data, state);
+			RemapLinkedConsumers(state);
+
+			var duplicateVersion = new ServiceConfigurationVersion
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				VersionName = versionName,
+				Description = sourceVersion.Description,
+				StartDate = sourceVersion.StartDate,
+				EndDate = sourceVersion.EndDate,
+				Parameters = parameters,
+				Profiles = profiles,
+			};
+			_api.ServiceInventory.ServiceConfigurationVersions.Create(duplicateVersion);
+			return duplicateVersion;
+		}
+
+		private static string GenerateUniqueVersionName(string sourceName, IEnumerable<string> existingNames)
+		{
+			var names = new HashSet<string>(existingNames.Where(name => name != null), StringComparer.OrdinalIgnoreCase);
+			string baseName = String.IsNullOrWhiteSpace(sourceName) ? "Configuration" : sourceName.Trim();
+			string candidate = $"{baseName} (Copy)";
+			for (int index = 2; names.Contains(candidate); index++)
+			{
+				candidate = $"{baseName} (Copy {index})";
+			}
+
+			return candidate;
 		}
 
 		private ConfigurationDuplicationData LoadConfigurationData(ISet<string> sourceVersionIds)

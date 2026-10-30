@@ -286,6 +286,100 @@
 			Assert.AreEqual(1, StoredVersions.Count, "A failed multi-write save may leave earlier records persisted.");
 		}
 
+		// ---- POST /service/{id}/configurationVersion/{versionId}/duplicate ----
+		[TestMethod]
+		public void DuplicateConfigurationVersion_CopiesValuesAndOwnedProfilesAsInactiveVersion()
+		{
+			var source = AddVersion(service, "v1", new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+			service.ServiceConfigurationId = new SdmObjectReference<ServiceConfigurationVersion>(source.Identifier);
+			var value = AddParameterValue("Horizontal");
+			var configuration = new ServiceConfigurationValue
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				Mandatory = true,
+				ConfigurationParameterId = new SdmObjectReference<Cfg.ConfigurationParameterValue>(value.Identifier),
+			};
+			StoredConfigurationValues.Add(configuration);
+			source.Parameters.Add(new SdmObjectReference<ServiceConfigurationValue>(configuration.Identifier));
+
+			var reusable = new Cfg.Profile { Identifier = Guid.NewGuid().ToString(), Name = "Shared", IsReusable = true };
+			var profileValue = AddParameterValue("2500");
+			var owned = new Cfg.Profile
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				Name = "Transport (SERVICE-00001)",
+				Profiles = new List<SdmObjectReference<Cfg.Profile>> { new SdmObjectReference<Cfg.Profile>(reusable.Identifier) },
+				ConfigurationParameterValues = new List<SdmObjectReference<Cfg.ConfigurationParameterValue>> { new SdmObjectReference<Cfg.ConfigurationParameterValue>(profileValue.Identifier) },
+			};
+			StoredProfiles.Add(reusable);
+			StoredProfiles.Add(owned);
+			var serviceProfile = new ServiceProfile { Identifier = Guid.NewGuid().ToString(), ProfileId = new SdmObjectReference<Cfg.Profile>(owned.Identifier) };
+			StoredServiceProfiles.Add(serviceProfile);
+			source.Profiles.Add(new SdmObjectReference<ServiceProfile>(serviceProfile.Identifier));
+
+			var result = Controller.DuplicateConfigurationVersion(service.ServiceID, source.Identifier);
+
+			Assert.AreEqual(201, StatusCode(result));
+			var copy = StoredVersions.Single(version => version != source);
+			Assert.AreEqual(copy.Identifier, Value<FullServiceConfigurationVersion>(result).Identifier);
+			Assert.AreEqual("v1 (Copy)", copy.VersionName);
+			Assert.AreEqual(source.StartDate, copy.StartDate);
+			Assert.AreEqual(source.Identifier, service.ServiceConfigurationId.Identifier, "The source version must stay active.");
+			CollectionAssert.Contains(service.ConfigurationVersions.Select(reference => reference.Identifier).ToList(), copy.Identifier);
+
+			var copiedConfiguration = StoredConfigurationValues.Single(item => item.Identifier == copy.Parameters.Single().Identifier);
+			Assert.AreNotEqual(configuration.Identifier, copiedConfiguration.Identifier);
+			Assert.IsTrue(copiedConfiguration.Mandatory);
+			var copiedValue = StoredParameterValues.Single(item => item.Identifier == copiedConfiguration.ConfigurationParameterId.Identifier);
+			Assert.AreNotEqual(value.Identifier, copiedValue.Identifier);
+			Assert.AreEqual("Horizontal", copiedValue.StringValue);
+
+			var copiedServiceProfile = StoredServiceProfiles.Single(item => item.Identifier == copy.Profiles.Single().Identifier);
+			Assert.AreNotEqual(serviceProfile.Identifier, copiedServiceProfile.Identifier);
+			var copiedProfile = StoredProfiles.Single(item => item.Identifier == copiedServiceProfile.ProfileId.Identifier);
+			Assert.AreNotEqual(owned.Identifier, copiedProfile.Identifier);
+			Assert.AreEqual(reusable.Identifier, copiedProfile.Profiles.Single().Identifier, "Reusable profiles stay shared.");
+			Assert.AreNotEqual(profileValue.Identifier, copiedProfile.ConfigurationParameterValues.Single().Identifier);
+		}
+
+		[TestMethod]
+		public void DuplicateConfigurationVersion_RepeatedCopies_GetUniqueNames()
+		{
+			var source = AddVersion(service, "v1");
+
+			Assert.AreEqual(201, StatusCode(Controller.DuplicateConfigurationVersion(service.ServiceID, source.Identifier)));
+			Assert.AreEqual(201, StatusCode(Controller.DuplicateConfigurationVersion(service.ServiceID, source.Identifier)));
+
+			CollectionAssert.AreEquivalent(new[] { "v1", "v1 (Copy)", "v1 (Copy 2)" }, StoredVersions.Select(version => version.VersionName).ToArray());
+			Assert.AreEqual(3, service.ConfigurationVersions.Count);
+		}
+
+		[DataTestMethod]
+		[DataRow(null)]
+		[DataRow("not-a-guid")]
+		public void DuplicateConfigurationVersion_InvalidVersionId_Returns404(string versionId)
+		{
+			Assert.AreEqual(404, StatusCode(Controller.DuplicateConfigurationVersion(service.ServiceID, versionId)));
+			AssertNothingWritten();
+		}
+
+		[TestMethod]
+		public void DuplicateConfigurationVersion_VersionOfOtherService_Returns404AndWritesNothing()
+		{
+			var other = AddService("Other", number: 2);
+			var foreign = AddVersion(other, "foreign");
+
+			Assert.AreEqual(404, StatusCode(Controller.DuplicateConfigurationVersion(service.ServiceID, foreign.Identifier)));
+			Assert.AreEqual(1, StoredVersions.Count);
+			Services.Verify(r => r.Update(It.IsAny<Service>()), Times.Never);
+		}
+
+		[TestMethod]
+		public void DuplicateConfigurationVersion_UnknownService_Returns404()
+		{
+			Assert.AreEqual(404, StatusCode(Controller.DuplicateConfigurationVersion("SERVICE-00404", Guid.NewGuid().ToString())));
+		}
+
 		private static CreateConfigurationVersionRequest ParameterRequest(ConfigurationParameterValueRequest value, bool mandatory = false)
 		{
 			return new CreateConfigurationVersionRequest
@@ -302,6 +396,19 @@
 			var parameter = new Cfg.ConfigurationParameter { Identifier = Guid.NewGuid().ToString(), Name = name, Type = type };
 			StoredParameters.Add(parameter);
 			return parameter;
+		}
+
+		private Cfg.ConfigurationParameterValue AddParameterValue(string value)
+		{
+			var parameterValue = new Cfg.ConfigurationParameterValue
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				Label = "Parameter",
+				StringValue = value,
+				LinkedConsumers = new List<Guid>(),
+			};
+			StoredParameterValues.Add(parameterValue);
+			return parameterValue;
 		}
 
 		private void AssertNothingWritten()

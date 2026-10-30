@@ -418,6 +418,32 @@ test.describe('Service Management workspace', () => {
             }),
         ]));
     });
+    test('duplicates a service configuration version and selects the inactive copy',     { tag: '@C9' }, async ({ page }) => {
+        await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: /Services/ }).click();
+        await page.locator('.service-row').filter({ hasText: 'Test service' }).getByRole('button', { name: 'Open details of Test service' }).click();
+        const dialog = page.getByRole('dialog');
+        await dialog.getByRole('button', { name: 'Configurations', exact: true }).click();
+        await expect(dialog.getByRole('heading', { name: 'Service configuration' })).toBeVisible();
+
+        await dialog.getByRole('button', { name: 'Duplicate configuration' }).click();
+        const confirmation = page.getByRole('alertdialog');
+        await expect(confirmation.getByRole('heading', { name: 'Duplicate configuration' })).toBeVisible();
+        await expect(confirmation).toContainText('Are you sure you want to duplicate the configuration "Current version"?');
+        await confirmation.getByRole('button', { name: 'Cancel' }).click();
+        await expect(confirmation).toBeHidden();
+        expect(udapiRequests(mock).some(request => request.Route.endsWith('/duplicate'))).toBe(false);
+
+        await dialog.getByRole('button', { name: 'Duplicate configuration' }).click();
+        await confirmation.getByRole('button', { name: 'Duplicate', exact: true }).click();
+        await expect.poll(() => udapiRequests(mock).some(request =>
+            request.Route === `${SERVICES_ROUTE}/SERVICE-1/configurationVersion/spec-1/duplicate` && request.RequestMethod === 3,
+        )).toBe(true);
+        const version = dialog.getByRole('combobox', { name: 'Version' });
+        await expect(version.locator('option:checked')).toHaveText('Current version (Copy)');
+        await expect(dialog.getByRole('button', { name: 'Activate' })).toBeEnabled();
+        await expect(version.locator('option', { hasText: 'Current version (Active)' })).toHaveCount(1);
+        await expect(version.locator('option', { hasText: 'Current version (Copy)' })).toHaveCount(1);
+    });
     test('opens logo assignment from the service table icon', { tag: '@S3' }, async ({ page }) => {
         await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: /Services/ }).click();
         await page.getByRole('button', { name: 'Set logo for Test service' }).click();
