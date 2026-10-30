@@ -15,7 +15,7 @@
 	<PackageReference Include="MSTest" Version="3.6.4" />
 	<PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
 	<PackageReference Include="Skyline.DataMiner.Dev.Automation" Version="10.6.10.1" />
-	<PackageReference Include="Skyline.DataMiner.ProjectApi.ServiceManagementSKA13" Version="1.0.31" />
+	<PackageReference Include="Skyline.DataMiner.ProjectApi.ServiceManagementSKA13" Version="1.0.35" />
 	<PackageReference Include="Skyline.DataMiner.SDM.OData" Version="1.0.0" />
 	<PackageReference Include="Skyline.DataMiner.Utils.UserDefinedApiToolkit" Version="10.6.8.4-rc1" />
   </ItemGroup>

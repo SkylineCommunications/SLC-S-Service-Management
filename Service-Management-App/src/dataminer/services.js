@@ -7,6 +7,7 @@ import {
     deleteInventoryServiceItem,
     deleteServiceScript,
     duplicateInventoryService,
+    duplicateServiceConfigurationVersion,
     fetchMonitoringServiceList,
     fetchServiceRecord,
     fetchServiceConfigurationList,
@@ -30,6 +31,7 @@ export {
     deleteInventoryServiceItem,
     deleteServiceScript,
     duplicateInventoryService,
+    duplicateServiceConfigurationVersion,
     saveServiceConfiguration,
     transitionInventoryService,
     updateInventoryService,
@@ -128,6 +130,12 @@ export async function fetchServiceOverviewData(options = {}) {
 
 export async function fetchServiceDetails(serviceId) {
     const service = await fetchServiceRecord(serviceId, 'OrganizationId,OrganizationName');
+    return service ? mapUdapiService(service) : null;
+}
+
+// Loads one service (by SERVICE-123 ID or DOM GUID) with the list fields, e.g. when it is not on the loaded page.
+export async function fetchServiceForDisplay(id) {
+    const service = await fetchServiceRecord(id, SERVICE_LIST_FIELDS);
     return service ? mapUdapiService(service) : null;
 }
 

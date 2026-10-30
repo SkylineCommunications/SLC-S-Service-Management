@@ -50,11 +50,23 @@
 			Organizations.Verify(o => o.ReadOrganizationNames(), Times.Once);
 		}
 
+		[TestMethod]
+		public void GetService_ByDomIdentifier_Returns200WithService()
+		{
+			AddService("Other");
+			var service = AddService("Svc");
+			var result = Controller.GetService(service.Identifier, "name");
+			Assert.AreEqual(200, StatusCode(result));
+			Assert.AreEqual("Svc", (string)Value<JObject>(result)["Name"]);
+		}
+
 		[DataTestMethod]
 		[DataRow(null)]
 		[DataRow(" ")]
 		[DataRow("not-a-service-id")]
 		[DataRow("SERVICE-00099")]
+		[DataRow("00000000-0000-0000-0000-000000000000")]
+		[DataRow("6f1c2b8e-4a1d-4c5e-9b7a-2d3e4f5a6b7c")]
 		public void GetService_MissingOrUnknown_Returns404(string id)
 		{
 			AddService();

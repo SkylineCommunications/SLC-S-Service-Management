@@ -94,7 +94,7 @@ export interface IasMock {
     launchError: string | null;
     subscriptError: string | null;
 }
-export interface GqiMock { mode: GqiMode; itemsFail: boolean; calls: { method: string; body: Record<string, any> }[]; ias: IasMock }
+export interface GqiMock { mode: GqiMode; itemsFail: boolean; calls: { method: string; body: Record<string, any> }[]; ias: IasMock; services?: Record<string, string>[] }
 
 export const IAS_SCRIPT_ID = 42;
 export const SUBSCRIPT_ID = 43;
@@ -374,6 +374,7 @@ export async function mockDataMinerApi(page: Page, mode: GqiMode = 'ok'): Promis
     const orderItemConfigurationOverrides = new Map<string, Record<string, unknown>[]>();
     const categories = SAMPLE_CATEGORIES.map(category => ({ ...category }));
     const services: Record<string, string>[] = [{ ...SAMPLE_SERVICE }];
+    mock.services = services;
     const monitoringServices = [{ Id: 'monitoring-1', Name: 'Monitoring service 1' }];
     let sessionCount = 0;
     await serveAppAtBasePath(page);
@@ -531,10 +532,12 @@ export async function mockDataMinerApi(page: Page, mode: GqiMode = 'ok'): Promis
                 }
                 if (!id && request.RequestMethod === 1) {
                     const serviceRows = services.map(service => selectUdapiFields(toUdapiService(service), request));
+                    // PascalCase mirrors the serialization of previously deployed UDAPI versions; the app normalizes keys.
                     return respond(200, request.QueryParameters?.pagination?.[0] === 'cursor'
                         ? cursorPage(serviceRows, request, row => row.ServiceID, row => row.Identifier, () => '', true, true, {
-                            activeCount: serviceRows.filter(service => new Set(['active', 'reserved', 'designed']).has(service.StatusName)).length,
-                            retiredCount: serviceRows.filter(service => service.StatusName === 'retired').length,
+                            TotalCount: serviceRows.length,
+                            ActiveCount: serviceRows.filter(service => new Set(['active', 'reserved', 'designed']).has(service.StatusName)).length,
+                            RetiredCount: serviceRows.filter(service => service.StatusName === 'retired').length,
                         })
                         : serviceRows);
                 }
@@ -544,7 +547,8 @@ export async function mockDataMinerApi(page: Page, mode: GqiMode = 'ok'): Promis
                     services.push(created);
                     return respond(201, toUdapiService(created));
                 }
-                const service = services.find(row => row['Service ID'] === id);
+                // Mirrors the UDAPI: GET accepts the SERVICE-123 ID or the DOM GUID; other routes only the SERVICE-123 ID.
+                const service = services.find(row => row['Service ID'] === id || (!subResource && request.RequestMethod === 1 && row['DOM ID'] === id));
                 if (!service) return notFound();
                 if (!subResource && request.RequestMethod === 1) return respond(200, selectUdapiFields(toUdapiService(service), request));
                 if (!subResource && request.RequestMethod === 4) {
@@ -606,6 +610,16 @@ export async function mockDataMinerApi(page: Page, mode: GqiMode = 'ok'): Promis
                         scripts.splice(index, 1);
                         return respond(204);
                     }
+                }
+                if (subResource === 'configurationVersion' && subAction === 'duplicate' && request.RequestMethod === 3) {
+                    const rows = serviceConfigurationOverrides.get(service['DOM ID']) ?? SAMPLE_SPECIFICATION_CONFIGURATIONS.map(row => ({ ...row }));
+                    const sourceRows = rows.filter(row => row['Version ID'] === subId);
+                    if (sourceRows.length === 0) return notFound();
+                    const versionIds = new Set(rows.map(row => row['Version ID']));
+                    const copyId = `${subId}-copy-${versionIds.size}`;
+                    const copyName = `${sourceRows[0]['Version Name']} (Copy)`;
+                    serviceConfigurationOverrides.set(service['DOM ID'], [...rows, ...sourceRows.map(row => ({ ...row, 'Version ID': copyId, 'Version Name': copyName, 'Is Active': 'false' }))]);
+                    return respond(201, { Identifier: copyId, VersionName: copyName });
                 }
                 if (subResource === 'duplicate' && request.RequestMethod === 3) {
                     const nextServiceNumber = Math.max(0, ...services.map(row => Number(row['Service ID'].match(/^SERVICE-(\d+)$/)?.[1] ?? 0))) + 1;

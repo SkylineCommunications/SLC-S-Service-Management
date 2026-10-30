@@ -31,6 +31,8 @@
     <Project Path="SLC_SM_Delete Service Specification/SLC_SM_Delete Service Specification.csproj" />
     <Project Path="SLC_SM_Delete_Service/SLC_SM_Delete_Service.csproj" />
     <Project Path="SLC_SM_Demo/SLC_SM_Demo.csproj" />
+    <Project Path="SLC_SM_Migration_Export/SLC_SM_Migration_Export.csproj" />
+    <Project Path="SLC_SM_Migration_Import/SLC_SM_Migration_Import.csproj" />
     <Project Path="SLC_SM_Take_Ownership/SLC_SM_Take_Ownership.csproj" />
   </Folder>
   <Folder Name="/Common/">
@@ -103,6 +105,7 @@
   <Folder Name="/Tests/">
     <Project Path="SLC_SM_CommonTests/SLC_SM_CommonTests.csproj" />
     <Project Path="SLC_SM_IAS_Service_Spec_ConfigurationTests/SLC_SM_IAS_Service_Spec_ConfigurationTests.csproj" />
+    <Project Path="SLC_SM_Migration_ImportTests/SLC_SM_Migration_ImportTests.csproj" />
     <Project Path="SLC_SM_UDAPI_ServiceManagementTests/SLC_SM_UDAPI_ServiceManagementTests.csproj" />
   </Folder>
   <Folder Name="/WebAPI/">

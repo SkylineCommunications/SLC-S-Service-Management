@@ -93,14 +93,14 @@ test.describe('Service Management workspace', () => {
         await form.getByRole('textbox', { name: 'Name' }).fill('New service');
         await expect(save).toBeEnabled();
 
-        await form.getByLabel('Start time').fill('2020-01-01T08:00');
+        await form.getByLabel('Start date').fill('2020-01-01T08:00');
         await expect(form.getByText("Please make a selection which doesn't lie in the past.", { exact: true })).toBeVisible();
         await expect(save).toBeDisabled();
-        await form.getByLabel('Start time').fill('2099-01-01T08:00');
-        await form.getByRole('textbox', { name: /End time/ }).fill('2098-01-01T08:00');
-        await expect(form.getByText('End Time must come after the start time.', { exact: true })).toBeVisible();
+        await form.getByLabel('Start date').fill('2099-01-01T08:00');
+        await form.getByRole('textbox', { name: /End date/ }).fill('2098-01-01T08:00');
+        await expect(form.getByText('End date must come after the start date.', { exact: true })).toBeVisible();
         await expect(save).toBeDisabled();
-        await form.getByRole('textbox', { name: /End time/ }).fill('2100-01-01T08:00');
+        await form.getByRole('textbox', { name: /End date/ }).fill('2100-01-01T08:00');
 
         await form.getByRole('checkbox', { name: 'Link service' }).check();
         await expect(form.getByText('Selection is mandatory!', { exact: true })).toBeVisible();
@@ -236,7 +236,7 @@ test.describe('Service Management workspace', () => {
         await createForm.getByRole('combobox', { name: 'Category' }).selectOption('Production');
         await createForm.getByRole('combobox', { name: 'Service specification' }).selectOption('Managed switching');
         await createForm.getByRole('combobox', { name: 'Organization' }).selectOption('Acme Media');
-        await createForm.getByRole('checkbox', { name: 'Indefinite (no end time)' }).check();
+        await createForm.getByRole('checkbox', { name: 'Indefinite (no end date)' }).check();
         await createForm.getByRole('checkbox', { name: 'Link service' }).check();
         await createForm.getByRole('combobox', { name: 'Linked service' }).selectOption({ label: 'Monitoring service 1' });
         await createForm.getByRole('button', { name: 'Create', exact: true }).click();
@@ -417,6 +417,32 @@ test.describe('Service Management workspace', () => {
                 Mandatory: false,
             }),
         ]));
+    });
+    test('duplicates a service configuration version and selects the inactive copy',     { tag: '@C9' }, async ({ page }) => {
+        await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: /Services/ }).click();
+        await page.locator('.service-row').filter({ hasText: 'Test service' }).getByRole('button', { name: 'Open details of Test service' }).click();
+        const dialog = page.getByRole('dialog');
+        await dialog.getByRole('button', { name: 'Configurations', exact: true }).click();
+        await expect(dialog.getByRole('heading', { name: 'Service configuration' })).toBeVisible();
+
+        await dialog.getByRole('button', { name: 'Duplicate configuration' }).click();
+        const confirmation = page.getByRole('alertdialog');
+        await expect(confirmation.getByRole('heading', { name: 'Duplicate configuration' })).toBeVisible();
+        await expect(confirmation).toContainText('Are you sure you want to duplicate the configuration "Current version"?');
+        await confirmation.getByRole('button', { name: 'Cancel' }).click();
+        await expect(confirmation).toBeHidden();
+        expect(udapiRequests(mock).some(request => request.Route.endsWith('/duplicate'))).toBe(false);
+
+        await dialog.getByRole('button', { name: 'Duplicate configuration' }).click();
+        await confirmation.getByRole('button', { name: 'Duplicate', exact: true }).click();
+        await expect.poll(() => udapiRequests(mock).some(request =>
+            request.Route === `${SERVICES_ROUTE}/SERVICE-1/configurationVersion/spec-1/duplicate` && request.RequestMethod === 3,
+        )).toBe(true);
+        const version = dialog.getByRole('combobox', { name: 'Version' });
+        await expect(version.locator('option:checked')).toHaveText('Current version (Copy)');
+        await expect(dialog.getByRole('button', { name: 'Activate' })).toBeEnabled();
+        await expect(version.locator('option', { hasText: 'Current version (Active)' })).toHaveCount(1);
+        await expect(version.locator('option', { hasText: 'Current version (Copy)' })).toHaveCount(1);
     });
     test('opens logo assignment from the service table icon', { tag: '@S3' }, async ({ page }) => {
         await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: /Services/ }).click();
@@ -632,7 +658,7 @@ test.describe('Service Management workspace', () => {
         test.use({ timezoneId: 'America/Los_Angeles' });
         test('preserves the requested completion date when editing an order', { tag: '@W1' }, async ({ page }) => {
             await page.locator('.order-row').filter({ hasText: 'Network refresh' }).getByRole('button', { name: 'Open details of Network refresh' }).click();
-            await page.getByRole('dialog', { name: 'Network refresh' }).locator('.drawer-header-actions').getByRole('button', { name: 'Edit', exact: true }).click();
+            await page.getByRole('dialog', { name: 'Network refresh' }).locator('.order-modal-actions').getByRole('button', { name: 'Edit', exact: true }).click();
 
             const form = page.getByRole('form', { name: 'Edit service order' });
             await expect(form.getByLabel('Requested start date')).toHaveValue('2026-10-20T10:30');
@@ -683,6 +709,83 @@ test.describe('Service Management workspace', () => {
         await page.getByRole('button', { name: 'Close order details' }).click();
         await expect(page.getByRole('dialog')).toHaveCount(0);
     });
+    test('shows the order pop-up with lifecycle progress, fulfillment and item cards', { tag: '@D7' }, async ({ page }) => {
+        await page.locator('.order-row').filter({ hasText: 'Network refresh' }).getByRole('button', { name: 'Open details of Network refresh' }).click();
+        const panel = page.getByRole('dialog', { name: 'Network refresh' });
+        await expect(panel.locator('.order-modal-header')).toContainText('Service order · ID 6F1C2A90');
+        await expect(panel.locator('.priority-chip')).toHaveText('High priority');
+        await expect(panel.locator('.order-stepper li.done')).toHaveText([/New$/, /Acknowledged$/]);
+        await expect(panel.locator('.order-stepper li[aria-current="step"]')).toHaveText('In Progress');
+        await expect(panel.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '0');
+        await expect(panel.locator('.order-modal-facts')).toContainText('0 of 2 items completed');
+        await expect(panel.locator('.order-item').first()).toHaveClass(/action-add/);
+        await expect(panel.locator('.order-item').nth(1)).toHaveClass(/action-modify/);
+        await panel.getByRole('button', { name: 'View Core switch A' }).click();
+        const itemPanel = page.getByRole('dialog', { name: 'Core switch A' });
+        await expect(itemPanel).toContainText('Primary site');
+        await itemPanel.getByRole('button', { name: 'Close service order item details' }).click();
+        await expect(itemPanel).toHaveCount(0);
+        await expect(panel).toBeVisible();
+    });
+    test('shows order item details as a pop-up that stays open across transitions and closes alone on Escape', { tag: '@D8' }, async ({ page }) => {
+        await page.locator('.order-row').filter({ hasText: 'Network refresh' }).getByRole('button', { name: 'Open details of Network refresh' }).click();
+        const panel = page.getByRole('dialog', { name: 'Network refresh' });
+        await panel.getByRole('button', { name: 'View Core switch B' }).click();
+        const itemPanel = page.getByRole('dialog', { name: 'Core switch B' });
+        await expect(itemPanel.locator('.item-modal-header')).toContainText('Service order item · ORDER-000001');
+        await expect(itemPanel.locator('.order-action-chip')).toHaveText('Modify');
+        await expect(itemPanel.locator('.item-modal-details')).toContainText('Not linked yet');
+        await expect(itemPanel.getByRole('button', { name: 'Initialize service for Core switch B' })).toBeVisible();
+        await expect(itemPanel.locator('.order-stepper li[aria-current="step"]')).toHaveText('New');
+        await expect(itemPanel.getByRole('button', { name: 'Reject' })).toBeVisible();
+        await expect(itemPanel.locator('.native-configuration-table')).toContainText('Polarization');
+        await itemPanel.getByRole('button', { name: 'Acknowledge' }).click();
+        await expect(itemPanel.locator('.order-stepper li[aria-current="step"]')).toHaveText('Acknowledged');
+        await expect(itemPanel).toBeVisible();
+        await page.keyboard.press('Escape');
+        await expect(itemPanel).toHaveCount(0);
+        await expect(panel).toBeVisible();
+    });
+    test('opens a linked service from an order item even when it is not on the loaded services page', { tag: '@S9' }, async ({ page }) => {
+        for (let number = 2; number <= 12; number++) {
+            mock.services!.push({ ...SAMPLE_SERVICE, 'DOM ID': `service-filler-${number}`, 'Service ID': `SERVICE-${number}`, 'Service Name': `Filler service ${number}` });
+        }
+        await page.locator('.order-row').filter({ hasText: 'Network refresh' }).getByRole('button', { name: 'Open details of Network refresh' }).click();
+        const item = page.getByRole('dialog', { name: 'Network refresh' }).locator('.order-item').filter({ hasText: 'Core switch A' });
+        await item.getByRole('button', { name: 'Open service Core network' }).click();
+
+        await expect(page.getByRole('dialog').getByRole('heading', { name: 'Test service' })).toBeVisible();
+        expect(new URL(page.url()).hash).toBe('#services/service-1');
+        await expect(page.locator('.service-row').filter({ hasText: 'Filler service 9' })).toHaveCount(1);
+        await expect(page.locator('.service-row').filter({ hasText: 'Test service' })).toHaveCount(0);
+        expect(udapiRequests(mock).some(request => request.Route === `${SERVICES_ROUTE}/service-1` && request.RequestMethod === 1)).toBe(true);
+    });
+    test('keeps service header totals stable while switching status filters', { tag: '@S10' }, async ({ page }) => {
+        for (let number = 2; number <= 12; number++) {
+            mock.services!.push({ ...SAMPLE_SERVICE, 'DOM ID': `service-filler-${number}`, 'Service ID': `SERVICE-${number}`, 'Service Name': `Filler service ${number}`, 'Service Status': number <= 4 ? 'Retired' : 'Active' });
+        }
+        await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: /Services/ }).click();
+        const metrics = page.getByRole('region', { name: 'Service inventory metrics' });
+        const card = (name: string) => metrics.getByRole('button', { name: new RegExp(`^${name}`) }).locator('strong');
+        await expect(card('All services')).toHaveText('12');
+        await expect(card('Active')).toHaveText('9');
+        await expect(card('Retired')).toHaveText('3');
+        await page.evaluate(() => {
+            const target = document.querySelector('.services-metrics')!;
+            const seen: string[] = [];
+            (window as any).__serviceMetricSnapshots = seen;
+            new MutationObserver(() => seen.push(Array.from(target.querySelectorAll('strong')).map(node => node.textContent).join('|'))).observe(target, { subtree: true, childList: true, characterData: true });
+        });
+
+        for (const [name, title, count] of [['Retired', 'Retired services', '3 services'], ['Active', 'Active services', '9 services'], ['All services', 'All services', '12 services in total']]) {
+            await metrics.getByRole('button', { name: new RegExp(`^${name}`) }).click();
+            await expect(page.locator('#services-table-title')).toHaveText(title);
+            await expect(page.locator('.services-page .orders-total-copy')).toHaveText(count);
+            await expect(card('All services')).toHaveText('12');
+        }
+        const snapshots: string[] = await page.evaluate(() => (window as any).__serviceMetricSnapshots);
+        expect(snapshots.every(snapshot => snapshot === '12|9|3')).toBe(true);
+    });
     test('initializes a service when its specification has no configuration', { tag: '@W3' }, async ({ page }) => {
         await page.locator('.order-row').filter({ hasText: 'Network refresh' }).getByRole('button', { name: 'Open details of Network refresh' }).click();
         const panel = page.getByRole('dialog', { name: 'Network refresh' });
@@ -709,11 +812,11 @@ test.describe('Service Management workspace', () => {
        await itemForm.getByRole('combobox', { name: 'Service specification' }).selectOption({ label: 'Managed switching' });
        await expect(itemForm.getByRole('button', { name: 'Add item', exact: true })).toBeEnabled();
        await itemForm.getByRole('checkbox', { name: 'Indefinite runtime' }).uncheck();
-       await itemForm.getByLabel('Start time').fill('2099-01-01T08:00');
-       await itemForm.getByLabel('End time').fill('2098-01-01T08:00');
-       await expect(itemForm.getByText('End Time must come after the start time.', { exact: true })).toBeVisible();
+       await itemForm.getByLabel('Start date').fill('2099-01-01T08:00');
+       await itemForm.getByLabel('End date').fill('2098-01-01T08:00');
+       await expect(itemForm.getByText('End date must come after the start date.', { exact: true })).toBeVisible();
        await expect(itemForm.getByRole('button', { name: 'Add item', exact: true })).toBeDisabled();
-       await itemForm.getByLabel('End time').fill('2100-01-01T08:00');
+       await itemForm.getByLabel('End date').fill('2100-01-01T08:00');
        await expect(itemForm.getByRole('button', { name: 'Add item', exact: true })).toBeEnabled();
     });
     test('adds, edits and deletes order items through the UDAPI item routes', { tag: '@D6' }, async ({ page }) => {

@@ -25,7 +25,6 @@ internal class Script
 	private const string FallbackMediaOpsSourceFolder = @"Dependencies\MediaOps";
 	private const string DllImportFolder = @"C:\Skyline DataMiner\ProtocolScripts\DllImport";
 	private const string SolutionLibrariesRootFolder = @"C:\Skyline DataMiner\ProtocolScripts\DllImport\SolutionLibraries";
-
 	private static readonly string[] RequiredMediaOpsRuntimeDlls =
 	{
 		"Skyline.DataMiner.Utils.MediaOps.Temp.Common.dll",
@@ -57,6 +56,9 @@ internal class Script
 			installer.InstallDefaultContent();
 			EnsureMediaOpsDependencies(engine, installer);
 
+			var migration = new SmgDataMigration(engine, installer);
+			migration.ExportIfLegacy();
+
 			installer.Log("Importing DOM...");
 			ImportDom(engine, installer);
 
@@ -69,6 +71,8 @@ internal class Script
 				url: "/public/service-management",
 				icon: "ms-Icon--BuildDefinition",
 				color: Color.FromArgb(220, 38, 38));
+
+			migration.MigrateExportedData();
 
 			RegisterSolution(engine, installer, context);
 		}

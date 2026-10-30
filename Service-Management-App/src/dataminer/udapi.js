@@ -340,6 +340,10 @@ export async function duplicateInventoryService(serviceId) {
     return callServiceManagementUdapi(serviceRoute(serviceId, 'duplicate'), { method: 'POST', body: {} });
 }
 
+export async function duplicateServiceConfigurationVersion(serviceId, versionId) {
+    return callServiceManagementUdapi(serviceRoute(serviceId, 'configurationVersion', versionId, 'duplicate'), { method: 'POST', body: {} });
+}
+
 export async function deleteInventoryService(serviceId) {
     return callServiceManagementUdapi(serviceRoute(serviceId), { method: 'DELETE' });
 }
