@@ -47,5 +47,17 @@ namespace SLC_SM_UDAPI_ServiceManagement.Models.Inventory
 		/// <summary>Gets or sets the end date (UTC), if any.</summary>
 		[JsonProperty("endDate", NullValueHandling = NullValueHandling.Ignore)]
 		public DateTime? EndDate { get; set; }
+
+		/// <summary>Gets or sets the description. Only set when <c>full=true</c>.</summary>
+		[JsonProperty("description", NullValueHandling = NullValueHandling.Ignore)]
+		public string Description { get; set; }
+
+		/// <summary>Gets or sets the resolved standalone parameters. Only set when <c>full=true</c>.</summary>
+		[JsonProperty("parameters", NullValueHandling = NullValueHandling.Ignore)]
+		public List<FullService.FullServiceConfigurationValue> Parameters { get; set; }
+
+		/// <summary>Gets or sets the resolved profiles. Only set when <c>full=true</c>.</summary>
+		[JsonProperty("profiles", NullValueHandling = NullValueHandling.Ignore)]
+		public List<FullService.FullServiceProfile> Profiles { get; set; }
 	}
 }

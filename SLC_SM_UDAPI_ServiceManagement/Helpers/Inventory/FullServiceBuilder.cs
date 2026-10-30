@@ -103,6 +103,34 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 			return BuildVersion(version, this.BuildContext(new[] { version }));
 		}
 
+		/// <summary>
+		/// Builds the full models of several configuration versions, resolving their references in batched reads.
+		/// </summary>
+		/// <param name="versions">The configuration versions to resolve.</param>
+		/// <returns>The full configuration version models, keyed by identifier.</returns>
+		public Dictionary<string, FullServiceConfigurationVersion> BuildVersions(IEnumerable<ServiceConfigurationVersion> versions)
+		{
+			var versionList = (versions ?? Enumerable.Empty<ServiceConfigurationVersion>())
+				.Where(v => v != null && !string.IsNullOrEmpty(v.Identifier))
+				.GroupBy(v => v.Identifier, StringComparer.OrdinalIgnoreCase)
+				.Select(g => g.First())
+				.ToList();
+
+			var result = new Dictionary<string, FullServiceConfigurationVersion>(StringComparer.OrdinalIgnoreCase);
+			if (versionList.Count == 0)
+			{
+				return result;
+			}
+
+			var context = this.BuildContext(versionList);
+			foreach (var version in versionList)
+			{
+				result[version.Identifier] = BuildVersion(version, context);
+			}
+
+			return result;
+		}
+
 		private static FullProfile BuildProfile(string id, ResolveContext context, HashSet<string> path)
 		{
 			var profile = Lookup(context.Profiles, id);
