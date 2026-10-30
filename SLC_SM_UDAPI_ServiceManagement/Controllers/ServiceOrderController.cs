@@ -958,30 +958,31 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 				return BadRequest(CreateError("Invalid query", "Only one of 'after' or 'before' can be supplied.", 400));
 			}
 
-			var repository = _serviceManagementApiHelper.ServiceOrder.ServiceOrders as IReadableRepository<ServiceOrder>;
-			if (repository == null)
+			CursorPage<ServiceOrder> page;
+			try
 			{
-				return InternalServerError(CreateError("Internal server error", "The service-order repository does not support cursor pagination.", 500));
+				page = ((IReadableRepository<ServiceOrder>)_serviceManagementApiHelper.ServiceOrder.ServiceOrders).ReadCursorPage(
+					ServiceOrderExposers.OrderId,
+					order => order.OrderId ?? String.Empty,
+					CursorKeySerialization.SerializeString,
+					CursorKeySerialization.DeserializeString,
+					ServiceOrderExposers.Identifier,
+					order => order.Identifier,
+					CursorKeySerialization.SerializeString,
+					CursorKeySerialization.DeserializeString,
+					filter: null,
+					limit: limit,
+					cursor: String.IsNullOrWhiteSpace(before) ? after : before,
+					direction: String.IsNullOrWhiteSpace(before) ? CursorDirection.After : CursorDirection.Before,
+					descending: true,
+					secondaryDescending: true,
+					includeTotalCount: includeTotalCount && !includeMetrics);
+			}
+			catch (ArgumentException)
+			{
+				return BadRequest(CreateError("Invalid query", "The cursor is not valid. Reload the list from the first page.", 400));
 			}
 
-			var direction = String.IsNullOrWhiteSpace(before) ? CursorDirection.After : CursorDirection.Before;
-			var cursor = String.IsNullOrWhiteSpace(before) ? after : before;
-			var page = repository.ReadCursorPage(
-				ServiceOrderExposers.OrderId,
-				order => order.OrderId ?? String.Empty,
-				CursorKeySerialization.SerializeString,
-				CursorKeySerialization.DeserializeString,
-				ServiceOrderExposers.Identifier,
-				order => order.Identifier,
-				CursorKeySerialization.SerializeString,
-				CursorKeySerialization.DeserializeString,
-				filter: null,
-				cursor: cursor,
-				limit: limit,
-				direction: direction,
-				descending: true,
-				secondaryDescending: true,
-				includeTotalCount: includeTotalCount && !includeMetrics);
 			var items = ToOrderResponses(page.Items);
 			var metrics = includeMetrics ? _serviceManagementApiHelper.Overview.ReadServiceOrders() : null;
 

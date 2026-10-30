@@ -68,6 +68,8 @@
 
 		protected ServiceInventoryController Controller { get; private set; }
 
+		protected Mock<IServiceManagementApiHelper> ApiHelper { get; private set; }
+
 		[TestInitialize]
 		public void BaseInitialize()
 		{
@@ -118,7 +120,7 @@
 			var order = new Mock<IServiceOrderApi>();
 			order.SetupGet(a => a.ServiceOrderItems).Returns(orderItems.Object);
 
-			var helper = new Mock<IServiceManagementApiHelper>();
+			var helper = ApiHelper = new Mock<IServiceManagementApiHelper>();
 			helper.SetupGet(h => h.ServiceOrder).Returns(order.Object);
 			helper.SetupGet(h => h.ServiceInventory).Returns(inventory.Object);
 			helper.SetupGet(h => h.ServiceCatalog).Returns(catalog.Object);

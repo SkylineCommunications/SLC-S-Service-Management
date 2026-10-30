@@ -103,6 +103,34 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 			return BuildVersion(version, this.BuildContext(new[] { version }));
 		}
 
+		/// <summary>
+		/// Builds the full models of several configuration versions, resolving their references in batched reads.
+		/// </summary>
+		/// <param name="versions">The configuration versions to resolve.</param>
+		/// <returns>The full configuration version models, keyed by identifier.</returns>
+		public Dictionary<string, FullServiceConfigurationVersion> BuildVersions(IEnumerable<ServiceConfigurationVersion> versions)
+		{
+			var versionList = (versions ?? Enumerable.Empty<ServiceConfigurationVersion>())
+				.Where(v => v != null && !string.IsNullOrEmpty(v.Identifier))
+				.GroupBy(v => v.Identifier, StringComparer.OrdinalIgnoreCase)
+				.Select(g => g.First())
+				.ToList();
+
+			var result = new Dictionary<string, FullServiceConfigurationVersion>(StringComparer.OrdinalIgnoreCase);
+			if (versionList.Count == 0)
+			{
+				return result;
+			}
+
+			var context = this.BuildContext(versionList);
+			foreach (var version in versionList)
+			{
+				result[version.Identifier] = BuildVersion(version, context);
+			}
+
+			return result;
+		}
+
 		private static FullProfile BuildProfile(string id, ResolveContext context, HashSet<string> path)
 		{
 			var profile = Lookup(context.Profiles, id);
@@ -177,7 +205,10 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 			return !string.IsNullOrEmpty(id) && items.TryGetValue(id, out var item) ? item : null;
 		}
 
-		private static Dictionary<string, T> ReadById<T>(
+		/// <summary>
+		/// Reads the items with the given identifiers in batches of OR filters.
+		/// </summary>
+		internal static Dictionary<string, T> ReadById<T>(
 			IEnumerable<string> ids,
 			Func<string, FilterElement<T>> filterFor,
 			Func<FilterElement<T>, IEnumerable<T>> read,
@@ -239,7 +270,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 				f => this.serviceManagement.ServiceCatalog.ProfileDefinitions.Read(f),
 				d => d.Identifier);
 
-			var profiles = this.ReadProfileTree(serviceProfiles.Values.Select(p => p.ProfileId.Identifier));
+			var profiles = ReadProfileTree(this.serviceManagement, serviceProfiles.Values.Select(p => p.ProfileId.Identifier));
 
 			var parameterValues = ReadById(
 				configurationValues.Values.Select(v => v.ConfigurationParameterId.Identifier)
@@ -251,7 +282,10 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 			return new ResolveContext(configurationValues, serviceProfiles, definitions, profiles, parameterValues);
 		}
 
-		private Dictionary<string, Profile> ReadProfileTree(IEnumerable<string> rootIds)
+		/// <summary>
+		/// Reads the given profiles and all their nested profiles, one batched read per nesting level.
+		/// </summary>
+		internal static Dictionary<string, Profile> ReadProfileTree(IServiceManagementApiHelper serviceManagement, IEnumerable<string> rootIds)
 		{
 			var profiles = new Dictionary<string, Profile>(StringComparer.OrdinalIgnoreCase);
 			var level = rootIds.Where(id => !string.IsNullOrEmpty(id)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
@@ -261,7 +295,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 				var loaded = ReadById(
 					level,
 					id => ProfileExposers.Identifier.Equal(id),
-					f => this.serviceManagement.ServiceCatalog.Profiles.Read(f),
+					f => serviceManagement.ServiceCatalog.Profiles.Read(f),
 					p => p.Identifier);
 
 				foreach (var profile in loaded.Values)

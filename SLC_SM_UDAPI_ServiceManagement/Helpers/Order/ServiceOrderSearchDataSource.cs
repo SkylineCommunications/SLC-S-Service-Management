@@ -16,7 +16,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Order
 	public sealed class ServiceOrderSearchDataSource : IServiceOrderSearchDataSource
 	{
 		private const int BatchSize = 200;
-		private const int CursorPageSize = 500;
+		private const int PageSize = 500;
 
 		private readonly IServiceManagementApiHelper serviceManagement;
 		/// <summary>
@@ -63,20 +63,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Order
 		/// <inheritdoc/>
 		public IReadOnlyList<ServiceOrder> GetServiceOrders()
 		{
-			var repository = serviceManagement.ServiceOrder.ServiceOrders;
-			var readableRepository = repository as IReadableRepository<ServiceOrder>;
-			if (readableRepository == null)
-			{
-				return repository.Read(new TRUEFilterElement<ServiceOrder>()).ToList();
-			}
-
-			var result = new List<ServiceOrder>();
-			foreach (var page in readableRepository.ReadCursorPages(pageSize: CursorPageSize))
-			{
-				result.AddRange(page);
-			}
-
-			return result;
+			return ((IReadableRepository<ServiceOrder>)serviceManagement.ServiceOrder.ServiceOrders).ReadCursorPages(pageSize: PageSize).SelectMany(page => page).ToList();
 		}
 	}
 }

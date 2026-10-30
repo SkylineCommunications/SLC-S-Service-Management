@@ -10,6 +10,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Specification
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.Configurations;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 	using Skyline.DataMiner.SDM;
+	using SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory;
 	using SLC_SM_UDAPI_ServiceManagement.Models.Specification;
 
 	/// <summary>
@@ -43,16 +44,45 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Specification
 			}
 
 			var catalog = _api.ServiceCatalog;
-			_discreteOptionsById = ToDictionary(catalog.DiscreteParameterOptions.Read(new TRUEFilterElement<DiscreteParameterOptions>()), o => o.Identifier);
-			_discreteValuesById = ToDictionary(catalog.DiscreteValues.Read(new TRUEFilterElement<DiscreteValue>()), v => v.Identifier);
-			_numberOptionsById = ToDictionary(catalog.NumberParameterOptions.Read(new TRUEFilterElement<NumberParameterOptions>()), o => o.Identifier);
-			_configurationUnitsById = ToDictionary(catalog.ConfigurationUnits.Read(new TRUEFilterElement<ConfigurationUnit>()), u => u.Identifier);
-
-			var parameterValues = ToDictionary(catalog.ConfigurationParameterValues.Read(new TRUEFilterElement<ConfigurationParameterValue>()), v => v.Identifier);
 			var parameters = ToDictionary(catalog.ConfigurationParameters.Read(new TRUEFilterElement<ConfigurationParameter>()), p => p.Identifier);
-			var profileConfigurations = ToDictionary(catalog.ServiceSpecificationProfiles.Read(new TRUEFilterElement<ServiceSpecificationProfile>()), p => p.Identifier);
-			var profiles = ToDictionary(catalog.Profiles.Read(new TRUEFilterElement<Profile>()), p => p.Identifier);
 			var profileDefinitions = ToDictionary(catalog.ProfileDefinitions.Read(new TRUEFilterElement<ProfileDefinition>()), d => d.Identifier);
+			var reusableProfiles = ToDictionary(catalog.Profiles.Read(ProfileExposers.IsReusable.Equal(true)), p => p.Identifier);
+
+			var configurationsById = FullServiceBuilder.ReadById(
+				(specification.ConfigurationParameters ?? new List<SdmObjectReference<ServiceSpecificationConfigurationValue>>()).Select(r => r.Identifier),
+				id => ServiceSpecificationConfigurationValueExposers.Identifier.Equal(id),
+				f => catalog.ServiceSpecificationConfigurationValues.Read(f),
+				c => c.Identifier);
+			var profileConfigurations = FullServiceBuilder.ReadById(
+				(specification.ConfigurationProfiles ?? new List<SdmObjectReference<ServiceSpecificationProfile>>()).Select(r => r.Identifier),
+				id => ServiceSpecificationProfileExposers.Identifier.Equal(id),
+				f => catalog.ServiceSpecificationProfiles.Read(f),
+				p => p.Identifier);
+			var profiles = FullServiceBuilder.ReadProfileTree(
+				_api,
+				profileConfigurations.Values.Where(c => c.ProfileId != null).Select(c => c.ProfileId.Identifier));
+
+			// A configuration's parameter reference can hold either a parameter value ID or a parameter ID; reading both is harmless.
+			var parameterValues = FullServiceBuilder.ReadById(
+				configurationsById.Values.Select(c => c.ConfigurationParameterId.Identifier)
+					.Concat(profiles.Values.SelectMany(p => p.ConfigurationParameterValues ?? new List<SdmObjectReference<ConfigurationParameterValue>>()).Select(r => r.Identifier)),
+				id => ConfigurationParameterValueExposers.Identifier.Equal(id),
+				f => catalog.ConfigurationParameterValues.Read(f),
+				v => v.Identifier);
+
+			var options = ConfigurationParameterOptions.Load(_api, parameters.Values, parameterValues.Values);
+			_discreteOptionsById = options.DiscreteOptions;
+			_discreteValuesById = options.DiscreteValues;
+			_numberOptionsById = options.NumberOptions;
+			_configurationUnitsById = options.Units;
+
+			foreach (var profile in reusableProfiles.Values)
+			{
+				if (!profiles.ContainsKey(profile.Identifier))
+				{
+					profiles[profile.Identifier] = profile;
+				}
+			}
 
 			var records = new List<SpecificationConfigurationRecord>();
 			records.AddRange(parameters.Values.Select(parameter => CreateRecord("AvailableParameter", null, parameter, null, null)));
@@ -63,18 +93,15 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Specification
 				record.ProfileDefinitionName = definition.Name ?? String.Empty;
 				return record;
 			}));
-			var availableNestedProfileIds = new HashSet<string>(profiles.Values.Where(p => p.IsReusable).Select(p => p.Identifier), StringComparer.OrdinalIgnoreCase);
-			records.AddRange(profiles.Values.Where(p => p.IsReusable).Select(p => CreateAvailableNestedProfileRecord(p, profileDefinitions)));
+			var availableNestedProfileIds = new HashSet<string>(reusableProfiles.Keys, StringComparer.OrdinalIgnoreCase);
+			records.AddRange(reusableProfiles.Values.Select(p => CreateAvailableNestedProfileRecord(p, profileDefinitions)));
 
 			// A specification has exactly one configuration (the specification itself). Always return it, also when it holds no
 			// parameters or profiles yet, so a saved empty configuration still shows up as a version.
 			records.Add(CreateRecord("Version", specification, null, null, null));
 			foreach (var reference in specification.ConfigurationParameters ?? new List<SdmObjectReference<ServiceSpecificationConfigurationValue>>())
 			{
-				var configuration = catalog.ServiceSpecificationConfigurationValues
-					.Read(ServiceSpecificationConfigurationValueExposers.Identifier.Equal(reference.Identifier))
-					.FirstOrDefault();
-				if (configuration == null)
+				if (!configurationsById.TryGetValue(reference.Identifier ?? String.Empty, out var configuration))
 				{
 					continue;
 				}
