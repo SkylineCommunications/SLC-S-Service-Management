@@ -777,14 +777,23 @@ test.describe('Service Management workspace', () => {
             new MutationObserver(() => seen.push(Array.from(target.querySelectorAll('strong')).map(node => node.textContent).join('|'))).observe(target, { subtree: true, childList: true, characterData: true });
         });
 
-        for (const [name, title, count] of [['Retired', 'Retired services', '3 services'], ['Active', 'Active services', '9 services'], ['All services', 'All services', '12 services in total']]) {
+        for (const [name, title, count, statusQuery] of [['Retired', 'Retired services', '3 services found', 'retired'], ['Active', 'Active services', '9 services found', 'designed,reserved,active'], ['All services', 'All services', '12 services in total', undefined]]) {
             await metrics.getByRole('button', { name: new RegExp(`^${name}`) }).click();
             await expect(page.locator('#services-table-title')).toHaveText(title);
             await expect(page.locator('.services-page .orders-total-copy')).toHaveText(count);
             await expect(card('All services')).toHaveText('12');
+            const listRequest = udapiRequests(mock).filter(request => request.Route === SERVICES_ROUTE && request.RequestMethod === 1).at(-1);
+            expect(listRequest.QueryParameters.status).toEqual(statusQuery ? [statusQuery] : undefined);
         }
         const snapshots: string[] = await page.evaluate(() => (window as any).__serviceMetricSnapshots);
         expect(snapshots.every(snapshot => snapshot === '12|9|3')).toBe(true);
+
+        await page.getByRole('searchbox', { name: 'Search services' }).fill('filler service 1');
+        await expect(page.locator('.services-page .orders-total-copy')).toHaveText('3 services found');
+        await expect(card('All services')).toHaveText('12');
+        const serviceListRequests = udapiRequests(mock).filter(request => request.Route === SERVICES_ROUTE && request.RequestMethod === 1);
+        expect(serviceListRequests.at(-1).QueryParameters.search).toEqual(['filler service 1']);
+        expect(serviceListRequests.every(request => request.QueryParameters.pagination?.[0] === 'cursor')).toBe(true);
     });
     test('initializes a service when its specification has no configuration', { tag: '@W3' }, async ({ page }) => {
         await page.locator('.order-row').filter({ hasText: 'Network refresh' }).getByRole('button', { name: 'Open details of Network refresh' }).click();

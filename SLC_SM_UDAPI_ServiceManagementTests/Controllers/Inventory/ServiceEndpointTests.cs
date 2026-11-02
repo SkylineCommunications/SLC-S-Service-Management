@@ -5,6 +5,7 @@
 	using Newtonsoft.Json.Linq;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 	using Skyline.DataMiner.SDM;
+	using SLC_SM_UDAPI_ServiceManagement.Models;
 	using SLC_SM_UDAPI_ServiceManagement.Models.Inventory;
 
 	using ServiceStatus = DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Service_Behavior.StatusesEnum;
@@ -578,6 +579,42 @@
 			Assert.IsFalse(item.ContainsKey("ServiceScripts"));
 			Organizations.Verify(o => o.ReadServiceOrganizationIds(It.IsAny<IEnumerable<Guid>>()), Times.Never);
 			Organizations.Verify(o => o.ReadOrganizationNames(), Times.Never);
+		}
+
+		[TestMethod]
+		public void ListServicesCursor_StatusFilter_ReturnsMatchingServicesAndFilteredCount()
+		{
+			var active = AddService("Active", ServiceStatus.Active, 1);
+			var designed = AddService("Designed", ServiceStatus.Designed, 2);
+			AddService("Retired", ServiceStatus.Retired, 3);
+
+			var page = Value<CursorPageResponse<JObject>>(Controller.ListServices(pagination: "cursor", status: "active,designed"));
+
+			CollectionAssert.AreEquivalent(new[] { active.Identifier, designed.Identifier }, page.Items.Select(i => (string)i["Identifier"]).ToList());
+			Assert.AreEqual(2L, page.TotalCount);
+		}
+
+		[TestMethod]
+		public void ListServicesCursor_Search_MatchesNameInAnyCaseAndCategoryName()
+		{
+			var category = new ServiceCategory { Identifier = Guid.NewGuid().ToString(), Name = "Video", Type = "Broadcast" };
+			StoredCategories.Add(category);
+			var alpha = AddService("Alpha", ServiceStatus.Active, 1);
+			var beta = AddService("Beta", ServiceStatus.Active, 2);
+			beta.CategoryId = new SdmObjectReference<ServiceCategory>(category.Identifier);
+
+			var byName = Value<CursorPageResponse<JObject>>(Controller.ListServices(pagination: "cursor", search: "alp"));
+			var byCategory = Value<CursorPageResponse<JObject>>(Controller.ListServices(pagination: "cursor", search: "video"));
+
+			Assert.AreEqual(alpha.Identifier, (string)byName.Items.Single()["Identifier"]);
+			Assert.AreEqual(beta.Identifier, (string)byCategory.Items.Single()["Identifier"]);
+		}
+
+		[TestMethod]
+		public void ListServicesCursor_InvalidStatusOrSort_Returns400()
+		{
+			Assert.AreEqual(400, StatusCode(Controller.ListServices(pagination: "cursor", status: "unknown")));
+			Assert.AreEqual(400, StatusCode(Controller.ListServices(pagination: "cursor", sort: "category")));
 		}
 	}
 }

@@ -252,6 +252,19 @@ async function mockIasWebSocket(page: Page, mock: GqiMock, orders: Record<string
 }
 
 async function json(route: Route, status: number, body: unknown): Promise<void> { await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) }); }
+// Mirrors the UDAPI cursor filters: 'status' (CSV of camelCase status names), 'search'/'name' (case-insensitive contains)
+// and 'sort' ('key' or '-key'); without a sort the default key is used in descending order.
+function cursorQuery<T>(rows: T[], request: any, options: { status?: (row: T) => string; searchText: (row: T) => unknown[]; sortKeys: Record<string, (row: T) => string>; defaultSortKey: (row: T) => string }) {
+    const query = request.QueryParameters ?? {};
+    const statuses = new Set(String(query.status?.[0] ?? '').split(',').map(status => status.trim().toLowerCase()).filter(Boolean));
+    const search = String(query.search?.[0] ?? query.name?.[0] ?? '').trim().toLowerCase();
+    const filtered = rows.filter(row => (statuses.size === 0 || statuses.has(String(options.status?.(row) ?? '').toLowerCase()))
+        && (!search || options.searchText(row).some(text => String(text ?? '').toLowerCase().includes(search))));
+    const sort = String(query.sort?.[0] ?? '');
+    const sortKey = options.sortKeys[sort.replace(/^[-+]/, '')];
+    return { rows: filtered, getSortKey: sortKey ?? options.defaultSortKey, descending: !sortKey || sort.startsWith('-') };
+}
+
 function cursorPage<T>(rows: T[], request: any, getSortKey: (row: T) => string, getIdentifier: (row: T) => string = getSortKey, getSecondarySortKey: (row: T) => string = () => '', descending = false, secondaryDescending = descending, metrics: any = null): { items: T[]; totalCount: number; pageInfo: any; metrics?: any } {
     const query = request.QueryParameters ?? {};
     const limit = Math.min(500, Math.max(1, Number(query.limit?.[0] ?? 100)));
@@ -439,13 +452,19 @@ export async function mockDataMinerApi(page: Page, mode: GqiMode = 'ok'): Promis
                 }
                 if (!id && request.RequestMethod === 1) {
                     const orderRows = mock.mode === 'empty' ? [] : orders.map(toUdapiOrder);
-                    return respond(200, request.QueryParameters?.pagination?.[0] === 'cursor'
-                        ? cursorPage(orderRows, request, row => row.OrderId || '', row => row.Identifier, () => '', true, true, {
-                            openCount: orderRows.filter(order => !new Set(['completed', 'cancelled', 'rejected', 'failed']).has(order.StatusName)).length,
-                            attentionCount: orderRows.filter(order => new Set(['held', 'assessCancellation', 'pendingCancellation', 'partiallyFailed', 'failed', 'rejected']).has(order.StatusName)).length,
-                            completedCount: orderRows.filter(order => order.StatusName === 'completed').length,
-                        })
-                        : orderRows);
+                    if (request.QueryParameters?.pagination?.[0] !== 'cursor') return respond(200, orderRows);
+                    const selection = cursorQuery(orderRows, request, {
+                        status: row => row.StatusName,
+                        searchText: row => [row.Name, row.OrderId, row.ExternalID, row.Description, row.StatusName, ['High', 'Medium', 'Low'][row.Priority], row.OrganizationName],
+                        sortKeys: { orderId: row => row.OrderId || '', name: row => row.Name || '' },
+                        defaultSortKey: row => row.OrderId || '',
+                    });
+                    return respond(200, cursorPage(selection.rows, request, selection.getSortKey, row => row.Identifier, () => '', selection.descending, selection.descending, {
+                        totalCount: orderRows.length,
+                        openCount: orderRows.filter(order => !new Set(['completed', 'cancelled', 'rejected', 'failed']).has(order.StatusName)).length,
+                        attentionCount: orderRows.filter(order => new Set(['held', 'assessCancellation', 'pendingCancellation', 'partiallyFailed', 'failed', 'rejected']).has(order.StatusName)).length,
+                        completedCount: orderRows.filter(order => order.StatusName === 'completed').length,
+                    }));
                 }
                 const order = orders.find(row => row.OrderId === id);
                 if (!order) return notFound();
@@ -531,15 +550,21 @@ export async function mockDataMinerApi(page: Page, mode: GqiMode = 'ok'): Promis
                     });
                 }
                 if (!id && request.RequestMethod === 1) {
-                    const serviceRows = services.map(service => selectUdapiFields(toUdapiService(service), request));
+                    const fullRows = services.map(service => toUdapiService(service));
+                    if (request.QueryParameters?.pagination?.[0] !== 'cursor') return respond(200, fullRows.map(row => selectUdapiFields(row, request)));
+                    const selection = cursorQuery(fullRows, request, {
+                        status: row => row.StatusName,
+                        searchText: row => [row.Name, row.ServiceID, row.StatusName, row.CategoryName, row.CategoryType, row.ServiceSpecificationName],
+                        sortKeys: { serviceId: row => row.ServiceID || '', name: row => row.Name || '' },
+                        defaultSortKey: row => row.ServiceID || '',
+                    });
                     // PascalCase mirrors the serialization of previously deployed UDAPI versions; the app normalizes keys.
-                    return respond(200, request.QueryParameters?.pagination?.[0] === 'cursor'
-                        ? cursorPage(serviceRows, request, row => row.ServiceID, row => row.Identifier, () => '', true, true, {
-                            TotalCount: serviceRows.length,
-                            ActiveCount: serviceRows.filter(service => new Set(['active', 'reserved', 'designed']).has(service.StatusName)).length,
-                            RetiredCount: serviceRows.filter(service => service.StatusName === 'retired').length,
-                        })
-                        : serviceRows);
+                    const page = cursorPage(selection.rows, request, selection.getSortKey, row => row.Identifier, () => '', selection.descending, selection.descending, {
+                        TotalCount: fullRows.length,
+                        ActiveCount: fullRows.filter(service => new Set(['active', 'reserved', 'designed']).has(service.StatusName)).length,
+                        RetiredCount: fullRows.filter(service => service.StatusName === 'retired').length,
+                    });
+                    return respond(200, { ...page, items: page.items.map(row => selectUdapiFields(row, request)) });
                 }
                 if (!id && request.RequestMethod === 3) {
                     if (services.some(row => row['Service ID'] === requestBody.serviceId)) return respond(409, { error: [{ errorCode: 'Conflict', detail: `Service ID '${requestBody.serviceId}' is already in use.`, faultingNode: '', title: 'Conflict' }] });
@@ -689,9 +714,12 @@ export async function mockDataMinerApi(page: Page, mode: GqiMode = 'ok'): Promis
             }
             if (resource === 'serviceSpecification' && request.RequestMethod === 1 && !id) {
                 const specificationRows = [SAMPLE_SPECIFICATION, ...Array.from({ length: 11 }, (_, index) => ({ ...SAMPLE_SPECIFICATION, 'Specification ID': `spec-${index + 2}`, Name: `A Specification ${index + 2}` }))].map(row => ({ Identifier: row['Specification ID'], Name: row.Name, Description: row.Description, CreatedAt: '2026-09-01T14:40:53Z', CreatedBy: row['Created By'], LastModified: '2026-09-02T22:13:44Z', LastModifiedBy: row['Created By'], ServiceItems: Array.from({ length: Number(row['Service Item Count']) }, (_, index) => ({ ID: index, Label: `Item ${index + 1}` })) }));
-                return respond(200, request.QueryParameters?.pagination?.[0] === 'cursor' ? cursorPage(specificationRows, request, row => row.Name, row => row.Identifier, () => '', true, true, {
+                if (request.QueryParameters?.pagination?.[0] !== 'cursor') return respond(200, specificationRows);
+                const selection = cursorQuery(specificationRows, request, { searchText: row => [row.Name], sortKeys: { name: row => row.Name }, defaultSortKey: row => row.Name });
+                return respond(200, cursorPage(selection.rows, request, selection.getSortKey, row => row.Identifier, () => '', selection.descending, selection.descending, {
+                    totalCount: specificationRows.length,
                     totalItemCount: specificationRows.reduce((total, row) => total + row.ServiceItems.length, 0),
-                }) : specificationRows);
+                }));
             }
             if (resource === 'serviceSpecification' && request.RequestMethod === 1 && id && !subResource) {
                 // The DOM definition always stores an empty placeholder item next to the real ones; Type is the SDM enum number.

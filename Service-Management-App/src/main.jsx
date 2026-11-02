@@ -2,8 +2,8 @@ import { StrictMode, useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { DataMinerAuthError } from './dataminer/transport.js';
 import { addCatalogSpecificationItem, createCatalogCategory, createCatalogSpecification, deleteCatalogCategory, deleteCatalogSpecification, deleteCatalogSpecificationItem, fetchDocumentHubLogos, fetchServiceCategories, fetchServiceSpecificationOverview, fetchServiceSpecificationPage, fetchServiceSpecifications, fetchServiceSpecificationConfigurations, fetchSpecificationItems, saveCatalogSpecificationConfiguration, updateCatalogCategory, updateCatalogSpecification, updateCatalogSpecificationItem } from './dataminer/catalog.js';
-import { addServiceOrderItem, createServiceOrder, deleteServiceOrder, deleteServiceOrderItem, fetchRelatedServiceOrders, fetchServiceOrderItemConfigurations, fetchServiceOrderItems, fetchServiceOrderOverviewData, fetchServiceOrderPage, fetchServiceOrders, fetchServiceOrganizations, getOrderItemTransitions, getOrderTransitions, isOpenOrder, transitionServiceOrder, transitionServiceOrderItem, updateServiceOrder, updateServiceOrderItem, saveServiceOrderItemConfiguration, initializeServiceFromOrderItem } from './dataminer/serviceOrders.js';
-import { addInventoryServiceItem, addServiceScript, createInventoryService, deleteInventoryService, deleteInventoryServiceItem, deleteServiceScript, duplicateInventoryService, duplicateServiceConfigurationVersion, fetchInventoryServiceItems, fetchMonitoringServices, fetchServiceConfigurations, fetchServiceDetails, fetchServiceForDisplay, fetchServiceOverviewData, fetchServicePage, fetchServiceScripts, fetchServices, isActiveService, saveServiceConfiguration as saveInventoryServiceConfiguration, serviceApiId, SERVICE_INVENTORY_SCRIPTS, SERVICE_TRANSITIONS, transitionInventoryService, updateInventoryService, updateInventoryServiceItem, updateServiceScript } from './dataminer/services.js';
+import { addServiceOrderItem, createServiceOrder, deleteServiceOrder, deleteServiceOrderItem, fetchRelatedServiceOrders, fetchServiceOrderItemConfigurations, fetchServiceOrderItems, fetchServiceOrderOverviewData, fetchServiceOrderPage, fetchServiceOrganizations, getOrderItemTransitions, getOrderTransitions, transitionServiceOrder, transitionServiceOrderItem, updateServiceOrder, updateServiceOrderItem, saveServiceOrderItemConfiguration, initializeServiceFromOrderItem } from './dataminer/serviceOrders.js';
+import { addInventoryServiceItem, addServiceScript, createInventoryService, deleteInventoryService, deleteInventoryServiceItem, deleteServiceScript, duplicateInventoryService, duplicateServiceConfigurationVersion, fetchInventoryServiceItems, fetchMonitoringServices, fetchServiceConfigurations, fetchServiceDetails, fetchServiceForDisplay, fetchServiceOverviewData, fetchServicePage, fetchServiceScripts, fetchServices, saveServiceConfiguration as saveInventoryServiceConfiguration, serviceApiId, SERVICE_INVENTORY_SCRIPTS, SERVICE_TRANSITIONS, transitionInventoryService, updateInventoryService, updateInventoryServiceItem, updateServiceScript } from './dataminer/services.js';
 import { getConnectionFromCookie, redirectToAuth } from './dataminer/session.js';
 import { IasDialog } from './IasDialog.jsx';
 import './styles.css';
@@ -69,13 +69,14 @@ function transitionIcon(label) {
     return 'arrow_forward';
 }
 function orderReference(order) { return order.externalId || String(order.id || '').split('-')[0].toUpperCase(); }
-function orderStartTimestamp(order) { return order.createdAtTimestamp || Date.parse(order.createdAt || order.start || '') || 0; }
-const ATTENTION_STATES = new Set(['held', 'assess cancellation', 'pending cancellation', 'partially failed', 'failed', 'rejected']);
-function isAttentionOrder(order) { return ATTENTION_STATES.has(order.state.trim().toLowerCase()); }
-function isCompletedOrder(order) { return order.state.trim().toLowerCase() === 'completed'; }
-const summarizeOrders = items => ({ totalCount: items.length, metrics: { totalCount: items.length, openCount: items.filter(isOpenOrder).length, attentionCount: items.filter(isAttentionOrder).length, completedCount: items.filter(isCompletedOrder).length } });
 const ORDER_FILTER_TITLES = { all: 'All orders', open: 'Open orders', attention: 'Orders needing attention', completed: 'Completed orders' };
-const priorityRank = { high: 0, medium: 1, low: 2 };
+// UDAPI status names behind each Orders header card; they mirror the server's Open/Attention/Completed metrics.
+const ORDER_STATUS_QUERY = {
+    all: '',
+    open: 'new,acknowledged,inProgress,partiallyFailed,held,pending,assessCancellation,pendingCancellation',
+    attention: 'held,assessCancellation,pendingCancellation,partiallyFailed,failed,rejected',
+    completed: 'completed',
+};
 const serviceStateTones = { active: 'done', reserved: 'active', designed: 'active', new: 'pending', terminated: 'closed', retired: 'closed' };
 function serviceTone(state) { return serviceStateTones[state.trim().toLowerCase()] || 'pending'; }
 
@@ -1063,12 +1064,9 @@ function TabbedServiceDetailPanel({ service, onClose, onEdit, onDelete, onDuplic
     return <><div className="drawer-layer"><div className="drawer-backdrop" onClick={onClose} aria-hidden="true" /><aside className="drawer service-drawer" role="dialog" aria-modal="true" aria-labelledby="service-detail-title"><header className="service-drawer-topbar"><nav aria-label="Service detail sections"><button className={tab === 'service' ? 'service-tab active' : 'service-tab'} type="button" onClick={() => setTab('service')} aria-selected={tab === 'service'}><span className="icon" aria-hidden="true">assignment</span>Service</button><button className={tab === 'configurations' ? 'service-tab active' : 'service-tab'} type="button" onClick={() => setTab('configurations')} aria-selected={tab === 'configurations'}><span className="icon" aria-hidden="true">settings</span>Configurations</button><button className={tab === 'operations' ? 'service-tab active' : 'service-tab'} type="button" onClick={() => setTab('operations')} aria-selected={tab === 'operations'}><span className="icon" aria-hidden="true">bolt</span>Operations</button></nav><button ref={closeButton} className="icon-button" type="button" aria-label="Close service details" onClick={onClose}><span className="icon">close</span></button></header>{tab === 'service' ? serviceView : tab === 'configurations' ? <NativeServiceConfigurationsView service={service} actionState={actionState} onSave={onSaveConfiguration} onDuplicateVersion={onDuplicateConfiguration} onConfirm={onConfirmConfiguration} allowInitialVersion allowVersionAdd /> : <ServiceOperationsView service={service} scripts={scripts} busy={actionState?.status === 'running'} onSubmit={submitOperation} onDelete={deleteOperation} />}</aside></div>{itemEditor && <ServiceItemDialog key={`${itemEditor.action}-${itemEditor.item?.label || 'new'}`} busy={actionState?.status === 'running'} parentId={service.id} parentService={service} action={itemEditor.action} initialItem={itemEditor.item} context="Service" onClose={() => setItemEditor(null)} onSubmit={submitItem} />}{scriptItem && <IasDialog script={SERVICE_INVENTORY_SCRIPTS.launchItemScript} parameters={{ 'DOM ID': service.id, 'Item Label': scriptItem.label }} eyebrow={`Service item · ${scriptItem.label}`} onClose={closeItemScript} onFinished={finishItemScript} />}</>;
 }
 
-const isRetiredService = service => service.status.trim().toLowerCase() === 'retired';
-const summarizeSpecifications = items => {
-    const totalItemCount = items.reduce((total, specification) => total + (Number(specification.itemCount) || 0), 0);
-    return { totalCount: items.length, metrics: { totalCount: items.length, totalItemCount } };
-};
-const summarizeServices = items => ({ totalCount: items.length, metrics: { totalCount: items.length, activeCount: items.filter(isActiveService).length, retiredCount: items.filter(isRetiredService).length } });
+// UDAPI status names behind each Services header card; they mirror the server's Active/Retired metrics.
+const SERVICE_STATUS_QUERY = { all: '', active: 'designed,reserved,active', retired: 'retired' };
+const toSortQuery = sort => (sort.key === 'default' ? '' : `${sort.direction === 'desc' ? '-' : ''}${sort.key}`);
 const SERVICE_FILTER_TITLES = { all: 'All services', active: 'Active services', retired: 'Retired services' };
 const formatCount = value => (value === null || value === undefined ? '—' : value);
 
@@ -1079,16 +1077,14 @@ function ServicesPage({ selectedId }) {
     const [logoEditor, setLogoEditor] = useState(null);
     const [statusFilter, setStatusFilter] = useState('all');
     const [sort, setSort] = useState({ key: 'default', direction: 'asc' });
-    const [servicesPage, setServicesPage] = useState(1);
     const [servicesPageSize, setServicesPageSize] = useState(10);
-    const cursorEnabled = !search.trim() && statusFilter === 'all' && sort.key === 'default';
+    const debouncedSearch = useDebouncedValue(search.trim(), 300);
     const { status, items: services, error, updatedAt, totalCount, metrics, page: cursorPage, pageInfo, reload, reloadAndWait, nextPage, previousPage } = useCursorList({
-        enabled: cursorEnabled,
         pageSize: servicesPageSize,
         fetchPage: fetchServicePage,
-        fetchAll: fetchServices,
-        summarize: summarizeServices,
+        query: { status: SERVICE_STATUS_QUERY[statusFilter], search: debouncedSearch, sort: toSortQuery(sort) },
     });
+    const isFiltered = Boolean(search.trim()) || statusFilter !== 'all';
     const { state: actionState, runApi, fail: failAction, notify: notifyAction, dismiss: dismissAction } = useAutomationActions();
     const { confirm, dialog: confirmationDialog } = useConfirmation();
     const loading = status === 'loading';
@@ -1206,34 +1202,17 @@ function ServicesPage({ selectedId }) {
         'Deleting service operation',
         refresh,
     );
-    const normalizedSearch = search.trim().toLowerCase();
-    const filteredServices = services.filter(service => {
-        const matchesStatus = statusFilter === 'all' || (statusFilter === 'active' && isActiveService(service)) || (statusFilter === 'retired' && isRetiredService(service));
-        const searchable = [service.name, service.serviceId, service.status, service.category, service.specification].join(' ').toLowerCase();
-        return matchesStatus && (!normalizedSearch || searchable.includes(normalizedSearch));
-    });
-    const visibleServices = [...filteredServices];
-    if (sort.key !== 'default') {
-        visibleServices.sort((left, right) => {
-            const values = [left[sort.key] || '', right[sort.key] || ''];
-            const comparison = values[0].localeCompare(values[1], undefined, { sensitivity: 'base', numeric: sort.key === 'serviceId' });
-            return sort.direction === 'asc' ? comparison : -comparison;
-        });
-    }
-    useEffect(() => { setServicesPage(1); }, [search, statusFilter, sort.key, sort.direction]);
-    useEffect(() => { setServicesPage(current => Math.min(current, Math.max(1, Math.ceil(filteredServices.length / servicesPageSize)))); }, [filteredServices.length, servicesPageSize]);
-    const pagedServices = cursorEnabled ? visibleServices : visibleServices.slice((servicesPage - 1) * servicesPageSize, servicesPage * servicesPageSize);
-    const serviceTableCount = cursorEnabled ? totalCount : filteredServices.length;
+    const serviceTableCount = totalCount;
     const toggleSort = key => setSort(current => current.key === key ? { key, direction: current.direction === 'asc' ? 'desc' : 'asc' } : { key, direction: 'asc' });
     const sortIndicator = key => <span className={`table-sort-icon ${sort.key === key ? sort.direction : 'muted'}`} aria-hidden="true" />;
     const sortButton = (key, label) => <button className="table-sort" type="button" onClick={() => toggleSort(key)}>{label}{sortIndicator(key)}</button>;
     let body;
     if (status === 'error') body = <div className="list-message error" role="alert"><span className="icon" aria-hidden="true">error</span><div className="list-message-text"><strong>Services could not be loaded</strong><span>{error}</span></div><button className="quiet-button" type="button" onClick={reload}>Retry</button></div>;
     else if (!hasData) body = <div className="list-message" role="status"><span className="icon spin" aria-hidden="true">refresh</span>Loading services…</div>;
-    else if (services.length === 0) body = <div className="list-message" role="status"><span className="icon" aria-hidden="true">inbox</span>No services in inventory yet.</div>;
-    else if (filteredServices.length === 0) body = <div className="services-empty" role="status"><span className="icon" aria-hidden="true">search_off</span><div><strong>No services match these filters</strong><span>Try a different search or status.</span></div><button className="quiet-button" type="button" onClick={() => { setSearch(''); setStatusFilter('all'); }}>Clear filters</button></div>;
-    else body = <div className="services-table-wrap" aria-busy={loading}><table className="services-table"><colgroup><col className="service-icon-column" /><col className="service-id-column" /><col className="service-name-column" /><col className="service-status-column" /><col className="service-start-column" /><col className="service-end-column" /><col className="service-specification-column" /><col className="service-category-column" /><col className="service-category-type-column" /><col className="service-action-column" /></colgroup><thead><tr><th scope="col">Icon</th><th scope="col">{sortButton('serviceId', 'ID')}</th><th scope="col">{sortButton('name', 'Name')}</th><th scope="col">{sortButton('status', 'State')}</th><th scope="col">Start date</th><th scope="col">End date</th><th scope="col">{sortButton('specification', 'Spec')}</th><th scope="col">{sortButton('category', 'Category')}</th><th scope="col">{sortButton('categoryType', 'Type')}</th><th scope="col"><span className="sr-only">Actions</span></th></tr></thead><tbody>{pagedServices.map(service => <tr className={service.id && service.id === selectedId ? 'service-row selected' : 'service-row'} key={service.id || service.serviceId || service.name} onDoubleClick={() => { if (service.id) location.hash = `services/${encodeURIComponent(service.id)}`; }    }><td><button className="service-logo-button" type="button" aria-label={`Set logo for ${service.name || 'unnamed service'}`} onClick={event => { event.stopPropagation(); setLogoEditor({ service }); }}><span className="service-logo">{service.logo ? <img src={service.logo} alt="" /> : <span className="icon" aria-hidden="true">add_photo_alternate</span>}</span></button></td><td title={service.serviceId || undefined}><span className="table-primary">{service.serviceId || '—'}</span></td><td title={service.name || undefined}><span className="table-primary">{service.name || 'Unnamed service'}</span></td><td><span className={`state-badge ${serviceTone(service.status)}`}>{service.status || 'Unknown'}</span></td><td title={service.start || undefined}><span className="table-description">{service.start || '—'}</span></td><td title={service.end || undefined}><span className="table-description">{service.end || '—'}</span></td><td title={service.specification || undefined}><span className="table-primary">{service.specification || '—'}</span></td><td title={service.category || undefined}><span className="table-primary">{service.category || '—'}</span></td><td title={service.categoryType || undefined}><span className="table-primary">{service.categoryType || '—'}</span></td><td><div className="service-actions"><button className="table-row-open" type="button" aria-label={`Open details of ${service.name || 'unnamed service'}`} onClick={() => { location.hash = `services/${encodeURIComponent(service.id)}`; }}><span className="icon" aria-hidden="true">chevron_right</span></button></div></td></tr>)}</tbody></table></div>;
-    return <main className="page-content services-page"><section className="services-hero"><div><p className="eyebrow">{pages.services.eyebrow}</p><h1>Services</h1><p className="description">Explore the services currently defined in the Service Inventory.</p></div><PageHeaderActions updatedAt={updatedAt} loading={loading} onRefresh={reload} primaryAction={<button className="primary-button" type="button" onClick={createService} disabled={actionState?.status === 'running'}><span className="icon" aria-hidden="true">add</span>Add service</button>} /></section><ActionNotice state={actionState} onDismiss={dismissAction} />{confirmationDialog}{newServiceOpen && <NewServiceDialog busy={actionState?.status === 'running'} existingServices={services} onClose={() => setNewServiceOpen(false)} onSubmit={submitNewService} />}{editServiceTarget && <NewServiceDialog key={editServiceTarget.id} busy={actionState?.status === 'running'} existingServices={services} action="Edit" initialService={editServiceTarget} onClose={() => setEditServiceTarget(null)} onSubmit={submitEditedService} />}{logoEditor && <ServiceLogoDialog service={logoEditor.service} busy={actionState?.status === 'running'} onClose={() => setLogoEditor(null)} onSubmit={saveServiceLogo} />}<section className="services-metrics" aria-label="Service inventory metrics"><button className={statusFilter === 'all' ? 'service-metric selected' : 'service-metric'} type="button" onClick={() => setStatusFilter('all')}><span className="overview-metric-top"><span className="overview-metric-icon icon" aria-hidden="true">dm_service</span><span>All services</span></span><strong>{formatCount(totalCount)}</strong><small>Inventory records</small></button><button className={statusFilter === 'active' ? 'service-metric selected' : 'service-metric'} type="button" onClick={() => setStatusFilter('active')}><span className="overview-metric-top"><span className="overview-metric-icon icon" aria-hidden="true">check_circle</span><span>Active</span></span><strong>{formatCount(activeCount)}</strong><small>Designed, reserved, or active</small></button><button className={statusFilter === 'retired' ? 'service-metric selected' : 'service-metric'} type="button" onClick={() => setStatusFilter('retired')}><span className="overview-metric-top"><span className="overview-metric-icon icon" aria-hidden="true">pause_circle</span><span>Retired</span></span><strong>{formatCount(retiredCount)}</strong><small>No longer in operation</small></button></section><section className="services-surface" aria-labelledby="services-table-title"><div className="services-toolbar"><div className="orders-toolbar-title"><div><p className="eyebrow">Service inventory</p><h2 id="services-table-title">{SERVICE_FILTER_TITLES[statusFilter] || 'All services'}</h2></div>{hasData && <span className="orders-total-copy">{formatCount(serviceTableCount)} {serviceTableCount === 1 ? 'service' : 'services'}{cursorEnabled ? ' in total' : ''}</span>}</div><div className="orders-toolbar-controls"><label className="orders-search"><span className="icon" aria-hidden="true">search</span><span className="sr-only">Search services</span><input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Search services" aria-label="Search services" />{search && <button type="button" aria-label="Clear search" onClick={() => setSearch('')}><span className="icon" aria-hidden="true">close</span></button>}</label><label className="orders-filter"><span className="sr-only">Filter services by status</span><select value={statusFilter} onChange={event => setStatusFilter(event.target.value)} aria-label="Filter services by status"><option value="all">All statuses</option><option value="active">Active</option><option value="retired">Retired</option></select><span className="icon" aria-hidden="true">expand_more</span></label></div></div>{body}</section>{cursorEnabled ? <CursorTablePagination page={cursorPage} pageSize={servicesPageSize} total={totalCount} pageInfo={pageInfo} onPrevious={previousPage} onNext={nextPage} onPageSizeChange={size => { setServicesPageSize(size); }} /> : <TablePagination page={servicesPage} pageSize={servicesPageSize} total={filteredServices.length} onPageChange={setServicesPage} onPageSizeChange={size => { setServicesPageSize(size); setServicesPage(1); }} />}{selectedService && <TabbedServiceDetailPanel service={selectedService} onClose={() => { location.hash = 'services'; }} onEdit={() => editService(selectedService)} onDelete={() => deleteService(selectedService)} onDuplicate={() => duplicateService(selectedService)} onDeleteItem={(item, refresh) => deleteServiceItem(selectedService, item, refresh)} onAddItem={addServiceItem} onEditItem={editServiceItem} onTransitionService={transitionService} onSaveConfiguration={saveServiceConfiguration} onDuplicateConfiguration={duplicateServiceConfiguration} onConfirmConfiguration={confirm} onManageOperation={manageServiceOperation} onDeleteOperation={deleteServiceOperation} onConfirmOperation={confirm} onActionNotice={notifyAction} onActionFailure={failAction} actionState={actionState} />}</main>;
+    else if (services.length === 0 && !isFiltered) body = <div className="list-message" role="status"><span className="icon" aria-hidden="true">inbox</span>No services in inventory yet.</div>;
+    else if (services.length === 0) body = <div className="services-empty" role="status"><span className="icon" aria-hidden="true">search_off</span><div><strong>No services match these filters</strong><span>Try a different search or status.</span></div><button className="quiet-button" type="button" onClick={() => { setSearch(''); setStatusFilter('all'); }}>Clear filters</button></div>;
+    else body = <div className="services-table-wrap" aria-busy={loading}><table className="services-table"><colgroup><col className="service-icon-column" /><col className="service-id-column" /><col className="service-name-column" /><col className="service-status-column" /><col className="service-start-column" /><col className="service-end-column" /><col className="service-specification-column" /><col className="service-category-column" /><col className="service-category-type-column" /><col className="service-action-column" /></colgroup><thead><tr><th scope="col">Icon</th><th scope="col">{sortButton('serviceId', 'ID')}</th><th scope="col">{sortButton('name', 'Name')}</th><th scope="col">State</th><th scope="col">Start date</th><th scope="col">End date</th><th scope="col">Spec</th><th scope="col">Category</th><th scope="col">Type</th><th scope="col"><span className="sr-only">Actions</span></th></tr></thead><tbody>{services.map(service => <tr className={service.id && service.id === selectedId ? 'service-row selected' : 'service-row'} key={service.id || service.serviceId || service.name} onDoubleClick={() => { if (service.id) location.hash = `services/${encodeURIComponent(service.id)}`; }    }><td><button className="service-logo-button" type="button" aria-label={`Set logo for ${service.name || 'unnamed service'}`} onClick={event => { event.stopPropagation(); setLogoEditor({ service }); }}><span className="service-logo">{service.logo ? <img src={service.logo} alt="" /> : <span className="icon" aria-hidden="true">add_photo_alternate</span>}</span></button></td><td title={service.serviceId || undefined}><span className="table-primary">{service.serviceId || '—'}</span></td><td title={service.name || undefined}><span className="table-primary">{service.name || 'Unnamed service'}</span></td><td><span className={`state-badge ${serviceTone(service.status)}`}>{service.status || 'Unknown'}</span></td><td title={service.start || undefined}><span className="table-description">{service.start || '—'}</span></td><td title={service.end || undefined}><span className="table-description">{service.end || '—'}</span></td><td title={service.specification || undefined}><span className="table-primary">{service.specification || '—'}</span></td><td title={service.category || undefined}><span className="table-primary">{service.category || '—'}</span></td><td title={service.categoryType || undefined}><span className="table-primary">{service.categoryType || '—'}</span></td><td><div className="service-actions"><button className="table-row-open" type="button" aria-label={`Open details of ${service.name || 'unnamed service'}`} onClick={() => { location.hash = `services/${encodeURIComponent(service.id)}`; }}><span className="icon" aria-hidden="true">chevron_right</span></button></div></td></tr>)}</tbody></table></div>;
+    return <main className="page-content services-page"><section className="services-hero"><div><p className="eyebrow">{pages.services.eyebrow}</p><h1>Services</h1><p className="description">Explore the services currently defined in the Service Inventory.</p></div><PageHeaderActions updatedAt={updatedAt} loading={loading} onRefresh={reload} primaryAction={<button className="primary-button" type="button" onClick={createService} disabled={actionState?.status === 'running'}><span className="icon" aria-hidden="true">add</span>Add service</button>} /></section><ActionNotice state={actionState} onDismiss={dismissAction} />{confirmationDialog}{newServiceOpen && <NewServiceDialog busy={actionState?.status === 'running'} existingServices={services} onClose={() => setNewServiceOpen(false)} onSubmit={submitNewService} />}{editServiceTarget && <NewServiceDialog key={editServiceTarget.id} busy={actionState?.status === 'running'} existingServices={services} action="Edit" initialService={editServiceTarget} onClose={() => setEditServiceTarget(null)} onSubmit={submitEditedService} />}{logoEditor && <ServiceLogoDialog service={logoEditor.service} busy={actionState?.status === 'running'} onClose={() => setLogoEditor(null)} onSubmit={saveServiceLogo} />}<section className="services-metrics" aria-label="Service inventory metrics"><button className={statusFilter === 'all' ? 'service-metric selected' : 'service-metric'} type="button" onClick={() => setStatusFilter('all')}><span className="overview-metric-top"><span className="overview-metric-icon icon" aria-hidden="true">dm_service</span><span>All services</span></span><strong>{formatCount(metrics?.totalCount ?? (isFiltered ? null : totalCount))}</strong><small>Inventory records</small></button><button className={statusFilter === 'active' ? 'service-metric selected' : 'service-metric'} type="button" onClick={() => setStatusFilter('active')}><span className="overview-metric-top"><span className="overview-metric-icon icon" aria-hidden="true">check_circle</span><span>Active</span></span><strong>{formatCount(activeCount)}</strong><small>Designed, reserved, or active</small></button><button className={statusFilter === 'retired' ? 'service-metric selected' : 'service-metric'} type="button" onClick={() => setStatusFilter('retired')}><span className="overview-metric-top"><span className="overview-metric-icon icon" aria-hidden="true">pause_circle</span><span>Retired</span></span><strong>{formatCount(retiredCount)}</strong><small>No longer in operation</small></button></section><section className="services-surface" aria-labelledby="services-table-title"><div className="services-toolbar"><div className="orders-toolbar-title"><div><p className="eyebrow">Service inventory</p><h2 id="services-table-title">{SERVICE_FILTER_TITLES[statusFilter] || 'All services'}</h2></div>{hasData && <span className="orders-total-copy">{formatCount(serviceTableCount)} {serviceTableCount === 1 ? 'service' : 'services'}{isFiltered ? ' found' : ' in total'}</span>}</div><div className="orders-toolbar-controls"><label className="orders-search"><span className="icon" aria-hidden="true">search</span><span className="sr-only">Search services</span><input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Search services" aria-label="Search services" />{search && <button type="button" aria-label="Clear search" onClick={() => setSearch('')}><span className="icon" aria-hidden="true">close</span></button>}</label><label className="orders-filter"><span className="sr-only">Filter services by status</span><select value={statusFilter} onChange={event => setStatusFilter(event.target.value)} aria-label="Filter services by status"><option value="all">All statuses</option><option value="active">Active</option><option value="retired">Retired</option></select><span className="icon" aria-hidden="true">expand_more</span></label></div></div>{body}</section><CursorTablePagination page={cursorPage} pageSize={servicesPageSize} total={totalCount} pageInfo={pageInfo} onPrevious={previousPage} onNext={nextPage} onPageSizeChange={size => { setServicesPageSize(size); }} />{selectedService && <TabbedServiceDetailPanel service={selectedService} onClose={() => { location.hash = 'services'; }} onEdit={() => editService(selectedService)} onDelete={() => deleteService(selectedService)} onDuplicate={() => duplicateService(selectedService)} onDeleteItem={(item, refresh) => deleteServiceItem(selectedService, item, refresh)} onAddItem={addServiceItem} onEditItem={editServiceItem} onTransitionService={transitionService} onSaveConfiguration={saveServiceConfiguration} onDuplicateConfiguration={duplicateServiceConfiguration} onConfirmConfiguration={confirm} onManageOperation={manageServiceOperation} onDeleteOperation={deleteServiceOperation} onConfirmOperation={confirm} onActionNotice={notifyAction} onActionFailure={failAction} actionState={actionState} />}</main>;
 }
 
 function TabbedSpecificationDetailPanel({ specification, onClose, onEdit, onDelete, onAddItem, onEditItem, onDeleteItem, onSaveConfiguration, onConfirmConfiguration, actionState }) {
@@ -1325,25 +1304,20 @@ function SpecificationsCatalogPage({ selectedId }) {
     const [search, setSearch] = useState('');
     const [newSpecificationOpen, setNewSpecificationOpen] = useState(false);
     const [editSpecificationTarget, setEditSpecificationTarget] = useState(null);
-    const [catalogPage, setCatalogPage] = useState(1);
     const [catalogPageSize, setCatalogPageSize] = useState(10);
-    const cursorEnabled = !search.trim();
+    const debouncedSearch = useDebouncedValue(search.trim(), 300);
     const { status, items: specifications, error, updatedAt, totalCount, metrics, page: cursorPage, pageInfo, reload, reloadAndWait, nextPage, previousPage } = useCursorList({
-        enabled: cursorEnabled,
         pageSize: catalogPageSize,
         fetchPage: fetchServiceSpecificationPage,
-        fetchAll: fetchServiceSpecifications,
-        summarize: summarizeSpecifications,
+        query: { search: debouncedSearch },
     });
+    const isFiltered = Boolean(search.trim());
     const { state: actionState, runApi, dismiss: dismissAction } = useAutomationActions();
     const { confirm, dialog: confirmationDialog } = useConfirmation();
     const loading = status === 'loading';
     const hasData = status === 'ready' || (loading && specifications.length > 0);
-    const filteredSpecifications = specifications.filter(specification => specification.name.toLowerCase().includes(search.trim().toLowerCase()));
-    useEffect(() => { setCatalogPage(1); }, [search]);
-    useEffect(() => { setCatalogPage(current => Math.min(current, Math.max(1, Math.ceil(filteredSpecifications.length / catalogPageSize)))); }, [filteredSpecifications.length, catalogPageSize]);
-    const pagedSpecifications = cursorEnabled ? filteredSpecifications : filteredSpecifications.slice((catalogPage - 1) * catalogPageSize, catalogPage * catalogPageSize);
-    const displayedTotal = cursorEnabled ? totalCount : filteredSpecifications.length;
+    const displayedTotal = totalCount;
+    const specificationTotal = metrics?.totalCount ?? (isFiltered ? null : totalCount);
     const displayedItemTotal = metrics?.totalItemCount;
     const selectedSpecification = selectedId ? specifications.find(specification => specification.id === selectedId) : null;
     const deleteSpecification = async specification => {
@@ -1397,23 +1371,10 @@ function SpecificationsCatalogPage({ selectedId }) {
     let body;
     if (status === 'error') body = <div className="list-message error" role="alert"><span className="icon" aria-hidden="true">error</span><div className="list-message-text"><strong>Catalog could not be loaded</strong><span>{error}</span></div><button className="quiet-button" type="button" onClick={reload}>Retry</button></div>;
     else if (!hasData) body = <div className="list-message" role="status"><span className="icon spin" aria-hidden="true">refresh</span>Loading catalog…</div>;
-    else if (specifications.length === 0) body = <div className="list-message" role="status"><span className="icon" aria-hidden="true">inbox</span>No service specifications yet.</div>;
-    else if (filteredSpecifications.length === 0) body = <div className="services-empty" role="status"><span className="icon" aria-hidden="true">search_off</span><div><strong>No specifications match this search</strong><span>Try a different specification name.</span></div><button className="quiet-button" type="button" onClick={() => setSearch('')}>Clear search</button></div>;
-    else body = <div className="catalog-table-wrap"><table className="catalog-table"><colgroup><col className="catalog-name-column" /><col className="catalog-created-column" /><col className="catalog-modified-column" /><col className="catalog-open-column" /></colgroup><thead><tr><th scope="col">Specification name</th><th scope="col">Created at</th><th scope="col">Last modified</th><th scope="col"><span className="sr-only">Open</span></th></tr></thead><tbody>{pagedSpecifications.map(specification => <tr className={specification.id === selectedId ? 'catalog-row selected' : 'catalog-row'} key={specification.id || specification.name} onDoubleClick={() => { if (specification.id) location.hash = `catalog/${encodeURIComponent(specification.id)}`; }}><td><strong>{specification.name || 'Unnamed specification'}</strong></td><td>{specification.createdAt || '—'}</td><td>{specification.lastModified || '—'}</td><td><button className="table-row-open" type="button" aria-label={`Open details of ${specification.name || 'unnamed specification'}`} onClick={() => { if (specification.id) location.hash = `catalog/${encodeURIComponent(specification.id)}`; }}><span className="icon" aria-hidden="true">chevron_right</span></button></td></tr>)}</tbody></table></div>;
-    return <main className="page-content catalog-page"><section className="services-hero"><div><p className="eyebrow">{pages.catalog.eyebrow}</p><h1>Catalog</h1><p className="description">See the service specifications that shape the inventory.</p></div><PageHeaderActions updatedAt={updatedAt} loading={loading} onRefresh={reload} primaryAction={<button className="primary-button" type="button" onClick={createSpecification} disabled={actionState?.status === 'running'}><span className="icon" aria-hidden="true">add</span>Add specification</button>} /></section><ActionNotice state={actionState} onDismiss={dismissAction} />{confirmationDialog}{newSpecificationOpen && <NewSpecificationDialog busy={actionState?.status === 'running'} existingSpecificationNames={specifications.map(specification => specification.name)} existingSpecificationCount={cursorEnabled ? totalCount : specifications.length} onClose={() => setNewSpecificationOpen(false)} onSubmit={submitNewSpecification} />}{editSpecificationTarget && <NewSpecificationDialog key={editSpecificationTarget.id} busy={actionState?.status === 'running'} existingSpecificationNames={specifications.map(specification => specification.name)} existingSpecificationCount={cursorEnabled ? totalCount : specifications.length} action="Edit" initialSpecification={editSpecificationTarget} onClose={() => setEditSpecificationTarget(null)} onSubmit={submitEditedSpecification} /> }<section className="services-metrics" aria-label="Catalog metrics"><div className="service-metric static"><span>Specifications</span><strong>{formatCount(totalCount)}</strong><small>Reusable service definitions</small></div><div className="service-metric static"><span>Service items</span><strong>{formatCount(displayedItemTotal)}</strong><small>Defined across specifications</small></div></section><section className="services-surface" aria-labelledby="catalog-table-title"><div className="services-toolbar"><div className="orders-toolbar-title"><div><p className="eyebrow">Service design</p><h2 id="catalog-table-title">{cursorEnabled ? 'Specifications' : 'Matching specifications'}</h2></div>{hasData && <span className="orders-total-copy">{formatCount(displayedTotal)} {displayedTotal === 1 ? 'specification' : 'specifications'}</span>}</div><div className="orders-toolbar-controls"><label className="orders-search"><span className="icon" aria-hidden="true">search</span><span className="sr-only">Search specifications</span><input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Search specifications" aria-label="Search specifications" />{search && <button type="button" aria-label="Clear search" onClick={() => setSearch('')}><span className="icon" aria-hidden="true">close</span></button>}</label></div></div>{body}</section>{cursorEnabled ? <CursorTablePagination page={cursorPage} pageSize={catalogPageSize} total={displayedTotal} pageInfo={pageInfo} onPrevious={previousPage} onNext={nextPage} onPageSizeChange={size => { setCatalogPageSize(size); }} /> : <TablePagination page={catalogPage} pageSize={catalogPageSize} total={filteredSpecifications.length} onPageChange={setCatalogPage} onPageSizeChange={size => { setCatalogPageSize(size); setCatalogPage(1); }} />}{selectedSpecification && <TabbedSpecificationDetailPanel specification={selectedSpecification} onClose={() => { location.hash = 'catalog'; }} onEdit={() => editSpecification(selectedSpecification)} onDelete={() => deleteSpecification(selectedSpecification)} onAddItem={addSpecificationItem} onEditItem={editSpecificationItem} onDeleteItem={(item, refresh) => deleteSpecificationItem(selectedSpecification, item, refresh)} onSaveConfiguration={saveSpecificationConfiguration} onConfirmConfiguration={confirm} actionState={actionState} />}</main>;
-}
-
-function useServiceOrders() {
-    const [state, setState] = useState({ status: 'loading', orders: [], error: '', updatedAt: null });
-    const latestRequest = useRef(0);
-    const load = useCallback(({ rejectOnError = false } = {}) => {
-        const request = ++latestRequest.current;
-        setState(current => ({ ...current, status: 'loading', error: '' }));
-        return fetchServiceOrders().then(orders => { if (request === latestRequest.current) setState({ status: 'ready', orders, error: '', updatedAt: new Date() }); return orders; }, error => { if (request === latestRequest.current && !(error instanceof DataMinerAuthError)) setState({ status: 'error', orders: [], error: error?.message || 'Unknown error.', updatedAt: null }); if (rejectOnError) throw error; return []; });
-    }, []);
-    const reloadAndWait = useCallback(() => load({ rejectOnError: true }), [load]);
-    useEffect(() => { load(); return () => { latestRequest.current++; }; }, [load]);
-    return { ...state, reload: load, reloadAndWait };
+    else if (specifications.length === 0 && !isFiltered) body = <div className="list-message" role="status"><span className="icon" aria-hidden="true">inbox</span>No service specifications yet.</div>;
+    else if (specifications.length === 0) body = <div className="services-empty" role="status"><span className="icon" aria-hidden="true">search_off</span><div><strong>No specifications match this search</strong><span>Try a different specification name.</span></div><button className="quiet-button" type="button" onClick={() => setSearch('')}>Clear search</button></div>;
+    else body = <div className="catalog-table-wrap"><table className="catalog-table"><colgroup><col className="catalog-name-column" /><col className="catalog-created-column" /><col className="catalog-modified-column" /><col className="catalog-open-column" /></colgroup><thead><tr><th scope="col">Specification name</th><th scope="col">Created at</th><th scope="col">Last modified</th><th scope="col"><span className="sr-only">Open</span></th></tr></thead><tbody>{specifications.map(specification => <tr className={specification.id === selectedId ? 'catalog-row selected' : 'catalog-row'} key={specification.id || specification.name} onDoubleClick={() => { if (specification.id) location.hash = `catalog/${encodeURIComponent(specification.id)}`; }}><td><strong>{specification.name || 'Unnamed specification'}</strong></td><td>{specification.createdAt || '—'}</td><td>{specification.lastModified || '—'}</td><td><button className="table-row-open" type="button" aria-label={`Open details of ${specification.name || 'unnamed specification'}`} onClick={() => { if (specification.id) location.hash = `catalog/${encodeURIComponent(specification.id)}`; }}><span className="icon" aria-hidden="true">chevron_right</span></button></td></tr>)}</tbody></table></div>;
+    return <main className="page-content catalog-page"><section className="services-hero"><div><p className="eyebrow">{pages.catalog.eyebrow}</p><h1>Catalog</h1><p className="description">See the service specifications that shape the inventory.</p></div><PageHeaderActions updatedAt={updatedAt} loading={loading} onRefresh={reload} primaryAction={<button className="primary-button" type="button" onClick={createSpecification} disabled={actionState?.status === 'running'}><span className="icon" aria-hidden="true">add</span>Add specification</button>} /></section><ActionNotice state={actionState} onDismiss={dismissAction} />{confirmationDialog}{newSpecificationOpen && <NewSpecificationDialog busy={actionState?.status === 'running'} existingSpecificationNames={specifications.map(specification => specification.name)} existingSpecificationCount={specificationTotal} onClose={() => setNewSpecificationOpen(false)} onSubmit={submitNewSpecification} />}{editSpecificationTarget && <NewSpecificationDialog key={editSpecificationTarget.id} busy={actionState?.status === 'running'} existingSpecificationNames={specifications.map(specification => specification.name)} existingSpecificationCount={specificationTotal} action="Edit" initialSpecification={editSpecificationTarget} onClose={() => setEditSpecificationTarget(null)} onSubmit={submitEditedSpecification} /> }<section className="services-metrics" aria-label="Catalog metrics"><div className="service-metric static"><span>Specifications</span><strong>{formatCount(specificationTotal)}</strong><small>Reusable service definitions</small></div><div className="service-metric static"><span>Service items</span><strong>{formatCount(displayedItemTotal)}</strong><small>Defined across specifications</small></div></section><section className="services-surface" aria-labelledby="catalog-table-title"><div className="services-toolbar"><div className="orders-toolbar-title"><div><p className="eyebrow">Service design</p><h2 id="catalog-table-title">{isFiltered ? 'Matching specifications' : 'Specifications'}</h2></div>{hasData && <span className="orders-total-copy">{formatCount(displayedTotal)} {displayedTotal === 1 ? 'specification' : 'specifications'}</span>}</div><div className="orders-toolbar-controls"><label className="orders-search"><span className="icon" aria-hidden="true">search</span><span className="sr-only">Search specifications</span><input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Search specifications" aria-label="Search specifications" />{search && <button type="button" aria-label="Clear search" onClick={() => setSearch('')}><span className="icon" aria-hidden="true">close</span></button>}</label></div></div>{body}</section><CursorTablePagination page={cursorPage} pageSize={catalogPageSize} total={displayedTotal} pageInfo={pageInfo} onPrevious={previousPage} onNext={nextPage} onPageSizeChange={size => { setCatalogPageSize(size); }} />{selectedSpecification && <TabbedSpecificationDetailPanel specification={selectedSpecification} onClose={() => { location.hash = 'catalog'; }} onEdit={() => editSpecification(selectedSpecification)} onDelete={() => deleteSpecification(selectedSpecification)} onAddItem={addSpecificationItem} onEditItem={editSpecificationItem} onDeleteItem={(item, refresh) => deleteSpecificationItem(selectedSpecification, item, refresh)} onSaveConfiguration={saveSpecificationConfiguration} onConfirmConfiguration={confirm} actionState={actionState} />}</main>;
 }
 
 // The UDAPI may serialize metrics with PascalCase keys (e.g. ActiveCount); normalize to camelCase.
@@ -1422,49 +1383,52 @@ function normalizeMetrics(metrics) {
     return Object.fromEntries(Object.entries(metrics).map(([key, value]) => [key.charAt(0).toLowerCase() + key.slice(1), value]));
 }
 
-// Header totals and metrics are kept until fresh values arrive, so they never flash stale page sizes or '—'
-// while switching between cursor pages (server metrics) and the full list (summarize(items)).
-function useCursorList({ enabled, pageSize, fetchPage, fetchAll, summarize }) {
-    const [state, setState] = useState({ status: 'loading', items: [], itemsEnabled: enabled, error: '', updatedAt: null, pageInfo: null, totalCount: null, metrics: null });
-    const [cursor, setCursor] = useState({ after: '', before: '' });
-    const [page, setPage] = useState(1);
+function useDebouncedValue(value, delay) {
+    const [debounced, setDebounced] = useState(value);
+    useEffect(() => {
+        const timeout = window.setTimeout(() => setDebounced(value), delay);
+        return () => window.clearTimeout(timeout);
+    }, [value, delay]);
+    return debounced;
+}
+
+// Every list read is one server-side cursor page; status, search and sort are applied by the UDAPI, so the full
+// list is never fetched. A query change restarts at the first page in the same render (one request), and the last
+// totals and header metrics stay visible until fresh values arrive, so headers never flash the page size or '—'.
+function useCursorList({ pageSize, fetchPage, query = {} }) {
+    const queryKey = JSON.stringify([pageSize, query.status || '', query.search || '', query.sort || '']);
+    const [state, setState] = useState({ status: 'loading', items: [], error: '', updatedAt: null, pageInfo: null, totalCount: null, metrics: null });
+    const [position, setPosition] = useState({ key: queryKey, after: '', before: '', page: 1 });
+    const cursor = position.key === queryKey ? position : { key: queryKey, after: '', before: '', page: 1 };
     const request = useRef(0);
-    const totalCountRef = useRef(null);
+    const totalKeyRef = useRef(null);
     const metricsRef = useRef(null);
-    const summarizeRef = useRef(summarize);
-    summarizeRef.current = summarize;
+    const queryRef = useRef(query);
+    queryRef.current = query;
 
     const load = useCallback(({ rejectOnError = false, refreshTotal = false } = {}) => {
         const currentRequest = ++request.current;
         setState(current => ({ ...current, status: 'loading', error: '' }));
-        const includeTotalCount = enabled && (refreshTotal || totalCountRef.current === null);
-        const includeMetrics = enabled && (refreshTotal || metricsRef.current === null);
-        const operation = enabled
-            ? fetchPage({ limit: pageSize, after: cursor.after, before: cursor.before, includeTotalCount, includeMetrics })
-            : fetchAll();
-        return operation.then(result => {
-            const items = enabled ? result.items : result;
-            if (enabled && result.totalCount !== null && result.totalCount !== undefined) {
-                totalCountRef.current = result.totalCount;
-            }
-            const resultMetrics = enabled ? normalizeMetrics(result.metrics) : null;
-            if (resultMetrics) {
-                metricsRef.current = resultMetrics;
-            }
-            const summary = enabled ? null : summarizeRef.current?.(items);
+        const includeTotalCount = refreshTotal || totalKeyRef.current !== queryKey;
+        const includeMetrics = refreshTotal || metricsRef.current === null;
+        const { status, search, sort } = queryRef.current;
+        return fetchPage({ limit: pageSize, after: cursor.after, before: cursor.before, includeTotalCount, includeMetrics, status, search, sort }).then(result => {
+            const resultMetrics = normalizeMetrics(result.metrics);
+            if (resultMetrics) metricsRef.current = resultMetrics;
             if (currentRequest === request.current) {
+                const hasTotal = result.totalCount !== null && result.totalCount !== undefined;
+                if (hasTotal) totalKeyRef.current = queryKey;
                 setState(current => ({
                     status: 'ready',
-                    items,
-                    itemsEnabled: enabled,
+                    items: result.items,
                     error: '',
                     updatedAt: new Date(),
-                    pageInfo: enabled ? result.pageInfo : null,
-                    totalCount: enabled ? totalCountRef.current ?? current.totalCount : summary?.totalCount ?? items.length,
-                    metrics: enabled ? metricsRef.current ?? current.metrics : summary?.metrics ?? current.metrics,
+                    pageInfo: result.pageInfo,
+                    totalCount: hasTotal ? result.totalCount : current.totalCount,
+                    metrics: metricsRef.current ?? current.metrics,
                 }));
             }
-            return items;
+            return result.items;
         }, error => {
             if (currentRequest === request.current && !(error instanceof DataMinerAuthError)) {
                 setState(current => ({ ...current, status: 'error', items: [], error: error?.message || 'Unknown error.', updatedAt: null }));
@@ -1472,14 +1436,7 @@ function useCursorList({ enabled, pageSize, fetchPage, fetchAll, summarize }) {
             if (rejectOnError) throw error;
             return [];
         });
-    }, [cursor.after, cursor.before, enabled, fetchAll, fetchPage, pageSize]);
-
-    useEffect(() => {
-        setCursor({ after: '', before: '' });
-        setPage(1);
-        totalCountRef.current = null;
-        metricsRef.current = null;
-    }, [enabled, pageSize]);
+    }, [cursor.after, cursor.before, fetchPage, pageSize, queryKey]);
 
     useEffect(() => {
         load();
@@ -1488,31 +1445,24 @@ function useCursorList({ enabled, pageSize, fetchPage, fetchAll, summarize }) {
 
     const nextPage = useCallback(() => {
         if (state.pageInfo?.hasNextPage && state.pageInfo.nextAfterCursor) {
-            setCursor({ after: state.pageInfo.nextAfterCursor, before: '' });
-            setPage(current => current + 1);
+            setPosition({ key: queryKey, after: state.pageInfo.nextAfterCursor, before: '', page: cursor.page + 1 });
         }
-    }, [state.pageInfo]);
+    }, [cursor.page, queryKey, state.pageInfo]);
     const previousPage = useCallback(() => {
         if (state.pageInfo?.hasPreviousPage && state.pageInfo.nextBeforeCursor) {
-            setCursor({ after: '', before: state.pageInfo.nextBeforeCursor });
-            setPage(current => Math.max(1, current - 1));
+            setPosition({ key: queryKey, after: '', before: state.pageInfo.nextBeforeCursor, page: Math.max(1, cursor.page - 1) });
         }
-    }, [state.pageInfo]);
+    }, [cursor.page, queryKey, state.pageInfo]);
 
-    const itemsMatchMode = state.itemsEnabled === enabled;
     return {
         ...state,
-        items: itemsMatchMode ? state.items : [],
-        status: itemsMatchMode || state.status === 'error' ? state.status : 'loading',
-        page,
-        cursorEnabled: enabled,
+        page: cursor.page,
         nextPage,
         previousPage,
         reload: options => load({ ...options, refreshTotal: true }),
         reloadAndWait: () => load({ rejectOnError: true, refreshTotal: true }),
     };
 }
-
 function useAutomationActions() {
     const [state, setState] = useState(null);
     useEffect(() => {
@@ -1539,12 +1489,6 @@ function ActionNotice({ state, onDismiss }) {
     if (!state) return null;
     const icon = state.status === 'error' ? 'error' : state.status === 'success' ? 'check_circle' : 'refresh';
     return <div className={`action-notice ${state.status}`} role={state.status === 'error' ? 'alert' : 'status'}><span className={state.status === 'running' ? 'icon spin' : 'icon'} aria-hidden="true">{icon}</span><span>{state.message}</span><button className="icon-button" type="button" aria-label="Dismiss notification" onClick={onDismiss}><span className="icon" aria-hidden="true">close</span></button></div>;
-}
-
-function TablePagination({ page, pageSize, total, onPageChange, onPageSizeChange }) {
-    if (total === 0) return null;
-    const pageCount = Math.max(1, Math.ceil(total / pageSize));
-    return <nav className="table-pagination" aria-label="Table pagination"><span className="table-pagination-summary">{Math.min((page - 1) * pageSize + 1, total)}–{Math.min(page * pageSize, total)} of {total}</span><div className="table-pagination-controls"><label>Rows<select value={pageSize} onChange={event => onPageSizeChange(Number(event.target.value))}><option value="10">10</option><option value="25">25</option><option value="50">50</option><option value="100">100</option></select></label><button className="quiet-button" type="button" onClick={() => onPageChange(page - 1)} disabled={page <= 1}>Previous</button><span>Page {page} of {pageCount}</span><button className="quiet-button" type="button" onClick={() => onPageChange(page + 1)} disabled={page >= pageCount}>Next</button></div></nav>;
 }
 
 function CursorTablePagination({ page, pageSize, total, pageInfo, onPrevious, onNext, onPageSizeChange }) {
@@ -2350,17 +2294,15 @@ function OrdersPage({ selectedId }) {
     const [statusFilter, setStatusFilter] = useState('all');
     const [sort, setSort] = useState({ key: 'default', direction: 'asc' });
     const [newOrderOpen, setNewOrderOpen] = useState(false);
-    const [ordersPage, setOrdersPage] = useState(1);
     const [ordersPageSize, setOrdersPageSize] = useState(10);
     const [editOrderTarget, setEditOrderTarget] = useState(null);
-    const cursorEnabled = !search.trim() && statusFilter === 'all' && sort.key === 'default';
+    const debouncedSearch = useDebouncedValue(search.trim(), 300);
     const { status, items: orders, error, updatedAt, totalCount, metrics, page: cursorPage, pageInfo, reload, reloadAndWait, nextPage, previousPage } = useCursorList({
-        enabled: cursorEnabled,
         pageSize: ordersPageSize,
         fetchPage: fetchServiceOrderPage,
-        fetchAll: fetchServiceOrders,
-        summarize: summarizeOrders,
+        query: { status: ORDER_STATUS_QUERY[statusFilter], search: debouncedSearch, sort: toSortQuery(sort) },
     });
+    const isFiltered = Boolean(search.trim()) || statusFilter !== 'all';
     const { state: actionState, runApi, fail: failAction, dismiss: dismissAction } = useAutomationActions();
     const { confirm, dialog: confirmationDialog } = useConfirmation();
     const loading = status === 'loading';
@@ -2399,34 +2341,7 @@ function OrdersPage({ selectedId }) {
             closeDetails();
         }
     };
-    const normalizedSearch = search.trim().toLowerCase();
-    const filteredOrders = orders.filter(order => {
-        const matchesStatus = statusFilter === 'all' || (statusFilter === 'open' && isOpenOrder(order)) || (statusFilter === 'attention' && isAttentionOrder(order)) || (statusFilter === 'completed' && isCompletedOrder(order));
-        const searchable = [order.name, order.externalId, order.organization, order.description, order.state, order.priority].join(' ').toLowerCase();
-        return matchesStatus && (!normalizedSearch || searchable.includes(normalizedSearch));
-    });
-    const visibleOrders = cursorEnabled
-        ? [...filteredOrders]
-        : [...filteredOrders].sort((left, right) => {
-            const creationComparison = orderStartTimestamp(right) - orderStartTimestamp(left);
-            return creationComparison || left.name.localeCompare(right.name, undefined, { sensitivity: 'base' });
-        });
-    if (sort.key !== 'default') {
-        visibleOrders.sort((left, right) => {
-            const values = {
-                name: [left.name, right.name],
-                organization: [left.organization, right.organization],
-                priority: [priorityRank[left.priority.trim().toLowerCase()] ?? 99, priorityRank[right.priority.trim().toLowerCase()] ?? 99],
-                state: [left.state, right.state],
-            }[sort.key];
-            const comparison = typeof values[0] === 'number' ? values[0] - values[1] : values[0].localeCompare(values[1], undefined, { sensitivity: 'base' });
-            return sort.direction === 'asc' ? comparison : -comparison;
-        });
-    }
-    useEffect(() => { setOrdersPage(1); }, [search, statusFilter, sort.key, sort.direction]);
-    useEffect(() => { setOrdersPage(current => Math.min(current, Math.max(1, Math.ceil(filteredOrders.length / ordersPageSize)))); }, [filteredOrders.length, ordersPageSize]);
-    const pagedOrders = cursorEnabled ? visibleOrders : visibleOrders.slice((ordersPage - 1) * ordersPageSize, ordersPage * ordersPageSize);
-    const orderTableCount = cursorEnabled ? totalCount : filteredOrders.length;
+    const orderTableCount = totalCount;
     const toggleSort = key => setSort(current => current.key === key ? { key, direction: current.direction === 'asc' ? 'desc' : 'asc' } : { key, direction: 'asc' });
     const clearFilters = () => { setSearch(''); setStatusFilter('all'); };
     const sortIndicator = key => <span className={`table-sort-icon ${sort.key === key ? sort.direction : 'muted'}`} aria-hidden="true" />;
@@ -2436,9 +2351,9 @@ function OrdersPage({ selectedId }) {
     let body;
     if (status === 'error') body = <div className="list-message error" role="alert"><span className="icon" aria-hidden="true">error</span><div className="list-message-text"><strong>Service orders could not be loaded</strong><span>{error}</span></div><button className="quiet-button" type="button" onClick={reload}><span className="icon" aria-hidden="true">refresh</span>Retry</button></div>;
     else if (!hasData) body = <div className="list-message" role="status"><span className="icon spin" aria-hidden="true">refresh</span>Loading service orders…</div>;
-    else if (orders.length === 0) body = <div className="list-message" role="status"><span className="icon" aria-hidden="true">inbox</span>No service orders yet.</div>;
-    else if (filteredOrders.length === 0) body = <div className="orders-empty" role="status"><span className="icon" aria-hidden="true">search_off</span><div><strong>No orders match these filters</strong><span>Try a different search or status.</span></div><button className="quiet-button" type="button" onClick={clearFilters}>Clear filters</button></div>;
-    else body = <div className="orders-table-wrap" aria-busy={loading}><table className="orders-table"><colgroup><col className="order-column" /><col className="organization-column" /><col className="priority-column" /><col className="state-column" /><col className="description-column" /><col className="action-column" /></colgroup><thead><tr><th scope="col">{sortButton('name', 'Order')}</th><th scope="col">{sortButton('organization', 'Organization')}</th><th scope="col">{sortButton('priority', 'Priority')}</th><th scope="col">{sortButton('state', 'State')}</th><th scope="col">Description</th><th scope="col"><span className="sr-only">Open</span></th></tr></thead><tbody>{pagedOrders.map((order, index) => <tr className={order.id && order.id === selectedId ? 'order-row selected' : 'order-row'} key={`${order.id || order.name || 'order'}-${index}`} onDoubleClick={() => openOrder(order)}><td><div className="table-order-cell"><span className="order-icon"><span className="icon" aria-hidden="true">assignment</span></span><span className="table-cell-main"><strong>{order.name || 'Unnamed order'}</strong><span>{orderReference(order) || 'No external ID'}</span></span></div></td><td><span className="table-primary">{order.organization || '—'}</span></td><td><span className={`priority-chip ${order.priority.trim().toLowerCase() || 'none'}`}><span className="priority-dot" aria-hidden="true" />{order.priority ? `${order.priority} priority` : 'No priority'}</span></td><td><span className={`state-badge ${stateTone(order.state)}`}>{order.state || 'Unknown'}</span></td><td><span className="table-description" title={order.description || undefined}>{order.description || 'No description'}</span></td><td className="table-action"><button className="table-row-open" type="button" aria-label={`Open details of ${order.name || 'unnamed order'}`} onClick={() => openOrder(order)}><span className="icon" aria-hidden="true">chevron_right</span></button></td></tr>)}</tbody></table></div>;
+    else if (orders.length === 0 && !isFiltered) body = <div className="list-message" role="status"><span className="icon" aria-hidden="true">inbox</span>No service orders yet.</div>;
+    else if (orders.length === 0) body = <div className="orders-empty" role="status"><span className="icon" aria-hidden="true">search_off</span><div><strong>No orders match these filters</strong><span>Try a different search or status.</span></div><button className="quiet-button" type="button" onClick={clearFilters}>Clear filters</button></div>;
+    else body = <div className="orders-table-wrap" aria-busy={loading}><table className="orders-table"><colgroup><col className="order-column" /><col className="organization-column" /><col className="priority-column" /><col className="state-column" /><col className="description-column" /><col className="action-column" /></colgroup><thead><tr><th scope="col">{sortButton('name', 'Order')}</th><th scope="col">Organization</th><th scope="col">Priority</th><th scope="col">State</th><th scope="col">Description</th><th scope="col"><span className="sr-only">Open</span></th></tr></thead><tbody>{orders.map((order, index) => <tr className={order.id && order.id === selectedId ? 'order-row selected' : 'order-row'} key={`${order.id || order.name || 'order'}-${index}`} onDoubleClick={() => openOrder(order)}><td><div className="table-order-cell"><span className="order-icon"><span className="icon" aria-hidden="true">assignment</span></span><span className="table-cell-main"><strong>{order.name || 'Unnamed order'}</strong><span>{orderReference(order) || 'No external ID'}</span></span></div></td><td><span className="table-primary">{order.organization || '—'}</span></td><td><span className={`priority-chip ${order.priority.trim().toLowerCase() || 'none'}`}><span className="priority-dot" aria-hidden="true" />{order.priority ? `${order.priority} priority` : 'No priority'}</span></td><td><span className={`state-badge ${stateTone(order.state)}`}>{order.state || 'Unknown'}</span></td><td><span className="table-description" title={order.description || undefined}>{order.description || 'No description'}</span></td><td className="table-action"><button className="table-row-open" type="button" aria-label={`Open details of ${order.name || 'unnamed order'}`} onClick={() => openOrder(order)}><span className="icon" aria-hidden="true">chevron_right</span></button></td></tr>)}</tbody></table></div>;
     return <main className="page-content orders-page">
         <section className="orders-hero">
             <div className="orders-heading"><div className="orders-eyebrow"><p className="eyebrow">{pages.orders.eyebrow}</p><span className={isPreviewData ? 'live-indicator preview' : 'live-indicator'}><span aria-hidden="true" />{isPreviewData ? 'Preview data' : 'DataMiner data'}</span></div><h1>Orders</h1><p className="description">A clear view of every service order, from request to completion.</p></div>
@@ -2453,9 +2368,9 @@ function OrdersPage({ selectedId }) {
         {confirmationDialog}
         {newOrderOpen && <NewOrderDialog busy={actionState?.status === 'running'} existingOrderNames={orders.map(order => order.name)} onClose={() => setNewOrderOpen(false)} onSubmit={submitNewOrder} />}
         {editOrderTarget && <NewOrderDialog key={`edit-order-${editOrderTarget.id}`} busy={actionState?.status === 'running'} action="Edit" existingOrderNames={orders.map(order => order.name)} initialOrder={editOrderTarget} onClose={() => setEditOrderTarget(null)} onSubmit={submitEditedOrder} />}
-        <section className="order-stats" aria-label="Orders overview"><button className={statusFilter === 'all' ? 'order-stat selected' : 'order-stat'} type="button" aria-pressed={statusFilter === 'all'} onClick={() => setStatusFilter('all')}><span className="overview-metric-top"><span className="overview-metric-icon icon" aria-hidden="true">assignment</span><span className="order-stat-label">All orders</span></span><strong>{formatOrderCount(totalCount)}</strong><span className="order-stat-note">Total in workspace</span></button><button className={statusFilter === 'open' ? 'order-stat selected' : 'order-stat'} type="button" aria-pressed={statusFilter === 'open'} onClick={() => setStatusFilter('open')}><span className="overview-metric-top"><span className="overview-metric-icon icon" aria-hidden="true">play_circle</span><span className="order-stat-label">Open orders</span></span><strong data-testid="open-orders">{formatOrderCount(openCount)}</strong><span className="order-stat-note">{openCount === null || openCount === undefined ? 'Waiting for data' : 'Still in progress'}</span></button><button className={statusFilter === 'attention' ? 'order-stat selected' : 'order-stat'} type="button" aria-pressed={statusFilter === 'attention'} onClick={() => setStatusFilter('attention')}><span className="overview-metric-top"><span className="overview-metric-icon icon" aria-hidden="true">error</span><span className="order-stat-label">Orders needing attention</span></span><strong>{formatOrderCount(attentionCount)}</strong><span className="order-stat-note">Held, failed, rejected, or cancelling</span></button><button className={statusFilter === 'completed' ? 'order-stat selected' : 'order-stat'} type="button" aria-pressed={statusFilter === 'completed'} onClick={() => setStatusFilter('completed')}><span className="overview-metric-top"><span className="overview-metric-icon icon" aria-hidden="true">check_circle</span><span className="order-stat-label">Completed</span></span><strong>{formatOrderCount(completedCount)}</strong><span className="order-stat-note">Successfully delivered</span></button></section>
-        <section className="orders-surface" aria-labelledby="orders-table-title"><div className="orders-toolbar"><div className="orders-toolbar-title"><div><p className="eyebrow">Service orders</p><h2 id="orders-table-title">{ORDER_FILTER_TITLES[statusFilter] || 'All orders'}</h2></div>{hasData && <span className="orders-total-copy">{formatCount(orderTableCount)} {orderTableCount === 1 ? 'order' : 'orders'}{cursorEnabled ? ' in total' : ''}</span>}</div><div className="orders-toolbar-controls"><label className="orders-search"><span className="icon" aria-hidden="true">search</span><span className="sr-only">Search orders</span><input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Search orders" aria-label="Search orders" />{search && <button type="button" aria-label="Clear search" onClick={() => setSearch('')}><span className="icon" aria-hidden="true">close</span></button>}</label><label className="orders-filter"><span className="sr-only">Filter orders by status</span><select value={statusFilter} onChange={event => setStatusFilter(event.target.value)} aria-label="Filter orders by status"><option value="all">All statuses</option><option value="open">Open</option><option value="attention">Needs attention</option><option value="completed">Completed</option></select><span className="icon" aria-hidden="true">expand_more</span></label></div></div>{body}</section>
-        {cursorEnabled ? <CursorTablePagination page={cursorPage} pageSize={ordersPageSize} total={totalCount} pageInfo={pageInfo} onPrevious={previousPage} onNext={nextPage} onPageSizeChange={size => { setOrdersPageSize(size); }} /> : <TablePagination page={ordersPage} pageSize={ordersPageSize} total={filteredOrders.length} onPageChange={setOrdersPage} onPageSizeChange={size => { setOrdersPageSize(size); setOrdersPage(1); }} />}
+        <section className="order-stats" aria-label="Orders overview"><button className={statusFilter === 'all' ? 'order-stat selected' : 'order-stat'} type="button" aria-pressed={statusFilter === 'all'} onClick={() => setStatusFilter('all')}><span className="overview-metric-top"><span className="overview-metric-icon icon" aria-hidden="true">assignment</span><span className="order-stat-label">All orders</span></span><strong>{formatOrderCount(metrics?.totalCount ?? (isFiltered ? null : totalCount))}</strong><span className="order-stat-note">Total in workspace</span></button><button className={statusFilter === 'open' ? 'order-stat selected' : 'order-stat'} type="button" aria-pressed={statusFilter === 'open'} onClick={() => setStatusFilter('open')}><span className="overview-metric-top"><span className="overview-metric-icon icon" aria-hidden="true">play_circle</span><span className="order-stat-label">Open orders</span></span><strong data-testid="open-orders">{formatOrderCount(openCount)}</strong><span className="order-stat-note">{openCount === null || openCount === undefined ? 'Waiting for data' : 'Still in progress'}</span></button><button className={statusFilter === 'attention' ? 'order-stat selected' : 'order-stat'} type="button" aria-pressed={statusFilter === 'attention'} onClick={() => setStatusFilter('attention')}><span className="overview-metric-top"><span className="overview-metric-icon icon" aria-hidden="true">error</span><span className="order-stat-label">Orders needing attention</span></span><strong>{formatOrderCount(attentionCount)}</strong><span className="order-stat-note">Held, failed, rejected, or cancelling</span></button><button className={statusFilter === 'completed' ? 'order-stat selected' : 'order-stat'} type="button" aria-pressed={statusFilter === 'completed'} onClick={() => setStatusFilter('completed')}><span className="overview-metric-top"><span className="overview-metric-icon icon" aria-hidden="true">check_circle</span><span className="order-stat-label">Completed</span></span><strong>{formatOrderCount(completedCount)}</strong><span className="order-stat-note">Successfully delivered</span></button></section>
+        <section className="orders-surface" aria-labelledby="orders-table-title"><div className="orders-toolbar"><div className="orders-toolbar-title"><div><p className="eyebrow">Service orders</p><h2 id="orders-table-title">{ORDER_FILTER_TITLES[statusFilter] || 'All orders'}</h2></div>{hasData && <span className="orders-total-copy">{formatCount(orderTableCount)} {orderTableCount === 1 ? 'order' : 'orders'}{isFiltered ? ' found' : ' in total'}</span>}</div><div className="orders-toolbar-controls"><label className="orders-search"><span className="icon" aria-hidden="true">search</span><span className="sr-only">Search orders</span><input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Search orders" aria-label="Search orders" />{search && <button type="button" aria-label="Clear search" onClick={() => setSearch('')}><span className="icon" aria-hidden="true">close</span></button>}</label><label className="orders-filter"><span className="sr-only">Filter orders by status</span><select value={statusFilter} onChange={event => setStatusFilter(event.target.value)} aria-label="Filter orders by status"><option value="all">All statuses</option><option value="open">Open</option><option value="attention">Needs attention</option><option value="completed">Completed</option></select><span className="icon" aria-hidden="true">expand_more</span></label></div></div>{body}</section>
+        <CursorTablePagination page={cursorPage} pageSize={ordersPageSize} total={totalCount} pageInfo={pageInfo} onPrevious={previousPage} onNext={nextPage} onPageSizeChange={size => { setOrdersPageSize(size); }} />
         {selectedOrder && <OrderDetailPanel key={selectedOrder.id} order={selectedOrder} onClose={closeDetails} onRunApi={runApi} onActionFailure={failAction} onConfirmDelete={confirm} onConfirmAction={confirm} onOrdersChanged={reloadAndWait} onDeleteOrder={deleteOrder} onEditOrder={editOrder} actionState={actionState} />}
     </main>;
 }

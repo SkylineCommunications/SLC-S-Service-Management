@@ -90,6 +90,8 @@
 			Services = new Mock<IServiceRepository>();
 			Services.Setup(r => r.Read(It.IsAny<FilterElement<Service>>())).Returns<FilterElement<Service>>(f => Filter(StoredServices, f));
 			Services.Setup(r => r.Read(It.IsAny<IQuery<Service>>())).Returns<IQuery<Service>>(q => Filter(StoredServices, q.Filter));
+			Services.Setup(r => r.ReadPaged(It.IsAny<IQuery<Service>>(), It.IsAny<int>())).Returns<IQuery<Service>, int>((q, size) => OnePage(StoredServices, q));
+			Services.Setup(r => r.Count(It.IsAny<FilterElement<Service>>())).Returns<FilterElement<Service>>(f => Filter(StoredServices, f).Count());
 			Services.Setup(r => r.Create(It.IsAny<Service>())).Returns<Service>(s => { StoredServices.Add(s); return s; });
 			Services.Setup(r => r.Update(It.IsAny<Service>())).Returns<Service>(s => s);
 			Services.Setup(r => r.Delete(It.IsAny<Service>())).Callback<Service>(s => StoredServices.Remove(s));

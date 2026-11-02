@@ -5,6 +5,7 @@
 	using Newtonsoft.Json.Linq;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
+	using SLC_SM_UDAPI_ServiceManagement.Models;
 	using SLC_SM_UDAPI_ServiceManagement.Models.Order;
 	using SLDataGateway.API.Types.Querying;
 
@@ -44,7 +45,44 @@
 		{
 			Orders.Setup(r => r.Read(It.IsAny<FilterElement<ServiceOrder>>())).Throws(new InvalidOperationException());
 			Orders.Setup(r => r.Read(It.IsAny<IQuery<ServiceOrder>>())).Throws(new InvalidOperationException());
+			Orders.Setup(r => r.ReadPaged(It.IsAny<IQuery<ServiceOrder>>(), It.IsAny<int>())).Throws(new InvalidOperationException());
 			Assert.AreEqual(500, StatusCode(Controller.ListServiceOrders()));
+		}
+
+		[TestMethod]
+		public void ListServiceOrdersCursor_StatusFilter_ReturnsMatchingOrdersAndFilteredCount()
+		{
+			AddOrder("New");
+			var held = AddOrder("Held");
+			var failed = AddOrder("Failed");
+
+			var page = Value<CursorPageResponse<JObject>>(Controller.ListServiceOrders(pagination: "cursor", status: "held,failed"));
+
+			CollectionAssert.AreEquivalent(new[] { held.Identifier, failed.Identifier }, page.Items.Select(i => (string)i["Identifier"]).ToList());
+			Assert.AreEqual(2L, page.TotalCount);
+		}
+
+		[TestMethod]
+		public void ListServiceOrdersCursor_Search_MatchesDescriptionAndPriority()
+		{
+			var described = AddOrder();
+			described.Description = "Urgent uplink";
+			var high = AddOrder();
+			high.Priority = DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Enums.ServiceOrderPriorityEnum.High;
+			AddOrder();
+
+			var byDescription = Value<CursorPageResponse<JObject>>(Controller.ListServiceOrders(pagination: "cursor", search: "urgent"));
+			var byPriority = Value<CursorPageResponse<JObject>>(Controller.ListServiceOrders(pagination: "cursor", search: "high"));
+
+			Assert.AreEqual(described.Identifier, (string)byDescription.Items.Single()["Identifier"]);
+			Assert.AreEqual(high.Identifier, (string)byPriority.Items.Single()["Identifier"]);
+		}
+
+		[TestMethod]
+		public void ListServiceOrdersCursor_InvalidStatusOrSort_Returns400()
+		{
+			Assert.AreEqual(400, StatusCode(Controller.ListServiceOrders(pagination: "cursor", status: "unknown")));
+			Assert.AreEqual(400, StatusCode(Controller.ListServiceOrders(pagination: "cursor", sort: "organization")));
 		}
 
 		// ---- GET /serviceOrder/{id} ----
