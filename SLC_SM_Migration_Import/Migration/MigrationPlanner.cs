@@ -34,6 +34,19 @@ namespace SLCSMMigrationImport.Migration
 			_environment = environment ?? throw new ArgumentNullException(nameof(environment));
 		}
 
+		/// <summary>
+		/// Checks the export format, required modules and target schemas before any legacy data is removed.
+		/// Does not read target instances or build the migration items.
+		/// </summary>
+		/// <param name="export">The legacy export to validate.</param>
+		/// <returns>A plan containing any fatal errors and warnings, without migration items.</returns>
+		public MigrationPlan Preflight(MigrationExport export)
+		{
+			var plan = new MigrationPlan();
+			this.SelectModules(export, plan);
+			return plan;
+		}
+
 		public MigrationPlan Plan(MigrationExport export)
 		{
 			var plan = new MigrationPlan();

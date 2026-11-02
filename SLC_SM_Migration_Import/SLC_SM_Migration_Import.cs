@@ -153,18 +153,26 @@ namespace SLCSMMigrationImport
 				return;
 			}
 
-			// Removes the legacy DOM model parts left behind by an in-place upgrade (only reported in a dry run).
+			var schemas = KnownIds.ModulesInScope.ToDictionary(m => m, m => TargetModuleSchema.Load(target.GetHelper(m)), StringComparer.OrdinalIgnoreCase);
+			var plan = new MigrationPlanner(schemas, target, target).Preflight(export);
+
 			var cleanup = new ObsoleteDomCleanup(line => engine.Log("SMG migration cleanup: " + line), dryRun);
-			foreach (string module in KnownIds.ModulesInScope)
+			TimeSpan cleanupDuration = TimeSpan.Zero;
+			if (plan.FatalErrors.Count == 0)
 			{
-				cleanup.Clean(target.GetHelper(module));
+				TimeSpan cleanupStarted = total.Elapsed;
+
+				// Only remove legacy data after the export and target schemas have passed the read-only preflight.
+				foreach (string module in KnownIds.ModulesInScope)
+				{
+					cleanup.Clean(target.GetHelper(module));
+				}
+
+				cleanupDuration = total.Elapsed - cleanupStarted;
+				schemas = KnownIds.ModulesInScope.ToDictionary(m => m, m => TargetModuleSchema.Load(target.GetHelper(m)), StringComparer.OrdinalIgnoreCase);
+				plan = new MigrationPlanner(schemas, target, target).Plan(export);
 			}
 
-			TimeSpan cleanupDuration = total.Elapsed - readDuration;
-
-			var schemas = KnownIds.ModulesInScope.ToDictionary(m => m, m => TargetModuleSchema.Load(target.GetHelper(m)), StringComparer.OrdinalIgnoreCase);
-
-			var plan = new MigrationPlanner(schemas, target, target).Plan(export);
 			TimeSpan planDuration = total.Elapsed - readDuration - cleanupDuration;
 
 			// Free the exported data and the prefetched target instances; the plan holds everything needed from here on.
@@ -197,7 +205,7 @@ namespace SLCSMMigrationImport
 			engine.Log(timing);
 			engine.GenerateInformation(timing);
 
-			if (report.HasFailures)
+			if (report.HasFailures || cleanup.Failures.Count > 0)
 			{
 				engine.ExitFail($"{summary} See report '{reportFile}'.");
 			}

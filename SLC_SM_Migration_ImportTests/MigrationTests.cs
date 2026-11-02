@@ -318,6 +318,59 @@ namespace SLC_SM_Migration_ImportTests
 			Assert.AreEqual(0, plan.Items.Count);
 		}
 
+		[DataTestMethod]
+		[DataRow("unsupported format", "Unsupported export format")]
+		[DataRow("missing export module", "export does not contain module")]
+		[DataRow("duplicate export module", "more than once")]
+		[DataRow("missing target module", "not installed")]
+		[DataRow("empty export", "empty or could not be read")]
+		public void Preflight_FatalError_RejectsImportWithoutWrites(string scenario, string expectedError)
+		{
+			var export = TestModel.Export(Array.Empty<ImportInstance>(), Array.Empty<ImportInstance>());
+			switch (scenario)
+			{
+				case "unsupported format":
+					export.FormatVersion++;
+					break;
+				case "missing export module":
+					export.Modules.RemoveAt(0);
+					break;
+				case "duplicate export module":
+					export.Modules.Add(export.Modules[0]);
+					break;
+				case "missing target module":
+					this._model.Schemas[TestModel.Config] = new TargetModuleSchema(TestModel.Config, null, null, null);
+					break;
+				case "empty export":
+					export = null;
+					break;
+			}
+
+			var plan = new MigrationPlanner(this._model.Schemas, this._lookup, new FakeEnvironment()).Preflight(export);
+			var writer = new FakeWriter();
+			var report = new MigrationExecutor(writer, null).Execute(plan, dryRun: false);
+
+			StringAssert.Contains(plan.FatalErrors.Single(), expectedError);
+			Assert.IsTrue(report.HasFailures);
+			Assert.AreEqual(0, writer.Calls.Count);
+			Assert.AreEqual(0, plan.Items.Count);
+		}
+
+		[TestMethod]
+		public void Preflight_ValidExport_DoesNotPlanItemsAndAllowsSubsequentPlanning()
+		{
+			var service = TestModel.Instance(TestModel.ServiceDefinition, "new", TestModel.ServiceSection);
+			var export = TestModel.Export(Array.Empty<ImportInstance>(), new[] { service });
+			var planner = new MigrationPlanner(this._model.Schemas, this._lookup, new FakeEnvironment());
+
+			var preflight = planner.Preflight(export);
+			var plan = planner.Plan(export);
+
+			Assert.AreEqual(0, preflight.FatalErrors.Count);
+			Assert.AreEqual(0, preflight.Items.Count);
+			Assert.AreEqual(PlannedAction.Create, Item(plan, service).Action);
+		}
+
 		internal static DomInstance Existing(Guid id, string status, string name, string newField)
 		{
 			var section = new Section(new SectionDefinitionID(TestModel.ServiceSection) { ModuleId = TestModel.Smg }) { ID = new SectionID(Guid.NewGuid()) };

@@ -355,6 +355,161 @@
 		}
 
 		[DataTestMethod]
+		[DataRow(false)]
+		[DataRow(true)]
+		public void DuplicateConfigurationVersion_NumberOptionsEdits_DoNotChangeSource(bool ownedProfile)
+		{
+			var source = this.AddVersion(this.service, "v1");
+			this.service.ServiceConfigurationId = new SdmObjectReference<ServiceConfigurationVersion>(source.Identifier);
+			var parameter = this.AddParameter("Bitrate", ParameterType.Number);
+			var unitId = Guid.NewGuid().ToString();
+			var options = new Cfg.NumberParameterOptions
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				Units = new List<SdmObjectReference<Cfg.ConfigurationUnit>> { new SdmObjectReference<Cfg.ConfigurationUnit>(unitId) },
+				DefaultUnitId = new SdmObjectReference<Cfg.ConfigurationUnit>(unitId),
+				MinRange = 0,
+				MaxRange = 100,
+				StepSize = 0.5,
+				Decimals = 2,
+				DefaultValue = 15,
+			};
+			this.StoredNumberOptions.Add(options);
+			var value = this.AddParameterValue(null);
+			value.ConfigurationParameterId = new SdmObjectReference<Cfg.ConfigurationParameter>(parameter.Identifier);
+			value.Type = ParameterType.Number;
+			value.DoubleValue = 25;
+			value.NumberOptionsId = new SdmObjectReference<Cfg.NumberParameterOptions>(options.Identifier);
+
+			var definitionId = Guid.NewGuid().ToString();
+			if (ownedProfile)
+			{
+				this.StoredProfileDefinitions.Add(new Cfg.ProfileDefinition { Identifier = definitionId, Name = "Transport" });
+				var profile = new Cfg.Profile
+				{
+					Identifier = Guid.NewGuid().ToString(),
+					Name = "Transport (SERVICE-00001)",
+					ProfileDefinitionId = new SdmObjectReference<Cfg.ProfileDefinition>(definitionId),
+					ConfigurationParameterValues = new List<SdmObjectReference<Cfg.ConfigurationParameterValue>>
+					{
+						new SdmObjectReference<Cfg.ConfigurationParameterValue>(value.Identifier),
+					},
+				};
+				this.StoredProfiles.Add(profile);
+				var serviceProfile = new ServiceProfile
+				{
+					Identifier = Guid.NewGuid().ToString(),
+					ProfileId = new SdmObjectReference<Cfg.Profile>(profile.Identifier),
+					ProfileDefinitionId = new SdmObjectReference<Cfg.ProfileDefinition>(definitionId),
+				};
+				this.StoredServiceProfiles.Add(serviceProfile);
+				source.Profiles.Add(new SdmObjectReference<ServiceProfile>(serviceProfile.Identifier));
+			}
+			else
+			{
+				var configuration = new ServiceConfigurationValue
+				{
+					Identifier = Guid.NewGuid().ToString(),
+					ConfigurationParameterId = new SdmObjectReference<Cfg.ConfigurationParameterValue>(value.Identifier),
+				};
+				this.StoredConfigurationValues.Add(configuration);
+				source.Parameters.Add(new SdmObjectReference<ServiceConfigurationValue>(configuration.Identifier));
+			}
+
+			Assert.AreEqual(201, StatusCode(this.Controller.DuplicateConfigurationVersion(this.service.ServiceID, source.Identifier)));
+			var copy = this.StoredVersions.Single(version => version != source);
+			var copiedValue = this.StoredParameterValues.Single(item => item != value);
+			var copiedOptions = this.StoredNumberOptions.Single(item => item.Identifier == copiedValue.NumberOptionsId.Identifier);
+			Assert.AreNotEqual(options.Identifier, copiedOptions.Identifier);
+			Assert.AreEqual(options.DefaultUnitId.Identifier, copiedOptions.DefaultUnitId.Identifier);
+			Assert.AreEqual(options.MinRange, copiedOptions.MinRange);
+			Assert.AreEqual(options.MaxRange, copiedOptions.MaxRange);
+			Assert.AreEqual(options.StepSize, copiedOptions.StepSize);
+			Assert.AreEqual(options.Decimals, copiedOptions.Decimals);
+			Assert.AreEqual(options.DefaultValue, copiedOptions.DefaultValue);
+			CollectionAssert.AreEqual(options.Units.Select(unit => unit.Identifier).ToArray(), copiedOptions.Units.Select(unit => unit.Identifier).ToArray());
+			Assert.AreNotSame(options.Units, copiedOptions.Units);
+
+			var editedUnitId = Guid.NewGuid().ToString();
+			var editedParameter = new ServiceConfigurationParameterRequest
+			{
+				ParameterId = parameter.Identifier,
+				ParameterValueId = copiedValue.Identifier,
+				Value = "25",
+				UnitId = editedUnitId,
+				Start = "10",
+				End = "90",
+				StepSize = "5",
+				Decimals = "1",
+			};
+			var request = new ServiceConfigurationRequest { VersionId = copy.Identifier, VersionName = copy.VersionName };
+			if (ownedProfile)
+			{
+				request.Profiles.Add(new ServiceConfigurationProfileRequest
+				{
+					Id = copy.Profiles.Single().Identifier,
+					DefinitionId = definitionId,
+					Parameters = new List<ServiceConfigurationParameterRequest> { editedParameter },
+				});
+			}
+			else
+			{
+				editedParameter.ConfigurationId = copy.Parameters.Single().Identifier;
+				request.Parameters.Add(editedParameter);
+			}
+
+			var result = this.Controller.SaveServiceConfiguration(this.service.ServiceID, JObject.FromObject(request));
+
+			Assert.AreEqual(200, StatusCode(result), StatusCode(result) == 200 ? string.Empty : ErrorDetail(result));
+			Assert.AreEqual(editedUnitId, copiedOptions.DefaultUnitId.Identifier);
+			Assert.AreEqual(10, copiedOptions.MinRange);
+			Assert.AreEqual(90, copiedOptions.MaxRange);
+			Assert.AreEqual(5, copiedOptions.StepSize);
+			Assert.AreEqual(1, copiedOptions.Decimals);
+			Assert.AreEqual(unitId, options.DefaultUnitId.Identifier);
+			Assert.AreEqual(0, options.MinRange);
+			Assert.AreEqual(100, options.MaxRange);
+			Assert.AreEqual(0.5, options.StepSize);
+			Assert.AreEqual(2, options.Decimals);
+			Assert.AreEqual(options.Identifier, value.NumberOptionsId.Identifier);
+			Assert.AreEqual(source.Identifier, this.service.ServiceConfigurationId.Identifier);
+		}
+
+		[DataTestMethod]
+		[DataRow(false)]
+		[DataRow(true)]
+		public void DuplicateConfigurationVersion_DefinitionNumberOptions_AreNotDuplicated(bool explicitReference)
+		{
+			var source = this.AddVersion(this.service, "v1");
+			var parameter = this.AddParameter("Bitrate", ParameterType.Number);
+			var options = new Cfg.NumberParameterOptions { Identifier = Guid.NewGuid().ToString(), DefaultValue = 25 };
+			this.StoredNumberOptions.Add(options);
+			parameter.NumberOptionsId = new SdmObjectReference<Cfg.NumberParameterOptions>(options.Identifier);
+			var value = this.AddParameterValue(null);
+			value.ConfigurationParameterId = new SdmObjectReference<Cfg.ConfigurationParameter>(parameter.Identifier);
+			value.Type = ParameterType.Number;
+			value.DoubleValue = 25;
+			if (explicitReference)
+			{
+				value.NumberOptionsId = new SdmObjectReference<Cfg.NumberParameterOptions>(options.Identifier);
+			}
+
+			var configuration = new ServiceConfigurationValue
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				ConfigurationParameterId = new SdmObjectReference<Cfg.ConfigurationParameterValue>(value.Identifier),
+			};
+			this.StoredConfigurationValues.Add(configuration);
+			source.Parameters.Add(new SdmObjectReference<ServiceConfigurationValue>(configuration.Identifier));
+
+			Assert.AreEqual(201, StatusCode(this.Controller.DuplicateConfigurationVersion(this.service.ServiceID, source.Identifier)));
+
+			var copiedValue = this.StoredParameterValues.Single(item => item != value);
+			Assert.AreEqual(value.NumberOptionsId.Identifier, copiedValue.NumberOptionsId.Identifier);
+			Assert.AreEqual(1, this.StoredNumberOptions.Count);
+		}
+
+		[DataTestMethod]
 		[DataRow(null)]
 		[DataRow("not-a-guid")]
 		public void DuplicateConfigurationVersion_InvalidVersionId_Returns404(string versionId)

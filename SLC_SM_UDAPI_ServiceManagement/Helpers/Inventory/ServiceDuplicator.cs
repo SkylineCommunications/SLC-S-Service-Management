@@ -9,6 +9,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 	using Skyline.DataMiner.SDM;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
+	using SLC_SM_UDAPI_ServiceManagement.Exceptions;
 
 	using Config = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.Configurations;
 
@@ -415,7 +416,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 				DoubleValue = source.DoubleValue,
 				StringValue = source.StringValue,
 				ConfigurationParameterId = CopyReference<ConfigurationParameter>(source.ConfigurationParameterId),
-				NumberOptionsId = CopyReference<NumberParameterOptions>(source.NumberOptionsId),
+				NumberOptionsId = this.DuplicateNumberOptions(source),
 				DiscreteOptionsId = CopyReference<DiscreteParameterOptions>(source.DiscreteOptionsId),
 				TextOptionsId = CopyReference<TextParameterOptions>(source.TextOptionsId),
 				ValueFixed = source.ValueFixed,
@@ -427,6 +428,42 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 			state.ParameterValueIds[sourceValueId] = duplicate.Identifier;
 			state.DuplicatedParameterValues.Add(duplicate);
 			return duplicate.Identifier;
+		}
+
+		private SdmObjectReference<NumberParameterOptions> DuplicateNumberOptions(ConfigurationParameterValue value)
+		{
+			string optionsId = value.NumberOptionsId.Identifier;
+			if (string.IsNullOrWhiteSpace(optionsId))
+			{
+				return null;
+			}
+
+			var definition = string.IsNullOrWhiteSpace(value.ConfigurationParameterId.Identifier)
+				? null
+				: this._api.ServiceCatalog.ConfigurationParameters
+					.Read(ConfigurationParameterExposers.Identifier.Equal(value.ConfigurationParameterId.Identifier))
+					.FirstOrDefault();
+			if (definition != null && string.Equals(optionsId, definition.NumberOptionsId.Identifier, StringComparison.OrdinalIgnoreCase))
+			{
+				return CopyReference<NumberParameterOptions>(value.NumberOptionsId);
+			}
+
+			var source = this._api.ServiceCatalog.NumberParameterOptions
+				.Read(NumberParameterOptionsExposers.Identifier.Equal(optionsId))
+				.FirstOrDefault() ?? throw new InvalidConfigurationException($"Number options '{optionsId}' were not found.");
+			var duplicate = new NumberParameterOptions
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				Units = source.Units?.ToList() ?? new List<SdmObjectReference<ConfigurationUnit>>(),
+				DefaultUnitId = CopyReference<ConfigurationUnit>(source.DefaultUnitId),
+				MinRange = source.MinRange,
+				MaxRange = source.MaxRange,
+				Decimals = source.Decimals,
+				StepSize = source.StepSize,
+				DefaultValue = source.DefaultValue,
+			};
+			this._api.ServiceCatalog.NumberParameterOptions.Create(duplicate);
+			return new SdmObjectReference<NumberParameterOptions>(duplicate.Identifier);
 		}
 
 		private void RemapLinkedConsumers(VersionDuplicationState state)
