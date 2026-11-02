@@ -636,8 +636,9 @@
 		[TestMethod]
 		public void ListServicesCursor_RepositoryError_LogsFullExceptionAndReturnsGeneric500()
 		{
+			var exception = new NullReferenceException("search diagnostic");
 			Services.Setup(r => r.ReadPaged(It.IsAny<IQuery<Service>>(), It.IsAny<int>()))
-				.Throws(new NullReferenceException("search diagnostic"));
+				.Throws(exception);
 
 			var result = Controller.ListServices(pagination: "cursor", search: "e");
 
@@ -645,9 +646,8 @@
 			Assert.IsFalse(ErrorDetail(result).Contains("search diagnostic"));
 			var errorLog = ControllerLogger.Invocations.Single(call =>
 				call.Method.Name == nameof(ILogger.Log) && (LogLevel)call.Arguments[0] == LogLevel.Error);
-			var message = errorLog.Arguments[2].ToString();
-			StringAssert.Contains(message, "System.NullReferenceException: search diagnostic");
-			StringAssert.Contains(message, "   at ");
+			Assert.AreSame(exception, errorLog.Arguments[3]);
+			Assert.IsFalse(String.IsNullOrWhiteSpace(exception.StackTrace));
 		}
 
 		[TestMethod]
