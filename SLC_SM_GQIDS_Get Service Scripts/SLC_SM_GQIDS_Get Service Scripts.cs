@@ -8,12 +8,9 @@ namespace SLCSMGQIDSGetServiceScripts
 	using Skyline.DataMiner.Analytics.GenericInterface;
 	using Skyline.DataMiner.Net.Apps.DataMinerObjectModel;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
 
 	using SLC_SM_Common.Extensions;
-
-	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement.Models;
 
 	[GQIMetaData(Name = DataSourceName)]
 	public class GetServiceScripts : IGQIDataSource, IGQIInputArguments, IGQIOnInit
@@ -24,6 +21,7 @@ namespace SLCSMGQIDSGetServiceScripts
 
 		private GQIDMS _dms;
 		private IGQILogger _logger;
+		private IServiceManagementApiHelper _serviceManagementApiHelper;
 		private string _serviceName;
 
 		public GQIColumn[] GetColumns()
@@ -51,6 +49,7 @@ namespace SLCSMGQIDSGetServiceScripts
 			_dms = args.DMS;
 			_logger = args.Logger;
 			_logger.MinimumLogLevel = GQILogLevel.Debug;
+			_serviceManagementApiHelper = new ServiceManagementApiHelper(_dms.GetConnection(), "Service Inventory");
 			return default;
 		}
 
@@ -86,13 +85,16 @@ namespace SLCSMGQIDSGetServiceScripts
 				return new GQIRow[0];
 			}
 
-			var helpers = new DataHelpersServiceManagement(_dms.GetConnection());
-			var service = helpers.Services.Read(ServiceExposers.Guid.Equal(serviceGuid)).SingleOrDefault();
+			var service = _serviceManagementApiHelper.ServiceInventory.Services
+				.Read(Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement.ServiceExposers.Identifier.Equal(serviceGuid.ToString()))
+				.SingleOrDefault();
 
 			if (service == null || service.ServiceScripts == null || !service.ServiceScripts.Any())
 			{
 				return new GQIRow[0];
 			}
+
+			var domId = Guid.TryParse(service.Identifier, out var parsedId) ? parsedId : serviceGuid;
 
 			return service.ServiceScripts
 				.Select(script => new GQIRow(
@@ -102,7 +104,7 @@ namespace SLCSMGQIDSGetServiceScripts
 						new GQICell { Value = script.Description ?? String.Empty },
 					})
 				{
-					Metadata = new GenIfRowMetadata(new[] { new ObjectRefMetadata { Object = new DomInstanceId(service.ID) { ModuleId = SlcServicemanagementIds.ModuleId } } }),
+					Metadata = new GenIfRowMetadata(new[] { new ObjectRefMetadata { Object = new DomInstanceId(domId) { ModuleId = SlcServicemanagementIds.ModuleId } } }),
 				})
 				.ToArray();
 		}

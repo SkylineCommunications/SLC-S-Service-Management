@@ -8,11 +8,12 @@ namespace SLC_SM_GQIDS_Get_Service_Orders
 	using Skyline.DataMiner.Analytics.GenericInterface;
 	using Skyline.DataMiner.Net;
 	using Skyline.DataMiner.Net.Apps.DataMinerObjectModel;
+	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.PeopleAndOrganization;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
 	using SLC_SM_Common.Extensions;
-	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement.Models;
+	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 
 	// Required to mark the interface as a GQI data source
 	[GQIMetaData(Name = DataSourceName)]
@@ -63,9 +64,14 @@ namespace SLC_SM_GQIDS_Get_Service_Orders
 
 		private GQIRow BuildRow(Models.ServiceOrder item, List<Skyline.DataMiner.ProjectApi.ServiceManagement.API.PeopleAndOrganization.Models.Organization> organizations)
 		{
+			string id = item.Identifier ?? String.Empty;
+			var metadata = Guid.TryParse(id, out var domId)
+				? new GenIfRowMetadata(new[] { new ObjectRefMetadata { Object = new DomInstanceId(domId) { ModuleId = SlcServicemanagementIds.ModuleId } } })
+				: null;
+
 			GQICell[] columns = new[]
 				{
-					new GQICell { Value = item.ID.ToString() },
+					new GQICell { Value = id },
 					new GQICell { Value = item.Name ?? String.Empty },
 					new GQICell { Value = item.Description ?? String.Empty },
 					new GQICell { Value = item.Priority?.ToString() ?? "Low" },
@@ -73,7 +79,7 @@ namespace SLC_SM_GQIDS_Get_Service_Orders
 					new GQICell { Value = item.OrganizationId.HasValue ? organizations.Find(x => x.ID == item.OrganizationId)?.Name ?? String.Empty : String.Empty },
 					new GQICell { Value = item.Status.GetDescription() },
 				};
-			return new GQIRow(item.ID.ToString(), columns) { Metadata = new GenIfRowMetadata(new[] { new ObjectRefMetadata { Object = new DomInstanceId(item.ID) { ModuleId = SlcServicemanagementIds.ModuleId } } }) };
+			return new GQIRow(id, columns) { Metadata = metadata };
 		}
 
 		private GQIPage BuildupRows()
@@ -96,11 +102,12 @@ namespace SLC_SM_GQIDS_Get_Service_Orders
 		private GQIRow[] GetMultiSection()
 		{
 			IConnection connection = _dms.GetConnection();
+			var api = new ServiceManagementApiHelper(connection, "Service Ordering");
 			var organizations = _dms.DomModelExists(SlcPeople_OrganizationsIds.ModuleId)
 				? _logger.PerformanceLogger("Get Organizations", () => new DataHelperOrganization(connection).Read())
 				: new List<Skyline.DataMiner.ProjectApi.ServiceManagement.API.PeopleAndOrganization.Models.Organization>();
 
-			var instances = _logger.PerformanceLogger("Get Orders", () => new DataHelperServiceOrder(connection).Read());
+			var instances = _logger.PerformanceLogger("Get Orders", () => api.ServiceOrder.ServiceOrders.Read(new TRUEFilterElement<Models.ServiceOrder>()).ToList());
 			return _logger.PerformanceLogger(
 				"Build Rows",
 				() => instances

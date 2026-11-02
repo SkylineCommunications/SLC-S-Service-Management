@@ -1,4 +1,4 @@
-<DMSScript options="272" xmlns="http://www.skyline.be/automation">
+﻿<DMSScript options="272" xmlns="http://www.skyline.be/automation">
 	<Name>SLC_SM_IAS_Add Service Order Item</Name>
 	<Description />
 	<Type>Automation</Type>

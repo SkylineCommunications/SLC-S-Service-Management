@@ -8,15 +8,13 @@
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Net.Messages;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
-
-	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement.Models;
 
 	public static class OwnershipExtensions
 	{
-		public static bool TakeOwnershipForOrder(this Models.ServiceOrder order, IEngine engine)
+		public static bool TakeOwnershipForOrder(this ServiceOrder order, IEngine engine)
 		{
 			var person = InitializeCurrentPerson(engine);
 			if (person == null)
@@ -38,7 +36,7 @@
 				return null;
 			}
 
-			var dataHelper = new DataHelpersPeopleAndOrganizations(engine.GetUserConnection());
+			var dataHelper = new Skyline.DataMiner.ProjectApi.ServiceManagement.API.DataHelpersPeopleAndOrganizations(engine.GetUserConnection());
 
 			var req = new GetInfoMessage { Type = InfoType.SecurityInfo };
 			var userInfoResponse = (GetUserInfoResponseMessage)engine.SendSLNetSingleResponseMessage(req);

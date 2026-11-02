@@ -17,8 +17,8 @@
 		{
 			base.Configure();
 
-			double minimum = Data.Record.ConfigurationParameterValue.NumberOptions.MinRange ?? -10_000;
-			double maximum = Data.Record.ConfigurationParameterValue.NumberOptions.MaxRange ?? 10_000;
+			double minimum = Data.Record.ConfigurationParameterValue.NumberOptions.MinRange ?? int.MinValue;
+			double maximum = Data.Record.ConfigurationParameterValue.NumberOptions.MaxRange ?? int.MaxValue;
 			int decimalVal = Convert.ToInt32(Data.Record.ConfigurationParameterValue.NumberOptions.Decimals);
 			double stepSize = Data.Record.ConfigurationParameterValue.NumberOptions.StepSize ?? 1;
 			var value = new Numeric(Data.Record.ConfigurationParameterValue.NumberOptions.DefaultValue ?? 0)

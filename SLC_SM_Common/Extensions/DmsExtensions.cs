@@ -1,12 +1,10 @@
 ﻿namespace SLC_SM_Common.Extensions
 {
-	using Skyline.DataMiner.Automation;
 	using System;
-
+	using Skyline.DataMiner.Analytics.GenericInterface;
 	using Skyline.DataMiner.Core.DataMinerSystem.Common;
 	using Skyline.DataMiner.Net.Apps.Modules;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
-	using Skyline.DataMiner.Analytics.GenericInterface;
 
 	public static class DmsExtensions
 	{

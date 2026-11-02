@@ -165,7 +165,7 @@
 			return false;
 		}
 
-		private ServiceItemLinkMap CreateLinkMapFromPair((Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement.Models.ServiceItem, Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement.Models.ServiceItem) pair)
+		private ServiceItemLinkMap CreateLinkMapFromPair((Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement.ServiceItem, Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement.ServiceItem) pair)
 		{
 			var links = _model.FindRelationshipsBetweenPair(_serviceInstance, pair);
 

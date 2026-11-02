@@ -9,11 +9,11 @@
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Net.Apps.DataMinerObjectModel;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
 
 	using SLC_SM_IAS_Add_Service_Order_1.Views;
+	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 
 	public class ServiceOrderPresenter
 	{
@@ -33,7 +33,7 @@
 			instanceToReturn = new Models.ServiceOrder
 			{
 				ContactIds = new List<Guid>(),
-				OrderItems = new List<Models.ServiceOrderItems>(),
+				OrderItems = new List<Models.ServiceOrderEntry>(),
 			};
 
 			view.TboxName.Changed += (sender, args) => ValidateLabel(args.Value);
@@ -79,17 +79,17 @@
 
 			// Load correct types
 			view.Priority.SetOptions(
-				new List<Option<SlcServicemanagementIds.Enums.ServiceorderpriorityEnum>>
+				new List<Option<SlcServicemanagementIds.Enums.ServiceOrderPriorityEnum>>
 				{
-					new Option<SlcServicemanagementIds.Enums.ServiceorderpriorityEnum>(
+					new Option<SlcServicemanagementIds.Enums.ServiceOrderPriorityEnum>(
 						SlcServicemanagementIds.Enums.Serviceorderpriority.High,
-						SlcServicemanagementIds.Enums.ServiceorderpriorityEnum.High),
-					new Option<SlcServicemanagementIds.Enums.ServiceorderpriorityEnum>(
+						SlcServicemanagementIds.Enums.ServiceOrderPriorityEnum.High),
+					new Option<SlcServicemanagementIds.Enums.ServiceOrderPriorityEnum>(
 						SlcServicemanagementIds.Enums.Serviceorderpriority.Medium,
-						SlcServicemanagementIds.Enums.ServiceorderpriorityEnum.Medium),
-					new Option<SlcServicemanagementIds.Enums.ServiceorderpriorityEnum>(
+						SlcServicemanagementIds.Enums.ServiceOrderPriorityEnum.Medium),
+					new Option<SlcServicemanagementIds.Enums.ServiceOrderPriorityEnum>(
 						SlcServicemanagementIds.Enums.Serviceorderpriority.Low,
-						SlcServicemanagementIds.Enums.ServiceorderpriorityEnum.Low),
+						SlcServicemanagementIds.Enums.ServiceOrderPriorityEnum.Low),
 				});
 
 			var orgOptions = new List<Option<OrganizationsInstance>> { new Option<OrganizationsInstance>("-None-", null) };
@@ -102,12 +102,12 @@
 					.ToArray();
 				orgOptions.AddRange(orgInstances.Select(x => new Option<OrganizationsInstance>(x.Name, x)));
 				peopleInstances = orgDomHelper.DomInstances.Read(DomInstanceExposers.DomDefinitionId.Equal(SlcPeople_OrganizationsIds.Definitions.People.Id))
-				.Select(x => new PeopleInstance(x))
-				.ToArray();
+					.Select(x => new PeopleInstance(x))
+					.ToArray();
 			}
 			else
 			{
-				peopleInstances = new PeopleInstance[0];
+				peopleInstances = Array.Empty<PeopleInstance>();
 			}
 
 			view.Org.SetOptions(orgOptions);
@@ -127,6 +127,8 @@
 			view.TboxName.Text = instance.Name;
 			view.TboxName.PlaceHolder = instance.OrderId;
 			view.OrderId.Text = instance.OrderId;
+			view.ExternalId.Text = instance.ExternalID ?? String.Empty;
+			view.Description.Text = instance.Description ?? String.Empty;
 			if (instance.CompletionInfo?.RequestedStartDate != null)
 			{
 				view.CompletedByStart.DateTime = instance.CompletionInfo.RequestedStartDate.Value;

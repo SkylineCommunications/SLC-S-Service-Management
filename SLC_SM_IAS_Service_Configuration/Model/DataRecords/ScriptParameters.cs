@@ -1,4 +1,4 @@
-﻿namespace SLC_SM_IAS_Service_Configuration.Model.DataRecords
+namespace SLC_SM_IAS_Service_Configuration.Model.DataRecords
 {
 	using Newtonsoft.Json;
 

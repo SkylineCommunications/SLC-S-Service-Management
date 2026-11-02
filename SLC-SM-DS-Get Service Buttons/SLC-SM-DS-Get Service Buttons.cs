@@ -5,10 +5,10 @@ namespace SLCSMDSGetServiceButtons
 	using System.Linq;
 	using Skyline.DataMiner.Analytics.GenericInterface;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
 	using SLC_SM_Common.Extensions;
 	using static DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Service_Behavior;
+	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 
 	/// <summary>
 	///     Represents a data source.
@@ -19,14 +19,6 @@ namespace SLCSMDSGetServiceButtons
 	{
 		private const string DataSourceName = "SLC-SM-DS-Get Service Buttons";
 
-		private static readonly List<TransitionsEnum> UnHappyFlows = new List<TransitionsEnum>
-		{
-			TransitionsEnum.New_To_Retired,
-			TransitionsEnum.Reserved_To_Retired,
-			TransitionsEnum.Designed_To_Retired,
-			TransitionsEnum.Terminated_To_Active,
-		};
-
 		private static readonly Dictionary<TransitionsEnum, string> ButtonNames = new Dictionary<TransitionsEnum, string>
 		{
 			{ TransitionsEnum.New_To_Designed, "Design" },
@@ -34,16 +26,13 @@ namespace SLCSMDSGetServiceButtons
 			{ TransitionsEnum.Reserved_To_Active, "Activate" },
 			{ TransitionsEnum.Active_To_Terminated, "Terminate" },
 			{ TransitionsEnum.Terminated_To_Retired, "Retire" },
-			{ TransitionsEnum.New_To_Retired, "Retire" },
-			{ TransitionsEnum.Designed_To_Retired, "Retire" },
-			{ TransitionsEnum.Reserved_To_Retired, "Retire" },
-			{ TransitionsEnum.Terminated_To_Active, "Activate" },
 		};
 
 		private readonly GQIStringArgument serviceReferenceArg = new GQIStringArgument("ServiceReference") { IsRequired = true };
 		private Guid serviceReference;
 		private GQIDMS _dms;
 		private IGQILogger _logger;
+		private IServiceManagementApiHelper _serviceManagementApiHelper;
 
 		public GQIColumn[] GetColumns()
 		{
@@ -85,6 +74,7 @@ namespace SLCSMDSGetServiceButtons
 			_dms = args.DMS;
 			_logger = args.Logger;
 			_logger.MinimumLogLevel = GQILogLevel.Debug;
+			_serviceManagementApiHelper = new ServiceManagementApiHelper(_dms.GetConnection(), "Service Inventory");
 			return default;
 		}
 
@@ -100,7 +90,9 @@ namespace SLCSMDSGetServiceButtons
 				var service = _logger.PerformanceLogger(
 					"Get Service",
 					() =>
-						new DataHelperService(_dms.GetConnection()).Read(ServiceExposers.Guid.Equal(serviceReference)).FirstOrDefault()
+						_serviceManagementApiHelper.ServiceInventory.Services
+							.Read(Models.ServiceExposers.Identifier.Equal(serviceReference.ToString()))
+							.FirstOrDefault()
 						?? throw new NotSupportedException($"Could not find a service with ID {serviceReference}"));
 				StatusesEnum currentState = service.Status;
 
@@ -121,7 +113,7 @@ namespace SLCSMDSGetServiceButtons
 										new GQICell { Value = "Service_StateTransitions" },
 										new GQICell { Value = currentState.ToString() },
 										new GQICell { Value = transition.ToString().Split('_').Last() },
-										new GQICell { Value = !UnHappyFlows.Contains(transition) },
+										new GQICell { Value = true },
 									}))
 							.ToList();
 

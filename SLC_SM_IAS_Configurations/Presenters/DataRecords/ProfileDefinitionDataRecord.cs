@@ -16,16 +16,6 @@
 	{
 		public ProfileDefinitionDataRecord(Models.ProfileDefinition profileDefinition, State initialState, RecordType type)
 		{
-			if (profileDefinition.Scripts == null)
-			{
-				profileDefinition.Scripts = new List<Models.Script>();
-			}
-
-			if (profileDefinition.ProfileDefinitions == null)
-			{
-				profileDefinition.ProfileDefinitions = new List<Models.ReferencedProfileDefinitions>();
-			}
-
 			if (profileDefinition.ConfigurationParameters == null)
 			{
 				profileDefinition.ConfigurationParameters = new List<Models.ReferencedConfigurationParameters>();

@@ -14,8 +14,10 @@ namespace SLC_SM_GQIDS_Get_Service_Item_Infos
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
 
 	using SLC_SM_Common.Extensions;
+	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 
 	/// <summary>
 	///     Represents a data source.
@@ -32,6 +34,7 @@ namespace SLC_SM_GQIDS_Get_Service_Item_Infos
 		private Guid instanceDomId;
 
 		private IGQILogger _logger;
+		private IServiceManagementApiHelper _serviceManagementApiHelper;
 
 		public GQIColumn[] GetColumns()
 		{
@@ -83,6 +86,7 @@ namespace SLC_SM_GQIDS_Get_Service_Item_Infos
 			_dms = args.DMS;
 			_logger = args.Logger;
 			_logger.MinimumLogLevel = GQILogLevel.Debug;
+			_serviceManagementApiHelper = new ServiceManagementApiHelper(_dms.GetConnection(), "Service Inventory");
 			return default;
 		}
 
@@ -110,23 +114,24 @@ namespace SLC_SM_GQIDS_Get_Service_Item_Infos
 				return Array.Empty<GQIRow>();
 			}
 
-			DataHelpersServiceManagement helpers = new DataHelpersServiceManagement(_dms.GetConnection());
-			Models.Service service = helpers.Services.Read(ServiceExposers.Guid.Equal(instanceDomId)).FirstOrDefault();
+			Models.Service service = _serviceManagementApiHelper.ServiceInventory.Services
+				.Read(Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement.ServiceExposers.Identifier.Equal(instanceDomId.ToString()))
+				.FirstOrDefault();
 			if (service == null)
 			{
 				return Array.Empty<GQIRow>();
 			}
 
-			string spec = String.Empty;
-			if (service.ServiceSpecificationId.HasValue)
-			{
-				spec = helpers.ServiceSpecifications.Read(ServiceSpecificationExposers.Guid.Equal(service.ServiceSpecificationId.Value)).FirstOrDefault()?.Name ?? String.Empty;
-			}
+			var legacyService = new DataHelperService(_dms.GetConnection()).Read(ServiceExposers.Guid.Equal(instanceDomId)).FirstOrDefault();
+
+			string spec = GetSpecificationName(service.ServiceSpecificationId);
+			string category = GetCategoryName(service.CategoryId);
+			string configurationVersion = GetConfigurationVersionName(service.ServiceConfigurationId);
 
 			string org = String.Empty;
-			if (service.OrganizationId.HasValue && _dms.DomModelExists(SlcPeople_OrganizationsIds.ModuleId))
+			if (legacyService?.OrganizationId.HasValue == true && _dms.DomModelExists(SlcPeople_OrganizationsIds.ModuleId))
 			{
-				org = new DataHelpersPeopleAndOrganizations(_dms.GetConnection()).Organizations.Read(OrganizationExposers.Guid.Equal(service.OrganizationId.Value)).FirstOrDefault()?.Name ?? String.Empty;
+				org = new DataHelpersPeopleAndOrganizations(_dms.GetConnection()).Organizations.Read(OrganizationExposers.Guid.Equal(legacyService.OrganizationId.Value)).FirstOrDefault()?.Name ?? String.Empty;
 			}
 
 			string alarmLevel = String.Empty;
@@ -155,27 +160,68 @@ namespace SLC_SM_GQIDS_Get_Service_Item_Infos
 				}
 			}
 
+			var domObjectId = Guid.TryParse(service.Identifier, out var parsedId) ? parsedId : instanceDomId;
+
 			return new GQIRow[]
 			{
 				new GQIRow(
 					new[]
 					{
-						new GQICell { Value = service.ID.ToString() },
+						new GQICell { Value = service.Identifier ?? String.Empty },
 						new GQICell { Value = service.Name },
 						new GQICell { Value = service.Description ?? String.Empty },
 						new GQICell { Value = service.Icon ?? String.Empty },
 						new GQICell { Value = service.GenerateMonitoringService.GetValueOrDefault() },
 						new GQICell { Value = spec },
 						new GQICell { Value = org },
-						new GQICell { Value = service.Category?.Name ?? String.Empty },
+						new GQICell { Value = category },
 						new GQICell { Value = service.StartTime?.ToUniversalTime() },
 						new GQICell { Value = service.EndTime?.ToUniversalTime() },
 						new GQICell { Value = alarmLevel },
-						new GQICell { Value = service.ServiceConfiguration?.VersionName ?? String.Empty },
+						new GQICell { Value = configurationVersion },
 						new GQICell { Value = service.MonitoringService?? String.Empty, DisplayValue = serviceName },
 						new GQICell { Value = serviceName, DisplayValue = serviceName },
-					}) { Metadata = new GenIfRowMetadata(new[] { new ObjectRefMetadata { Object = new DomInstanceId(service.ID) { ModuleId = SlcServicemanagementIds.ModuleId } } }) },
+					}) { Metadata = new GenIfRowMetadata(new[] { new ObjectRefMetadata { Object = new DomInstanceId(domObjectId) { ModuleId = SlcServicemanagementIds.ModuleId } } }) },
 			};
+		}
+
+		private string GetCategoryName(Skyline.DataMiner.SDM.SdmObjectReference<Models.ServiceCategory> categoryReference)
+		{
+			if (String.IsNullOrWhiteSpace(categoryReference.Identifier))
+			{
+				return String.Empty;
+			}
+
+			return _serviceManagementApiHelper.ServiceCatalog.ServiceCategories
+				.Read(Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement.ServiceCategoryExposers.Identifier.Equal(categoryReference.Identifier))
+				.FirstOrDefault()
+				?.Name ?? String.Empty;
+		}
+
+		private string GetConfigurationVersionName(Skyline.DataMiner.SDM.SdmObjectReference<Models.ServiceConfigurationVersion> configurationReference)
+		{
+			if (String.IsNullOrWhiteSpace(configurationReference.Identifier))
+			{
+				return String.Empty;
+			}
+
+			return _serviceManagementApiHelper.ServiceInventory.ServiceConfigurationVersions
+				.Read(Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement.ServiceConfigurationVersionExposers.Identifier.Equal(configurationReference.Identifier))
+				.FirstOrDefault()
+				?.VersionName ?? String.Empty;
+		}
+
+		private string GetSpecificationName(Skyline.DataMiner.SDM.SdmObjectReference<Models.ServiceSpecification> specificationReference)
+		{
+			if (String.IsNullOrWhiteSpace(specificationReference.Identifier))
+			{
+				return String.Empty;
+			}
+
+			return _serviceManagementApiHelper.ServiceCatalog.ServiceSpecifications
+				.Read(Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement.ServiceSpecificationExposers.Identifier.Equal(specificationReference.Identifier))
+				.FirstOrDefault()
+				?.Name ?? String.Empty;
 		}
 	}
 }

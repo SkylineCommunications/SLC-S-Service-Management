@@ -1,0 +1,6 @@
+<Project>
+	<ItemGroup Condition="'$(DataMinerType)' == 'AutomationScript'">
+		<PackageReference Include="Skyline.DataMiner.Dev.Utils.SDM.Abstractions" Version="1.0.3" />
+		<PackageReference Include="Skyline.DataMiner.SDM.Registration.Common" Version="2.1.2" />
+	</ItemGroup>
+</Project>

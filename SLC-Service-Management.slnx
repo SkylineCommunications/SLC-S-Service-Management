@@ -10,6 +10,9 @@
     <Project Path="SLC_SM_AS_Execute Script/SLC_SM_AS_Execute Script.csproj" Id="59f786c4-3e31-4c52-b132-26326baf1c88">
       <Build Solution="Debug|*" Project="false" />
     </Project>
+    <Project Path="SLC_SM_AS_RegisterSolution/SLC_SM_AS_RegisterSolution.csproj">
+      <Build Solution="Debug|*" Project="false" />
+    </Project>
     <Project Path="SLC_SM_AS_Service Item ContextMenu Actions/SLC_SM_AS_Service Item ContextMenu Actions.csproj" />
     <Project Path="SLC_SM_AS_SetIcon/SLC_SM_AS_SetIcon.csproj" />
     <Project Path="SLC_SM_Create Job For Service Item/SLC_SM_Create Job For Service Item.csproj" />
@@ -31,6 +34,9 @@
     <Project Path="SLC-SM-DS-Get Service Buttons/SLC-SM-DS-Get Service Buttons.csproj" />
     <Project Path="SLC-SM-DS-Get Service Order Buttons/SLC-SM-DS-Get Service Order Buttons.csproj" />
     <Project Path="SLC-SM-DS-Get Service Order Item Buttons/SLC-SM-DS-Get Service Order Item Buttons.csproj" />
+    <Project Path="SLC_SM_DS_GetDocumentHubLogos/SLC_SM_DS_GetDocumentHubLogos.csproj">
+      <Build Solution="Debug|*" Project="false" />
+    </Project>
     <Project Path="SLC_SM_DS_GetNodeEdgeServices/SLC_SM_DS_GetNodeEdgeServices.csproj" />
     <Project Path="SLC_SM_DS_GetServiceByServiceType/SLC_SM_DS_GetServiceByServiceType.csproj" />
     <Project Path="SLC_SM_DS_GetServiceDetails/SLC_SM_DS_GetServiceDetails.csproj" />
@@ -68,6 +74,9 @@
     <File Path="Internal/Code Analysis/stylecop.json" />
   </Folder>
   <Folder Name="/Operators/">
+    <Project Path="Operators/SLC_SM_CO_RenameColumn/SLC_SM_CO_RenameColumn.csproj">
+      <Build Solution="Debug|*" Project="false" />
+    </Project>
     <Project Path="Service-Management-GQI-CustomOperator-HasValue/Service-Management-GQI-CustomOperator-HasValue.csproj" />
     <Project Path="SLC_SM_CO_GetCharacteristics/SLC_SM_CO_GetCharacteristics.csproj" />
     <Project Path="SLC_SM_CO_GetWorkflowIcon/SLC_SM_CO_GetWorkflowIcon.csproj" />

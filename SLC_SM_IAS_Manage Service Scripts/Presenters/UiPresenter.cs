@@ -3,22 +3,15 @@ namespace SLC_SM_IAS_Manage_Service_Scripts.Presenters
 	using System;
 	using System.Collections.Generic;
 	using System.Linq;
-
 	using Newtonsoft.Json;
-
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
-
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM;
-
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
 	using Skyline.DataMiner.Utils.SecureCoding.SecureSerialization.Json.Newtonsoft;
-
 	using SLC_SM_IAS_Manage_Service_Scripts.Model;
 	using SLC_SM_IAS_Manage_Service_Scripts.Views;
-
-	using static Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement.Models;
 	using static SLC_SM_IAS_Manage_Service_Scripts.Views.ServiceScriptDialog;
+	using SdmModels = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 
 	internal sealed class UiPresenter
 	{
@@ -35,16 +28,16 @@ namespace SLC_SM_IAS_Manage_Service_Scripts.Presenters
 		{
 			data.ValidateInputParameters();
 
-			var helper = new DataHelperService(engine.GetUserConnection());
+			var helper = new ServiceManagementApiHelper(engine.GetUserConnection(), engine.UserLoginName);
 			var service = GetService(helper);
-			var scripts = service.ServiceScripts ?? new List<ServiceScripts>();
+			var scripts = service.ServiceScripts ?? new List<SdmModels.ServiceScript>();
 			if (!TryExecuteAction(scripts, service.ServiceID))
 			{
 				return;
 			}
 
 			service.ServiceScripts = scripts;
-			helper.CreateOrUpdate(service);
+			helper.ServiceInventory.Services.Update(service);
 		}
 
 		private static string SerializeInputParameters(Dictionary<string, string> parameters)
@@ -74,14 +67,16 @@ namespace SLC_SM_IAS_Manage_Service_Scripts.Presenters
 			}
 		}
 
-		private Models.Service GetService(DataHelperService helper)
+		private SdmModels.Service GetService(ServiceManagementApiHelper helper)
 		{
 			if (!Guid.TryParse(data.ServiceId, out var serviceGuid))
 			{
 				throw new InvalidOperationException($"Invalid service Id '{data.ServiceId}'.");
 			}
 
-			var service = helper.Read(ServiceExposers.Guid.Equal(serviceGuid)).SingleOrDefault();
+			var service = helper.ServiceInventory.Services
+				.Read(Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement.ServiceExposers.Identifier.Equal(serviceGuid.ToString()))
+				.SingleOrDefault();
 			if (service == null)
 			{
 				throw new InvalidOperationException($"No service found with Id '{data.ServiceId}'.");
@@ -90,7 +85,7 @@ namespace SLC_SM_IAS_Manage_Service_Scripts.Presenters
 			return service;
 		}
 
-		private bool TryExecuteAction(List<ServiceScripts> scripts, string serviceId)
+		private bool TryExecuteAction(List<SdmModels.ServiceScript> scripts, string serviceId)
 		{
 			switch (data.Action)
 			{
@@ -105,12 +100,12 @@ namespace SLC_SM_IAS_Manage_Service_Scripts.Presenters
 			}
 		}
 
-		private bool RemoveScript(List<ServiceScripts> scripts)
+		private bool RemoveScript(List<SdmModels.ServiceScript> scripts)
 		{
 			return scripts.RemoveAll(existing => String.Equals(existing.Description, data.ScriptDescription, StringComparison.OrdinalIgnoreCase)) > 0;
 		}
 
-		private bool AddScript(List<ServiceScripts> scripts, string serviceId)
+		private bool AddScript(List<SdmModels.ServiceScript> scripts, string serviceId)
 		{
 			var existingDescriptions = scripts
 				.Select(s => s.Description)
@@ -133,7 +128,7 @@ namespace SLC_SM_IAS_Manage_Service_Scripts.Presenters
 			return true;
 		}
 
-		private bool UpdateScript(List<ServiceScripts> scripts, string serviceId)
+		private bool UpdateScript(List<SdmModels.ServiceScript> scripts, string serviceId)
 		{
 			var existingIndex = scripts.FindIndex(existing => String.Equals(existing.Description, data.ScriptDescription, StringComparison.OrdinalIgnoreCase));
 			if (existingIndex < 0)
@@ -162,10 +157,10 @@ namespace SLC_SM_IAS_Manage_Service_Scripts.Presenters
 			return true;
 		}
 
-		private ServiceScripts GetScriptFromDialog(
+		private SdmModels.ServiceScript GetScriptFromDialog(
 			string dialogTitle,
 			string dialogInfoText,
-			ServiceScripts current,
+			SdmModels.ServiceScript current,
 			string serviceId,
 			IEnumerable<string> existingDescriptions,
 			string excludedDescription)
@@ -193,7 +188,7 @@ namespace SLC_SM_IAS_Manage_Service_Scripts.Presenters
 
 			var inputParams = dialog.GetInputParameterValues();
 
-			return new ServiceScripts
+			return new SdmModels.ServiceScript
 			{
 				Name = dialog.ScriptName.Selected?.Trim(),
 				Description = dialog.Description.Text?.Trim(),
@@ -201,7 +196,7 @@ namespace SLC_SM_IAS_Manage_Service_Scripts.Presenters
 			};
 		}
 
-		private void InitializeDialogForUpdate(ServiceScriptsDialog dialog, IEnumerable<string> availableScripts, ServiceScripts current)
+		private void InitializeDialogForUpdate(ServiceScriptsDialog dialog, IEnumerable<string> availableScripts, SdmModels.ServiceScript current)
 		{
 			var scriptMatch = availableScripts.FirstOrDefault(script => String.Equals(script, current.Name, StringComparison.OrdinalIgnoreCase));
 			dialog.Description.Text = current.Description ?? String.Empty;

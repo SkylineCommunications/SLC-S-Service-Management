@@ -14,17 +14,16 @@ namespace SLC_SM_Delete_Service
 {
 	using System;
 	using System.Collections.Generic;
-	using Library.Dom;
+	using System.Linq;
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Core.DataMinerSystem.Automation;
 	using Skyline.DataMiner.Core.DataMinerSystem.Common;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.IAS;
 	using SLC_SM_Common.Extensions;
+	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 
 	/// <summary>
 	///     Represents a DataMiner Automation script.
@@ -85,40 +84,57 @@ namespace SLC_SM_Delete_Service
 				return;
 			}
 
-			var serviceManagementHelper = new DataHelpersServiceManagement(_engine.GetUserConnection());
+			var serviceManagementHelper = new ServiceManagementApiHelper(_engine.GetUserConnection(), "Service Inventory");
 			var dms = _engine.GetDms();
+			var selectedIds = new HashSet<string>(domIdList.Select(id => id.ToString()), StringComparer.OrdinalIgnoreCase);
 
-			FilterElement<Models.Service> filter = new ORFilterElement<Models.Service>();
-			foreach (Guid domId in domIdList)
-			{
-				filter = filter.OR(ServiceExposers.Guid.Equal(domId));
-			}
+			var services = serviceManagementHelper.ServiceInventory.Services
+				.Read(new TRUEFilterElement<Models.Service>())
+				.Where(service => !String.IsNullOrEmpty(service.Identifier) && selectedIds.Contains(service.Identifier))
+				.ToList();
 
-			var services = !filter.isEmpty() ? serviceManagementHelper.Services.Read(filter) : new List<Models.Service>();
 			foreach (var service in services)
 			{
 				RemoveService(dms, serviceManagementHelper, service);
 			}
 		}
 
-		private void RemoveService(IDms dms, DataHelpersServiceManagement serviceManagementHelper, Models.Service service)
+		private void RemoveService(IDms dms, ServiceManagementApiHelper serviceManagementHelper, Models.Service service)
 		{
 			if (service.GenerateMonitoringService == true && dms.ServiceExistsSafe(service.Name, out IDmsService dmsService))
 			{
 				dmsService.Delete();
 			}
 
-			_engine.GenerateInformation($"Service that will be removed: {service.ID}/{service.Name}");
+			_engine.GenerateInformation($"Service that will be removed: {service.Identifier}/{service.Name}");
 
-			foreach (Models.ServiceItem serviceItem in service.ServiceItems)
+			foreach (var serviceItem in service.ServiceItems)
 			{
-				if (serviceItem.LinkedReferenceStillActive(_engine))
+				if (HasActiveLinkedReference(serviceManagementHelper, serviceItem))
 				{
 					return;
 				}
 			}
 
-			serviceManagementHelper.Services.TryDelete(service);
+			serviceManagementHelper.ServiceInventory.Services.Delete(service);
+		}
+
+		private static bool HasActiveLinkedReference(ServiceManagementApiHelper serviceManagementHelper, Models.ServiceItem serviceItem)
+		{
+			if (!Guid.TryParse(serviceItem.ImplementationReference, out Guid refId) || refId == Guid.Empty)
+			{
+				return false;
+			}
+
+			var itemType = serviceItem.Type?.ToString();
+			if (!String.Equals(itemType, "Service", StringComparison.OrdinalIgnoreCase))
+			{
+				return false;
+			}
+
+			return serviceManagementHelper.ServiceInventory.Services
+				.Read(Models.ServiceExposers.Identifier.Equal(refId.ToString()))
+				.Any();
 		}
 	}
 }

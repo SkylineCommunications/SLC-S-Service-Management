@@ -4,15 +4,15 @@ namespace SLCSMTakeOwnership
 	using System.Linq;
 	using DomHelpers.SlcPeople_Organizations;
 
-	using Library.Ownership;
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.PeopleAndOrganization;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.IAS;
-	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement.Models;
+	using ServiceOrderExposers = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement.ServiceOrderExposers;
 
 	/// <summary>
 	/// Represents a DataMiner Automation script.
@@ -67,8 +67,8 @@ namespace SLCSMTakeOwnership
 		{
 			Guid domId = _engine.ReadScriptParamFromApp<Guid>("DOM ID");
 
-			var helper = new DataHelperServiceOrder(_engine.GetUserConnection());
-			var order = helper.Read(ServiceOrderExposers.Guid.Equal(domId)).FirstOrDefault();
+			var helper = _engine.GetUserConnection().GetServiceManagementApiHelper("Service Ordering");
+			var order = helper.ServiceOrder.ServiceOrders.Read(ServiceOrderExposers.Identifier.Equal(domId.ToString())).FirstOrDefault();
 			if (order == null)
 			{
 				throw new NotSupportedException($"No Order exists on the system for the given ID '{domId}'");
@@ -89,29 +89,33 @@ namespace SLCSMTakeOwnership
 				return;
 			}
 
-			TakeOwnership(helper, order);
+			TakeOwnership(helper, order, person?.ID);
 		}
 
-		private void TakeOwnership(DataHelperServiceOrder helper, Models.ServiceOrder order)
+		private void TakeOwnership(IServiceManagementApiHelper helper, ServiceOrder order, Guid? ownerId)
 		{
 			if (!_engine.ShowConfirmDialog($"Are you sure to you want to take ownership?"))
 			{
 				return;
 			}
 
-			order.TakeOwnershipForOrder(_engine);
-			helper.CreateOrUpdate(order);
+			UpdateOwner(helper, order, ownerId);
 		}
 
-		private void ReleaseOwnership(DataHelperServiceOrder helper, Models.ServiceOrder order)
+		private void ReleaseOwnership(IServiceManagementApiHelper helper, ServiceOrder order)
 		{
 			if (!_engine.ShowConfirmDialog($"Are you sure to you want to release ownership?"))
 			{
 				return;
 			}
 
-			order.Owner = default(Guid?);
-			helper.CreateOrUpdate(order);
+			UpdateOwner(helper, order, default(Guid?));
+		}
+
+		private void UpdateOwner(IServiceManagementApiHelper helper, ServiceOrder order, Guid? ownerId)
+		{
+			order.Owner = ownerId;
+			helper.ServiceOrder.ServiceOrders.Update(order);
 		}
 	}
 }

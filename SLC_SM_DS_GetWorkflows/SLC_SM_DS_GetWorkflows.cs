@@ -19,9 +19,7 @@ namespace SLCSMDSGetWorkflows
 	using DomHelpers.SlcWorkflow;
 	using Library.Dom;
 	using Skyline.DataMiner.Analytics.GenericInterface;
-	using Skyline.DataMiner.Net.Apps.DataMinerObjectModel;
 	using Skyline.DataMiner.Net.Messages;
-	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using SLC_SM_Common.Extensions;
 
 	/// <summary>

@@ -27,8 +27,6 @@
 			get => base.Record as ProfileDefinitionDataRecord;
 			set => base.Record = value;
 		}
-
-		public IList<Models.ProfileDefinition> ReferenceOptions { get; set; }
 	}
 
 	public class ConfigurationRowData : RowData

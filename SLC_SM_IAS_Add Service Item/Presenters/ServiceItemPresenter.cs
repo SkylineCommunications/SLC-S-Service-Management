@@ -5,20 +5,19 @@
 	using System.Linq;
 	using DomHelpers.SlcServicemanagement;
 	using DomHelpers.SlcWorkflow;
+	using Library.Dom;
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Net.Apps.DataMinerObjectModel;
 	using Skyline.DataMiner.Net.Messages;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.Net.ResourceManager.Objects;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.ServiceManagement;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
-	using Skyline.DataMiner.Utils.MediaOps.Common.IOData.Scheduling.Scripts.JobHandler;
-	using Skyline.DataMiner.Utils.MediaOps.Helpers.Workflows;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
 	using SLC_SM_Common.Extensions;
 	using SLC_SM_IAS_Add_Service_Item.ScriptModels;
 	using SLC_SM_IAS_Add_Service_Item.Views;
+	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 
 	public class ServiceItemPresenter
 	{
@@ -28,8 +27,9 @@
 		private readonly List<Models.Service> services = new List<Models.Service>();
 		private readonly List<Models.ServiceSpecification> specifications = new List<Models.ServiceSpecification>();
 		private readonly ServiceItemView view;
+		private readonly IServiceManagementApiHelper api;
 		private List<Option<string>> _allScripts;
-		private Workflow[] _workflows;
+		private WorkflowsInstance[] _workflows;
 		private Dictionary<string, List<ServiceReservationInstance>> bookings = new Dictionary<string, List<ServiceReservationInstance>>();
 
 		public ServiceItemPresenter(IEngine engine, ServiceItemView view, string[] getServiceItemLabels, IScriptModel scriptModel)
@@ -38,31 +38,32 @@
 			this.view = view;
 			this.getServiceItemLabels = getServiceItemLabels;
 			this._scriptModel = scriptModel;
+			this.api = engine.GetUserConnection().GetServiceManagementApiHelper(engine.UserLoginName);
 
 			bool workflowTypeAvailable = engine.DomModelExists(SlcWorkflowIds.ModuleId,new[] {SlcWorkflowIds.Sections.WorkflowInfo.Id.Id});
 			bool srmBookingTypeAvailable = engine.IsSrmInstalled();
 
 			// Load correct types
 			view.ServiceItemType.SetOptions(
-				new List<Option<SlcServicemanagementIds.Enums.ServiceitemtypesEnum>>
+				new List<Option<SlcServicemanagementIds.Enums.ServiceItemTypesEnum>>
 				{
-					new Option<SlcServicemanagementIds.Enums.ServiceitemtypesEnum>(
+					new Option<SlcServicemanagementIds.Enums.ServiceItemTypesEnum>(
 						SlcServicemanagementIds.Enums.Serviceitemtypes.Service,
-						SlcServicemanagementIds.Enums.ServiceitemtypesEnum.Service),
+						SlcServicemanagementIds.Enums.ServiceItemTypesEnum.Service),
 				});
 
 			if (workflowTypeAvailable)
 			{
-				view.ServiceItemType.AddOption(new Option<SlcServicemanagementIds.Enums.ServiceitemtypesEnum>(
+				view.ServiceItemType.AddOption(new Option<SlcServicemanagementIds.Enums.ServiceItemTypesEnum>(
 						SlcServicemanagementIds.Enums.Serviceitemtypes.Workflow,
-						SlcServicemanagementIds.Enums.ServiceitemtypesEnum.Workflow));
+						SlcServicemanagementIds.Enums.ServiceItemTypesEnum.Workflow));
 			}
 
 			if (srmBookingTypeAvailable)
 			{
-				view.ServiceItemType.AddOption(new Option<SlcServicemanagementIds.Enums.ServiceitemtypesEnum>(
+				view.ServiceItemType.AddOption(new Option<SlcServicemanagementIds.Enums.ServiceItemTypesEnum>(
 						SlcServicemanagementIds.Enums.Serviceitemtypes.SRMBooking,
-						SlcServicemanagementIds.Enums.ServiceitemtypesEnum.SRMBooking));
+						SlcServicemanagementIds.Enums.ServiceItemTypesEnum.SRMBooking));
 			}
 
 			view.TboxLabel.Changed += (sender, args) => ValidateLabel(args.Value);
@@ -89,20 +90,30 @@
 		public Models.ServiceItem Section => new Models.ServiceItem
 		{
 			Label = Name,
-			Type = view.ServiceItemType.Selected,
+			Type = GetSelectedServiceItemType(),
 			DefinitionReference = view.DefinitionReferences.Selected ?? String.Empty,
 			Script = view.ScriptSelection.Selected ?? String.Empty,
 			ImplementationReference = GetImplementationReference(),
 		};
 
-		public Workflow[] WorkFlows
+		private SlcServicemanagementIds.Enums.ServiceItemTypesEnum GetSelectedServiceItemType()
+		{
+			var selectedType = view.ServiceItemType.Selected;
+			if (view.ServiceItemType.Options.Any(o => o.Value.Equals(selectedType)))
+			{
+				return selectedType;
+			}
+
+			return SlcServicemanagementIds.Enums.ServiceItemTypesEnum.Service;
+		}
+
+		public WorkflowsInstance[] WorkFlows
 		{
 			get
 			{
 				if (_workflows == null)
 				{
-					var workflowHelper = new WorkflowHelper(engine);
-					_workflows = workflowHelper.GetAllWorkflows().ToArray();
+					_workflows = WorkflowExtensions.GetWorkflows(engine.SendSLNetMessages).ToArray();
 				}
 
 				return _workflows;
@@ -122,8 +133,8 @@
 			view.BtnAdd.Text = "Save";
 			view.TboxLabel.Text = section.Label;
 
-			view.ServiceItemType.Selected = section.Type;
-			engine.PerformanceLogger("Update Service Item Type", () => OnUpdateServiceItemType(section.Type));
+			view.ServiceItemType.Selected = section.Type ?? SlcServicemanagementIds.Enums.ServiceItemTypesEnum.Service;
+			engine.PerformanceLogger("Update Service Item Type", () => OnUpdateServiceItemType(section.Type ?? SlcServicemanagementIds.Enums.ServiceItemTypesEnum.Service));
 
 			if (!String.IsNullOrEmpty(section.DefinitionReference))
 			{
@@ -133,9 +144,9 @@
 
 			if (!String.IsNullOrEmpty(section.ImplementationReference))
 			{
-				if (services.Exists(s => s.ID.ToString() == section.ImplementationReference))
+				if (services.Exists(s => s.Identifier == section.ImplementationReference))
 				{
-					view.ImplementationReferences.Selected = GetServiceDropDownLabel(services.Find(s => s.ID.ToString() == section.ImplementationReference));
+					view.ImplementationReferences.Selected = GetServiceDropDownLabel(services.Find(s => s.Identifier == section.ImplementationReference));
 				}
 				else if (bookings.ContainsKey(view.DefinitionReferences.Selected) && bookings[view.DefinitionReferences.Selected].Exists(b => b.ID.ToString() == section.ImplementationReference))
 				{
@@ -155,7 +166,7 @@
 
 		public string UpdateJobForWorkFlow(string label)
 		{
-			if (view.ServiceItemType.Selected != SlcServicemanagementIds.Enums.ServiceitemtypesEnum.Workflow)
+			if (view.ServiceItemType.Selected != SlcServicemanagementIds.Enums.ServiceItemTypesEnum.Workflow)
 			{
 				return String.Empty;
 			}
@@ -166,19 +177,16 @@
 				return String.Empty;
 			}
 
-			var action = new EditJobAction
-			{
-				DomJobId = job.ID.Id,
-				End = _scriptModel.End,
-			};
+			job.JobInfo.JobEnd = _scriptModel.End;
 
-			// Only add start update if the job is not already running
+			// Keep existing behavior for start updates.
 			if (job.JobInfo.JobStart <= DateTime.UtcNow)
 			{
-				action.Start = _scriptModel.Start;
+				job.JobInfo.JobStart = _scriptModel.Start;
 			}
 
-			action.SendToJobHandler(engine, true);
+			var domWorkflowHelper = new DomHelper(engine.SendSLNetMessages, SlcWorkflowIds.ModuleId);
+			job.Save(domWorkflowHelper);
 
 			return job.ID.Id.ToString();
 		}
@@ -249,12 +257,12 @@
 
 		private string GetImplementationReference()
 		{
-			if (view.ServiceItemType.Selected == SlcServicemanagementIds.Enums.ServiceitemtypesEnum.Service)
+			if (view.ServiceItemType.Selected == SlcServicemanagementIds.Enums.ServiceItemTypesEnum.Service)
 			{
-				return services.Find(s => view.ImplementationReferences.Selected == GetServiceDropDownLabel(s))?.ID.ToString() ?? String.Empty;
+				return services.Find(s => view.ImplementationReferences.Selected == GetServiceDropDownLabel(s))?.Identifier ?? String.Empty;
 			}
 
-			if (view.ServiceItemType.Selected == SlcServicemanagementIds.Enums.ServiceitemtypesEnum.SRMBooking && bookings.ContainsKey(view.DefinitionReferences.Selected))
+			if (view.ServiceItemType.Selected == SlcServicemanagementIds.Enums.ServiceItemTypesEnum.SRMBooking && bookings.ContainsKey(view.DefinitionReferences.Selected))
 			{
 				return bookings[view.DefinitionReferences.Selected].Find(x => view.ImplementationReferences.Selected == GetBookingDropDownLabel(x))?.ID.ToString() ?? String.Empty;
 			}
@@ -274,7 +282,7 @@
 				.FirstOrDefault();
 		}
 
-		private void OnUpdateDefinitionReference(string selectedDefinitionReference, SlcServicemanagementIds.Enums.ServiceitemtypesEnum serviceItemType)
+		private void OnUpdateDefinitionReference(string selectedDefinitionReference, SlcServicemanagementIds.Enums.ServiceItemTypesEnum serviceItemType)
 		{
 			if (String.IsNullOrEmpty(selectedDefinitionReference))
 			{
@@ -286,7 +294,7 @@
 				return;
 			}
 
-			if (serviceItemType == SlcServicemanagementIds.Enums.ServiceitemtypesEnum.SRMBooking)
+			if (serviceItemType == SlcServicemanagementIds.Enums.ServiceItemTypesEnum.SRMBooking)
 			{
 				engine.PerformanceLogger("Update Impl. Ref. SRM Booking", () => UpdateImplementationReferenceForTypeSrmBooking(selectedDefinitionReference));
 				UpdateLabelPlaceholder(selectedDefinitionReference);
@@ -307,7 +315,7 @@
 
 				view.ScriptSelection.Selected = scriptName;
 			}
-			else if (serviceItemType == SlcServicemanagementIds.Enums.ServiceitemtypesEnum.Service)
+			else if (serviceItemType == SlcServicemanagementIds.Enums.ServiceItemTypesEnum.Service)
 			{
 				var selectedSpec = specifications.Find(s => s.Name == selectedDefinitionReference);
 				UpdateImplementationReferenceForTypeService(selectedSpec);
@@ -319,9 +327,9 @@
 			}
 		}
 
-		private void OnUpdateServiceItemType(SlcServicemanagementIds.Enums.ServiceitemtypesEnum serviceItemType)
+		private void OnUpdateServiceItemType(SlcServicemanagementIds.Enums.ServiceItemTypesEnum serviceItemType)
 		{
-			if (serviceItemType == SlcServicemanagementIds.Enums.ServiceitemtypesEnum.Workflow)
+			if (serviceItemType == SlcServicemanagementIds.Enums.ServiceItemTypesEnum.Workflow)
 			{
 				var workflowOptions = WorkFlows.Select(x => x.Name).OrderBy(x => x).ToList();
 				view.DefinitionReferences.SetOptions(workflowOptions);
@@ -333,11 +341,11 @@
 				view.ScriptSelection.SetOptions(new List<string>());
 				view.ScriptSelection.IsEnabled = false;
 			}
-			else if (serviceItemType == SlcServicemanagementIds.Enums.ServiceitemtypesEnum.Service)
+			else if (serviceItemType == SlcServicemanagementIds.Enums.ServiceItemTypesEnum.Service)
 			{
 				if (specifications.Count < 1)
 				{
-					specifications.AddRange(new DataHelperServiceSpecification(engine.GetUserConnection()).ReadBasicDetails());
+					specifications.AddRange(api.ServiceCatalog.ServiceSpecifications.Read(new TRUEFilterElement<Models.ServiceSpecification>()));
 				}
 
 				List<string> specOptions = specifications.Select(x => x.Name).OrderBy(x => x).ToList();
@@ -360,8 +368,8 @@
 				OnUpdateDefinitionReference(view.DefinitionReferences.Selected, serviceItemType);
 			}
 
-			view.LblImplementationReference.IsVisible = serviceItemType != SlcServicemanagementIds.Enums.ServiceitemtypesEnum.Workflow;
-			view.ImplementationReferences.IsVisible = serviceItemType != SlcServicemanagementIds.Enums.ServiceitemtypesEnum.Workflow;
+			view.LblImplementationReference.IsVisible = serviceItemType != SlcServicemanagementIds.Enums.ServiceItemTypesEnum.Workflow;
+			view.ImplementationReferences.IsVisible = serviceItemType != SlcServicemanagementIds.Enums.ServiceItemTypesEnum.Workflow;
 
 			UpdateLabelPlaceholder(view.DefinitionReferences.Selected);
 		}
@@ -371,16 +379,16 @@
 			services.Clear();
 			if (selectedSpec != null)
 			{
-				services.AddRange(new DataHelperService(engine.GetUserConnection()).ReadBasicDetails(ServiceExposers.ServiceSpecifcation.Equal(selectedSpec.ID)));
+				services.AddRange(api.ServiceInventory.Services.Read(new TRUEFilterElement<Models.Service>()).Where(service => service.ServiceSpecificationId.Identifier == selectedSpec.Identifier));
 			}
 			else
 			{
-				services.AddRange(new DataHelperService(engine.GetUserConnection()).ReadBasicDetails());
+				services.AddRange(api.ServiceInventory.Services.Read(new TRUEFilterElement<Models.Service>()));
 			}
 
 			DateTime? currentStart = _scriptModel.Start;
 			DateTime? currentEnd = _scriptModel.End;
-			var serviceOptions = services.Where(x => _scriptModel.ID != x.ID && FallsWithTimeRange(x, currentStart, currentEnd))
+			var serviceOptions = services.Where(x => _scriptModel.ID.ToString() != x.Identifier && FallsWithTimeRange(x, currentStart, currentEnd))
 				.Select(GetServiceDropDownLabel)
 				.OrderBy(s => s)
 				.ToList();

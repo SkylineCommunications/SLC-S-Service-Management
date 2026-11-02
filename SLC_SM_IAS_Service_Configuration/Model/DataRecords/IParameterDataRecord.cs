@@ -1,13 +1,28 @@
-﻿namespace SLC_SM_IAS_Service_Configuration.Presenters
+namespace SLC_SM_IAS_Service_Configuration.Presenters
 {
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.API.Configurations;
+	using System.Collections.Generic;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.Configurations;
 
 	internal interface IParameterDataRecord
 	{
-		Models.ConfigurationParameter ConfigurationParam { get; set; }
+		ConfigurationParameter ConfigurationParam { get; set; }
 
-		Models.ConfigurationParameterValue ConfigurationParamValue { get; set; }
+		ConfigurationParameterValue ConfigurationParamValue { get; set; }
 
-		ServiceConfigurationPresenter.State State { get; set; }
+		NumberParameterOptions NumberOptions { get; set; }
+
+		DiscreteParameterOptions DiscreteOptions { get; set; }
+
+		TextParameterOptions TextOptions { get; set; }
+
+		bool NumberOptionsPersisted { get; set; }
+
+		bool DiscreteOptionsPersisted { get; set; }
+
+		bool TextOptionsPersisted { get; set; }
+
+		List<ConfigurationUnit> Units { get; set; }
+
+		List<DiscreteValue> DiscreteValues { get; set; }
 	}
 }
