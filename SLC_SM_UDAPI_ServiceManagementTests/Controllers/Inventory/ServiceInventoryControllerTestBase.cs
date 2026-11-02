@@ -62,6 +62,8 @@
 
 		protected Mock<IServiceItemImplementations> ItemImplementations { get; private set; }
 
+		protected Mock<ILogger<ServiceInventoryController>> ControllerLogger { get; private set; }
+
 		protected Dictionary<Guid, string> OrganizationNames { get; private set; }
 
 		protected Dictionary<Guid, Guid> ServiceOrganizations { get; private set; }
@@ -134,10 +136,11 @@
 			Organizations.Setup(r => r.ReadServiceOrganizationIds(It.IsAny<IEnumerable<Guid>>())).Returns(() => ServiceOrganizations);
 
 			ItemImplementations = new Mock<IServiceItemImplementations>();
+			ControllerLogger = new Mock<ILogger<ServiceInventoryController>>();
 
 			// No live engine in unit tests; endpoints that need it (TransitionService side effects) are covered by integration tests.
 			Controller = new ServiceInventoryController(
-				Mock.Of<ILogger<ServiceInventoryController>>(),
+				ControllerLogger.Object,
 				helper.Object,
 				Mock.Of<IAccessor<Skyline.DataMiner.Automation.IEngine>>(a => a.Value == Mock.Of<Skyline.DataMiner.Automation.IEngine>()),
 				MonitoringServices.Object,

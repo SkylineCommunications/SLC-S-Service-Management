@@ -1,10 +1,12 @@
 ﻿namespace SLC_SM_UDAPI_ServiceManagement.Tests.Controllers
 {
 	using System.Collections.Generic;
+	using Microsoft.Extensions.Logging;
 	using Moq;
 	using Newtonsoft.Json.Linq;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 	using Skyline.DataMiner.SDM;
+	using SLDataGateway.API.Types.Querying;
 	using SLC_SM_UDAPI_ServiceManagement.Models;
 	using SLC_SM_UDAPI_ServiceManagement.Models.Inventory;
 
@@ -608,6 +610,23 @@
 
 			Assert.AreEqual(alpha.Identifier, (string)byName.Items.Single()["Identifier"]);
 			Assert.AreEqual(beta.Identifier, (string)byCategory.Items.Single()["Identifier"]);
+		}
+
+		[TestMethod]
+		public void ListServicesCursor_RepositoryError_LogsFullExceptionAndReturnsGeneric500()
+		{
+			Services.Setup(r => r.ReadPaged(It.IsAny<IQuery<Service>>(), It.IsAny<int>()))
+				.Throws(new NullReferenceException("search diagnostic"));
+
+			var result = Controller.ListServices(pagination: "cursor", search: "e");
+
+			Assert.AreEqual(500, StatusCode(result));
+			Assert.IsFalse(ErrorDetail(result).Contains("search diagnostic"));
+			var errorLog = ControllerLogger.Invocations.Single(call =>
+				call.Method.Name == nameof(ILogger.Log) && (LogLevel)call.Arguments[0] == LogLevel.Error);
+			var message = errorLog.Arguments[2].ToString();
+			StringAssert.Contains(message, "System.NullReferenceException: search diagnostic");
+			StringAssert.Contains(message, "   at ");
 		}
 
 		[TestMethod]
