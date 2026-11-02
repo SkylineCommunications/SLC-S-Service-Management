@@ -40,6 +40,8 @@
 
 		protected ServiceOrderController Controller { get; private set; }
 
+		protected IServiceManagementApiHelper Helper { get; private set; }
+
 		[TestInitialize]
 		public void BaseInitialize()
 		{
@@ -106,6 +108,7 @@
 				Mock.Of<ILogger<ServiceOrderController>>(),
 				helper.Object,
 				Mock.Of<IAccessor<Skyline.DataMiner.Automation.IEngine>>(a => a.Value == Mock.Of<Skyline.DataMiner.Automation.IEngine>()));
+			Helper = helper.Object;
 
 			AttachContext(Controller);
 		}

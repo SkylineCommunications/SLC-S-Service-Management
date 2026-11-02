@@ -3,6 +3,7 @@
 	using System.Collections.Generic;
 	using Moq;
 	using Newtonsoft.Json.Linq;
+	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 	using Skyline.DataMiner.SDM;
 	using SLC_SM_UDAPI_ServiceManagement.Models.Inventory;
@@ -352,6 +353,19 @@
 
 			CollectionAssert.AreEquivalent(new[] { "v1", "v1 (Copy)", "v1 (Copy 2)" }, StoredVersions.Select(version => version.VersionName).ToArray());
 			Assert.AreEqual(3, service.ConfigurationVersions.Count);
+		}
+
+		[TestMethod]
+		public void DuplicateConfigurationVersion_EmptyVersion_DoesNotLoadUnrelatedConfiguration()
+		{
+			var source = AddVersion(service, "v1");
+			var profiles = Mock.Get(Catalog.Object.Profiles);
+			var parameterValues = Mock.Get(Catalog.Object.ConfigurationParameterValues);
+
+			Assert.AreEqual(201, StatusCode(Controller.DuplicateConfigurationVersion(service.ServiceID, source.Identifier)));
+
+			profiles.Verify(r => r.Read(It.IsAny<FilterElement<Cfg.Profile>>()), Times.Never);
+			parameterValues.Verify(r => r.Read(It.IsAny<FilterElement<Cfg.ConfigurationParameterValue>>()), Times.Never);
 		}
 
 		[DataTestMethod]

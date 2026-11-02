@@ -47,6 +47,12 @@ namespace SLCSMMigrationImport.Migration
 			return plan;
 		}
 
+		/// <summary>
+		/// Validates and maps every exported instance. Runs before <see cref="ObsoleteDomCleanup"/> changes anything, so it already
+		/// treats the legacy definitions, sections and fields in <see cref="KnownIds"/> as removed, even while they are still on the target.
+		/// </summary>
+		/// <param name="export">The legacy export to migrate.</param>
+		/// <returns>The plan with one item per exported instance.</returns>
 		public MigrationPlan Plan(MigrationExport export)
 		{
 			var plan = new MigrationPlan();
@@ -422,6 +428,16 @@ namespace SLCSMMigrationImport.Migration
 			return target?.Name ?? fieldId.ToString();
 		}
 
+		private static bool IsOfRemovedDefinition(DomInstance instance)
+		{
+			return instance?.DomDefinitionId != null && KnownIds.RemovedDefinitions.ContainsKey(instance.DomDefinitionId.Id);
+		}
+
+		private bool ExistsAfterCleanup(string moduleId, Guid id)
+		{
+			return _lookup.Exists(moduleId, id) && !IsOfRemovedDefinition(_lookup.GetExisting(moduleId, id));
+		}
+
 		private bool IsKnownInLegacy(Guid sectionDefinitionId, Guid fieldId)
 		{
 			return _legacyFields.TryGetValue(sectionDefinitionId, out var fields) && fields.ContainsKey(fieldId);
@@ -459,6 +475,12 @@ namespace SLCSMMigrationImport.Migration
 		{
 			var definition = schema.GetDefinition(source.DefinitionId);
 			var existing = _lookup.GetExisting(item.ModuleId, source.Id);
+			if (IsOfRemovedDefinition(existing))
+			{
+				// Deleted by ObsoleteDomCleanup before the plan is executed.
+				existing = null;
+			}
+
 			if (existing != null && existing.DomDefinitionId?.Id != source.DefinitionId)
 			{
 				item.Fail($"An instance with ID {source.Id} already exists on the target with another definition ({existing.DomDefinitionId?.Id}). It is left untouched.");
@@ -521,7 +543,10 @@ namespace SLCSMMigrationImport.Migration
 			string sectionName = GetSectionName(schema, sectionDefinitionId);
 			var fields = (exported.Fields ?? new List<ExportedField>()).Where(HasValue).ToList();
 
-			if (schema.GetSectionDefinition(sectionDefinitionId) == null || !schema.IsSectionLinked(definition, sectionDefinitionId))
+			// Legacy parts can still be on the target: the plan is built before ObsoleteDomCleanup removes them.
+			if (KnownIds.RemovedSections.ContainsKey(sectionDefinitionId)
+				|| schema.GetSectionDefinition(sectionDefinitionId) == null
+				|| !schema.IsSectionLinked(definition, sectionDefinitionId))
 			{
 				foreach (var field in fields)
 				{
@@ -547,7 +572,7 @@ namespace SLCSMMigrationImport.Migration
 				var target = schema.GetField(sectionDefinitionId, field.FieldId);
 				string fieldName = GetFieldName(sectionDefinitionId, field.FieldId, target);
 
-				if (target == null)
+				if (target == null || KnownIds.RemovedFields.ContainsKey(field.FieldId))
 				{
 					AddDropped(item, sectionName, fieldName, Describe(field), "Field was removed in the new model.");
 					continue;
@@ -615,7 +640,7 @@ namespace SLCSMMigrationImport.Migration
 				{
 					item.References.Add(key);
 				}
-				else if (id != Guid.Empty && !_lookup.Exists(referencedModule, id))
+				else if (id != Guid.Empty && !ExistsAfterCleanup(referencedModule, id))
 				{
 					// Dangling reference in the legacy data: the referenced instance was deleted on the source system.
 					AddDropped(item, sectionName, fieldName, id.ToString(), $"Referenced {referencedModule} instance does not exist in the export nor on this system (already deleted on the source system).");
@@ -775,7 +800,7 @@ namespace SLCSMMigrationImport.Migration
 			{
 				item.References.Add(key);
 			}
-			else if (!_lookup.Exists(moduleId, id))
+			else if (!ExistsAfterCleanup(moduleId, id))
 			{
 				item.Warnings.Add($"{label} '{id}' does not exist in {moduleId} on this system. The reference is kept as-is.");
 			}

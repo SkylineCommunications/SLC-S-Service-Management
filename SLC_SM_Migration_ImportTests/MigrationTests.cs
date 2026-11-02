@@ -12,6 +12,7 @@ namespace SLC_SM_Migration_ImportTests
 	using Cpv = SLCSMMigrationImport.Migration.KnownIds.ConfigurationParameterValue;
 	using ImportField = SLCSMMigrationImport.Migration.ExportedField;
 	using ImportInstance = SLCSMMigrationImport.Migration.ExportedInstance;
+	using ImportSection = SLCSMMigrationImport.Migration.ExportedSection;
 
 	[TestClass]
 	public class ValueCodecTests
@@ -308,6 +309,38 @@ namespace SLC_SM_Migration_ImportTests
 		}
 
 		[TestMethod]
+		public void LegacyModelStillOnTheTarget_IsTreatedAsRemoved_SoTheFullPlanIsValidatedBeforeCleanup()
+		{
+			_model = new TestModel(withLegacyParts: true);
+			Guid legacyOnlyOnTarget = Guid.NewGuid();
+			_lookup.Existing[new InstanceKey(TestModel.Smg, legacyOnlyOnTarget)] = LegacyInstance(legacyOnlyOnTarget);
+			var service = TestModel.Instance(
+				TestModel.ServiceDefinition,
+				"new",
+				TestModel.ServiceSection,
+				TestModel.Value(TestModel.ServiceName, "String", "My service"),
+				TestModel.Value(TestModel.LegacyField, "String", "protocol-a"),
+				TestModel.ListValue(TestModel.ServiceProperties, "Guid", legacyOnlyOnTarget.ToString()));
+			service.Sections.Add(new ImportSection { SectionId = Guid.NewGuid(), SectionDefinitionId = TestModel.LegacySection, Fields = { TestModel.Value(TestModel.LegacySectionField, "String", "legacy") } });
+
+			// Same ID as a target instance of a removed definition, which the cleanup deletes before the plan is executed.
+			var replacing = TestModel.Instance(TestModel.ServiceDefinition, "new", TestModel.ServiceSection, TestModel.Value(TestModel.ServiceName, "String", "Replacing"));
+			_lookup.Existing[new InstanceKey(TestModel.Smg, replacing.Id)] = LegacyInstance(replacing.Id);
+
+			var plan = Plan(smg: new[] { service, replacing });
+
+			var item = Item(plan, service);
+			Assert.AreEqual(PlannedAction.Create, item.Action);
+			Assert.AreEqual("My service", TestModel.GetValue(item.Desired, TestModel.ServiceName));
+			Assert.IsFalse(item.Desired.Sections.Any(s => s.SectionDefinitionID.Id == TestModel.LegacySection));
+			Assert.IsNull(TestModel.GetValue(item.Desired, TestModel.LegacyField));
+			Assert.IsNull(TestModel.GetValue(item.Desired, TestModel.ServiceProperties));
+			CollectionAssert.AreEquivalent(new[] { "protocol-a", "legacy", legacyOnlyOnTarget.ToString() }, item.DroppedData.Select(d => d.Value).ToArray());
+
+			Assert.AreEqual(PlannedAction.Create, Item(plan, replacing).Action);
+		}
+
+		[TestMethod]
 		public void MissingTargetModule_AbortsTheWholeImport()
 		{
 			_model.Schemas[TestModel.Config] = new TargetModuleSchema(TestModel.Config, null, null, null);
@@ -392,6 +425,15 @@ namespace SLC_SM_Migration_ImportTests
 
 		private static PlannedItem Item(MigrationPlan plan, ImportInstance instance) => plan.Items.Single(i => i.InstanceId == instance.Id);
 
+		private static DomInstance LegacyInstance(Guid id)
+		{
+			return new DomInstance
+			{
+				ID = new DomInstanceId(id) { ModuleId = TestModel.Smg },
+				DomDefinitionId = new DomDefinitionId(TestModel.RemovedDefinition) { ModuleId = TestModel.Smg },
+			};
+		}
+
 		private MigrationPlan Plan(IEnumerable<ImportInstance> config = null, IEnumerable<ImportInstance> smg = null)
 		{
 			var export = TestModel.Export(config ?? Enumerable.Empty<ImportInstance>(), smg ?? Enumerable.Empty<ImportInstance>());
@@ -454,6 +496,108 @@ namespace SLC_SM_Migration_ImportTests
 			var export = TestModel.Export(Enumerable.Empty<ImportInstance>(), new[] { instance });
 			var plan = new MigrationPlanner(new TestModel().Schemas, lookup, new FakeEnvironment()).Plan(export);
 			return new MigrationExecutor(writer, null).Execute(plan, dryRun);
+		}
+	}
+
+	[TestClass]
+	public class ObsoleteDomCleanupTests
+	{
+		private FakeLegacyStore _store;
+		private CustomSectionDefinition _serviceSection;
+		private CustomSectionDefinition _legacySection;
+		private DomDefinition _removedDefinition;
+
+		[TestInitialize]
+		public void Setup()
+		{
+			_store = new FakeLegacyStore(TestModel.Smg);
+			_serviceSection = new CustomSectionDefinition { ID = new SectionDefinitionID(TestModel.ServiceSection) { ModuleId = TestModel.Smg }, Name = "Service Info" };
+			_serviceSection.AddOrReplaceFieldDescriptor(TestModel.Field(TestModel.ServiceName, "Service Name", typeof(string)));
+			_serviceSection.AddOrReplaceFieldDescriptor(TestModel.Field(TestModel.LegacyField, "Tested Protocols", typeof(string)));
+			_legacySection = new CustomSectionDefinition { ID = new SectionDefinitionID(TestModel.LegacySection) { ModuleId = TestModel.Smg }, Name = "Legacy Info" };
+			_removedDefinition = new DomDefinition { ID = new DomDefinitionId(TestModel.RemovedDefinition) { ModuleId = TestModel.Smg }, Name = "ServiceProperties" };
+
+			_store.SectionDefinitions.Add(_serviceSection);
+			_store.SectionDefinitions.Add(_legacySection);
+			_store.Definitions.Add(new DomDefinition { ID = new DomDefinitionId(TestModel.ServiceDefinition) { ModuleId = TestModel.Smg }, Name = "Service" });
+			_store.Definitions.Add(_removedDefinition);
+		}
+
+		[TestMethod]
+		public void RejectedItem_KeepsItsLegacyValuesAndTheModelPartsItUses_WhileTheRestIsCleaned()
+		{
+			var valid = _store.Add(Service(Guid.NewGuid(), legacyValues: true));
+			var rejected = _store.Add(Service(Guid.NewGuid(), legacyValues: true));
+			var updated = _store.Add(Service(Guid.NewGuid(), legacyValues: true));
+			var orphan = _store.Add(new DomInstance
+			{
+				ID = new DomInstanceId(Guid.NewGuid()) { ModuleId = TestModel.Smg },
+				DomDefinitionId = new DomDefinitionId(TestModel.RemovedDefinition) { ModuleId = TestModel.Smg },
+			});
+
+			// The duplicate of the valid item fails, but the valid item itself is still migrated, so it is cleaned.
+			var plan = Plan(Tuple.Create(valid, PlannedAction.Unchanged), Tuple.Create(valid, PlannedAction.Fail), Tuple.Create(rejected, PlannedAction.Fail), Tuple.Create(updated, PlannedAction.Update));
+			var cleanup = new ObsoleteDomCleanup(null, dryRun: false);
+
+			cleanup.CleanInstances(_store, ObsoleteDomCleanup.InstancesToLeaveUntouched(plan));
+
+			Assert.IsNull(TestModel.GetValue(_store.Instances[valid.ID.Id], TestModel.LegacyField));
+			Assert.AreEqual(1, _store.Instances[valid.ID.Id].Sections.Count);
+			Assert.AreEqual("protocol-a", TestModel.GetValue(_store.Instances[rejected.ID.Id], TestModel.LegacyField));
+			Assert.AreEqual(2, _store.Instances[rejected.ID.Id].Sections.Count);
+			Assert.AreEqual("protocol-a", TestModel.GetValue(_store.Instances[updated.ID.Id], TestModel.LegacyField), "Left for the import to overwrite, so a failed update keeps it intact.");
+			Assert.IsFalse(_store.Instances.ContainsKey(orphan.ID.Id));
+
+			// Execution: the update is written, the rejected item fails.
+			_store.Add(Service(updated.ID.Id, legacyValues: false));
+			cleanup.CleanModel(_store, new[] { new InstanceKey(TestModel.Smg, rejected.ID.Id) });
+
+			Assert.IsTrue(_serviceSection.GetAllFieldDescriptors().Any(f => f.ID.Id == TestModel.LegacyField));
+			CollectionAssert.Contains(_store.SectionDefinitions, _legacySection);
+			CollectionAssert.DoesNotContain(_store.Definitions, _removedDefinition);
+			Assert.AreEqual(0, cleanup.Failures.Count);
+			StringAssert.Contains(cleanup.Warnings.Single(), rejected.ID.Id.ToString());
+		}
+
+		[TestMethod]
+		public void WithoutFailedItems_AllLegacyModelPartsAreRemoved()
+		{
+			var valid = _store.Add(Service(Guid.NewGuid(), legacyValues: true));
+			var cleanup = new ObsoleteDomCleanup(null, dryRun: false);
+
+			cleanup.CleanInstances(_store, new HashSet<InstanceKey>());
+			cleanup.CleanModel(_store, Enumerable.Empty<InstanceKey>());
+
+			Assert.AreEqual(1, _store.Instances[valid.ID.Id].Sections.Count);
+			Assert.IsFalse(_serviceSection.GetAllFieldDescriptors().Any(f => f.ID.Id == TestModel.LegacyField));
+			CollectionAssert.DoesNotContain(_store.SectionDefinitions, _legacySection);
+			CollectionAssert.DoesNotContain(_store.Definitions, _removedDefinition);
+			Assert.AreEqual(0, cleanup.Warnings.Count);
+		}
+
+		private static DomInstance Service(Guid id, bool legacyValues)
+		{
+			var instance = MigrationPlannerTests.Existing(id, "new", "Service", null);
+			if (legacyValues)
+			{
+				instance.Sections[0].AddOrReplaceFieldValue(new FieldValue(new FieldDescriptorID(TestModel.LegacyField), ValueWrapperFactory.Create("protocol-a")));
+				var legacy = new Section(new SectionDefinitionID(TestModel.LegacySection) { ModuleId = TestModel.Smg }) { ID = new SectionID(Guid.NewGuid()) };
+				legacy.AddOrReplaceFieldValue(new FieldValue(new FieldDescriptorID(Guid.NewGuid()), ValueWrapperFactory.Create("legacy")));
+				instance.Sections.Add(legacy);
+			}
+
+			return instance;
+		}
+
+		private static MigrationPlan Plan(params Tuple<DomInstance, PlannedAction>[] items)
+		{
+			var plan = new MigrationPlan();
+			foreach (var entry in items)
+			{
+				plan.Items.Add(new PlannedItem(TestModel.Smg, new ImportInstance { Id = entry.Item1.ID.Id }, "Service") { Action = entry.Item2 });
+			}
+
+			return plan;
 		}
 	}
 }

@@ -1,14 +1,23 @@
 ﻿namespace SLC_SM_UDAPI_ServiceManagement.Tests.Controllers
 {
 	using System.Collections.Generic;
+	using DomHelpers.SlcPeople_Organizations;
+	using Microsoft.Extensions.Logging;
 	using Moq;
 	using Newtonsoft.Json.Linq;
+	using Skyline.DataMiner.Net;
+	using Skyline.DataMiner.Net.Apps.DataMinerObjectModel;
+	using Skyline.DataMiner.Net.ManagerStore;
+	using Skyline.DataMiner.Net.Messages;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
+	using Skyline.DataMiner.Utils.UserDefinedApiToolkit;
+	using SLC_SM_UDAPI_ServiceManagement.Controllers;
 	using SLC_SM_UDAPI_ServiceManagement.Models;
 	using SLC_SM_UDAPI_ServiceManagement.Models.Order;
 	using SLDataGateway.API.Types.Querying;
 
+	using IEngine = Skyline.DataMiner.Automation.IEngine;
 	using OrderTransition = DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Serviceorder_Behavior.TransitionsEnum;
 
 	[TestClass]
@@ -76,6 +85,37 @@
 
 			Assert.AreEqual(described.Identifier, (string)byDescription.Items.Single()["Identifier"]);
 			Assert.AreEqual(high.Identifier, (string)byPriority.Items.Single()["Identifier"]);
+		}
+
+		[TestMethod]
+		public void ListServiceOrdersCursor_SearchMatchingManyOrganizations_ReturnsOrdersOfEveryMatchingOrganization()
+		{
+			var organizations = Enumerable.Range(1, 150).Select(i => new OrganizationsInstance()).ToList();
+			for (int i = 0; i < organizations.Count; i++)
+			{
+				organizations[i].OrganizationInformation.OrganizationName = $"Acme {i + 1}";
+				organizations[i].OrganizationInformation.Category = Guid.NewGuid();
+			}
+
+			var first = AddOrder();
+			first.OrganizationId = organizations.First().ID.Id;
+			var last = AddOrder();
+			last.OrganizationId = organizations.Last().ID.Id;
+			AddOrder();
+
+			var connection = new Mock<IConnection>();
+			connection.Setup(c => c.HandleMessages(It.IsAny<DMSMessage[]>()))
+				.Returns<DMSMessage[]>(messages => messages.Select(m => RespondWith(m, organizations.Select(o => o.ToInstance()).ToList())).ToArray());
+			var controller = new ServiceOrderController(
+				Mock.Of<ILogger<ServiceOrderController>>(),
+				Helper,
+				Mock.Of<IAccessor<IEngine>>(a => a.Value == Mock.Of<IEngine>(e => e.GetUserConnection() == connection.Object)));
+			AttachContext(controller);
+
+			var page = Value<CursorPageResponse<JObject>>(controller.ListServiceOrders(pagination: "cursor", search: "acme", includeTotalCount: true));
+
+			CollectionAssert.AreEquivalent(new[] { first.Identifier, last.Identifier }, page.Items.Select(i => (string)i["Identifier"]).ToList());
+			Assert.AreEqual(2L, page.TotalCount);
 		}
 
 		[TestMethod]
@@ -337,6 +377,21 @@
 			AddOrder("New");
 			Assert.AreEqual(409, StatusCode(Controller.TransitionServiceOrder(OrderId, new TransitionServiceOrderRequest { TargetStatus = "new" })));
 			Orders.Verify(r => r.TransitionStatus(It.IsAny<ServiceOrder>(), It.IsAny<OrderTransition>()), Times.Never);
+		}
+
+		private static DMSMessage RespondWith(DMSMessage request, List<DomInstance> instances)
+		{
+			switch (request)
+			{
+				case ManagerStoreStartPagingRequest<DomInstance> _:
+					return new ManagerStorePagingResponse<DomInstance>(instances, true, null);
+				case ManagerStoreCountRequest<DomInstance> _:
+					return new ManagerStoreCountResponse<DomInstance>(instances.Count);
+				case ManagerStoreReadRequest<DomInstance> _:
+					return new ManagerStoreCrudResponse<DomInstance>(instances);
+				default:
+					throw new NotSupportedException($"Unexpected request {request.GetType().FullName}.");
+			}
 		}
 	}
 }

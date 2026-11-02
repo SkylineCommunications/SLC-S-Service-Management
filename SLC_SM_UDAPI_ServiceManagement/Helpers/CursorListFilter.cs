@@ -15,9 +15,6 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers
 	/// </summary>
 	internal static class CursorListFilter
 	{
-		/// <summary>Maximum number of referenced objects (categories, specifications, organizations) a search term can match.</summary>
-		public const int MaxReferenceMatches = 100;
-
 		/// <summary>Parses a comma-separated list of status names, such as <c>inProgress,held</c> or <c>In Progress</c>.</summary>
 		/// <typeparam name="TEnum">The status enum.</typeparam>
 		/// <param name="status">The comma-separated statuses, or <see langword="null"/>.</param>
@@ -91,7 +88,10 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers
 		}
 
 		/// <summary>Reads the identifiers of the objects with a text that contains the search text.</summary>
-		/// <remarks>The storage filter can return near matches, so the matches are checked again, and at most <see cref="MaxReferenceMatches"/> are returned.</remarks>
+		/// <remarks>
+		/// The storage filter can return near matches, so the matches are checked again. Every match is returned: truncating them would
+		/// silently drop the objects that reference the remaining matches from all pages and from the total count.
+		/// </remarks>
 		/// <typeparam name="T">The object type.</typeparam>
 		/// <param name="read">Reads the objects matching a filter.</param>
 		/// <param name="filter">The storage filter, or <see langword="null"/> when there is nothing to search.</param>
@@ -116,7 +116,6 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers
 				.Select(identifier)
 				.Where(id => !String.IsNullOrEmpty(id))
 				.Distinct(StringComparer.OrdinalIgnoreCase)
-				.Take(MaxReferenceMatches)
 				.ToList();
 		}
 

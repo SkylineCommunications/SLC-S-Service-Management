@@ -613,6 +613,27 @@
 		}
 
 		[TestMethod]
+		public void ListServicesCursor_SearchMatchingManyReferences_ReturnsServicesOfEveryMatchingSpecificationAndCategory()
+		{
+			for (int i = 1; i <= 150; i++)
+			{
+				StoredSpecifications.Add(new ServiceSpecification { Identifier = Guid.NewGuid().ToString(), Name = $"Uplink spec {i}" });
+				StoredCategories.Add(new ServiceCategory { Identifier = Guid.NewGuid().ToString(), Name = $"Uplink category {i}" });
+			}
+
+			var bySpecification = AddService("Alpha", ServiceStatus.Active, 1);
+			bySpecification.ServiceSpecificationId = new SdmObjectReference<ServiceSpecification>(StoredSpecifications.Last().Identifier);
+			var byCategory = AddService("Beta", ServiceStatus.Active, 2);
+			byCategory.CategoryId = new SdmObjectReference<ServiceCategory>(StoredCategories.Last().Identifier);
+			AddService("Gamma", ServiceStatus.Active, 3);
+
+			var page = Value<CursorPageResponse<JObject>>(Controller.ListServices(pagination: "cursor", search: "uplink", includeTotalCount: true));
+
+			CollectionAssert.AreEquivalent(new[] { bySpecification.Identifier, byCategory.Identifier }, page.Items.Select(i => (string)i["Identifier"]).ToList());
+			Assert.AreEqual(2L, page.TotalCount);
+		}
+
+		[TestMethod]
 		public void ListServicesCursor_RepositoryError_LogsFullExceptionAndReturnsGeneric500()
 		{
 			Services.Setup(r => r.ReadPaged(It.IsAny<IQuery<Service>>(), It.IsAny<int>()))

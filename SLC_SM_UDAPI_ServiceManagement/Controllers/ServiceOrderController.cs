@@ -1042,9 +1042,10 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 					Comparer.Equals,
 					p,
 					o => o.Priority == p)));
+
+			// Every matching organization is included: a cap here would silently drop their orders from all pages and from the total count.
 			filters.AddRange(ReadOrganizationNames()
 				.Where(o => CursorListFilter.TextMatches(o.Value, search))
-				.Take(CursorListFilter.MaxReferenceMatches)
 				.Select(o => ServiceOrderExposers.OrganizationId.Equal(o.Key)));
 
 			return CursorListFilter.Any(filters);
