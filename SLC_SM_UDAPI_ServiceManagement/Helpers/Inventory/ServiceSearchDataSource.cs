@@ -17,7 +17,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 	public sealed class ServiceSearchDataSource : IServiceSearchDataSource
 	{
 		private const int BatchSize = 200;
-		private const int CursorPageSize = 500;
+		private const int PageSize = 500;
 
 		private readonly IServiceManagementApiHelper serviceManagement;
 		/// <summary>
@@ -129,20 +129,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 		/// <inheritdoc/>
 		public IReadOnlyList<Service> GetServices()
 		{
-			var repository = serviceManagement.ServiceInventory.Services;
-			var readableRepository = repository as IReadableRepository<Service>;
-			if (readableRepository == null)
-			{
-				return repository.Read(new TRUEFilterElement<Service>()).ToList();
-			}
-
-			var result = new List<Service>();
-			foreach (var page in readableRepository.ReadCursorPages(pageSize: CursorPageSize))
-			{
-				result.AddRange(page);
-			}
-
-			return result;
+			return ((IReadableRepository<Service>)serviceManagement.ServiceInventory.Services).ReadCursorPages(pageSize: PageSize).SelectMany(page => page).ToList();
 		}
 
 		/// <inheritdoc/>

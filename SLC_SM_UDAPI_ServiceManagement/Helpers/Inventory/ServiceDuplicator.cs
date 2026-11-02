@@ -9,6 +9,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 	using Skyline.DataMiner.SDM;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
+	using SLC_SM_UDAPI_ServiceManagement.Exceptions;
 
 	using Config = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.Configurations;
 
@@ -113,54 +114,149 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 				return new List<string>();
 			}
 
-			var data = LoadConfigurationData(sourceVersionIds);
+			var sourceVersions = ReadVersions(sourceVersionIds);
+			var data = LoadConfigurationData(sourceVersions);
 			var duplicates = new List<string>();
-			foreach (var sourceVersion in data.Versions.OrderBy(version => version.VersionName))
+			foreach (var sourceVersion in sourceVersions.OrderBy(version => version.VersionName))
 			{
-				var state = new VersionDuplicationState();
-				var parameters = DuplicateVersionParameters(sourceVersion, data, state);
-				var profiles = DuplicateVersionProfiles(sourceVersion, newServiceId, data, state);
-				RemapLinkedConsumers(state);
-
-				string duplicateId = Guid.NewGuid().ToString();
-				var duplicateVersion = new ServiceConfigurationVersion
-				{
-					Identifier = duplicateId,
-					VersionName = $"{sourceVersion.VersionName} (Copy)",
-					Description = sourceVersion.Description,
-					StartDate = sourceVersion.StartDate,
-					EndDate = sourceVersion.EndDate,
-					Parameters = parameters,
-					Profiles = profiles,
-				};
-				_api.ServiceInventory.ServiceConfigurationVersions.Create(duplicateVersion);
-				versionMap[sourceVersion.Identifier] = duplicateId;
-				duplicates.Add(duplicateId);
+				var duplicateVersion = DuplicateVersion(sourceVersion, $"{sourceVersion.VersionName} (Copy)", newServiceId, data);
+				versionMap[sourceVersion.Identifier] = duplicateVersion.Identifier;
+				duplicates.Add(duplicateVersion.Identifier);
 			}
 
 			return duplicates;
 		}
 
-		private ConfigurationDuplicationData LoadConfigurationData(ISet<string> sourceVersionIds)
+		/// <summary>
+		/// Duplicates one configuration version of a service as a new, inactive version of the same service.
+		/// </summary>
+		/// <returns>The new version, or <c>null</c> when the version does not belong to the service.</returns>
+		public ServiceConfigurationVersion DuplicateConfigurationVersion(Service service, string versionId)
 		{
+			if (service == null)
+			{
+				throw new ArgumentNullException(nameof(service));
+			}
+
+			if (String.IsNullOrWhiteSpace(versionId))
+			{
+				return null;
+			}
+
+			versionId = versionId.Trim();
+			var serviceVersionIds = new HashSet<string>(
+				(service.ConfigurationVersions ?? new List<SdmObjectReference<ServiceConfigurationVersion>>())
+					.Where(reference => !String.IsNullOrWhiteSpace(reference.Identifier))
+					.Select(reference => reference.Identifier),
+				StringComparer.OrdinalIgnoreCase);
+			if (!String.IsNullOrWhiteSpace(service.ServiceConfigurationId.Identifier))
+			{
+				serviceVersionIds.Add(service.ServiceConfigurationId.Identifier);
+			}
+
+			if (!serviceVersionIds.Contains(versionId))
+			{
+				return null;
+			}
+
+			// The service's version metadata is only needed for a unique name; only the copied version's graph is loaded.
+			var serviceVersions = ReadVersions(serviceVersionIds);
+			var sourceVersion = serviceVersions.FirstOrDefault(version => String.Equals(version.Identifier, versionId, StringComparison.OrdinalIgnoreCase));
+			if (sourceVersion == null)
+			{
+				return null;
+			}
+
+			string name = GenerateUniqueVersionName(sourceVersion.VersionName, serviceVersions.Select(version => version.VersionName));
+			var duplicate = DuplicateVersion(sourceVersion, name, service.ServiceID, LoadConfigurationData(new[] { sourceVersion }));
+
+			var references = service.ConfigurationVersions ?? new List<SdmObjectReference<ServiceConfigurationVersion>>();
+			references.Add(new SdmObjectReference<ServiceConfigurationVersion>(duplicate.Identifier));
+			service.ConfigurationVersions = references;
+			_api.ServiceInventory.Services.Update(service);
+
+			return duplicate;
+		}
+
+		private ServiceConfigurationVersion DuplicateVersion(
+			ServiceConfigurationVersion sourceVersion,
+			string versionName,
+			string serviceId,
+			ConfigurationDuplicationData data)
+		{
+			var state = new VersionDuplicationState();
+			var parameters = DuplicateVersionParameters(sourceVersion, data, state);
+			var profiles = DuplicateVersionProfiles(sourceVersion, serviceId, data, state);
+			RemapLinkedConsumers(state);
+
+			var duplicateVersion = new ServiceConfigurationVersion
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				VersionName = versionName,
+				Description = sourceVersion.Description,
+				StartDate = sourceVersion.StartDate,
+				EndDate = sourceVersion.EndDate,
+				Parameters = parameters,
+				Profiles = profiles,
+			};
+			_api.ServiceInventory.ServiceConfigurationVersions.Create(duplicateVersion);
+			return duplicateVersion;
+		}
+
+		private static string GenerateUniqueVersionName(string sourceName, IEnumerable<string> existingNames)
+		{
+			var names = new HashSet<string>(existingNames.Where(name => name != null), StringComparer.OrdinalIgnoreCase);
+			string baseName = String.IsNullOrWhiteSpace(sourceName) ? "Configuration" : sourceName.Trim();
+			string candidate = $"{baseName} (Copy)";
+			for (int index = 2; names.Contains(candidate); index++)
+			{
+				candidate = $"{baseName} (Copy {index})";
+			}
+
+			return candidate;
+		}
+
+		private List<ServiceConfigurationVersion> ReadVersions(IEnumerable<string> versionIds)
+		{
+			return FullServiceBuilder.ReadById(
+					versionIds,
+					id => ServiceConfigurationVersionExposers.Identifier.Equal(id),
+					f => _api.ServiceInventory.ServiceConfigurationVersions.Read(f),
+					version => version.Identifier)
+				.Values
+				.ToList();
+		}
+
+		/// <summary>Batch-loads only the records referenced by the given versions: their values, service profiles, profile trees and parameter values.</summary>
+		private ConfigurationDuplicationData LoadConfigurationData(IReadOnlyCollection<ServiceConfigurationVersion> versions)
+		{
+			var configurationValues = FullServiceBuilder.ReadById(
+				versions.SelectMany(version => ReferenceIds(version.Parameters)),
+				id => ServiceConfigurationValueExposers.Identifier.Equal(id),
+				f => _api.ServiceInventory.ServiceConfigurationValues.Read(f),
+				value => value.Identifier);
+
+			var serviceProfiles = FullServiceBuilder.ReadById(
+				versions.SelectMany(version => ReferenceIds(version.Profiles)),
+				id => ServiceProfileExposers.Identifier.Equal(id),
+				f => _api.ServiceInventory.ServiceProfiles.Read(f),
+				profile => profile.Identifier);
+
+			var profiles = FullServiceBuilder.ReadProfileTree(_api, serviceProfiles.Values.Select(profile => profile.ProfileId.Identifier));
+
+			var parameterValues = FullServiceBuilder.ReadById(
+				configurationValues.Values.Select(value => value.ConfigurationParameterId.Identifier)
+					.Concat(profiles.Values.SelectMany(profile => ReferenceIds(profile.ConfigurationParameterValues))),
+				id => ConfigurationParameterValueExposers.Identifier.Equal(id),
+				f => _api.ServiceCatalog.ConfigurationParameterValues.Read(f),
+				value => value.Identifier);
+
 			return new ConfigurationDuplicationData
 			{
-				Versions = _api.ServiceInventory.ServiceConfigurationVersions
-					.Read(new TRUEFilterElement<ServiceConfigurationVersion>())
-					.Where(version => version != null && sourceVersionIds.Contains(version.Identifier))
-					.ToList(),
-				ConfigurationValues = ReadDictionary(
-					_api.ServiceInventory.ServiceConfigurationValues.Read(new TRUEFilterElement<ServiceConfigurationValue>()),
-					value => value.Identifier),
-				ServiceProfiles = ReadDictionary(
-					_api.ServiceInventory.ServiceProfiles.Read(new TRUEFilterElement<ServiceProfile>()),
-					profile => profile.Identifier),
-				Profiles = ReadDictionary(
-					_api.ServiceCatalog.Profiles.Read(new TRUEFilterElement<Config.Profile>()),
-					profile => profile.Identifier),
-				ParameterValues = ReadDictionary(
-					_api.ServiceCatalog.ConfigurationParameterValues.Read(new TRUEFilterElement<ConfigurationParameterValue>()),
-					value => value.Identifier),
+				ConfigurationValues = configurationValues,
+				ServiceProfiles = serviceProfiles,
+				Profiles = profiles,
+				ParameterValues = parameterValues,
 			};
 		}
 
@@ -343,7 +439,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 				DoubleValue = source.DoubleValue,
 				StringValue = source.StringValue,
 				ConfigurationParameterId = CopyReference<ConfigurationParameter>(source.ConfigurationParameterId),
-				NumberOptionsId = CopyReference<NumberParameterOptions>(source.NumberOptionsId),
+				NumberOptionsId = this.DuplicateNumberOptions(source),
 				DiscreteOptionsId = CopyReference<DiscreteParameterOptions>(source.DiscreteOptionsId),
 				TextOptionsId = CopyReference<TextParameterOptions>(source.TextOptionsId),
 				ValueFixed = source.ValueFixed,
@@ -355,6 +451,42 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 			state.ParameterValueIds[sourceValueId] = duplicate.Identifier;
 			state.DuplicatedParameterValues.Add(duplicate);
 			return duplicate.Identifier;
+		}
+
+		private SdmObjectReference<NumberParameterOptions> DuplicateNumberOptions(ConfigurationParameterValue value)
+		{
+			string optionsId = value.NumberOptionsId.Identifier;
+			if (string.IsNullOrWhiteSpace(optionsId))
+			{
+				return null;
+			}
+
+			var definition = string.IsNullOrWhiteSpace(value.ConfigurationParameterId.Identifier)
+				? null
+				: this._api.ServiceCatalog.ConfigurationParameters
+					.Read(ConfigurationParameterExposers.Identifier.Equal(value.ConfigurationParameterId.Identifier))
+					.FirstOrDefault();
+			if (definition != null && string.Equals(optionsId, definition.NumberOptionsId.Identifier, StringComparison.OrdinalIgnoreCase))
+			{
+				return CopyReference<NumberParameterOptions>(value.NumberOptionsId);
+			}
+
+			var source = this._api.ServiceCatalog.NumberParameterOptions
+				.Read(NumberParameterOptionsExposers.Identifier.Equal(optionsId))
+				.FirstOrDefault() ?? throw new InvalidConfigurationException($"Number options '{optionsId}' were not found.");
+			var duplicate = new NumberParameterOptions
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				Units = source.Units?.ToList() ?? new List<SdmObjectReference<ConfigurationUnit>>(),
+				DefaultUnitId = CopyReference<ConfigurationUnit>(source.DefaultUnitId),
+				MinRange = source.MinRange,
+				MaxRange = source.MaxRange,
+				Decimals = source.Decimals,
+				StepSize = source.StepSize,
+				DefaultValue = source.DefaultValue,
+			};
+			this._api.ServiceCatalog.NumberParameterOptions.Create(duplicate);
+			return new SdmObjectReference<NumberParameterOptions>(duplicate.Identifier);
 		}
 
 		private void RemapLinkedConsumers(VersionDuplicationState state)
@@ -427,25 +559,16 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 				: new SdmObjectReference<T>(reference.Identifier);
 		}
 
-		private static Dictionary<string, T> ReadDictionary<T>(IEnumerable<T> items, Func<T, string> identifier)
+		private static IEnumerable<string> ReferenceIds<T>(IEnumerable<SdmObjectReference<T>> references)
+			where T : SdmObject<T>
 		{
-			var result = new Dictionary<string, T>(StringComparer.OrdinalIgnoreCase);
-			foreach (var item in items ?? Enumerable.Empty<T>())
-			{
-				string id = identifier(item);
-				if (!String.IsNullOrWhiteSpace(id))
-				{
-					result[id] = item;
-				}
-			}
-
-			return result;
+			return (references ?? Enumerable.Empty<SdmObjectReference<T>>())
+				.Select(reference => reference.Identifier)
+				.Where(id => !String.IsNullOrWhiteSpace(id));
 		}
 
 		private sealed class ConfigurationDuplicationData
 		{
-			public List<ServiceConfigurationVersion> Versions { get; set; }
-
 			public Dictionary<string, ServiceConfigurationValue> ConfigurationValues { get; set; }
 
 			public Dictionary<string, ServiceProfile> ServiceProfiles { get; set; }

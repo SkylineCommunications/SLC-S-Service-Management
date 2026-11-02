@@ -1,10 +1,13 @@
 ﻿namespace SLC_SM_UDAPI_ServiceManagement.Tests.Controllers
 {
 	using System.Collections.Generic;
+	using Microsoft.Extensions.Logging;
 	using Moq;
 	using Newtonsoft.Json.Linq;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 	using Skyline.DataMiner.SDM;
+	using SLDataGateway.API.Types.Querying;
+	using SLC_SM_UDAPI_ServiceManagement.Models;
 	using SLC_SM_UDAPI_ServiceManagement.Models.Inventory;
 
 	using ServiceStatus = DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Service_Behavior.StatusesEnum;
@@ -50,11 +53,23 @@
 			Organizations.Verify(o => o.ReadOrganizationNames(), Times.Once);
 		}
 
+		[TestMethod]
+		public void GetService_ByDomIdentifier_Returns200WithService()
+		{
+			AddService("Other");
+			var service = AddService("Svc");
+			var result = Controller.GetService(service.Identifier, "name");
+			Assert.AreEqual(200, StatusCode(result));
+			Assert.AreEqual("Svc", (string)Value<JObject>(result)["Name"]);
+		}
+
 		[DataTestMethod]
 		[DataRow(null)]
 		[DataRow(" ")]
 		[DataRow("not-a-service-id")]
 		[DataRow("SERVICE-00099")]
+		[DataRow("00000000-0000-0000-0000-000000000000")]
+		[DataRow("6f1c2b8e-4a1d-4c5e-9b7a-2d3e4f5a6b7c")]
 		public void GetService_MissingOrUnknown_Returns404(string id)
 		{
 			AddService();
@@ -566,6 +581,80 @@
 			Assert.IsFalse(item.ContainsKey("ServiceScripts"));
 			Organizations.Verify(o => o.ReadServiceOrganizationIds(It.IsAny<IEnumerable<Guid>>()), Times.Never);
 			Organizations.Verify(o => o.ReadOrganizationNames(), Times.Never);
+		}
+
+		[TestMethod]
+		public void ListServicesCursor_StatusFilter_ReturnsMatchingServicesAndFilteredCount()
+		{
+			var active = AddService("Active", ServiceStatus.Active, 1);
+			var designed = AddService("Designed", ServiceStatus.Designed, 2);
+			AddService("Retired", ServiceStatus.Retired, 3);
+
+			var page = Value<CursorPageResponse<JObject>>(Controller.ListServices(pagination: "cursor", status: "active,designed"));
+
+			CollectionAssert.AreEquivalent(new[] { active.Identifier, designed.Identifier }, page.Items.Select(i => (string)i["Identifier"]).ToList());
+			Assert.AreEqual(2L, page.TotalCount);
+		}
+
+		[TestMethod]
+		public void ListServicesCursor_Search_MatchesNameInAnyCaseAndCategoryName()
+		{
+			var category = new ServiceCategory { Identifier = Guid.NewGuid().ToString(), Name = "Video", Type = "Broadcast" };
+			StoredCategories.Add(category);
+			var alpha = AddService("Alpha", ServiceStatus.Active, 1);
+			var beta = AddService("Beta", ServiceStatus.Active, 2);
+			beta.CategoryId = new SdmObjectReference<ServiceCategory>(category.Identifier);
+
+			var byName = Value<CursorPageResponse<JObject>>(Controller.ListServices(pagination: "cursor", search: "alp"));
+			var byCategory = Value<CursorPageResponse<JObject>>(Controller.ListServices(pagination: "cursor", search: "video"));
+
+			Assert.AreEqual(alpha.Identifier, (string)byName.Items.Single()["Identifier"]);
+			Assert.AreEqual(beta.Identifier, (string)byCategory.Items.Single()["Identifier"]);
+		}
+
+		[TestMethod]
+		public void ListServicesCursor_SearchMatchingManyReferences_ReturnsServicesOfEveryMatchingSpecificationAndCategory()
+		{
+			for (int i = 1; i <= 150; i++)
+			{
+				StoredSpecifications.Add(new ServiceSpecification { Identifier = Guid.NewGuid().ToString(), Name = $"Uplink spec {i}" });
+				StoredCategories.Add(new ServiceCategory { Identifier = Guid.NewGuid().ToString(), Name = $"Uplink category {i}" });
+			}
+
+			var bySpecification = AddService("Alpha", ServiceStatus.Active, 1);
+			bySpecification.ServiceSpecificationId = new SdmObjectReference<ServiceSpecification>(StoredSpecifications.Last().Identifier);
+			var byCategory = AddService("Beta", ServiceStatus.Active, 2);
+			byCategory.CategoryId = new SdmObjectReference<ServiceCategory>(StoredCategories.Last().Identifier);
+			AddService("Gamma", ServiceStatus.Active, 3);
+
+			var page = Value<CursorPageResponse<JObject>>(Controller.ListServices(pagination: "cursor", search: "uplink", includeTotalCount: true));
+
+			CollectionAssert.AreEquivalent(new[] { bySpecification.Identifier, byCategory.Identifier }, page.Items.Select(i => (string)i["Identifier"]).ToList());
+			Assert.AreEqual(2L, page.TotalCount);
+		}
+
+		[TestMethod]
+		public void ListServicesCursor_RepositoryError_LogsFullExceptionAndReturnsGeneric500()
+		{
+			var exception = new NullReferenceException("search diagnostic");
+			Services.Setup(r => r.ReadPaged(It.IsAny<IQuery<Service>>(), It.IsAny<int>()))
+				.Throws(exception);
+
+			var result = Controller.ListServices(pagination: "cursor", search: "e");
+
+			Assert.AreEqual(500, StatusCode(result));
+			Assert.IsFalse(ErrorDetail(result).Contains("search diagnostic"));
+			var errorLog = ControllerLogger.Invocations.Single(call =>
+				call.Method.Name == nameof(ILogger.Log) && (LogLevel)call.Arguments[0] == LogLevel.Error);
+			Assert.AreSame(exception, errorLog.Arguments[3]);
+			Assert.IsFalse(String.IsNullOrWhiteSpace(exception.StackTrace));
+		}
+
+		[TestMethod]
+		public void ListServicesCursor_InvalidStatusOrSort_Returns400()
+		{
+			Assert.AreEqual(400, StatusCode(Controller.ListServices(pagination: "cursor", status: "unknown")));
+			Assert.AreEqual(400, StatusCode(Controller.ListServices(pagination: "cursor", sort: "category")));
 		}
 	}
 }

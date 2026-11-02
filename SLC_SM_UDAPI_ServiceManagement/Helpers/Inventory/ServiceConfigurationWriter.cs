@@ -336,35 +336,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 					throw new InvalidConfigurationException($"Configuration parameter '{parameter.ParameterId}' was not found.");
 				}
 
-				var value = String.IsNullOrWhiteSpace(parameter.ParameterValueId)
-					? new ConfigurationParameterValue { Identifier = Guid.NewGuid().ToString() }
-					: _api.ServiceCatalog.ConfigurationParameterValues
-						.Read(ConfigurationParameterValueExposers.Identifier.Equal(parameter.ParameterValueId))
-						.FirstOrDefault() ?? throw new InvalidConfigurationException($"Configuration parameter value '{parameter.ParameterValueId}' was not found.");
-				string existingNumberOptionsId = value.NumberOptionsId.Identifier;
-				var numberOptions = String.Equals(definition.Type.ToString(), "Number", StringComparison.OrdinalIgnoreCase)
-					? PrepareNumberOptions(definition, existingNumberOptionsId)
-					: null;
-				try
-				{
-					value.ApplyConfigurationValue(definition, parameter.Value, parameter.Mandatory);
-				}
-				catch (InvalidOperationException ex)
-				{
-					throw new InvalidConfigurationException(ex.Message, ex);
-				}
-
-				value.Label = parameter.Label ?? String.Empty;
-				value.IsLinked = parameter.IsLinked;
-				value.ValueFixed = parameter.Fixed;
-				if (numberOptions != null)
-				{
-					ApplyNumberOptions(numberOptions, parameter);
-					value.NumberOptionsId = new SdmObjectReference<NumberParameterOptions>(numberOptions.Identifier);
-					_api.ServiceCatalog.NumberParameterOptions.CreateOrUpdate(new[] { numberOptions });
-				}
-
-				_api.ServiceCatalog.ConfigurationParameterValues.CreateOrUpdate(new[] { value });
+				var value = SaveParameterValue(parameter, definition);
 				var configuration = String.IsNullOrWhiteSpace(parameter.ConfigurationId)
 					? new ServiceConfigurationValue { Identifier = Guid.NewGuid().ToString() }
 					: _api.ServiceInventory.ServiceConfigurationValues
@@ -379,6 +351,40 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 			}
 
 			return references;
+		}
+
+		private ConfigurationParameterValue SaveParameterValue(ServiceConfigurationParameterRequest parameter, ConfigurationParameter definition)
+		{
+			var value = String.IsNullOrWhiteSpace(parameter.ParameterValueId)
+				? new ConfigurationParameterValue { Identifier = Guid.NewGuid().ToString() }
+				: _api.ServiceCatalog.ConfigurationParameterValues
+					.Read(ConfigurationParameterValueExposers.Identifier.Equal(parameter.ParameterValueId))
+					.FirstOrDefault() ?? throw new InvalidConfigurationException($"Configuration parameter value '{parameter.ParameterValueId}' was not found.");
+			string existingNumberOptionsId = value.NumberOptionsId.Identifier;
+			var numberOptions = String.Equals(definition.Type.ToString(), "Number", StringComparison.OrdinalIgnoreCase)
+				? PrepareNumberOptions(definition, existingNumberOptionsId)
+				: null;
+			try
+			{
+				value.ApplyConfigurationValue(definition, parameter.Value, parameter.Mandatory);
+			}
+			catch (InvalidOperationException ex)
+			{
+				throw new InvalidConfigurationException(ex.Message, ex);
+			}
+
+			value.Label = parameter.Label ?? value.Label ?? String.Empty;
+			value.IsLinked = parameter.IsLinked;
+			value.ValueFixed = parameter.Fixed;
+			if (numberOptions != null)
+			{
+				ApplyNumberOptions(numberOptions, parameter);
+				value.NumberOptionsId = new SdmObjectReference<NumberParameterOptions>(numberOptions.Identifier);
+				_api.ServiceCatalog.NumberParameterOptions.CreateOrUpdate(new[] { numberOptions });
+			}
+
+			_api.ServiceCatalog.ConfigurationParameterValues.CreateOrUpdate(new[] { value });
+			return value;
 		}
 
 		private NumberParameterOptions PrepareNumberOptions(ConfigurationParameter definition, string existingOptionsId)
@@ -606,21 +612,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 					throw new InvalidConfigurationException($"Profile configuration parameter '{parameter?.ParameterId}' was not found.");
 				}
 
-				var value = String.IsNullOrWhiteSpace(parameter.ParameterValueId)
-					? new ConfigurationParameterValue { Identifier = Guid.NewGuid().ToString() }
-					: _api.ServiceCatalog.ConfigurationParameterValues
-						.Read(ConfigurationParameterValueExposers.Identifier.Equal(parameter.ParameterValueId))
-						.FirstOrDefault() ?? throw new InvalidConfigurationException($"Profile parameter value '{parameter.ParameterValueId}' was not found.");
-				try
-				{
-					value.ApplyConfigurationValue(definition, parameter.Value, parameter.Mandatory);
-				}
-				catch (InvalidOperationException ex)
-				{
-					throw new InvalidConfigurationException(ex.Message, ex);
-				}
-
-				_api.ServiceCatalog.ConfigurationParameterValues.CreateOrUpdate(new[] { value });
+				var value = SaveParameterValue(parameter, definition);
 				ownership.ParameterValueIds.Add(value.Identifier);
 				ownership.ProfileParameterValueIds.Add(value.Identifier);
 				references.Add(new SdmObjectReference<ConfigurationParameterValue>(value.Identifier));

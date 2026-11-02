@@ -32,6 +32,7 @@
 			public static readonly ApiDefinitionId ServiceInventory_ById_ByItemId_UDAPI_Id = new ApiDefinitionId(Guid.Parse("e37fd862-be17-494c-86e9-fefb8b2e7942"));
 			public static readonly ApiDefinitionId ServiceInventory_ById_Configuration_Editor_UDAPI_Id = new ApiDefinitionId(Guid.Parse("4985e8ff-f541-4578-bcd7-a04052fd108a"));
 			public static readonly ApiDefinitionId ServiceInventory_ById_Duplicate_UDAPI_Id = new ApiDefinitionId(Guid.Parse("d2ab3169-98dd-40a9-82fe-064e38715d41"));
+			public static readonly ApiDefinitionId ServiceInventory_ById_ByConfigurationId_Duplicate_UDAPI_Id = new ApiDefinitionId(Guid.Parse("6a3e9c4d-2b71-4f58-9d0e-8c5b1a7f3e26"));
 			public static readonly ApiDefinitionId ServiceInventory_ById_RelatedOrder_UDAPI_Id = new ApiDefinitionId(Guid.Parse("f284bf0c-fddf-4f7d-b25f-f68569188de1"));
 			public static readonly ApiDefinitionId ServiceInventory_ById_Script_UDAPI_Id = new ApiDefinitionId(Guid.Parse("c821ad77-1746-4e43-a311-449c22478d67"));
 			public static readonly ApiDefinitionId MonitoringService_UDAPI_Id = new ApiDefinitionId(Guid.Parse("e1ae1ffe-c8a4-4fb2-8da8-26227dbc49ce"));

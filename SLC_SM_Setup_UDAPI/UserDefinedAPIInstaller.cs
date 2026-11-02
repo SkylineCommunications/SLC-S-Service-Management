@@ -112,6 +112,12 @@ namespace SLC_SM_Setup_UDAPI
 				route: "service/{id}/configurationVersion/{versionId}");
 
 			InstallEndpoint(
+				apiId: Constants.ApiDefinitions.ServiceInventory_ById_ByConfigurationId_Duplicate_UDAPI_Id,
+				name: "Service Inventory - Duplicate Configuration Version of a Service",
+				description: "UDAPI to duplicate a configuration version of a service as a new inactive version.",
+				route: "service/{id}/configurationVersion/{versionId}/duplicate");
+
+			InstallEndpoint(
 				apiId: Constants.ApiDefinitions.ServiceInventory_ById_Configuration_Editor_UDAPI_Id,
 				name: "Service Inventory - Service Configuration",
 				description: "UDAPI to retrieve or save the flat service configuration editor data.",

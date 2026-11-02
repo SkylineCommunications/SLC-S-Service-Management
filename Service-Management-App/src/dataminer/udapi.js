@@ -87,9 +87,9 @@ export async function fetchCatalogSpecificationList() {
     return Array.isArray(payload) ? payload : [];
 }
 
-export async function fetchCatalogSpecificationCursorPage({ limit = 100, after = '', before = '', fields = '', includeTotalCount = true, includeMetrics = false } = {}) {
+export async function fetchCatalogSpecificationCursorPage({ limit = 100, after = '', before = '', fields = '', includeTotalCount = true, includeMetrics = false, search = '', sort = '' } = {}) {
     const payload = await callServiceManagementUdapi('serviceSpecification', {
-        query: { pagination: 'cursor', limit, after, before, fields, includeTotalCount, includeMetrics },
+        query: { pagination: 'cursor', limit, after, before, fields, includeTotalCount, includeMetrics, name: search, sort },
     });
     if (!payload || !Array.isArray(payload.items)) {
         throw new UdapiError('The Service Specification API returned an invalid cursor page.');
@@ -198,9 +198,9 @@ export async function fetchServiceOrderList() {
     return Array.isArray(payload) ? payload : [];
 }
 
-export async function fetchServiceOrderCursorPage({ limit = 100, after = '', before = '', includeTotalCount = true, includeMetrics = false } = {}) {
+export async function fetchServiceOrderCursorPage({ limit = 100, after = '', before = '', includeTotalCount = true, includeMetrics = false, status = '', search = '', sort = '' } = {}) {
     const payload = await callServiceManagementUdapi('serviceOrder', {
-        query: { pagination: 'cursor', limit, after, before, includeTotalCount, includeMetrics },
+        query: { pagination: 'cursor', limit, after, before, includeTotalCount, includeMetrics, status, search, sort },
     });
     if (!payload || !Array.isArray(payload.items)) {
         throw new UdapiError('The Service Order API returned an invalid cursor page.');
@@ -305,9 +305,9 @@ export async function fetchServiceList(fields) {
     return Array.isArray(payload) ? payload : [];
 }
 
-export async function fetchServiceCursorPage({ limit = 100, after = '', before = '', fields = '', includeTotalCount = true, includeMetrics = false } = {}) {
+export async function fetchServiceCursorPage({ limit = 100, after = '', before = '', fields = '', includeTotalCount = true, includeMetrics = false, status = '', search = '', sort = '' } = {}) {
     const payload = await callServiceManagementUdapi('service', {
-        query: { pagination: 'cursor', limit, after, before, fields, includeTotalCount, includeMetrics },
+        query: { pagination: 'cursor', limit, after, before, fields, includeTotalCount, includeMetrics, status, search, sort },
     });
     if (!payload || !Array.isArray(payload.items)) {
         throw new UdapiError('The Service API returned an invalid cursor page.');
@@ -338,6 +338,10 @@ export async function saveServiceConfiguration(serviceId, body) {
 
 export async function duplicateInventoryService(serviceId) {
     return callServiceManagementUdapi(serviceRoute(serviceId, 'duplicate'), { method: 'POST', body: {} });
+}
+
+export async function duplicateServiceConfigurationVersion(serviceId, versionId) {
+    return callServiceManagementUdapi(serviceRoute(serviceId, 'configurationVersion', versionId, 'duplicate'), { method: 'POST', body: {} });
 }
 
 export async function deleteInventoryService(serviceId) {

@@ -37,19 +37,20 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 			}
 
 			var records = new List<ConfigurationRecord>();
-			LoadOptions();
+			var serviceWithActiveVersion = IncludeActiveConfigurationVersion(service);
+			var fullService = new FullServiceBuilder(_api).Build(new[] { serviceWithActiveVersion }).Single();
+			var versions = (fullService.ConfigurationVersions ?? new List<FullServiceConfigurationVersion>()).Where(v => v != null).ToList();
 			var parameters = ReadDictionary(
 				_api.ServiceCatalog.ConfigurationParameters.Read(new TRUEFilterElement<ConfigurationParameter>()),
 				parameter => parameter.Identifier);
 			var definitions = ReadDictionary(
 				_api.ServiceCatalog.ProfileDefinitions.Read(new TRUEFilterElement<ProfileDefinition>()),
 				definition => definition.Identifier);
-			var profiles = ReadDictionary(
-				_api.ServiceCatalog.Profiles.Read(new TRUEFilterElement<Profile>()),
+			var reusableProfiles = ReadDictionary(
+				_api.ServiceCatalog.Profiles.Read(ProfileExposers.IsReusable.Equal(true)),
 				profile => profile.Identifier);
-			var reusableProfileIds = new HashSet<string>(
-				profiles.Values.Where(profile => profile.IsReusable).Select(profile => profile.Identifier),
-				StringComparer.OrdinalIgnoreCase);
+			var reusableProfileIds = new HashSet<string>(reusableProfiles.Keys, StringComparer.OrdinalIgnoreCase);
+			LoadOptions(parameters.Values, versions.SelectMany(GetValues));
 
 			foreach (var parameter in parameters.Values)
 			{
@@ -61,21 +62,14 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 				records.Add(BuildAvailableProfile(definition));
 			}
 
-			foreach (var profile in profiles.Values.Where(profile => profile.IsReusable))
+			foreach (var profile in reusableProfiles.Values)
 			{
 				definitions.TryGetValue(profile.ProfileDefinitionId.Identifier ?? String.Empty, out var definition);
 				records.Add(BuildAvailableNestedProfile(profile, definition));
 			}
 
-			var serviceWithActiveVersion = IncludeActiveConfigurationVersion(service);
-			var fullService = new FullServiceBuilder(_api).Build(new[] { serviceWithActiveVersion }).Single();
-			foreach (var version in fullService.ConfigurationVersions ?? new List<FullServiceConfigurationVersion>())
+			foreach (var version in versions)
 			{
-				if (version == null)
-				{
-					continue;
-				}
-
 				bool isActive = String.Equals(version.Identifier, service.ServiceConfigurationId.Identifier, StringComparison.OrdinalIgnoreCase);
 				var versionParameters = version.Parameters ?? new List<FullServiceConfigurationValue>();
 				if (versionParameters.Count == 0)
@@ -142,10 +136,25 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 			}
 
 			var records = new List<ConfigurationRecord>();
-			LoadOptions();
 			var parameters = ReadDictionary(
 				_api.ServiceCatalog.ConfigurationParameters.Read(new TRUEFilterElement<ConfigurationParameter>()),
 				parameter => parameter.Identifier);
+			var configurations = (item.ServiceInfo?.Configurations ?? new List<SdmObjectReference<ServiceOrderItemConfigurationValue>>())
+				.Select(reference => reference.Identifier)
+				.Where(id => !String.IsNullOrWhiteSpace(id))
+				.ToList();
+			var configurationsById = FullServiceBuilder.ReadById(
+				configurations,
+				id => ServiceOrderItemConfigurationValueExposers.Identifier.Equal(id),
+				f => _api.ServiceOrder.ServiceOrderItemConfigurationValues.Read(f),
+				c => c.Identifier);
+			var valuesById = FullServiceBuilder.ReadById(
+				configurationsById.Values.Select(c => c.ConfigurationParameterValueId.Identifier),
+				id => ConfigurationParameterValueExposers.Identifier.Equal(id),
+				f => _api.ServiceCatalog.ConfigurationParameterValues.Read(f),
+				v => v.Identifier);
+			LoadOptions(parameters.Values, valuesById.Values);
+
 			foreach (var parameter in parameters.Values)
 			{
 				records.Add(BuildAvailableParameter(parameter));
@@ -159,27 +168,14 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 			};
 			records.Add(BuildVersionRecord(version, true));
 
-			foreach (var reference in item.ServiceInfo?.Configurations ?? new List<SdmObjectReference<ServiceOrderItemConfigurationValue>>())
+			foreach (string configurationId in configurations)
 			{
-				if (String.IsNullOrWhiteSpace(reference.Identifier))
+				if (!configurationsById.TryGetValue(configurationId, out var configuration))
 				{
 					continue;
 				}
 
-				var configuration = _api.ServiceOrder.ServiceOrderItemConfigurationValues
-					.Read(ServiceOrderItemConfigurationValueExposers.Identifier.Equal(reference.Identifier))
-					.FirstOrDefault();
-				if (configuration == null)
-				{
-					continue;
-				}
-
-				var valueId = configuration.ConfigurationParameterValueId.Identifier;
-				var value = String.IsNullOrWhiteSpace(valueId)
-					? null
-					: _api.ServiceCatalog.ConfigurationParameterValues
-						.Read(ConfigurationParameterValueExposers.Identifier.Equal(valueId))
-						.FirstOrDefault();
+				valuesById.TryGetValue(configuration.ConfigurationParameterValueId.Identifier ?? String.Empty, out var value);
 				parameters.TryGetValue(value == null ? String.Empty : value.ConfigurationParameterId.Identifier ?? String.Empty, out var definition);
 				records.Add(BuildParameterRecord(
 					version,
@@ -565,20 +561,31 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 				: null;
 		}
 
-		private void LoadOptions()
+		private void LoadOptions(IEnumerable<ConfigurationParameter> parameters, IEnumerable<ConfigurationParameterValue> values)
 		{
-			_discreteOptions = ReadDictionary(
-				_api.ServiceCatalog.DiscreteParameterOptions.Read(new TRUEFilterElement<DiscreteParameterOptions>()),
-				options => options.Identifier);
-			_discreteValues = ReadDictionary(
-				_api.ServiceCatalog.DiscreteValues.Read(new TRUEFilterElement<DiscreteValue>()),
-				value => value.Identifier);
-			_numberOptions = ReadDictionary(
-				_api.ServiceCatalog.NumberParameterOptions.Read(new TRUEFilterElement<NumberParameterOptions>()),
-				options => options.Identifier);
-			_units = ReadDictionary(
-				_api.ServiceCatalog.ConfigurationUnits.Read(new TRUEFilterElement<ConfigurationUnit>()),
-				unit => unit.Identifier);
+			var options = ConfigurationParameterOptions.Load(_api, parameters, values);
+			_discreteOptions = options.DiscreteOptions;
+			_discreteValues = options.DiscreteValues;
+			_numberOptions = options.NumberOptions;
+			_units = options.Units;
+		}
+
+		private static IEnumerable<ConfigurationParameterValue> GetValues(FullServiceConfigurationVersion version)
+		{
+			return (version.Parameters ?? new List<FullServiceConfigurationValue>())
+				.Select(p => p?.ConfigurationParameter)
+				.Concat((version.Profiles ?? new List<FullServiceProfile>()).SelectMany(p => GetValues(p?.Profile)));
+		}
+
+		private static IEnumerable<ConfigurationParameterValue> GetValues(FullProfile profile)
+		{
+			if (profile == null)
+			{
+				return Enumerable.Empty<ConfigurationParameterValue>();
+			}
+
+			return (profile.ConfigurationParameterValues ?? new List<ConfigurationParameterValue>())
+				.Concat((profile.Profiles ?? new List<FullProfile>()).SelectMany(GetValues));
 		}
 
 		private static string FormatNumber(object value)

@@ -40,6 +40,8 @@
 
 		protected ServiceOrderController Controller { get; private set; }
 
+		protected IServiceManagementApiHelper Helper { get; private set; }
+
 		[TestInitialize]
 		public void BaseInitialize()
 		{
@@ -50,6 +52,8 @@
 			Orders = new Mock<IServiceOrderRepository>();
 			Orders.Setup(r => r.Read(It.IsAny<FilterElement<ServiceOrder>>())).Returns(() => StoredOrders.ToList());
 			Orders.Setup(r => r.Read(It.IsAny<IQuery<ServiceOrder>>())).Returns<IQuery<ServiceOrder>>(q => StoredOrders.Where(q.Filter.getLambda()).ToList());
+			Orders.Setup(r => r.ReadPaged(It.IsAny<IQuery<ServiceOrder>>(), It.IsAny<int>())).Returns<IQuery<ServiceOrder>, int>((q, size) => OnePage(StoredOrders, q));
+			Orders.Setup(r => r.Count(It.IsAny<FilterElement<ServiceOrder>>())).Returns<FilterElement<ServiceOrder>>(f => StoredOrders.Count(f.getLambda()));
 			Orders.Setup(r => r.Update(It.IsAny<ServiceOrder>())).Returns<ServiceOrder>(o => o);
 			Orders.Setup(r => r.Create(It.IsAny<IEnumerable<ServiceOrder>>())).Returns<IEnumerable<ServiceOrder>>(o => o.ToList());
 			Orders.Setup(r => r.TransitionStatus(It.IsAny<ServiceOrder>(), It.IsAny<OrderTransition>())).Returns<ServiceOrder, OrderTransition>((o, t) => o);
@@ -104,6 +108,7 @@
 				Mock.Of<ILogger<ServiceOrderController>>(),
 				helper.Object,
 				Mock.Of<IAccessor<Skyline.DataMiner.Automation.IEngine>>(a => a.Value == Mock.Of<Skyline.DataMiner.Automation.IEngine>()));
+			Helper = helper.Object;
 
 			AttachContext(Controller);
 		}

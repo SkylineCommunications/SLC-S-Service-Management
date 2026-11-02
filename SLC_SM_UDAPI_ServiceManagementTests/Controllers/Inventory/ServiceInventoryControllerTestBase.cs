@@ -62,6 +62,8 @@
 
 		protected Mock<IServiceItemImplementations> ItemImplementations { get; private set; }
 
+		protected Mock<ILogger<ServiceInventoryController>> ControllerLogger { get; private set; }
+
 		protected Dictionary<Guid, string> OrganizationNames { get; private set; }
 
 		protected Dictionary<Guid, Guid> ServiceOrganizations { get; private set; }
@@ -90,6 +92,8 @@
 			Services = new Mock<IServiceRepository>();
 			Services.Setup(r => r.Read(It.IsAny<FilterElement<Service>>())).Returns<FilterElement<Service>>(f => Filter(StoredServices, f));
 			Services.Setup(r => r.Read(It.IsAny<IQuery<Service>>())).Returns<IQuery<Service>>(q => Filter(StoredServices, q.Filter));
+			Services.Setup(r => r.ReadPaged(It.IsAny<IQuery<Service>>(), It.IsAny<int>())).Returns<IQuery<Service>, int>((q, size) => OnePage(StoredServices, q));
+			Services.Setup(r => r.Count(It.IsAny<FilterElement<Service>>())).Returns<FilterElement<Service>>(f => Filter(StoredServices, f).Count());
 			Services.Setup(r => r.Create(It.IsAny<Service>())).Returns<Service>(s => { StoredServices.Add(s); return s; });
 			Services.Setup(r => r.Update(It.IsAny<Service>())).Returns<Service>(s => s);
 			Services.Setup(r => r.Delete(It.IsAny<Service>())).Callback<Service>(s => StoredServices.Remove(s));
@@ -132,10 +136,11 @@
 			Organizations.Setup(r => r.ReadServiceOrganizationIds(It.IsAny<IEnumerable<Guid>>())).Returns(() => ServiceOrganizations);
 
 			ItemImplementations = new Mock<IServiceItemImplementations>();
+			ControllerLogger = new Mock<ILogger<ServiceInventoryController>>();
 
 			// No live engine in unit tests; endpoints that need it (TransitionService side effects) are covered by integration tests.
 			Controller = new ServiceInventoryController(
-				Mock.Of<ILogger<ServiceInventoryController>>(),
+				ControllerLogger.Object,
 				helper.Object,
 				Mock.Of<IAccessor<Skyline.DataMiner.Automation.IEngine>>(a => a.Value == Mock.Of<Skyline.DataMiner.Automation.IEngine>()),
 				MonitoringServices.Object,

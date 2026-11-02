@@ -329,9 +329,9 @@
 			bool includeTotalCount,
 			bool includeMetrics)
 		{
-			if (offset != 0 || !String.IsNullOrWhiteSpace(sort) || !String.IsNullOrWhiteSpace(name))
+			if (offset != 0)
 			{
-				return BadRequest(CreateError("Invalid query", "Cursor pagination currently supports an unfiltered, name-ordered list only.", 400));
+				return BadRequest(CreateError("Invalid query", "Cursor pagination supports the 'name' and 'sort' filters only.", 400));
 			}
 
 			if (limit < 1 || limit > MaxLimit)
@@ -344,30 +344,44 @@
 				return BadRequest(CreateError("Invalid query", "Only one of 'after' or 'before' can be supplied.", 400));
 			}
 
-			var repository = serviceManagementApiHelper.ServiceCatalog.ServiceSpecifications as IReadableRepository<ServiceSpecification>;
-			if (repository == null)
+			CursorSort order;
+			try
 			{
-				return InternalServerError(CreateError("Internal server error", "The service-specification repository does not support cursor pagination.", 500));
+				order = CursorListFilter.ParseSort(sort, "name");
+			}
+			catch (InvalidQueryException ex)
+			{
+				return BadRequest(CreateError("Invalid query", ex.Message, 400));
 			}
 
-			var direction = String.IsNullOrWhiteSpace(before) ? CursorDirection.After : CursorDirection.Before;
-			var cursor = String.IsNullOrWhiteSpace(before) ? after : before;
-			var page = repository.ReadCursorPage(
-				ServiceSpecificationExposers.Name,
-				specification => specification.Name ?? String.Empty,
-				CursorKeySerialization.SerializeString,
-				CursorKeySerialization.DeserializeString,
-				ServiceSpecificationExposers.Identifier,
-				specification => specification.Identifier,
-				CursorKeySerialization.SerializeString,
-				CursorKeySerialization.DeserializeString,
-				filter: null,
-				cursor: cursor,
-				limit: limit,
-				direction: direction,
-				descending: true,
-				secondaryDescending: true,
-				includeTotalCount: includeTotalCount && !includeMetrics);
+			var filter = CursorListFilter.Any(CursorListFilter.SearchVariants(name).Select(v => ServiceSpecificationExposers.Name.Contains(v)));
+			bool descending = order.Key == null || order.Descending;
+
+			CursorPage<ServiceSpecification> page;
+			try
+			{
+				page = ((IReadableRepository<ServiceSpecification>)serviceManagementApiHelper.ServiceCatalog.ServiceSpecifications).ReadCursorPage(
+					ServiceSpecificationExposers.Name,
+					specification => specification.Name ?? String.Empty,
+					CursorKeySerialization.SerializeString,
+					CursorKeySerialization.DeserializeString,
+					ServiceSpecificationExposers.Identifier,
+					specification => specification.Identifier,
+					CursorKeySerialization.SerializeString,
+					CursorKeySerialization.DeserializeString,
+					filter: filter,
+					limit: limit,
+					cursor: String.IsNullOrWhiteSpace(before) ? after : before,
+					direction: String.IsNullOrWhiteSpace(before) ? CursorDirection.After : CursorDirection.Before,
+					descending: descending,
+					secondaryDescending: descending,
+					includeTotalCount: includeTotalCount && (filter != null || !includeMetrics));
+			}
+			catch (ArgumentException)
+			{
+				return BadRequest(CreateError("Invalid query", "The cursor is not valid. Reload the list from the first page.", 400));
+			}
+
 			var requestedFields = SplitCommaSeparatedValues(fields);
 			var items = page.Items
 				.Select(JObject.FromObject)
@@ -377,8 +391,9 @@
 			return Ok(new CursorPageResponse<JObject>
 			{
 				Items = items,
-				TotalCount = metrics?.TotalCount ?? page.TotalCount,
-				Metrics = metrics == null ? null : JObject.FromObject(metrics),
+				// The metrics always describe all specifications; the total count describes the filtered list.
+				TotalCount = filter != null ? page.TotalCount : metrics?.TotalCount ?? page.TotalCount,
+				Metrics = CursorMetricsSerialization.ToJObject(metrics),
 				PageInfo = new CursorPageInfo
 				{
 					NextAfterCursor = page.NextAfterCursor,
