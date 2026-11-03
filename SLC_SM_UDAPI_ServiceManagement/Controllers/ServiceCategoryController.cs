@@ -244,6 +244,8 @@
 		/// <remarks>
 		/// <c>PATCH service-management/v1/serviceCategory/{id}</c> with <c>application/json</c>. Only the properties present in the
 		/// body (<c>name</c>, <c>type</c>, <c>icon</c>) are changed; values are stored trimmed. The name must stay unique (case-insensitive).
+		/// Changing the icon also updates services in this category whose icon matches the previous category icon.
+		/// Custom service icons are preserved.
 		/// </remarks>
 		/// <param name="id">Resource ID (DOM instance GUID) of the category.</param>
 		/// <param name="patch">Request body with the properties to change.</param>
@@ -308,7 +310,13 @@
 
 				if (Has(patch, "icon"))
 				{
-					category.Icon = request.Icon?.Trim() ?? String.Empty;
+					string icon = request.Icon?.Trim() ?? String.Empty;
+					if (!String.Equals(category.Icon ?? String.Empty, icon, StringComparison.Ordinal))
+					{
+						UpdateInheritedServiceIcons(categoryId, category.Icon, icon);
+					}
+
+					category.Icon = icon;
 				}
 
 				serviceManagementApiHelper.ServiceCatalog.ServiceCategories.Update(category);
@@ -317,7 +325,27 @@
 			catch (Exception ex)
 			{
 				_logger.LogError(ex, "UpdateServiceCategory failed: {Message}", ex.Message);
-				return InternalServerError(CreateError("Internal server error", "An unexpected error occurred while updating the service category.", 500));
+				return InternalServerError(CreateError("Internal server error", "An unexpected error occurred while updating the service category. Some service logos may already have been updated; retry the category update to complete it.", 500));
+			}
+		}
+
+		private void UpdateInheritedServiceIcons(Guid categoryId, string previousIcon, string icon)
+		{
+			var services = serviceManagementApiHelper.ServiceInventory.Services;
+			var filter = new ManagedFilter<Service, SdmObjectReference<ServiceCategory>>(
+				ServiceExposers.CategoryId,
+				Comparer.Equals,
+				new SdmObjectReference<ServiceCategory>(categoryId.ToString()),
+				service => IsSameId(service.CategoryId.Identifier, categoryId));
+			var inheritedServices = (services.Read(filter) ?? Enumerable.Empty<Service>())
+				.Where(service => String.Equals(service.Icon ?? String.Empty, previousIcon ?? String.Empty, StringComparison.Ordinal))
+				.ToList();
+
+			// Keep the old category icon until every service update succeeds so a partial failure can be retried.
+			foreach (var service in inheritedServices)
+			{
+				service.Icon = icon;
+				services.Update(service);
 			}
 		}
 

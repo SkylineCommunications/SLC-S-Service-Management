@@ -284,6 +284,34 @@ test.describe('Service Management workspace', () => {
         const form = page.getByRole('form', { name: 'New service category' });
         await form.getByRole('textbox', { name: 'Name' }).fill('Broadcast');
         await form.getByRole('textbox', { name: 'Type' }).fill('Channel');
+        await page.route('**/Public/DocumentHub/connectivity.svg', route => route.fulfill({
+            contentType: 'image/svg+xml',
+            body: '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="50"><rect width="100" height="50" fill="blue"/></svg>',
+        }));
+        await form.getByRole('combobox', { name: 'Document Hub logo' }).selectOption('/Public/DocumentHub/connectivity.svg');
+        const preview = form.getByRole('region', { name: 'Preview', exact: true });
+        await expect(preview.locator('.category-preview-copy strong')).toHaveText('Broadcast');
+        await expect(preview.locator('.category-preview-type')).toHaveText('Channel');
+        await expect(preview.locator('.category-preview-copy > span').first()).toHaveText(
+            await form.getByRole('combobox', { name: 'Document Hub logo' }).locator('option:checked').innerText(),
+        );
+        await expect(preview.getByRole('img', { name: 'Category logo' })).toBeVisible();
+        for (const width of [1200, 390]) {
+            await page.setViewportSize({ width, height: 900 });
+            const nameBox = await form.getByRole('textbox', { name: 'Name', exact: true }).boundingBox();
+            const typeBox = await form.getByRole('textbox', { name: 'Type', exact: true }).boundingBox();
+            expect(nameBox).not.toBeNull();
+            expect(typeBox).not.toBeNull();
+            if (width > 560) expect(typeBox!.x).toBeGreaterThan(nameBox!.x + nameBox!.width);
+            else expect(typeBox!.y).toBeGreaterThan(nameBox!.y + nameBox!.height);
+            expect(await form.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBeTruthy();
+        }
+        await form.getByRole('textbox', { name: 'Name' }).fill('Broadcast updated');
+        await expect(preview.locator('.category-preview-copy strong')).toHaveText('Broadcast updated');
+        await form.getByRole('textbox', { name: 'Name' }).fill('Broadcast');
+        await form.getByRole('combobox', { name: 'Document Hub logo' }).selectOption('');
+        await expect(preview.getByText('No logo selected', { exact: true })).toBeVisible();
+        await expect(preview.getByRole('img')).toHaveCount(0);
         await form.getByRole('combobox', { name: 'Document Hub logo' }).selectOption('/Public/DocumentHub/connectivity.svg');
         await form.getByRole('button', { name: 'Create', exact: true }).click();
         await expect(page.getByText('Broadcast', { exact: true })).toBeVisible();
@@ -300,6 +328,25 @@ test.describe('Service Management workspace', () => {
             expect.objectContaining({ ParameterId: 2, Name: 'Bucket Name' }),
             expect.objectContaining({ ParameterId: 3, Name: 'Name Filter' }),
         ]));
+        const list = page.getByRole('list', { name: 'Service categories', exact: true });
+        const category = list.getByRole('listitem').filter({ hasText: 'Broadcast' });
+        await expect(category.locator('.category-preview-type')).toHaveText('Channel');
+        await expect(category.getByRole('img', { name: 'Broadcast logo', exact: true })).toBeVisible();
+        for (const width of [1200, 390]) {
+            await page.setViewportSize({ width, height: 900 });
+            await expect(category.getByRole('button', { name: 'Edit category Broadcast', exact: true })).toBeVisible();
+            await expect(category.getByRole('button', { name: 'Delete category Broadcast', exact: true })).toBeVisible();
+            expect(await list.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBeTruthy();
+        }
+        await category.getByRole('button', { name: 'Edit category Broadcast', exact: true }).click();
+        const editForm = page.getByRole('form', { name: 'Edit service category', exact: true });
+        await expect(editForm.getByRole('textbox', { name: 'Name', exact: true })).toHaveValue('Broadcast');
+        await editForm.getByRole('textbox', { name: 'Name', exact: true }).fill('Broadcast updated');
+        await editForm.getByRole('button', { name: 'Save', exact: true }).click();
+        await expect(category.locator('.category-preview-copy strong')).toHaveText('Broadcast updated');
+        await category.getByRole('button', { name: 'Delete category Broadcast updated', exact: true }).click();
+        await page.getByRole('alertdialog').getByRole('button', { name: 'Delete', exact: true }).click();
+        await expect(category).toHaveCount(0);
     });
     test('disables service category creation until name and type are valid', { tag: '@C4' }, async ({ page }) => {
         await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: /Settings/ }).click();
@@ -370,6 +417,61 @@ test.describe('Service Management workspace', () => {
             return descriptor.ScriptName === 'SLC_SM_GQIDS_Get Service Configurations';
         })).toBeFalsy();
     });
+    test('keeps compact service pages responsive with shared actions and lifecycle', async ({ page }) => {
+        await page.goto(`${APP_ROOT_URL}#services`);
+        await page.getByRole('button', { name: 'Open details of Test service', exact: true }).click();
+        const dialog = page.getByRole('dialog', { name: 'Test service', exact: true });
+        const operations = dialog.getByRole('region', { name: 'Service operations', exact: true });
+        const relatedOrders = dialog.getByRole('region', { name: 'Related service orders', exact: true });
+        const lifecycle = dialog.locator('[aria-label="Service lifecycle"]');
+        await expect(lifecycle).toHaveClass(/order-lifecycle-compact/);
+        await expect(lifecycle.locator('.order-step-number')).toHaveCount(6);
+        await expect(lifecycle.locator('li[aria-current="step"]')).toContainText('Active');
+        await expect(lifecycle.locator('li.done')).toHaveText([/New$/, /Designed$/, /Reserved$/]);
+        await expect(lifecycle.getByRole('button', { name: 'Terminate', exact: true })).toBeEnabled();
+        await expect(lifecycle.locator('.service-lifecycle-steps')).toHaveCount(0);
+        for (const width of [1600, 1000, 390]) {
+            await page.setViewportSize({ width, height: 900 });
+            await dialog.getByRole('button', { name: 'Service & Operations', exact: true }).click();
+            await expect(dialog.getByRole('button', { name: 'Service & Operations', exact: true })).toHaveAttribute('aria-pressed', 'true');
+            const navigationBox = await dialog.getByRole('navigation', { name: 'Service detail sections' }).boundingBox();
+            const lifecycleBox = await lifecycle.boundingBox();
+            expect(lifecycleBox!.y).toBeGreaterThan(navigationBox!.y + navigationBox!.height);
+            await expect(dialog.getByText('Implementation building blocks', { exact: true })).toHaveCount(0);
+            await expect(dialog.getByText('Attached automation scripts', { exact: true })).toHaveCount(0);
+            await expect(dialog.getByRole('region', { name: 'Service details', exact: true })).toContainText('Service ID');
+            await expect(operations).toBeVisible();
+            const operationsBox = await operations.boundingBox();
+            const relatedOrdersBox = await relatedOrders.boundingBox();
+            expect(operationsBox).not.toBeNull();
+            expect(relatedOrdersBox).not.toBeNull();
+            if (width > 800) expect(relatedOrdersBox!.x).toBeGreaterThan(operationsBox!.x + operationsBox!.width);
+            else expect(relatedOrdersBox!.y).toBeGreaterThan(operationsBox!.y + operationsBox!.height);
+
+            await dialog.getByRole('button', { name: 'Configurations', exact: true }).click();
+            await expect(dialog.getByRole('button', { name: 'Configurations', exact: true })).toHaveAttribute('aria-pressed', 'true');
+            await expect(dialog.getByRole('button', { name: 'Service & Operations', exact: true })).toHaveAttribute('aria-pressed', 'false');
+            const parameters = dialog.locator('.native-configuration-parameters');
+            const profiles = dialog.locator('.native-configuration-profiles');
+            await expect(parameters).toBeVisible();
+            await expect(profiles).toBeVisible();
+            await expect(dialog.getByRole('button', { name: 'Collapse standalone parameters' })).toBeVisible();
+            const parametersBox = await parameters.boundingBox();
+            const profilesBox = await profiles.boundingBox();
+            expect(parametersBox).not.toBeNull();
+            expect(profilesBox).not.toBeNull();
+            if (width > 1100) expect(profilesBox!.x).toBeGreaterThan(parametersBox!.x + parametersBox!.width);
+            else expect(profilesBox!.y).toBeGreaterThan(parametersBox!.y + parametersBox!.height);
+            await expect(dialog.getByRole('heading', { name: 'Test service', exact: true })).toBeVisible();
+            for (const action of ['Edit', 'Duplicate', 'Delete']) await expect(dialog.getByRole('button', { name: action, exact: true })).toBeVisible();
+            await expect(lifecycle).toBeVisible();
+            expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBeTruthy();
+            await dialog.getByRole('button', { name: 'Show Value Details', exact: true }).click();
+            expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBeTruthy();
+        }
+        await dialog.getByRole('button', { name: 'Close service details' }).click();
+        await expect(dialog).toHaveCount(0);
+    });
     test('saves service configurations through the UDAPI PUT route', { tag: '@C3' }, async ({ page }) => {
         await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: /Services/ }).click();
         const serviceRow = page.locator('.service-row').filter({ hasText: 'Test service' });
@@ -377,7 +479,7 @@ test.describe('Service Management workspace', () => {
         const dialog = page.getByRole('dialog');
         await dialog.getByRole('button', { name: 'Configurations', exact: true }).click();
         await expect(dialog.getByRole('heading', { name: 'Service configuration' })).toBeVisible();
-        await dialog.getByRole('button', { name: 'Expand standalone parameters' }).click();
+        await expect(dialog.getByRole('button', { name: 'Collapse standalone parameters' })).toBeVisible();
         await dialog.getByRole('combobox', { name: 'Value for Polarization' }).selectOption({ label: 'Vertical' });
         await dialog.getByRole('button', { name: 'Save configuration', exact: true }).click();
         await expect.poll(() => udapiRequests(mock).some(request =>
@@ -445,11 +547,67 @@ test.describe('Service Management workspace', () => {
         await expect(version.locator('option', { hasText: 'Current version (Copy)' })).toHaveCount(1);
     });
     test('opens logo assignment from the service table icon', { tag: '@S3' }, async ({ page }) => {
+        await page.route('**/Public/DocumentHub/connectivity.svg', route => route.fulfill({
+            contentType: 'image/svg+xml',
+            body: '<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="500"><rect width="1000" height="500" fill="blue"/></svg>',
+        }));
+        await page.goto(`${APP_ROOT_URL}#catalog/categories`);
+        await page.getByRole('button', { name: 'Edit category Connectivity', exact: true }).click();
+        const categoryForm = page.getByRole('form', { name: 'Edit service category', exact: true });
+        await categoryForm.getByRole('combobox', { name: 'Document Hub logo' }).selectOption('/Public/DocumentHub/connectivity.svg');
+        await categoryForm.getByRole('button', { name: 'Save', exact: true }).click();
+        await expect(categoryForm).toHaveCount(0);
         await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: /Services/ }).click();
         await page.getByRole('button', { name: 'Set logo for Test service' }).click();
         const form = page.getByRole('form', { name: 'Assign service logo' });
         await expect(form).toBeVisible();
         await expect(form.getByRole('combobox', { name: 'Logo category' }).locator('option')).toContainText(['Connectivity', 'Production']);
+        const preview = form.getByRole('region', { name: 'Logo preview', exact: true });
+        await expect(preview.locator('.category-preview-copy strong')).toHaveText('Test service');
+        await expect(preview.locator('.category-preview-type')).toHaveText('Channel');
+        const logo = preview.getByRole('img', { name: 'Service logo preview', exact: true });
+        await expect(logo).toBeVisible();
+        for (const width of [1200, 390]) {
+            await page.setViewportSize({ width, height: 900 });
+            const box = await logo.boundingBox();
+            expect(box!.width).toBeLessThanOrEqual(144);
+            expect(box!.height).toBeLessThanOrEqual(72);
+            expect(await form.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBeTruthy();
+        }
+        await form.getByRole('combobox', { name: 'Logo category' }).selectOption('');
+        await expect(preview.getByText('No category selected', { exact: true })).toBeVisible();
+        await expect(preview.getByRole('img')).toHaveCount(0);
+    });
+    test('shows a compact specification overview above side-by-side items and configuration', async ({ page }) => {
+        await page.goto(`${APP_ROOT_URL}#catalog`);
+        const open = page.getByRole('button', { name: 'Open details of Managed switching' });
+        await open.click();
+        const dialog = page.getByRole('dialog', { name: 'Managed switching', exact: true });
+        const summary = dialog.getByRole('region', { name: 'Specification details', exact: true });
+        const items = dialog.getByRole('region', { name: 'Service Items', exact: true });
+        const editor = dialog.getByRole('region', { name: 'Specification configuration editor', exact: true });
+        await expect(editor.getByRole('heading', { name: 'Specification configuration', exact: true })).toBeVisible();
+        await expect(items).toBeVisible();
+        for (const width of [1600, 390]) {
+            await page.setViewportSize({ width, height: 900 });
+            const summaryBox = await summary.boundingBox();
+            const itemsBox = await items.boundingBox();
+            const editorBox = await editor.boundingBox();
+            expect(summaryBox).not.toBeNull();
+            expect(itemsBox).not.toBeNull();
+            expect(editorBox).not.toBeNull();
+            if (width > 960) {
+                expect(itemsBox!.y).toBeGreaterThan(summaryBox!.y + summaryBox!.height);
+                expect(editorBox!.y).toBeGreaterThan(summaryBox!.y + summaryBox!.height);
+                expect(editorBox!.x).toBeGreaterThan(itemsBox!.x + itemsBox!.width);
+            } else {
+                expect(itemsBox!.y).toBeGreaterThan(summaryBox!.y + summaryBox!.height);
+                expect(editorBox!.y).toBeGreaterThan(itemsBox!.y + itemsBox!.height);
+            }
+            expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBeTruthy();
+        }
+        await page.keyboard.press('Escape');
+        await expect(dialog).toHaveCount(0);
     });
     test('edits specification configurations with the shared profile editor', { tag: '@C2' }, async ({ page }) => {
         await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: 'inventory_2 Catalog' }).click();
@@ -459,7 +617,7 @@ test.describe('Service Management workspace', () => {
         await specificationRow.getByRole('button', { name: 'Open details of Managed switching' }).click();
 
         const dialog = page.getByRole('dialog');
-        await dialog.getByRole('button', { name: 'Configurations', exact: true }).click();
+        await expect(dialog.getByRole('heading', { name: 'Specification details', exact: true })).toBeVisible();
         await expect(dialog.getByRole('heading', { name: 'Specification configuration' })).toBeVisible();
         const version = dialog.getByRole('combobox', { name: 'Version' });
         const activeControl = dialog.locator('.configuration-version-active');
@@ -542,9 +700,9 @@ test.describe('Service Management workspace', () => {
         await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: 'inventory_2 Catalog' }).click();
         await page.locator('.catalog-row').filter({ hasText: 'Managed switching' }).getByRole('button', { name: 'Open details of Managed switching' }).click();
         const dialog = page.getByRole('dialog');
-        const rows = dialog.locator('.service-items-table tbody tr');
-        await expect(rows).toHaveCount(1);
-        for (const text of ['Switch booking', 'SRM Booking', 'Switching Booking Manager']) await expect(rows.first()).toContainText(text);
+        const items = dialog.locator('.specification-service-item');
+        await expect(items).toHaveCount(1);
+        for (const text of ['Switch booking', 'SRM Booking', 'Switching Booking Manager']) await expect(items.first()).toContainText(text);
         const itemRequest = mock.calls
             .filter(call => call.method === 'ExecuteAutomationScriptWithOutput' && call.body.script?.Name === 'SLC_SM_UDAPI_ServiceManagement')
             .map(call => JSON.parse(call.body.script.Parameters?.[0]?.Value ?? '{}'))
@@ -556,7 +714,6 @@ test.describe('Service Management workspace', () => {
         await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: 'inventory_2 Catalog' }).click();
         await page.locator('.catalog-row').filter({ hasText: 'Managed switching' }).getByRole('button', { name: 'Open details of Managed switching' }).click();
         const dialog = page.getByRole('dialog');
-        await dialog.getByRole('button', { name: 'Configurations', exact: true }).click();
         await expect(dialog.getByRole('heading', { name: 'Specification configuration' })).toBeVisible();
         await dialog.getByRole('button', { name: 'New version', exact: true }).click();
         await expect(dialog.getByText('Inactive until Activate', { exact: true })).toBeVisible();
@@ -566,7 +723,6 @@ test.describe('Service Management workspace', () => {
         await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: 'inventory_2 Catalog' }).click();
         await page.locator('.catalog-row').filter({ hasText: 'Managed switching' }).getByRole('button', { name: 'Open details of Managed switching' }).click();
         const dialog = page.getByRole('dialog');
-        await dialog.getByRole('button', { name: 'Configurations', exact: true }).click();
         await expect(dialog.getByRole('heading', { name: 'Specification configuration' })).toBeVisible();
         const configurationRoute = 'service-management/v1/serviceSpecification/spec-1/configuration';
         const configurationReadCount = () => udapiRequests(mock).filter(request =>
@@ -598,8 +754,7 @@ test.describe('Service Management workspace', () => {
         await expect(serviceRow).toBeVisible();
         await serviceRow.getByRole('button', { name: 'Open details of Test service' }).click();
 
-        const panel = page.getByRole('dialog');
-        await panel.getByRole('button', { name: 'Operations', exact: true }).click();
+        const panel = page.getByRole('dialog').getByRole('region', { name: 'Service operations', exact: true });
         await expect(panel.locator('tbody tr')).toHaveCount(2);
 
         await panel.getByRole('button', { name: 'Add', exact: true }).click();
@@ -715,9 +870,12 @@ test.describe('Service Management workspace', () => {
         await expect(panel.locator('.order-modal-header')).toContainText('Service order · ID 6F1C2A90');
         await expect(panel.locator('.priority-chip')).toHaveText('High priority');
         await expect(panel.locator('.order-stepper li.done')).toHaveText([/New$/, /Acknowledged$/]);
-        await expect(panel.locator('.order-stepper li[aria-current="step"]')).toHaveText('In Progress');
+        await expect(panel.locator('.order-stepper li[aria-current="step"]')).toContainText('In Progress');
         await expect(panel.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '0');
         await expect(panel.locator('.order-modal-facts')).toContainText('0 of 2 items completed');
+        const description = panel.locator('.order-modal-facts .order-modal-description');
+        await expect(description.locator('dt')).toHaveText('Description');
+        await expect(description.locator('dd')).toHaveText('Replace core switches');
         await expect(panel.locator('.order-item').first()).toHaveClass(/action-add/);
         await expect(panel.locator('.order-item').nth(1)).toHaveClass(/action-modify/);
         await panel.getByRole('button', { name: 'View Core switch A' }).click();
@@ -726,6 +884,33 @@ test.describe('Service Management workspace', () => {
         await itemPanel.getByRole('button', { name: 'Close service order item details' }).click();
         await expect(itemPanel).toHaveCount(0);
         await expect(panel).toBeVisible();
+    });
+    test('places compact order transitions below the header and above order facts', async ({ page }) => {
+        await page.getByRole('button', { name: 'Open details of Studio expansion', exact: true }).click();
+        const panel = page.getByRole('dialog', { name: 'Studio expansion', exact: true });
+        const lifecycle = panel.getByRole('region', { name: 'Order lifecycle', exact: true });
+        await expect(lifecycle.locator('li[aria-current="step"]')).toContainText('New');
+        await expect(lifecycle.locator('.order-step-number')).toHaveText(['1', '2', '3', '4']);
+        await expect(lifecycle.getByRole('button', { name: 'Acknowledge', exact: true })).toBeEnabled();
+        await expect(lifecycle.getByRole('button', { name: 'Reject', exact: true })).toBeEnabled();
+        await expect(lifecycle.getByText('Other actions', { exact: true })).toHaveCount(0);
+        for (const width of [1600, 700, 390]) {
+            await page.setViewportSize({ width, height: 900 });
+            const headerBox = await panel.locator('.order-modal-header').boundingBox();
+            const lifecycleBox = await lifecycle.boundingBox();
+            const factsBox = await panel.locator('.order-modal-facts').boundingBox();
+            expect(headerBox).not.toBeNull();
+            expect(lifecycleBox).not.toBeNull();
+            expect(factsBox).not.toBeNull();
+            expect(lifecycleBox!.y).toBeGreaterThanOrEqual(headerBox!.y + headerBox!.height - 1);
+            expect(factsBox!.y).toBeGreaterThan(lifecycleBox!.y + lifecycleBox!.height);
+            expect(await panel.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBeTruthy();
+            if (width === 1600) {
+                const stepsBox = await lifecycle.locator('.order-stepper').boundingBox();
+                const actionsBox = await lifecycle.locator('.order-lifecycle-inline-actions').boundingBox();
+                expect(actionsBox!.x).toBeGreaterThan(stepsBox!.x + stepsBox!.width);
+            }
+        }
     });
     test('shows order item details as a pop-up that stays open across transitions and closes alone on Escape', { tag: '@D8' }, async ({ page }) => {
         await page.locator('.order-row').filter({ hasText: 'Network refresh' }).getByRole('button', { name: 'Open details of Network refresh' }).click();
@@ -736,11 +921,26 @@ test.describe('Service Management workspace', () => {
         await expect(itemPanel.locator('.order-action-chip')).toHaveText('Modify');
         await expect(itemPanel.locator('.item-modal-details')).toContainText('Not linked yet');
         await expect(itemPanel.getByRole('button', { name: 'Initialize service for Core switch B' })).toBeVisible();
-        await expect(itemPanel.locator('.order-stepper li[aria-current="step"]')).toHaveText('New');
+        const lifecycle = itemPanel.getByRole('region', { name: 'Service order item lifecycle', exact: true });
+        await expect(lifecycle).toHaveClass(/order-lifecycle-compact/);
+        await expect(lifecycle.locator('.order-step-number')).toHaveText(['1', '2', '3', '4']);
+        await expect(itemPanel.locator('.order-stepper li[aria-current="step"]')).toContainText('New');
         await expect(itemPanel.getByRole('button', { name: 'Reject' })).toBeVisible();
+        await expect(lifecycle.getByText('Other actions', { exact: true })).toHaveCount(0);
+        for (const width of [1600, 390]) {
+            await page.setViewportSize({ width, height: 900 });
+            const headerBox = await itemPanel.locator('.item-modal-header').boundingBox();
+            const lifecycleBox = await lifecycle.boundingBox();
+            expect(headerBox).not.toBeNull();
+            expect(lifecycleBox).not.toBeNull();
+            expect(lifecycleBox!.y).toBeGreaterThanOrEqual(headerBox!.y + headerBox!.height - 1);
+            expect(lifecycleBox!.y).toBeLessThanOrEqual(headerBox!.y + headerBox!.height + 1);
+            expect(await itemPanel.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBeTruthy();
+        }
+        await page.setViewportSize({ width: 1600, height: 900 });
         await expect(itemPanel.locator('.native-configuration-table')).toContainText('Polarization');
         await itemPanel.getByRole('button', { name: 'Acknowledge' }).click();
-        await expect(itemPanel.locator('.order-stepper li[aria-current="step"]')).toHaveText('Acknowledged');
+        await expect(itemPanel.locator('.order-stepper li[aria-current="step"]')).toContainText('Acknowledged');
         await expect(itemPanel).toBeVisible();
         await page.keyboard.press('Escape');
         await expect(itemPanel).toHaveCount(0);
@@ -868,6 +1068,38 @@ test.describe('Service Management workspace', () => {
         mock.itemsFail = false;
         await panel.getByRole('button', { name: 'Retry' }).click();
         await expect(panel.locator('.order-item')).toHaveCount(2);
+    });
+    test('shows responsive settings cards and keeps theme choices synchronized', async ({ page }) => {
+        await page.goto(`${APP_ROOT_URL}#settings`);
+        const theme = page.getByRole('group', { name: 'Theme', exact: true });
+        await theme.getByRole('button', { name: 'Dark', exact: true }).click();
+        await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+        await expect(theme.getByRole('button', { name: 'Dark', exact: true })).toHaveAttribute('aria-pressed', 'true');
+        await page.getByRole('button', { name: 'Choose theme' }).click();
+        await page.getByRole('menuitem', { name: 'Light' }).click();
+        await expect(theme.getByRole('button', { name: 'Light', exact: true })).toHaveAttribute('aria-pressed', 'true');
+        await expect(page.getByRole('status')).toContainText('Currently using light appearance');
+        await page.reload();
+        await expect(theme.getByRole('button', { name: 'Light', exact: true })).toHaveAttribute('aria-pressed', 'true');
+        await theme.getByRole('button', { name: 'System', exact: true }).click();
+        for (const colorScheme of ['dark', 'light'] as const) {
+            await page.emulateMedia({ colorScheme });
+            await expect(page.locator('html')).toHaveAttribute('data-theme', colorScheme);
+            await expect(page.getByRole('status')).toContainText(`Currently using ${colorScheme} appearance`);
+        }
+        for (const width of [1440, 900, 390]) {
+            await page.setViewportSize({ width, height: 900 });
+            await expect(page.getByRole('region', { name: 'Theme', exact: true })).toBeVisible();
+            await expect(page.getByRole('button', { name: 'Sign out', exact: true })).toBeVisible();
+            expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
+        }
+        const navigation = page.getByRole('navigation', { name: 'Settings sections' });
+        await navigation.getByRole('button', { name: 'DataMiner connection', exact: true }).click();
+        await expect(page.getByRole('region', { name: 'DataMiner connection', exact: true })).toBeFocused();
+        await navigation.getByRole('button', { name: 'General & Appearance', exact: true }).click();
+        await expect(page.getByRole('region', { name: 'Theme', exact: true })).toBeFocused();
+        await page.getByRole('link', { name: 'Manage categories', exact: true }).click();
+        await expect(page.getByRole('heading', { name: 'Service Categories', exact: true })).toBeVisible();
     });
     test('offers theme modes and persists an explicit dark theme', { tag: ['@T1', '@T2'] }, async ({ page }) => {
         await page.getByRole('button', { name: 'Choose theme' }).click(); await expect(page.getByRole('menuitem', { name: 'System' })).toBeVisible(); await page.getByRole('menuitem', { name: 'Dark' }).click(); await expect.poll(() => page.locator('html').getAttribute('data-theme')).toBe('dark'); await page.reload(); await expect.poll(() => page.locator('html').getAttribute('data-theme')).toBe('dark');

@@ -5,6 +5,7 @@
 	using Microsoft.Extensions.Logging;
 	using Moq;
 	using Newtonsoft.Json.Linq;
+	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 	using Skyline.DataMiner.SDM;
 	using SLC_SM_UDAPI_ServiceManagement.Controllers;
@@ -191,6 +192,103 @@
 			var category = AddCategory("A");
 			Services.Add(new Service { Identifier = Guid.NewGuid().ToString(), CategoryId = new SdmObjectReference<ServiceCategory>(Guid.NewGuid().ToString()) });
 			Assert.AreEqual(204, StatusCode(controller.DeleteServiceCategory(category.Identifier)));
+		}
+
+		[DataTestMethod]
+		[DataRow("old.svg", "new.svg")]
+		[DataRow(null, "new.svg")]
+		[DataRow("", "new.svg")]
+		[DataRow("old.svg", null)]
+		public void Update_IconChange_UpdatesInheritedServicesOnly(string previousIcon, string nextIcon)
+		{
+			var category = AddCategory("A", "Video", previousIcon);
+			var inherited = AddWithId(Services, new Service
+			{
+				CategoryId = new SdmObjectReference<ServiceCategory>(category.Identifier),
+				Icon = previousIcon,
+			});
+			var custom = AddWithId(Services, new Service
+			{
+				CategoryId = new SdmObjectReference<ServiceCategory>(category.Identifier),
+				Icon = "custom.svg",
+			});
+			var unrelated = AddWithId(Services, new Service
+			{
+				CategoryId = new SdmObjectReference<ServiceCategory>(Guid.NewGuid().ToString()),
+				Icon = previousIcon,
+			});
+			AddWithId(Services, new Service { Icon = previousIcon });
+			var repository = Mock.Get(Helper.Object.ServiceInventory.Services);
+
+			var result = controller.UpdateServiceCategory(category.Identifier, new JObject { ["icon"] = nextIcon });
+
+			Assert.AreEqual(200, StatusCode(result));
+			Assert.AreEqual(nextIcon ?? String.Empty, category.Icon);
+			Assert.AreEqual(nextIcon ?? String.Empty, inherited.Icon);
+			Assert.AreEqual("custom.svg", custom.Icon);
+			Assert.AreEqual(previousIcon, unrelated.Icon);
+			repository.Verify(r => r.Update(inherited), Times.Once);
+			repository.Verify(r => r.Update(It.IsAny<Service>()), Times.Once);
+		}
+
+		[DataTestMethod]
+		[DataRow("{'name':'Renamed'}")]
+		[DataRow("{'icon':' old.svg '}")]
+		public void Update_WithoutIconChange_DoesNotUpdateServices(string json)
+		{
+			var category = AddCategory("A", "Video", "old.svg");
+			var repository = Mock.Get(Helper.Object.ServiceInventory.Services);
+
+			Assert.AreEqual(200, StatusCode(controller.UpdateServiceCategory(category.Identifier, JObject.Parse(json))));
+
+			repository.Verify(r => r.Read(It.IsAny<FilterElement<Service>>()), Times.Never);
+			repository.Verify(r => r.Update(It.IsAny<Service>()), Times.Never);
+		}
+
+		[TestMethod]
+		public void Update_ServiceIconWriteFails_CanRetryAfterPartialUpdate()
+		{
+			var category = AddCategory("A", "Video", "old.svg");
+			var first = AddWithId(Services, new Service
+			{
+				CategoryId = new SdmObjectReference<ServiceCategory>(category.Identifier),
+				Icon = "old.svg",
+			});
+			var second = AddWithId(Services, new Service
+			{
+				CategoryId = new SdmObjectReference<ServiceCategory>(category.Identifier),
+				Icon = "old.svg",
+			});
+			var repository = Mock.Get(Helper.Object.ServiceInventory.Services);
+			repository.Setup(r => r.Read(It.IsAny<FilterElement<Service>>()))
+				.Returns<FilterElement<Service>>(filter => Services.Where(filter.getLambda())
+					.Select(service => new Service { Identifier = service.Identifier, CategoryId = service.CategoryId, Icon = service.Icon }).ToList());
+			bool failSecondWrite = true;
+			repository.Setup(r => r.Update(It.IsAny<Service>())).Returns<Service>(service =>
+			{
+				if (service.Identifier == second.Identifier && failSecondWrite)
+				{
+					throw new InvalidOperationException("Write failed");
+				}
+
+				Services.Single(stored => stored.Identifier == service.Identifier).Icon = service.Icon;
+				return service;
+			});
+
+			var result = controller.UpdateServiceCategory(category.Identifier, new JObject { ["icon"] = "new.svg" });
+
+			Assert.AreEqual(500, StatusCode(result));
+			Assert.AreEqual("old.svg", category.Icon);
+			Assert.AreEqual("new.svg", first.Icon);
+			Assert.AreEqual("old.svg", second.Icon);
+			StringAssert.Contains(ErrorDetail(result), "retry the category update");
+			Mock.Get(Helper.Object.ServiceCatalog.ServiceCategories).Verify(r => r.Update(It.IsAny<ServiceCategory>()), Times.Never);
+
+			failSecondWrite = false;
+			Assert.AreEqual(200, StatusCode(controller.UpdateServiceCategory(category.Identifier, new JObject { ["icon"] = "new.svg" })));
+			Assert.AreEqual("new.svg", category.Icon);
+			Assert.AreEqual("new.svg", second.Icon);
+			repository.Verify(r => r.Update(It.Is<Service>(service => service.Identifier == first.Identifier)), Times.Once);
 		}
 
 		private ServiceCategory AddCategory(string name, string type = null, string icon = null)
