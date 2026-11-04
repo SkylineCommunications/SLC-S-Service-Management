@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { DataMinerAuthError } from './dataminer/transport.js';
 import { addCatalogSpecificationItem, createCatalogCategory, createCatalogSpecification, deleteCatalogCategory, deleteCatalogSpecification, deleteCatalogSpecificationItem, fetchDocumentHubLogos, fetchServiceCategories, fetchServiceSpecificationOverview, fetchServiceSpecificationPage, fetchServiceSpecifications, fetchServiceSpecificationConfigurations, fetchSpecificationItems, saveCatalogSpecificationConfiguration, updateCatalogCategory, updateCatalogSpecification, updateCatalogSpecificationItem } from './dataminer/catalog.js';
 import { addServiceOrderItem, createServiceOrder, deleteServiceOrder, deleteServiceOrderItem, fetchRelatedServiceOrders, fetchServiceOrderItemConfigurations, fetchServiceOrderItems, fetchServiceOrderOverviewData, fetchServiceOrderPage, fetchServiceOrganizations, getOrderItemTransitions, getOrderTransitions, transitionServiceOrder, transitionServiceOrderItem, updateServiceOrder, updateServiceOrderItem, saveServiceOrderItemConfiguration, initializeServiceFromOrderItem } from './dataminer/serviceOrders.js';
-import { addInventoryServiceItem, addServiceScript, createInventoryService, deleteInventoryService, deleteInventoryServiceItem, deleteServiceScript, duplicateInventoryService, duplicateServiceConfigurationVersion, fetchInventoryServiceItems, fetchMonitoringServices, fetchServiceConfigurations, fetchServiceDetails, fetchServiceForDisplay, fetchServiceItemReferenceOptions, fetchServiceOverviewData, fetchServicePage, fetchServiceScripts, fetchServices, saveServiceConfiguration as saveInventoryServiceConfiguration, serviceApiId, SERVICE_INVENTORY_SCRIPTS, SERVICE_TRANSITIONS, SRM_BOOKING_ACTIONS, transitionInventoryService, updateInventoryService, updateInventoryServiceItem, updateServiceScript } from './dataminer/services.js';
+import { addInventoryServiceItem, addServiceScript, configurationParameterKey, createInventoryService, deleteInventoryService, deleteInventoryServiceItem, deleteServiceScript, duplicateInventoryService, duplicateServiceConfigurationVersion, fetchInventoryServiceItems, fetchMonitoringServices, fetchServiceConfigurations, fetchServiceDetails, fetchServiceForDisplay, fetchServiceItemReferenceOptions, fetchServiceOverviewData, fetchServicePage, fetchServiceScripts, fetchServices, saveServiceConfiguration as saveInventoryServiceConfiguration, serviceApiId, SERVICE_INVENTORY_SCRIPTS, SERVICE_TRANSITIONS, SRM_BOOKING_ACTIONS, transitionInventoryService, updateInventoryService, updateInventoryServiceItem, updateServiceScript } from './dataminer/services.js';
 import { getConnectionFromCookie, redirectToAuth } from './dataminer/session.js';
 import { IasDialog } from './IasDialog.jsx';
 import './styles.css';
@@ -221,6 +221,39 @@ function ConfigurationParameterValueEditor({ parameter, disabled = false, onChan
     </select>;
 }
 
+function createConfigurationParameter(parameter, siblings) {
+    const instances = siblings.filter(item => item.id === parameter.id);
+    const labels = new Set(instances.map(item => (item.label || '').trim().toLowerCase()));
+    const base = (parameter.label || parameter.name || parameter.id).trim();
+    let label = parameter.label || '';
+    if (instances.length > 0) {
+        label = base;
+        let suffix = 2;
+        while (labels.has(label.toLowerCase())) label = `${base} #${suffix++}`;
+    }
+    return { ...parameter, clientId: crypto.randomUUID(), label, value: '', configurationId: '', valueId: '', mandatory: false };
+}
+
+function findParameterLabelError(parameters, profiles = []) {
+    const groups = new Map();
+    for (const parameter of parameters || []) {
+        if (!groups.has(parameter.id)) groups.set(parameter.id, []);
+        groups.get(parameter.id).push(parameter);
+    }
+    for (const instances of groups.values()) {
+        if (instances.length < 2) continue;
+        const labels = instances.map(parameter => (parameter.label || '').trim().toLowerCase());
+        if (labels.some(label => !label) || new Set(labels).size !== labels.length) {
+            return `Repeated parameter "${instances[0].name || instances[0].id}" must have a non-empty, different label for each occurrence.`;
+        }
+    }
+    for (const profile of profiles) {
+        const error = findParameterLabelError(profile.parameters, profile.nestedProfiles || []);
+        if (error) return `${profile.name || 'Profile'}: ${error}`;
+    }
+    return '';
+}
+
 function ParameterLabelInput({ parameter, readOnly, onChange }) {
     const name = parameter.name || parameter.id;
     const label = parameter.label || '';
@@ -246,10 +279,10 @@ function ProfileParameterList({ profileId, parameters, reusable, showValueDetail
             onRemove={parameter => onRemoveParameter(profileId, parameter)}
         />;
     }
-    return <div className={`configuration-profile-parameters-list ${className}`}><ProfileParameterHeader />{parameters.map(parameter => <div className="configuration-profile-parameter-row" key={parameter.valueId || parameter.id}>
-        <ParameterLabelInput parameter={parameter} readOnly={reusable} onChange={label => onUpdateParameter(profileId, parameter.id, label, 'label')} />
+    return <div className={`configuration-profile-parameters-list ${className}`}><ProfileParameterHeader />{parameters.map(parameter => <div className="configuration-profile-parameter-row" key={configurationParameterKey(parameter)}>
+        <ParameterLabelInput parameter={parameter} readOnly={reusable} onChange={label => onUpdateParameter(profileId, configurationParameterKey(parameter), label, 'label')} />
         <span className="configuration-profile-parameter-name">{parameter.name || parameter.id}</span>
-        <ConfigurationParameterValueEditor parameter={parameter} disabled={reusable} onChange={value => onUpdateParameter(profileId, parameter.id, value)} ariaLabel={`Value for ${parameter.name || parameter.id}`} />
+        <ConfigurationParameterValueEditor parameter={parameter} disabled={reusable} onChange={value => onUpdateParameter(profileId, configurationParameterKey(parameter), value)} ariaLabel={`Value for ${parameter.name || parameter.id}`} />
         {!reusable && <button className="table-icon-action danger" type="button" aria-label={`Delete profile parameter ${parameter.name || parameter.id}`} onClick={() => onRemoveParameter(profileId, parameter)}><span className="icon" aria-hidden="true">delete</span></button>}
     </div>)}</div>;
 }
@@ -338,7 +371,7 @@ function NativeConfigurationProfileView({ profile, profilePath, profilesAtLevel,
                 {!reusable && <div className="configuration-add-controls">
                     <select value={parameterChoice} onChange={event => setParameterChoice(event.target.value)} aria-label="Select profile parameter">
                         <option value="">Select parameter…</option>
-                        {availableParameters.filter(parameter => !parameters.some(current => current.id === parameter.id)).map(parameter => <option value={parameter.id} key={`${parameter.id}-${parameter.name}`}>{parameter.name || parameter.id}</option>)}
+                        {availableParameters.map(parameter => <option value={parameter.id} key={`${parameter.id}-${parameter.name}`}>{parameter.name || parameter.id}</option>)}
                     </select>
                     <button className="quiet-button" type="button" onClick={addParameter} disabled={!parameterChoice}>Add</button>
                 </div>}
@@ -435,7 +468,7 @@ function ConfigurationProfileNodeV2({ profile, depth, availableProfiles, availab
                     {!reusable && <div className="configuration-add-controls">
                         <select value={parameterChoice} onChange={event => setParameterChoice(event.target.value)} aria-label={`Select parameter for ${profile.name || 'profile'}`}>
                             <option value="">Select parameter…</option>
-                            {availableParameters.filter(parameter => !parameters.some(current => current.id === parameter.id)).map(parameter => <option value={parameter.id} key={`${parameter.id}-${parameter.name}`}>{parameter.name || parameter.id}</option>)}
+                            {availableParameters.map(parameter => <option value={parameter.id} key={`${parameter.id}-${parameter.name}`}>{parameter.name || parameter.id}</option>)}
                         </select>
                         <button className="quiet-button" type="button" onClick={addParameter} disabled={!parameterChoice}>Add</button>
                     </div>}
@@ -476,7 +509,7 @@ function ConfigurationProfileNodeV2({ profile, depth, availableProfiles, availab
     </article>;
 }
 function ConfigurationProfilesSectionV2({ profiles, availableProfiles, availableNestedProfiles, availableParameters, onAdd, onAddReusable, onRemove, onAddNestedProfileDefinition, onAddNested, onRemoveNested, onAddParameter, onUpdateParameter, onUpdateProfileName, onRemoveParameter, onOpenNested, showValueDetails = false, showLifecycleDetails = false, onUpdateProfileLifecycle }) {
-    const [collapsed, setCollapsed] = useState(false);
+    const [collapsed, setCollapsed] = useState(true);
     const [expandedProfileId, setExpandedProfileId] = useState('');
     const [profileChoice, setProfileChoice] = useState('');
     const [reusableChoice, setReusableChoice] = useState('');
@@ -499,7 +532,7 @@ function ConfigurationProfilesSectionV2({ profiles, availableProfiles, available
                 <button className="profile-collapse-button" type="button" aria-expanded={!collapsed} aria-label={`${collapsed ? 'Expand' : 'Collapse'} profiles`} onClick={() => setCollapsed(value => !value)}>
                     <span className="icon" aria-hidden="true">{collapsed ? 'chevron_right' : 'expand_more'}</span>
                 </button>
-                <div><p className="eyebrow">Profiles</p></div>
+                <div><p className="eyebrow">Profiles ({profiles.length})</p></div>
             </div>
             <div className="configuration-profile-add-controls">
                 <div className="configuration-add-controls">
@@ -555,13 +588,13 @@ function NativeConfigurationParametersSection({ parameters, availableParameters,
                     <span className="icon" aria-hidden="true">{collapsed ? 'chevron_right' : 'expand_more'}</span>
                 </button>
                 <div>
-                    <p className="eyebrow">{heading}</p>
+                    <p className="eyebrow">{heading} ({parameters.length})</p>
                 </div>
             </div>
             <div className="configuration-add-controls">
                 <select value={parameterToAdd} onChange={event => setParameterToAdd(event.target.value)} aria-label="Select parameter to add">
                     <option value="">Select parameter…</option>
-                    {availableParameters.filter(parameter => !parameters.some(current => current.id === parameter.id)).map(parameter => <option value={parameter.id} key={`${parameter.id}-${parameter.name}`}>{parameter.name || parameter.id}</option>)}
+                    {availableParameters.map(parameter => <option value={parameter.id} key={`${parameter.id}-${parameter.name}`}>{parameter.name || parameter.id}</option>)}
                 </select>
                 <button className="quiet-button" type="button" onClick={addAndExpand} disabled={!parameterToAdd}>Add</button>
             </div>
@@ -573,7 +606,7 @@ function NativeConfigurationParametersSection({ parameters, availableParameters,
             lifecycleMode={lifecycleMode}
             onValue={updateParameter}
             onDetail={updateParameterDetail}
-            onRemove={parameter => removeParameter(parameter.id)}
+            onRemove={parameter => removeParameter(configurationParameterKey(parameter))}
         />)}
     </section>;
 }
@@ -584,7 +617,7 @@ function ConfigurationParameterTable({ parameters, readOnly = false, showValueDe
     const isOrderItem = lifecycleMode === 'OrderItem';
     const isProfile = lifecycleMode === 'Profile';
     const showOrderLifecycle = showLifecycleDetails && !isOrderItem && !isProfile;
-    const checkbox = (parameter, field, label, editable = !readOnly) => <td><input className="configuration-detail-checkbox" type="checkbox" checked={Boolean(parameter[field])} disabled={!editable} onChange={event => onDetail(parameter.id, field, event.target.checked)} aria-label={`${label} for ${parameter.name || parameter.id}`} /></td>;
+    const checkbox = (parameter, field, label, editable = !readOnly) => <td><input className="configuration-detail-checkbox" type="checkbox" checked={Boolean(parameter[field])} disabled={!editable} onChange={event => onDetail(configurationParameterKey(parameter), field, event.target.checked)} aria-label={`${label} for ${parameter.name || parameter.id}`} /></td>;
     const wide = showValueDetails || showLifecycleDetails;
     // Fixed table layout squeezes the Value column to nothing when detail columns are added, so scroll horizontally instead.
     const checkColumns = (showValueDetails ? 1 : 0) + (showLifecycleDetails ? 2 + (isOrderItem ? 1 : 0) + (showOrderLifecycle ? 3 : 0) : 0);
@@ -606,16 +639,16 @@ function ConfigurationParameterTable({ parameters, readOnly = false, showValueDe
             <tbody>{parameters.map(parameter => {
                 const name = parameter.name || parameter.id;
                 const type = String(parameter.type || '').toLowerCase();
-                return <tr key={`${parameter.id}-${parameter.valueId || 'new'}`}>
-                    <td><ParameterLabelInput parameter={parameter} readOnly={readOnly} onChange={label => onDetail(parameter.id, 'label', label)} /></td>
+                return <tr key={configurationParameterKey(parameter)}>
+                    <td><ParameterLabelInput parameter={parameter} readOnly={readOnly} onChange={label => onDetail(configurationParameterKey(parameter), 'label', label)} /></td>
                     <td><strong>{name}</strong></td>
                     <td>{parameter.type || '—'}</td>
                     {showValueDetails && checkbox(parameter, 'isLinked', 'Link', false)}
                     {showLifecycleDetails && checkbox(parameter, 'notApplicable', 'N/A')}
-                    <td><ConfigurationParameterValueEditor parameter={parameter} disabled={readOnly} onChange={value => onValue(parameter.id, value)} ariaLabel={`Value for ${name}`} /></td>
+                    <td><ConfigurationParameterValueEditor parameter={parameter} disabled={readOnly} onChange={value => onValue(configurationParameterKey(parameter), value)} ariaLabel={`Value for ${name}`} /></td>
                     {showValueDetails && <>
                         <td>{parameter.unit || '—'}</td>
-                        {['start', 'end', 'step', 'decimals'].map(field => <td key={field}>{type !== 'number' ? '—' : readOnly ? (parameter[field] || '—') : <input className="configuration-detail-number" type="number" value={parameter[field] ?? ''} onChange={event => onDetail(parameter.id, field, event.target.value)} aria-label={`${field} for ${name}`} />}</td>)}
+                        {['start', 'end', 'step', 'decimals'].map(field => <td key={field}>{type !== 'number' ? '—' : readOnly ? (parameter[field] || '—') : <input className="configuration-detail-number" type="number" value={parameter[field] ?? ''} onChange={event => onDetail(configurationParameterKey(parameter), field, event.target.value)} aria-label={`${field} for ${name}`} />}</td>)}
                         <td>{type === 'discrete' ? <button className="quiet-button parameter-values-button" type="button" disabled={!parameter.options?.length} aria-label={`Values for ${name}`}>…</button> : '—'}</td>
                     </>}
                     {!showLifecycleDetails && !isProfile && <td><span className={parameter.mandatory ? 'parameter-required' : 'parameter-optional'}>{parameter.mandatory ? 'Required' : 'Optional'}</span></td>}
@@ -709,19 +742,20 @@ function NativeServiceConfigurationsView({ service, actionState, onSave, onDupli
         setOpenProfileId(null);
     }, [configurations, versionId]);
     const update = (field, value) => setDraft(current => ({ ...current, [field]: value }));
-    const updateParameter = (id, value) => setDraft(current => ({ ...current, parameters: current.parameters.map(parameter => parameter.id === id ? { ...parameter, value } : parameter) }));
+    const updateParameter = (id, value) => setDraft(current => ({ ...current, parameters: current.parameters.map(parameter => configurationParameterKey(parameter) === id ? { ...parameter, value } : parameter) }));
     const withDetail = (parameter, field, value) => ({ ...parameter, [field]: value, ...(field === 'notApplicable' && value ? { value: '' } : {}) });
-    const updateParameterDetail = (id, field, value) => setDraft(current => ({ ...current, parameters: current.parameters.map(parameter => parameter.id === id ? withDetail(parameter, field, value) : parameter) }));
+    const updateParameterDetail = (id, field, value) => setDraft(current => ({ ...current, parameters: current.parameters.map(parameter => configurationParameterKey(parameter) === id ? withDetail(parameter, field, value) : parameter) }));
     const addParameter = () => {
         const parameter = availableParameters.find(item => item.id === parameterToAdd);
-        if (!parameter || !draft || draft.parameters.some(item => item.id === parameter.id)) return;
-        setDraft(current => ({ ...current, parameters: [...current.parameters, { ...parameter, value: '', configurationId: '', valueId: '', mandatory: false }] }));
+        if (!parameter || !draft) return;
+        const instance = createConfigurationParameter(parameter, draft.parameters);
+        setDraft(current => ({ ...current, parameters: [...current.parameters, instance] }));
         setParameterToAdd('');
     };
     const removeParameter = id => {
-        const parameter = draft?.parameters.find(item => item.id === id);
+        const parameter = draft?.parameters.find(item => configurationParameterKey(item) === id);
         if (parameter?.configurationId) setDeletedConfigurationIds(current => [...new Set([...current, parameter.configurationId])]);
-        setDraft(current => ({ ...current, parameters: current.parameters.filter(item => item.id !== id) }));
+        setDraft(current => ({ ...current, parameters: current.parameters.filter(item => configurationParameterKey(item) !== id) }));
     };
     const createProfile = (definition, siblings = []) => {
         const duplicates = siblings.filter(profile => profile.definitionId === definition.id).length;
@@ -798,14 +832,14 @@ function NativeServiceConfigurationsView({ service, actionState, onSave, onDupli
     const addProfileParameter = (profileId, parameterId) => {
         const parameter = availableParameters.find(item => item.id === parameterId);
         if (!parameter || !draft || !parameterId) return;
-        setDraft(current => ({ ...current, profiles: mapProfileTree(current.profiles, profile => (profile.id === profileId || profile.clientId === profileId) ? { ...profile, parameters: profile.parameters.some(item => item.id === parameterId) ? profile.parameters : [...profile.parameters, { ...parameter, value: '', valueId: '', mandatory: false }] } : profile) }));
+        setDraft(current => ({ ...current, profiles: mapProfileTree(current.profiles, profile => (profile.id === profileId || profile.clientId === profileId) ? { ...profile, parameters: [...profile.parameters, createConfigurationParameter(parameter, profile.parameters)] } : profile) }));
     };
-    const updateProfileParameter = (profileId, parameterId, value, field = 'value') => setDraft(current => ({ ...current, profiles: mapProfileTree(current.profiles, profile => (profile.id === profileId || profile.clientId === profileId) ? { ...profile, parameters: profile.parameters.map(parameter => parameter.id === parameterId ? withDetail(parameter, field, value) : parameter) } : profile) }));
+    const updateProfileParameter = (profileId, parameterId, value, field = 'value') => setDraft(current => ({ ...current, profiles: mapProfileTree(current.profiles, profile => (profile.id === profileId || profile.clientId === profileId) ? { ...profile, parameters: profile.parameters.map(parameter => configurationParameterKey(parameter) === parameterId ? withDetail(parameter, field, value) : parameter) } : profile) }));
     const updateProfileName = (profileId, name) => setDraft(current => ({ ...current, profiles: mapProfileTree(current.profiles, profile => (profile.id === profileId || profile.clientId === profileId) ? { ...profile, name } : profile) }));
     const updateProfileLifecycle = (profileId, field, value) => setDraft(current => ({ ...current, profiles: mapProfileTree(current.profiles, profile => (profile.id === profileId || profile.clientId === profileId) ? { ...profile, [field]: value } : profile) }));
     const removeProfileParameter = (profileId, parameter) => {
         if (parameter.valueId) setDeletedProfileParameterIds(current => [...new Set([...current, parameter.valueId])]);
-        setDraft(current => ({ ...current, profiles: mapProfileTree(current.profiles, profile => (profile.id === profileId || profile.clientId === profileId) ? { ...profile, parameters: profile.parameters.filter(item => item.id !== parameter.id) } : profile) }));
+        setDraft(current => ({ ...current, profiles: mapProfileTree(current.profiles, profile => (profile.id === profileId || profile.clientId === profileId) ? { ...profile, parameters: profile.parameters.filter(item => configurationParameterKey(item) !== configurationParameterKey(parameter)) } : profile) }));
     };
     const serializeProfile = profile => {
         const { clientId, parameters, nestedProfiles, ...payload } = profile;
@@ -852,6 +886,11 @@ function NativeServiceConfigurationsView({ service, actionState, onSave, onDupli
     };
     const save = async ({ activateVersion = draft?.active } = {}) => {
         if (!draft) return;
+        const parameterLabelError = findParameterLabelError(draft.parameters, draft.profiles);
+        if (parameterLabelError) {
+            setValidationError(parameterLabelError);
+            return;
+        }
         const emptyMandatoryParameter = findEmptyMandatoryParameter(draft.parameters, draft.profiles);
         if (emptyMandatoryParameter) {
             setValidationError(`Required parameter "${emptyMandatoryParameter}" must have a value before saving.`);
@@ -1189,7 +1228,7 @@ function TabbedServiceDetailPanel({ service, onClose, onEdit, onDelete, onDuplic
                     <OrderLifecycle state={service.status} steps={lifecycle} transitions={transitions} busy={busy} onTransition={transition => onTransitionService(service, transition)} label="Service lifecycle" finalMessage="No further transitions are available for this service." compact />
                 </header>
                 <div className="order-modal-body service-workspace-body">
-                    {tab === 'service' ? serviceView : <NativeServiceConfigurationsView service={service} actionState={actionState} onSave={onSaveConfiguration} onDuplicateVersion={onDuplicateConfiguration} onConfirm={onConfirmConfiguration} allowInitialVersion allowVersionAdd parametersExpanded />}
+                    {tab === 'service' ? serviceView : <NativeServiceConfigurationsView service={service} actionState={actionState} onSave={onSaveConfiguration} onDuplicateVersion={onDuplicateConfiguration} onConfirm={onConfirmConfiguration} allowInitialVersion allowVersionAdd />}
                 </div>
             </section>
         </div>
@@ -1383,7 +1422,7 @@ function TabbedSpecificationDetailPanel({ specification, onClose, onEdit, onDele
                 </div>
                 <div className="specification-service-item-details">
                     <span><strong>Definition:</strong> {item.definition || '—'}</span>
-                    <span><strong>Script:</strong> {item.implementation || '—'}</span>
+                    <span><strong>Script:</strong> {item.script || '—'}</span>
                 </div>
                 <div className="service-actions">
                     <button className="table-icon-action" type="button" aria-label={`Edit ${item.label || 'service item'}`} onClick={() => setItemEditor({ action: 'Edit', item })} disabled={actionState?.status === 'running'}><span className="icon" aria-hidden="true">edit</span></button>

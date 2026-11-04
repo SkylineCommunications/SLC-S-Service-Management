@@ -372,7 +372,8 @@ export function mapServiceConfigurationRows(rows) {
     };
     const addProfileParameter = (profile, row) => {
         const parameterId = row['Parameter ID'] ?? '';
-        if (parameterId && !profile.parameters.some(parameter => parameter.id === parameterId)) {
+        const instanceId = row['Parameter Value ID'] || parameterId;
+        if (parameterId && !profile.parameters.some(parameter => configurationParameterKey(parameter) === instanceId)) {
             profile.parameters.push({
                 id: parameterId,
                 valueId: row['Parameter Value ID'] ?? '',
@@ -463,7 +464,8 @@ export function mapServiceConfigurationRows(rows) {
             return;
         }
         const parameterId = row['Parameter ID'] ?? '';
-        if (parameterId && !version.parameters.some(parameter => parameter.id === parameterId)) {
+        const instanceId = row['Configuration ID'] || row['Parameter Value ID'] || parameterId;
+        if (parameterId && !version.parameters.some(parameter => configurationParameterKey(parameter) === instanceId)) {
             version.parameters.push({
                 id: parameterId,
                 configurationId: row['Configuration ID'] ?? '',
@@ -492,4 +494,8 @@ export function mapServiceConfigurationRows(rows) {
         availableProfiles,
         availableNestedProfiles,
     };
+}
+
+export function configurationParameterKey(parameter) {
+    return parameter.configurationId || parameter.valueId || parameter.clientId || parameter.id;
 }

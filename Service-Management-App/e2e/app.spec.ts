@@ -488,7 +488,8 @@ test.describe('Service Management workspace', () => {
             const profiles = dialog.locator('.native-configuration-profiles');
             await expect(parameters).toBeVisible();
             await expect(profiles).toBeVisible();
-            await expect(dialog.getByRole('button', { name: 'Collapse standalone parameters' })).toBeVisible();
+            await expect(dialog.getByRole('button', { name: 'Expand standalone parameters' })).toHaveAttribute('aria-expanded', 'false');
+            await expect(dialog.getByRole('button', { name: 'Expand profiles', exact: true })).toHaveAttribute('aria-expanded', 'false');
             const parametersBox = await parameters.boundingBox();
             const profilesBox = await profiles.boundingBox();
             expect(parametersBox).not.toBeNull();
@@ -512,7 +513,14 @@ test.describe('Service Management workspace', () => {
         const dialog = page.getByRole('dialog');
         await dialog.getByRole('button', { name: 'Configurations', exact: true }).click();
         await expect(dialog.getByRole('heading', { name: 'Service configuration' })).toBeVisible();
-        await expect(dialog.getByRole('button', { name: 'Collapse standalone parameters' })).toBeVisible();
+        await expect(dialog.getByRole('button', { name: 'Expand standalone parameters' })).toHaveAttribute('aria-expanded', 'false');
+        await expect(dialog.locator('.native-configuration-parameters .eyebrow')).toHaveText('Standalone parameters (2)');
+        const profileHeading = dialog.locator('.native-configuration-profiles .configuration-section-title .eyebrow');
+        await expect(profileHeading).toHaveText('Profiles (1)');
+        await expect(dialog.getByRole('button', { name: 'Expand profiles', exact: true })).toHaveAttribute('aria-expanded', 'false');
+        await expect(profileHeading).toBeVisible();
+        await expect(profileHeading).toHaveText('Profiles (1)');
+        await dialog.getByRole('button', { name: 'Expand standalone parameters' }).click();
         await dialog.getByRole('combobox', { name: 'Value for Polarization' }).selectOption({ label: 'Vertical' });
         await dialog.getByRole('button', { name: 'Save configuration', exact: true }).click();
         await expect.poll(() => udapiRequests(mock).some(request =>
@@ -682,16 +690,26 @@ test.describe('Service Management workspace', () => {
         await expect(dialog.getByRole('heading', { name: 'Specification details', exact: true })).toBeVisible();
         await expect(dialog.getByRole('heading', { name: 'Specification configuration' })).toBeVisible();
         const version = dialog.getByRole('combobox', { name: 'Version' });
+        const parameterHeading = dialog.locator('.native-configuration-parameters .eyebrow');
+        const profileHeading = dialog.locator('.native-configuration-profiles .configuration-section-title .eyebrow');
+        await expect(profileHeading).toHaveText('Profiles (1)');
+        await expect(dialog.getByRole('button', { name: 'Expand profiles', exact: true })).toHaveAttribute('aria-expanded', 'false');
+        await expect(parameterHeading).toHaveText('Standalone parameters (2)');
+        await expect(dialog.getByRole('button', { name: 'Expand standalone parameters' })).toHaveAttribute('aria-expanded', 'false');
         const activeControl = dialog.locator('.configuration-version-active');
         await expect(activeControl).toHaveCount(1);
         await expect(activeControl).toContainText('Active');
         await expect(activeControl).toBeDisabled();
         await expect(dialog.getByRole('button', { name: 'Delete configuration', exact: true })).toBeDisabled();
         await version.selectOption({ label: 'Archived version' });
+        await expect(parameterHeading).toHaveText('Standalone parameters (0)');
+        await expect(profileHeading).toHaveText('Profiles (0)');
         await expect(activeControl).toContainText('Activate');
         await expect(activeControl).toBeEnabled();
         await expect(dialog.getByRole('button', { name: 'Delete configuration', exact: true })).toBeEnabled();
         await version.selectOption({ label: 'Current version (Active)' });
+        await expect(parameterHeading).toHaveText('Standalone parameters (2)');
+        await expect(profileHeading).toHaveText('Profiles (1)');
         await dialog.getByRole('button', { name: 'Show Value Details', exact: true }).click();
         await expect(dialog.getByRole('button', { name: 'Hide Value Details', exact: true })).toBeVisible();
         await dialog.getByRole('button', { name: 'Expand standalone parameters' }).click();
@@ -716,6 +734,7 @@ test.describe('Service Management workspace', () => {
         await expect(dialog.locator('.native-configuration-table thead th')).toContainText(['N/A', 'Fixed', 'Expose at order', 'Mandatory at order', 'Mandatory at service']);
         await dialog.getByRole('button', { name: 'Hide Lifecycle Details', exact: true }).click();
         await expect(dialog.getByRole('button', { name: 'Collapse standalone parameters' })).toBeVisible();
+        await dialog.getByRole('button', { name: 'Expand profiles', exact: true }).click();
         await expect(dialog.getByRole('button', { name: 'Collapse profiles' })).toBeVisible();
         await expect(dialog.locator('.configuration-profile-card')).toHaveCount(1);
         await expect(dialog.getByLabel('Select parameter to add')).toHaveCSS('width', '240px');
@@ -728,6 +747,8 @@ test.describe('Service Management workspace', () => {
         expect(JSON.parse(configurationCall!.body.script.Parameters[0].Value)).toMatchObject({ RequestMethod: 1 });
 
         await dialog.getByRole('button', { name: 'Collapse profiles' }).click();
+        await expect(profileHeading).toBeVisible();
+        await expect(profileHeading).toHaveText('Profiles (1)');
         await expect(dialog.getByRole('button', { name: 'Expand profiles' })).toBeVisible();
         await expect(dialog.locator('.configuration-profile-card')).toHaveCount(0);
         await dialog.getByRole('button', { name: 'Expand profiles' }).click();
@@ -755,6 +776,7 @@ test.describe('Service Management workspace', () => {
 
         await dialog.getByRole('button', { name: 'Back to Transport profile' }).click();
         await expect(dialog.locator('.native-configuration-profile-view')).toHaveCount(0);
+        await dialog.getByRole('button', { name: 'Expand profiles', exact: true }).click();
         await expect(dialog.locator('.configuration-profile-card')).toHaveCount(2);
         await expect(dialog.getByRole('button', { name: /^(Expand|Collapse) Transport profile$/ })).toBeVisible();
     });
@@ -765,6 +787,7 @@ test.describe('Service Management workspace', () => {
         const items = dialog.locator('.specification-service-item');
         await expect(items).toHaveCount(1);
         for (const text of ['Switch booking', 'SRM Booking', 'Switching Booking Manager']) await expect(items.first()).toContainText(text);
+        await expect(items.first().locator('.specification-service-item-details')).toContainText('Script: SRM_Booking Wizard');
         const itemRequest = mock.calls
             .filter(call => call.method === 'ExecuteAutomationScriptWithOutput' && call.body.script?.Name === 'SLC_SM_UDAPI_ServiceManagement')
             .map(call => JSON.parse(call.body.script.Parameters?.[0]?.Value ?? '{}'))
