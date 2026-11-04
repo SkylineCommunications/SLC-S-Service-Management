@@ -197,7 +197,7 @@ namespace SLCSMMigrationImport
 			engine.Log(timing);
 			engine.GenerateInformation(timing);
 
-			if (report.HasFailures)
+			if (report.HasFailures || cleanup.Failures.Count > 0)
 			{
 				engine.ExitFail($"{summary} See report '{reportFile}'.");
 			}
