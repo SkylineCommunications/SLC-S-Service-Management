@@ -2,6 +2,8 @@
 {
 	using System;
 	using System.Collections.Generic;
+	using System.Threading;
+	using System.Threading.Tasks;
 	using Microsoft.Extensions.Logging;
 	using Moq;
 	using Newtonsoft.Json.Linq;
@@ -289,6 +291,83 @@
 			Assert.AreEqual("new.svg", category.Icon);
 			Assert.AreEqual("new.svg", second.Icon);
 			repository.Verify(r => r.Update(It.Is<Service>(service => service.Identifier == first.Identifier)), Times.Once);
+		}
+
+		[TestMethod]
+		public void Update_ConcurrentIconChanges_ReadAndPropagateInOrderAcrossControllers()
+		{
+			var category = AddCategory("A", "Video", "old.svg");
+			var inherited = AddWithId(Services, new Service
+			{
+				CategoryId = new SdmObjectReference<ServiceCategory>(category.Identifier),
+				Icon = "old.svg",
+			});
+			var otherController = new ServiceCategoryController(Mock.Of<ILogger<ServiceCategoryController>>(), Helper.Object);
+			AttachContext(otherController);
+			var categories = Mock.Get(Helper.Object.ServiceCatalog.ServiceCategories);
+			int categoryReads = 0;
+			categories.Setup(r => r.Read(It.IsAny<FilterElement<ServiceCategory>>()))
+				.Returns<FilterElement<ServiceCategory>>(filter =>
+				{
+					Interlocked.Increment(ref categoryReads);
+					return Categories.Where(filter.getLambda()).Select(value => new ServiceCategory
+					{
+						Identifier = value.Identifier,
+						Name = value.Name,
+						Type = value.Type,
+						Icon = value.Icon,
+					}).ToList();
+				});
+			categories.Setup(r => r.Update(It.IsAny<ServiceCategory>())).Returns<ServiceCategory>(value =>
+			{
+				category.Icon = value.Icon;
+				return value;
+			});
+
+			using (var propagating = new ManualResetEventSlim())
+			using (var release = new ManualResetEventSlim())
+			using (var secondStarted = new ManualResetEventSlim())
+			{
+				var services = Mock.Get(Helper.Object.ServiceInventory.Services);
+				services.Setup(r => r.Update(It.IsAny<Service>())).Returns<Service>(service =>
+				{
+					if (service.Icon == "first.svg")
+					{
+						propagating.Set();
+						Assert.IsTrue(release.Wait(TimeSpan.FromSeconds(10)));
+					}
+
+					return service;
+				});
+				var first = Task.Run(() => controller.UpdateServiceCategory(category.Identifier, new JObject { ["icon"] = "first.svg" }));
+				Task<Skyline.DataMiner.Utils.UserDefinedApiToolkit.IApiResult> second = null;
+				try
+				{
+					Assert.IsTrue(propagating.Wait(TimeSpan.FromSeconds(10)));
+					second = Task.Run(() =>
+					{
+						secondStarted.Set();
+						return otherController.UpdateServiceCategory(category.Identifier.ToUpperInvariant(), new JObject { ["icon"] = "last.svg" });
+					});
+					Assert.IsTrue(secondStarted.Wait(TimeSpan.FromSeconds(10)));
+					Assert.IsFalse(second.Wait(TimeSpan.FromMilliseconds(250)), "The second update must wait for propagation and category persistence.");
+					Assert.AreEqual(1, Volatile.Read(ref categoryReads), "The category must not be read before acquiring the lock.");
+				}
+				finally
+				{
+					release.Set();
+					Assert.IsTrue(first.Wait(TimeSpan.FromSeconds(10)));
+					if (second != null)
+					{
+						Assert.IsTrue(second.Wait(TimeSpan.FromSeconds(10)));
+					}
+				}
+
+				Assert.AreEqual(200, StatusCode(first.Result));
+				Assert.AreEqual(200, StatusCode(second.Result));
+				Assert.AreEqual("last.svg", category.Icon);
+				Assert.AreEqual("last.svg", inherited.Icon);
+			}
 		}
 
 		private ServiceCategory AddCategory(string name, string type = null, string icon = null)

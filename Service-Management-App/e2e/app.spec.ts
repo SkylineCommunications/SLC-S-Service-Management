@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { APP_ROOT_URL, APP_URL, SAMPLE_ORDERS, SAMPLE_SERVICE, mockDataMinerApi, setSessionCookie } from './fixtures';
+import { APP_ROOT_URL, APP_URL, SAMPLE_ORDERS, SAMPLE_SERVICE, SAMPLE_SPECIFICATION, mockDataMinerApi, setSessionCookie } from './fixtures';
 import type { GqiMock } from './fixtures';
 
 const count = (mock: GqiMock, method: string) => mock.calls.filter(call => call.method === method).length;
@@ -608,6 +608,35 @@ test.describe('Service Management workspace', () => {
         }
         await page.keyboard.press('Escape');
         await expect(dialog).toHaveCount(0);
+    });
+    test('keeps specification controls reachable with a viewport-tall multiline description', async ({ page }) => {
+        const previousDescription = SAMPLE_SPECIFICATION.Description;
+        const description = Array.from({ length: 200 }, (_, index) => `Description line ${index + 1}`).join('\n');
+        SAMPLE_SPECIFICATION.Description = description;
+        try {
+            await page.goto(`${APP_ROOT_URL}#catalog`);
+            await page.getByRole('button', { name: 'Open details of Managed switching' }).click();
+            const dialog = page.getByRole('dialog', { name: 'Managed switching', exact: true });
+            await expect(dialog.locator('.specification-modal-description')).toHaveText(description);
+            for (const width of [1600, 390]) {
+                await page.setViewportSize({ width, height: 700 });
+                const body = dialog.locator('.order-modal-body');
+                expect(await body.evaluate(element => element.clientHeight)).toBeGreaterThan(100);
+                const addItem = dialog.getByRole('button', { name: 'Add item', exact: true });
+                await addItem.scrollIntoViewIfNeeded();
+                await expect(addItem).toBeInViewport();
+                await addItem.click();
+                const form = page.getByRole('form', { name: 'Add service item', exact: true });
+                await expect(form).toBeVisible();
+                await form.getByRole('button', { name: 'Close service item form' }).click();
+                const editor = dialog.getByRole('region', { name: 'Specification configuration editor', exact: true });
+                const heading = editor.getByRole('heading', { name: 'Specification configuration', exact: true });
+                await heading.scrollIntoViewIfNeeded();
+                await expect(heading).toBeInViewport();
+            }
+        } finally {
+            SAMPLE_SPECIFICATION.Description = previousDescription;
+        }
     });
     test('edits specification configurations with the shared profile editor', { tag: '@C2' }, async ({ page }) => {
         await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: 'inventory_2 Catalog' }).click();

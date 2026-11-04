@@ -1337,7 +1337,6 @@ function TabbedSpecificationDetailPanel({ specification, onClose, onEdit, onDele
                     <div className="order-modal-heading">
                         <p className="eyebrow">Service catalog · Specification</p>
                         <div className="order-modal-title-row"><h2 id="specification-detail-title">{specification.name || 'Unnamed specification'}</h2></div>
-                        <p className="specification-modal-description">{specification.description || 'No description provided.'}</p>
                     </div>
                     <div className="order-modal-actions">
                         <button className="quiet-button" type="button" onClick={onEdit} disabled={busy}>Edit</button>
@@ -1350,6 +1349,7 @@ function TabbedSpecificationDetailPanel({ specification, onClose, onEdit, onDele
                     </section>
                 </header>
                 <div className="order-modal-body item-modal-body">
+                    <p className="specification-modal-description">{specification.description || 'No description provided.'}</p>
                     <div className="specification-content-grid">
                         <section className="service-items-panel specification-items-panel" aria-labelledby="specification-items-title">
                             <div className="service-items-heading">

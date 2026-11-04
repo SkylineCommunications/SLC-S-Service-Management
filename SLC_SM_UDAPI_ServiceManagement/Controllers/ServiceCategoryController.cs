@@ -3,6 +3,7 @@
 	using System;
 	using System.Collections.Generic;
 	using System.Linq;
+	using System.Threading;
 
 	using Microsoft.Extensions.Logging;
 
@@ -246,6 +247,7 @@
 		/// body (<c>name</c>, <c>type</c>, <c>icon</c>) are changed; values are stored trimmed. The name must stay unique (case-insensitive).
 		/// Changing the icon also updates services in this category whose icon matches the previous category icon.
 		/// Custom service icons are preserved.
+		/// Updates to the same category are serialized across Automation executions on this agent.
 		/// </remarks>
 		/// <param name="id">Resource ID (DOM instance GUID) of the category.</param>
 		/// <param name="patch">Request body with the properties to change.</param>
@@ -253,7 +255,7 @@
 		/// <c>200</c> with the updated <c>{ id, name, type, icon }</c>;
 		/// <c>400</c> when <paramref name="id"/> is not a valid UUID, the body is missing, or <c>name</c>/<c>type</c> is empty;
 		/// <c>404</c> when the category does not exist;
-		/// <c>409</c> when another category already uses the name;
+		/// <c>409</c> when another category already uses the name or a concurrent category update does not finish within 30 seconds;
 		/// <c>500</c> on an unexpected error.
 		/// </returns>
 		[HttpPatch("{id}")]
@@ -274,59 +276,92 @@
 					return BadRequest(CreateError("Invalid request", "A request body is required.", 400));
 				}
 
-				var category = ReadCategory(categoryId);
-				if (category == null)
+				// A named mutex also coordinates separate Automation executions/AppDomains on this agent.
+				using (var mutex = new Mutex(false, $@"Global\SLC_SM_ServiceCategory_{categoryId:N}"))
 				{
-					return NotFound(CreateError("Not found", $"Service category '{categoryId}' does not exist.", 404));
-				}
-
-				var request = patch.ToObject<ServiceCategoryRequest>();
-				if (Has(patch, "name"))
-				{
-					string name = request.Name?.Trim();
-					if (String.IsNullOrEmpty(name))
+					bool acquired;
+					try
 					{
-						return BadRequest(CreateError("Invalid request", "'name' cannot be empty.", 400));
+						acquired = mutex.WaitOne(TimeSpan.FromSeconds(30));
+					}
+					catch (AbandonedMutexException ex)
+					{
+						_logger.LogWarning(ex, "Previous category update was interrupted for {CategoryId}", categoryId);
+						acquired = true;
 					}
 
-					if (ReadAll().Any(c => !IsSameId(c.Identifier, categoryId) && String.Equals(c.Name?.Trim(), name, StringComparison.OrdinalIgnoreCase)))
+					if (!acquired)
 					{
-						return Conflict(CreateError("Conflict", $"A service category with name '{name}' already exists.", 409));
+						_logger.LogWarning("Category update lock timed out for {CategoryId}", categoryId);
+						return Conflict(CreateError("Conflict", "The service category is being updated. Retry the category update.", 409));
 					}
 
-					category.Name = name;
-				}
-
-				if (Has(patch, "type"))
-				{
-					string type = request.Type?.Trim();
-					if (String.IsNullOrEmpty(type))
+					try
 					{
-						return BadRequest(CreateError("Invalid request", "'type' cannot be empty.", 400));
+						return UpdateCategory(categoryId, patch);
 					}
-
-					category.Type = type;
-				}
-
-				if (Has(patch, "icon"))
-				{
-					string icon = request.Icon?.Trim() ?? String.Empty;
-					if (!String.Equals(category.Icon ?? String.Empty, icon, StringComparison.Ordinal))
+					finally
 					{
-						UpdateInheritedServiceIcons(categoryId, category.Icon, icon);
+						mutex.ReleaseMutex();
 					}
-
-					category.Icon = icon;
 				}
-
-				serviceManagementApiHelper.ServiceCatalog.ServiceCategories.Update(category);
-				return Ok(ToResponse(ReadCategory(categoryId) ?? category));
 			}
 			catch (Exception ex)
 			{
 				_logger.LogError(ex, "UpdateServiceCategory failed: {Message}", ex.Message);
 				return InternalServerError(CreateError("Internal server error", "An unexpected error occurred while updating the service category. Some service logos may already have been updated; retry the category update to complete it.", 500));
 			}
+		}
+
+		private IApiResult UpdateCategory(Guid categoryId, JObject patch)
+		{
+			var category = ReadCategory(categoryId);
+			if (category == null)
+			{
+				return NotFound(CreateError("Not found", $"Service category '{categoryId}' does not exist.", 404));
+			}
+
+			var request = patch.ToObject<ServiceCategoryRequest>();
+			if (Has(patch, "name"))
+			{
+				string name = request.Name?.Trim();
+				if (String.IsNullOrEmpty(name))
+				{
+					return BadRequest(CreateError("Invalid request", "'name' cannot be empty.", 400));
+				}
+
+				if (ReadAll().Any(c => !IsSameId(c.Identifier, categoryId) && String.Equals(c.Name?.Trim(), name, StringComparison.OrdinalIgnoreCase)))
+				{
+					return Conflict(CreateError("Conflict", $"A service category with name '{name}' already exists.", 409));
+				}
+
+				category.Name = name;
+			}
+
+			if (Has(patch, "type"))
+			{
+				string type = request.Type?.Trim();
+				if (String.IsNullOrEmpty(type))
+				{
+					return BadRequest(CreateError("Invalid request", "'type' cannot be empty.", 400));
+				}
+
+				category.Type = type;
+			}
+
+			if (Has(patch, "icon"))
+			{
+				string icon = request.Icon?.Trim() ?? String.Empty;
+				if (!String.Equals(category.Icon ?? String.Empty, icon, StringComparison.Ordinal))
+				{
+					UpdateInheritedServiceIcons(categoryId, category.Icon, icon);
+				}
+
+				category.Icon = icon;
+			}
+
+			serviceManagementApiHelper.ServiceCatalog.ServiceCategories.Update(category);
+			return Ok(ToResponse(ReadCategory(categoryId) ?? category));
 		}
 
 		private void UpdateInheritedServiceIcons(Guid categoryId, string previousIcon, string icon)
