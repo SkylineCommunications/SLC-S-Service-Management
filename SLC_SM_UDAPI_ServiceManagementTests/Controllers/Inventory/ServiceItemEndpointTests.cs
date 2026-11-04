@@ -198,6 +198,86 @@ namespace SLC_SM_UDAPI_ServiceManagement.Tests.Controllers
 		}
 
 		[TestMethod]
+		public void DeleteServiceItem_ActiveSrmBooking_Returns409AndDoesNotUnlink()
+		{
+			var service = AddService();
+			var bookingItem = AddItem(service, 0, "Encoder Booking", ItemType.SRMBooking, Guid.NewGuid().ToString());
+			ItemImplementations.Setup(i => i.IsActive(bookingItem)).Returns(true);
+
+			Assert.AreEqual(409, StatusCode(Controller.DeleteServiceItem(service.ServiceID, "0")));
+			Assert.AreEqual(1, service.ServiceItems.Count);
+			ItemImplementations.Verify(i => i.Unlink(It.IsAny<ServiceItem>()), Times.Never);
+		}
+
+		[TestMethod]
+		public void DeleteServiceItem_FutureSrmBooking_UnlinksAndRemovesItem()
+		{
+			var service = AddService();
+			var bookingItem = AddItem(service, 0, "Encoder Booking", ItemType.SRMBooking, Guid.NewGuid().ToString());
+			ItemImplementations.Setup(i => i.IsActive(bookingItem)).Returns(false);
+
+			Assert.AreEqual(204, StatusCode(Controller.DeleteServiceItem(service.ServiceID, "0")));
+			Assert.AreEqual(0, service.ServiceItems.Count);
+			ItemImplementations.Verify(i => i.Unlink(bookingItem), Times.Once);
+		}
+
+		[TestMethod]
+		public void DeleteService_ActiveSrmBooking_Returns409AndDoesNotDelete()
+		{
+			var service = AddService();
+			var bookingItem = AddItem(service, 0, "Encoder Booking", ItemType.SRMBooking, Guid.NewGuid().ToString());
+			ItemImplementations.Setup(i => i.IsActive(bookingItem)).Returns(true);
+
+			Assert.AreEqual(409, StatusCode(Controller.DeleteService(service.ServiceID)));
+			Assert.AreEqual(1, StoredServices.Count);
+			ItemImplementations.Verify(i => i.Unlink(It.IsAny<ServiceItem>()), Times.Never);
+		}
+
+		[TestMethod]
+		public void DeleteService_NonActiveSrmBooking_UnlinksItemAndDeletesService()
+		{
+			var service = AddService();
+			var bookingItem = AddItem(service, 0, "Encoder Booking", ItemType.SRMBooking, Guid.NewGuid().ToString());
+			ItemImplementations.Setup(i => i.IsActive(bookingItem)).Returns(false);
+
+			Assert.AreEqual(204, StatusCode(Controller.DeleteService(service.ServiceID)));
+			Assert.AreEqual(0, StoredServices.Count);
+			ItemImplementations.Verify(i => i.Unlink(bookingItem), Times.Once);
+		}
+
+		[TestMethod]
+		public void GetServiceItemOptions_ReturnsWorkflowAndSrmOptions()
+		{
+			var expected = new ServiceItemOptionsResponse
+			{
+				WorkflowAvailable = true,
+				SrmAvailable = true,
+				Workflows = new List<string> { "Default", "Playout" },
+				BookingScripts = new List<string> { "SRM_Booking Wizard" },
+				BookingManagers = new List<BookingManagerOption>
+				{
+					new BookingManagerOption
+					{
+						Name = "Encoding Booking Manager",
+						Script = "SRM_Booking Wizard",
+						Bookings = new List<BookingOption> { new BookingOption { Id = Guid.NewGuid().ToString(), Name = "Encoder Booking #1" } },
+					},
+				},
+			};
+			ItemImplementations.Setup(i => i.GetOptions()).Returns(expected);
+
+			var actual = Value<ServiceItemOptionsResponse>(Controller.GetServiceItemOptions());
+
+			Assert.IsTrue(actual.WorkflowAvailable);
+			Assert.IsTrue(actual.SrmAvailable);
+			CollectionAssert.AreEqual(new[] { "Default", "Playout" }, actual.Workflows);
+			CollectionAssert.AreEqual(new[] { "SRM_Booking Wizard" }, actual.BookingScripts);
+			Assert.AreEqual(1, actual.BookingManagers.Count);
+			Assert.AreEqual("Encoding Booking Manager", actual.BookingManagers[0].Name);
+			Assert.AreEqual("SRM_Booking Wizard", actual.BookingManagers[0].Script);
+		}
+
+		[TestMethod]
 		public void DeleteServiceItem_UnknownItem_Returns404()
 		{
 			var service = AddService();

@@ -12,6 +12,7 @@ import {
     fetchServiceRecord,
     fetchServiceConfigurationList,
     fetchServiceItemList,
+    fetchServiceItemOptions,
     fetchServiceList,
     fetchServiceCursorPage,
     fetchServiceOverview,
@@ -62,7 +63,27 @@ export const SERVICE_INVENTORY_SCRIPTS = {
         interactive: true,
         parameterDefinitions: [{ id: 3, name: 'DOM ID' }, { id: 4, name: 'Item Label' }],
     },
+    // Executes an SRM booking action (Start, Cancel, Delete, Finish, Change Time, Extend) via SRM_ReservationAction.
+    serviceItemContextMenuAction: {
+        name: 'SLC_SM_AS_Service Item ContextMenu Actions',
+        folder: 'Service Management',
+        interactive: true,
+        parameterDefinitions: [
+            { id: 10, name: 'DOM ID' },
+            { id: 11, name: 'Service Item Label' },
+            { id: 12, name: 'ContextMenu Action' },
+        ],
+    },
 };
+
+export const SRM_BOOKING_ACTIONS = [
+    { value: 'Start', label: 'Start Booking', icon: 'play_arrow' },
+    { value: 'Cancel', label: 'Cancel Booking', icon: 'cancel' },
+    { value: 'Delete', label: 'Delete Booking', icon: 'delete' },
+    { value: 'Finish', label: 'Finish Booking', icon: 'stop_circle' },
+    { value: 'CHANGETIME', label: 'Change Booking Time', icon: 'schedule' },
+    { value: 'EXTEND', label: 'Extend Booking Time', icon: 'more_time' },
+];
 const ACTIVE_STATUSES = new Set(['active', 'reserved', 'designed']);
 const SERVICE_LIST_FIELDS = [
     'Identifier',
@@ -173,6 +194,40 @@ export function mapUdapiServiceItem(item) {
 export async function fetchInventoryServiceItems(service) {
     const id = serviceApiId(service);
     return id ? fetchServiceItems(id) : [];
+}
+
+export async function fetchServiceItemReferenceOptions() {
+    const raw = await fetchServiceItemOptions();
+    const pick = (obj, ...names) => names.map(name => obj?.[name]).find(value => value !== undefined && value !== null);
+    const workflows = Array.isArray(pick(raw, 'workflows', 'Workflows'))
+        ? pick(raw, 'workflows', 'Workflows').map(name => String(name ?? '').trim()).filter(Boolean)
+        : [];
+    const bookingScripts = Array.isArray(pick(raw, 'bookingScripts', 'BookingScripts'))
+        ? pick(raw, 'bookingScripts', 'BookingScripts').map(name => String(name ?? '').trim()).filter(Boolean)
+        : [];
+    const bookingManagers = Array.isArray(pick(raw, 'bookingManagers', 'BookingManagers'))
+        ? pick(raw, 'bookingManagers', 'BookingManagers')
+            .map(manager => ({
+                name: String(pick(manager, 'name', 'Name') ?? '').trim(),
+                script: String(pick(manager, 'script', 'Script') ?? '').trim(),
+                bookings: Array.isArray(pick(manager, 'bookings', 'Bookings'))
+                    ? pick(manager, 'bookings', 'Bookings')
+                        .map(booking => ({
+                            id: String(pick(booking, 'id', 'Id') ?? '').trim(),
+                            name: String(pick(booking, 'name', 'Name') ?? '').trim(),
+                        }))
+                        .filter(booking => booking.id && booking.name)
+                    : [],
+            }))
+            .filter(manager => manager.name)
+        : [];
+    return {
+        workflowAvailable: Boolean(pick(raw, 'workflowAvailable', 'WorkflowAvailable') ?? true),
+        srmAvailable: Boolean(pick(raw, 'srmAvailable', 'SrmAvailable') ?? true),
+        workflows,
+        bookingManagers,
+        bookingScripts,
+    };
 }
 
 export async function fetchServiceScripts(serviceId) {

@@ -1146,6 +1146,11 @@ button.configuration-nested-chip > span:first-child { font-size:13px; font-weigh
 .service-workspace .service-items-table td { height:44px; padding:8px 12px; white-space:normal; overflow-wrap:anywhere; }
 .service-workspace .service-items-table th:last-child { width:128px; }
 .service-workspace .service-items-table .service-actions { justify-content:flex-end; }
+.booking-actions-menu { position:fixed; z-index:1200; min-width:196px; padding:6px; display:flex; flex-direction:column; gap:2px; background:var(--color1); border:1px solid var(--color5); border-radius:8px; box-shadow:0 10px 28px rgb(0 0 0 / 22%); }
+.booking-actions-item { width:100%; min-height:32px; padding:6px 10px; display:flex; align-items:center; gap:8px; border:0; border-radius:5px; background:transparent; color:var(--color12); font:inherit; font-size:12px; text-align:left; cursor:pointer; }
+.booking-actions-item .icon { width:16px; font-size:16px; color:var(--color10); }
+.booking-actions-item:hover, .booking-actions-item:focus-visible { background:var(--color2); color:var(--focus-color); outline:0; }
+.booking-actions-item:hover .icon, .booking-actions-item:focus-visible .icon { color:var(--focus-color); }
 .service-workspace .service-item-type { display:inline-block; padding:3px 7px; background:var(--color2); border:1px solid var(--color5); border-radius:4px; color:var(--color11); font-size:11px; }
 .service-workspace .service-related-empty { min-height:88px; padding:16px; }
 .service-workspace .service-operations-panel { min-width:0; }

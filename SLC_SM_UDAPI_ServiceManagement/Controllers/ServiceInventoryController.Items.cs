@@ -118,6 +118,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 					return Conflict(CreateError("Conflict", $"Service item '{item.Label}' cannot be deleted because it is still linked.", 409));
 				}
 
+				itemImplementations.Unlink(item);
 				service.ServiceItems.Remove(item);
 
 				string key = item.ServiceItemID.ToString();
@@ -130,6 +131,29 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 			{
 				_logger.LogError(ex, "DeleteServiceItem failed: {Message}", ex.Message);
 				return InternalServerError(CreateError("Internal server error", "An unexpected error occurred while removing the service item.", 500));
+			}
+		}
+
+		/// <summary>
+		/// Lists the available workflows, SRM booking managers, active bookings and booking scripts for adding or editing a service item.
+		/// </summary>
+		/// <remarks>
+		/// <c>GET service-management/v1/service/itemOptions</c>.
+		/// </remarks>
+		/// <returns>200 with the service item reference options; 500 on an unexpected error.</returns>
+		[HttpGet("itemOptions")]
+		public IApiResult GetServiceItemOptions()
+		{
+			_logger.LogInformation("GetServiceItemOptions called");
+
+			try
+			{
+				return Ok(itemImplementations.GetOptions() ?? new ServiceItemOptionsResponse());
+			}
+			catch (Exception ex)
+			{
+				_logger.LogError(ex, "GetServiceItemOptions failed: {Message}", ex.Message);
+				return InternalServerError(CreateError("Internal server error", "An unexpected error occurred while retrieving the service item options.", 500));
 			}
 		}
 

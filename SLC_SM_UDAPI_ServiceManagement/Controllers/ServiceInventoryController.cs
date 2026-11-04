@@ -350,6 +350,14 @@
 				var services = serviceManagementApiHelper.ServiceInventory.Services;
 				if ((service.ServiceItems?.Count ?? 0) > 0 || (service.ServiceItemsRelationships?.Count ?? 0) > 0)
 				{
+					foreach (var item in service.ServiceItems ?? new List<ServiceItem>())
+					{
+						if (item != null)
+						{
+							itemImplementations.Unlink(item);
+						}
+					}
+
 					service.ServiceItems = new List<ServiceItem>();
 					service.ServiceItemsRelationships = new List<ServiceItemRelationship>();
 					services.Update(service);
@@ -1454,10 +1462,15 @@
 
 		private bool HasActiveLinkedReference(ServiceItem serviceItem)
 		{
-			// A linked service that still exists blocks removal.
+			// A linked service that still exists or an active SRM booking blocks removal.
 			if (!Guid.TryParse(serviceItem.ImplementationReference, out Guid referenceId) || referenceId == Guid.Empty)
 			{
 				return false;
+			}
+
+			if (serviceItem.Type == SlcServicemanagementIds.Enums.ServiceItemTypesEnum.SRMBooking)
+			{
+				return itemImplementations.IsActive(serviceItem);
 			}
 
 			if (!String.Equals(serviceItem.Type?.ToString(), "Service", StringComparison.OrdinalIgnoreCase))

@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { DataMinerAuthError } from './dataminer/transport.js';
 import { addCatalogSpecificationItem, createCatalogCategory, createCatalogSpecification, deleteCatalogCategory, deleteCatalogSpecification, deleteCatalogSpecificationItem, fetchDocumentHubLogos, fetchServiceCategories, fetchServiceSpecificationOverview, fetchServiceSpecificationPage, fetchServiceSpecifications, fetchServiceSpecificationConfigurations, fetchSpecificationItems, saveCatalogSpecificationConfiguration, updateCatalogCategory, updateCatalogSpecification, updateCatalogSpecificationItem } from './dataminer/catalog.js';
 import { addServiceOrderItem, createServiceOrder, deleteServiceOrder, deleteServiceOrderItem, fetchRelatedServiceOrders, fetchServiceOrderItemConfigurations, fetchServiceOrderItems, fetchServiceOrderOverviewData, fetchServiceOrderPage, fetchServiceOrganizations, getOrderItemTransitions, getOrderTransitions, transitionServiceOrder, transitionServiceOrderItem, updateServiceOrder, updateServiceOrderItem, saveServiceOrderItemConfiguration, initializeServiceFromOrderItem } from './dataminer/serviceOrders.js';
-import { addInventoryServiceItem, addServiceScript, createInventoryService, deleteInventoryService, deleteInventoryServiceItem, deleteServiceScript, duplicateInventoryService, duplicateServiceConfigurationVersion, fetchInventoryServiceItems, fetchMonitoringServices, fetchServiceConfigurations, fetchServiceDetails, fetchServiceForDisplay, fetchServiceOverviewData, fetchServicePage, fetchServiceScripts, fetchServices, saveServiceConfiguration as saveInventoryServiceConfiguration, serviceApiId, SERVICE_INVENTORY_SCRIPTS, SERVICE_TRANSITIONS, transitionInventoryService, updateInventoryService, updateInventoryServiceItem, updateServiceScript } from './dataminer/services.js';
+import { addInventoryServiceItem, addServiceScript, createInventoryService, deleteInventoryService, deleteInventoryServiceItem, deleteServiceScript, duplicateInventoryService, duplicateServiceConfigurationVersion, fetchInventoryServiceItems, fetchMonitoringServices, fetchServiceConfigurations, fetchServiceDetails, fetchServiceForDisplay, fetchServiceItemReferenceOptions, fetchServiceOverviewData, fetchServicePage, fetchServiceScripts, fetchServices, saveServiceConfiguration as saveInventoryServiceConfiguration, serviceApiId, SERVICE_INVENTORY_SCRIPTS, SERVICE_TRANSITIONS, SRM_BOOKING_ACTIONS, transitionInventoryService, updateInventoryService, updateInventoryServiceItem, updateServiceScript } from './dataminer/services.js';
 import { getConnectionFromCookie, redirectToAuth } from './dataminer/session.js';
 import { IasDialog } from './IasDialog.jsx';
 import './styles.css';
@@ -1027,11 +1027,14 @@ function TabbedServiceDetailPanel({ service, onClose, onEdit, onDelete, onDuplic
     const [tab, setTab] = useState('service');
     const [itemEditor, setItemEditor] = useState(null);
     const [scriptItem, setScriptItem] = useState(null);
+    const [bookingMenu, setBookingMenu] = useState(null);
+    const [bookingActionRun, setBookingActionRun] = useState(null);
     const itemData = useServiceItems(service);
     const relatedOrders = useRelatedServiceOrders(serviceApiId(service));
     const scripts = useServiceScripts(serviceApiId(service));
     const transitions = SERVICE_TRANSITIONS[service.status.trim().toLowerCase()] || [];
     const closeItemScript = useCallback(() => setScriptItem(null), []);
+    const closeBookingAction = useCallback(() => setBookingActionRun(null), []);
     const reloadItems = itemData.reloadAndWait;
     const finishItemScript = useCallback(async ({ cancelled }) => {
         const label = scriptItem?.label || 'service item';
@@ -1045,6 +1048,58 @@ function TabbedServiceDetailPanel({ service, onClose, onEdit, onDelete, onDuplic
             onActionFailure(error?.message || 'The service items could not be refreshed.');
         }
     }, [scriptItem, onActionNotice, onActionFailure, reloadItems]);
+    const finishBookingAction = useCallback(async ({ cancelled }) => {
+        const label = bookingActionRun?.item?.label || 'service item';
+        const actionLabel = bookingActionRun?.action?.label || 'Booking action';
+        setBookingActionRun(null);
+        if (cancelled) return;
+        onActionNotice('running', 'Refreshing service items…');
+        try {
+            await reloadItems();
+            onActionNotice('success', `${actionLabel} for "${label}" completed.`);
+        } catch (error) {
+            onActionFailure(error?.message || 'The service items could not be refreshed.');
+        }
+    }, [bookingActionRun, onActionNotice, onActionFailure, reloadItems]);
+    useEffect(() => {
+        if (!bookingMenu) return undefined;
+        const closeMenu = event => {
+            if (!event.target?.closest?.('.booking-actions-menu, .booking-actions-trigger')) setBookingMenu(null);
+        };
+        const onKey = event => {
+            if (event.key === 'Escape') {
+                event.stopPropagation();
+                setBookingMenu(null);
+            }
+        };
+        document.addEventListener('mousedown', closeMenu);
+        document.addEventListener('keydown', onKey, true);
+        return () => {
+            document.removeEventListener('mousedown', closeMenu);
+            document.removeEventListener('keydown', onKey, true);
+        };
+    }, [bookingMenu]);
+    const isSrmBookingItem = item => String(item?.type || '').replace(/\s+/g, '').toLowerCase() === 'srmbooking';
+    const canRunBookingAction = item => isSrmBookingItem(item) && Boolean(item?.definition?.trim()) && Boolean(item?.implementationReference?.trim());
+    const openBookingMenuFromButton = (event, item) => {
+        const rect = event.currentTarget.getBoundingClientRect();
+        setBookingMenu(current => current?.itemKey === (item.id || item.label) ? null : {
+            item,
+            itemKey: item.id || item.label,
+            top: Math.min(window.innerHeight - 240, rect.bottom + 4),
+            left: Math.max(12, Math.min(window.innerWidth - 210, rect.right - 196)),
+        });
+    };
+    const openBookingMenuFromContext = (event, item) => {
+        if (!canRunBookingAction(item) || busy) return;
+        event.preventDefault();
+        setBookingMenu({
+            item,
+            itemKey: item.id || item.label,
+            top: Math.min(window.innerHeight - 240, event.clientY),
+            left: Math.max(12, Math.min(window.innerWidth - 210, event.clientX)),
+        });
+    };
     const deleteItem = async item => { await onDeleteItem(item, itemData.reloadAndWait); };
     const submitItem = async values => {
         const success = await (itemEditor?.action === 'Edit' ? onEditItem(service, values, itemData.reloadAndWait, itemEditor.item) : onAddItem(service, values, itemData.reloadAndWait));
@@ -1086,15 +1141,22 @@ function TabbedServiceDetailPanel({ service, onClose, onEdit, onDelete, onDuplic
                         ? <div className="service-related-empty"><span className="icon" aria-hidden="true">inbox</span>Nothing to show.</div>
                         : <div className="service-items-table-wrap"><table className="service-items-table">
                             <thead><tr><th>Label</th><th>Service item type</th><th>Definition reference</th><th>Implementation reference</th><th>Implementation state</th><th>Monitoring service state</th><th>Actions</th></tr></thead>
-                            <tbody>{itemData.items.map(item => <tr key={item.id || item.label}>
-                                <td>{item.label || '—'}</td><td><span className="service-item-type">{item.type || '—'}</span></td><td>{item.definition || '—'}</td><td>{item.implementationReference || '—'}</td><td>{item.implementationState || '—'}</td><td>{item.monitoringState || '—'}</td>
+                            <tbody>{itemData.items.map(item => <tr key={item.id || item.label} onContextMenu={event => openBookingMenuFromContext(event, item)}>
+                                <td>{item.label || '—'}</td><td><span className="service-item-type">{item.type || '—'}</span></td><td>{item.definition || '—'}</td><td>{item.implementation || item.implementationReference || '—'}</td><td>{item.implementationState || '—'}</td><td>{item.monitoringState || '—'}</td>
                                 <td><div className="service-actions">
                                     <button className="table-icon-action" type="button" aria-label={`Launch script for ${item.label || 'service item'}`} title={item.script ? `Launch ${item.script}` : 'No service item script is configured'} onClick={() => setScriptItem(item)} disabled={!item.script || !item.label || busy}><span className="icon" aria-hidden="true">play_circle</span></button>
+                                    {isSrmBookingItem(item) && <button className="table-icon-action booking-actions-trigger" type="button" aria-label={`Booking actions for ${item.label || 'service item'}`} aria-haspopup="menu" aria-expanded={bookingMenu?.itemKey === (item.id || item.label)} title={canRunBookingAction(item) ? 'Booking actions' : 'No SRM booking is linked yet'} onClick={event => openBookingMenuFromButton(event, item)} disabled={!canRunBookingAction(item) || busy}><span className="icon" aria-hidden="true">more_vert</span></button>}
                                     <button className="table-icon-action" type="button" aria-label={`Edit ${item.label || 'service item'}`} onClick={() => setItemEditor({ action: 'Edit', item })} disabled={busy}><span className="icon" aria-hidden="true">edit</span></button>
                                     <button className="table-icon-action danger" type="button" aria-label={`Delete ${item.label || 'service item'}`} onClick={() => deleteItem(item)} disabled={busy}><span className="icon" aria-hidden="true">delete</span></button>
                                 </div></td>
                             </tr>)}</tbody>
                         </table></div>}
+            {bookingMenu && <div className="booking-actions-menu" role="menu" aria-label={`Booking actions for ${bookingMenu.item.label || 'service item'}`} style={{ top: `${bookingMenu.top}px`, left: `${bookingMenu.left}px` }}>
+                {SRM_BOOKING_ACTIONS.map(action => <button key={action.value} className="booking-actions-item" role="menuitem" type="button" onClick={() => { const selectedItem = bookingMenu.item; setBookingMenu(null); setBookingActionRun({ item: selectedItem, action }); }}>
+                    <span className="icon" aria-hidden="true">{action.icon}</span>
+                    <span>{action.label}</span>
+                </button>)}
+            </div>}
         </section>
         <div className="service-workspace-secondary">
             <ServiceOperationsView scripts={scripts} busy={busy} onSubmit={submitOperation} onDelete={deleteOperation} />
@@ -1133,6 +1195,7 @@ function TabbedServiceDetailPanel({ service, onClose, onEdit, onDelete, onDuplic
         </div>
         {itemEditor && <ServiceItemDialog key={`${itemEditor.action}-${itemEditor.item?.label || 'new'}`} busy={busy} parentId={service.id} parentService={service} action={itemEditor.action} initialItem={itemEditor.item} context="Service" onClose={() => setItemEditor(null)} onSubmit={submitItem} />}
         {scriptItem && <IasDialog script={SERVICE_INVENTORY_SCRIPTS.launchItemScript} parameters={{ 'DOM ID': service.id, 'Item Label': scriptItem.label }} eyebrow={`Service item · ${scriptItem.label}`} onClose={closeItemScript} onFinished={finishItemScript} />}
+        {bookingActionRun && <IasDialog script={SERVICE_INVENTORY_SCRIPTS.serviceItemContextMenuAction} parameters={{ 'DOM ID': service.id, 'Service Item Label': bookingActionRun.item.label, 'ContextMenu Action': bookingActionRun.action.value }} eyebrow={`${bookingActionRun.action.label} · ${bookingActionRun.item.label}`} onClose={closeBookingAction} onFinished={finishBookingAction} />}
     </>;
 }
 
@@ -2136,6 +2199,23 @@ function ServiceOrderItemDialog({ busy, onClose, onSubmit, order, initialItem = 
 function ServiceItemDialog({ busy, onClose, onSubmit, parentId, parentService = null, initialItem = null, action = 'Add', context = 'Service' }) {
     const existingItemsFetcher = useCallback(() => !parentId ? Promise.resolve([]) : context === 'Specification' ? fetchSpecificationItems(parentId) : fetchInventoryServiceItems(parentService ?? { id: parentId }), [parentId, parentService, context]);
     const existingItemsData = useDataList(existingItemsFetcher);
+    const specificationsData = useDataList(fetchServiceSpecifications);
+    const servicesData = useDataList(fetchServices);
+    const itemOptionsFetcher = useCallback(() => fetchServiceItemReferenceOptions().catch(() => ({
+        workflowAvailable: true,
+        srmAvailable: true,
+        workflows: [],
+        bookingManagers: [],
+        bookingScripts: [],
+    })), []);
+    const itemOptionsData = useDataList(itemOptionsFetcher);
+    const options = itemOptionsData.items && !Array.isArray(itemOptionsData.items) ? itemOptionsData.items : {
+        workflowAvailable: true,
+        srmAvailable: true,
+        workflows: [],
+        bookingManagers: [],
+        bookingScripts: [],
+    };
     const [form, setForm] = useState(() => ({
         label: initialItem?.label || '',
         type: (initialItem?.type || 'Service').replace(/\s+/g, ''),
@@ -2143,9 +2223,95 @@ function ServiceItemDialog({ busy, onClose, onSubmit, parentId, parentService = 
         implementationReference: initialItem?.implementationReference || '',
         script: initialItem?.script || '',
     }));
+    const workflows = options.workflows || [];
+    const bookingManagers = options.bookingManagers || [];
+    const bookingScripts = options.bookingScripts || [];
+    useEffect(() => {
+        if (action === 'Edit') return;
+        setForm(current => {
+            if (current.type === 'Workflow' && !current.definitionReference && workflows.length > 0) {
+                const defaultWorkflow = workflows.find(wf => wf.toLowerCase() === 'default') || workflows[0];
+                return { ...current, definitionReference: defaultWorkflow, implementationReference: '', script: '' };
+            }
+            if (current.type === 'SRMBooking' && !current.definitionReference && bookingManagers.length > 0) {
+                const firstManager = bookingManagers[0];
+                return { ...current, definitionReference: firstManager.name, script: firstManager.script || current.script || '' };
+            }
+            return current;
+        });
+    }, [action, workflows, bookingManagers]);
+    const handleTypeChange = nextType => {
+        setForm(current => {
+            if (nextType === 'Workflow') {
+                const defaultWorkflow = workflows.find(wf => wf.toLowerCase() === 'default') || workflows[0] || '';
+                return { ...current, type: nextType, definitionReference: defaultWorkflow, implementationReference: '', script: '' };
+            }
+            if (nextType === 'SRMBooking') {
+                const firstManager = bookingManagers[0];
+                return {
+                    ...current,
+                    type: nextType,
+                    definitionReference: firstManager?.name || '',
+                    implementationReference: '',
+                    script: firstManager?.script || '',
+                };
+            }
+            return { ...current, type: nextType, definitionReference: '', implementationReference: '', script: '' };
+        });
+    };
+    const handleDefinitionChange = nextDefinition => {
+        setForm(current => {
+            if (current.type === 'SRMBooking') {
+                const manager = bookingManagers.find(item => item.name === nextDefinition);
+                return {
+                    ...current,
+                    definitionReference: nextDefinition,
+                    implementationReference: '',
+                    script: manager?.script || '',
+                };
+            }
+            return { ...current, definitionReference: nextDefinition, implementationReference: '' };
+        });
+    };
     const update = (field, value) => setForm(current => ({ ...current, [field]: value }));
-    const placeholder = initialItem?.label || `Service Item #${String(existingItemsData.items.length + 1).padStart(3, '0')}`;
-    const duplicateLabel = Boolean(form.label.trim()) && existingItemsData.items.some(item => item.label?.trim().toLowerCase() === form.label.trim().toLowerCase() && item.label !== initialItem?.label);
+    const existingLabels = new Set(
+        existingItemsData.items
+            .map(item => item.label?.trim().toLowerCase())
+            .filter(label => label && label !== initialItem?.label?.trim().toLowerCase()),
+    );
+    const placeholder = (() => {
+        if (action === 'Edit' && initialItem?.label) return initialItem.label;
+        if (form.definitionReference) {
+            let candidate = form.definitionReference;
+            while (existingLabels.has(candidate.toLowerCase())) {
+                candidate = `${candidate} (1)`;
+            }
+            return candidate;
+        }
+        return `Service Item #${String(existingItemsData.items.length + 1).padStart(3, '0')}`;
+    })();
+    const duplicateLabel = Boolean(form.label.trim()) && existingLabels.has(form.label.trim().toLowerCase());
+    const specificationNames = Array.from(new Set([
+        ...specificationsData.items.map(spec => spec.name).filter(Boolean).sort((a, b) => a.localeCompare(b)),
+        ...(form.type === 'Service' && form.definitionReference ? [form.definitionReference] : []),
+    ]));
+    const workflowNames = Array.from(new Set([
+        ...workflows,
+        ...(form.type === 'Workflow' && form.definitionReference ? [form.definitionReference] : []),
+    ]));
+    const bookingManagerNames = Array.from(new Set([
+        ...bookingManagers.map(manager => manager.name),
+        ...(form.type === 'SRMBooking' && form.definitionReference ? [form.definitionReference] : []),
+    ]));
+    const matchingServices = servicesData.items
+        .filter(candidate => candidate.id && candidate.id !== parentId && (!form.definitionReference || candidate.specification === form.definitionReference))
+        .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    const selectedManager = bookingManagers.find(manager => manager.name === form.definitionReference);
+    const activeBookings = selectedManager?.bookings || [];
+    const scriptOptions = Array.from(new Set([
+        ...bookingScripts,
+        ...(form.type === 'SRMBooking' && form.script ? [form.script] : []),
+    ]));
     const submit = async event => {
         event.preventDefault();
         if (duplicateLabel) return;
@@ -2159,12 +2325,12 @@ function ServiceItemDialog({ busy, onClose, onSubmit, parentId, parentService = 
                 ExistingLabel: initialItem?.label || '',
                 Type: form.type,
                 DefinitionReference: form.definitionReference,
-                ImplementationReference: form.implementationReference,
-                Script: form.script,
+                ImplementationReference: form.type === 'Workflow' ? '' : form.implementationReference,
+                Script: form.type === 'SRMBooking' ? form.script : '',
             }),
         });
     };
-    return <div className="confirm-layer order-form-layer"><div className="confirm-backdrop" onClick={onClose} aria-hidden="true" /><form className="order-form-dialog specification-form-dialog" onSubmit={submit} aria-labelledby="service-item-form-title"><header className="order-form-header"><div><p className="eyebrow">{context === 'Specification' ? 'Service design' : 'Service inventory'}</p><h2 id="service-item-form-title">{action === 'Edit' ? 'Edit service item' : 'Add service item'}</h2></div><button className="icon-button" type="button" aria-label="Close service item form" onClick={onClose}><span className="icon" aria-hidden="true">close</span></button></header><div className="order-form-grid"><label className="wide">Label<input autoFocus value={form.label} onChange={event => update('label', event.target.value)} placeholder={placeholder} aria-invalid={duplicateLabel || undefined} />{duplicateLabel && <span className="form-field-error">Label already exists!</span>}{!form.label.trim() && <span className="form-field-hint">Placeholder will be used: {placeholder}</span>}</label><label>Type<select value={form.type} onChange={event => update('type', event.target.value)}><option value="Service">Service</option><option value="Workflow">Workflow</option><option value="SRMBooking">SRM booking</option></select></label><label>Definition reference<input value={form.definitionReference} onChange={event => update('definitionReference', event.target.value)} placeholder="Definition reference" /></label><label>Implementation reference<input value={form.implementationReference} onChange={event => update('implementationReference', event.target.value)} placeholder="Optional reference ID" /></label><label className="wide">Service item script<input value={form.script} onChange={event => update('script', event.target.value)} placeholder="Optional script name" /></label></div><footer className="order-form-actions"><button className="quiet-button" type="button" onClick={onClose} disabled={busy}>Cancel</button><button className="primary-button" type="submit" disabled={busy || duplicateLabel}>{busy ? 'Saving…' : action === 'Edit' ? 'Save' : 'Add item'}</button></footer></form></div>;
+    return <div className="confirm-layer order-form-layer"><div className="confirm-backdrop" onClick={onClose} aria-hidden="true" /><form className="order-form-dialog specification-form-dialog" onSubmit={submit} aria-labelledby="service-item-form-title"><header className="order-form-header"><div><p className="eyebrow">{context === 'Specification' ? 'Service design' : 'Service inventory'}</p><h2 id="service-item-form-title">{action === 'Edit' ? 'Edit service item' : 'Add service item'}</h2></div><button className="icon-button" type="button" aria-label="Close service item form" onClick={onClose}><span className="icon" aria-hidden="true">close</span></button></header><div className="order-form-grid"><label className="wide">Label<input autoFocus value={form.label} onChange={event => update('label', event.target.value)} placeholder={placeholder} aria-invalid={duplicateLabel || undefined} />{duplicateLabel && <span className="form-field-error">Label already exists!</span>}{!form.label.trim() && <span className="form-field-hint">Placeholder will be used: {placeholder}</span>}</label><label>Type<select value={form.type} onChange={event => handleTypeChange(event.target.value)}><option value="Service">Service</option>{(options.workflowAvailable !== false || form.type === 'Workflow') && <option value="Workflow">Workflow</option>}{(options.srmAvailable !== false || form.type === 'SRMBooking') && <option value="SRMBooking">SRM booking</option>}</select></label><label>Definition reference<select value={form.definitionReference} onChange={event => handleDefinitionChange(event.target.value)}>{form.type === 'Service' && <><option value="">None</option>{specificationNames.map(name => <option key={name} value={name}>{name}</option>)}</>}{form.type === 'Workflow' && <>{workflowNames.length === 0 && <option value="">None</option>}{workflowNames.map(name => <option key={name} value={name}>{name}</option>)}</>}{form.type === 'SRMBooking' && <>{bookingManagerNames.length === 0 && <option value="">None</option>}{bookingManagerNames.map(name => <option key={name} value={name}>{name}</option>)}</>}</select></label>{form.type !== 'Workflow' && <label>Implementation reference<select value={form.implementationReference} onChange={event => update('implementationReference', event.target.value)}><option value="">None</option>{form.type === 'Service' && matchingServices.map(svc => <option key={svc.id} value={svc.id}>{svc.name}{svc.serviceId ? ` (${svc.serviceId})` : ''}</option>)}{form.type === 'Service' && form.implementationReference && !matchingServices.some(svc => svc.id === form.implementationReference) && <option value={form.implementationReference}>{form.implementationReference}</option>}{form.type === 'SRMBooking' && activeBookings.map(booking => <option key={booking.id} value={booking.id}>{booking.name}</option>)}{form.type === 'SRMBooking' && form.implementationReference && !activeBookings.some(booking => booking.id === form.implementationReference) && <option value={form.implementationReference}>{form.implementationReference}</option>}</select></label>}<label className="wide">Service item script<select value={form.type === 'SRMBooking' ? form.script : ''} onChange={event => update('script', event.target.value)} disabled={form.type !== 'SRMBooking'}><option value="">None</option>{form.type === 'SRMBooking' && scriptOptions.map(scriptName => <option key={scriptName} value={scriptName}>{scriptName}</option>)}</select></label></div><footer className="order-form-actions"><button className="quiet-button" type="button" onClick={onClose} disabled={busy}>Cancel</button><button className="primary-button" type="submit" disabled={busy || duplicateLabel}>{busy ? 'Saving…' : action === 'Edit' ? 'Save' : 'Add item'}</button></footer></form></div>;
 }
 
 function useOrderItems(order, refreshKey = 0) {

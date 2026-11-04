@@ -135,10 +135,43 @@ test.describe('Service Management workspace', () => {
         const addForm = page.getByRole('form', { name: 'Add service item' });
         await addForm.getByRole('textbox', { name: 'Label' }).fill('Playout workflow');
         await addForm.getByRole('combobox', { name: 'Type' }).selectOption('Workflow');
-        await addForm.getByRole('textbox', { name: 'Definition reference' }).fill('Playout');
+        await addForm.getByRole('combobox', { name: 'Definition reference' }).selectOption('Playout');
         await addForm.getByRole('button', { name: 'Add item', exact: true }).click();
         await expect(rows.filter({ hasText: 'Playout workflow' })).toContainText('Workflow');
         expect(JSON.parse(lastRequest(3).Body)).toEqual({ label: 'Playout workflow', type: 'Workflow', definitionReference: 'Playout', implementationReference: '', script: '' });
+
+        await details.getByRole('button', { name: 'Add item', exact: true }).click();
+        const srmForm = page.getByRole('form', { name: 'Add service item' });
+        await srmForm.getByRole('combobox', { name: 'Type' }).selectOption('SRMBooking');
+        await expect(srmForm.getByRole('combobox', { name: 'Definition reference' })).toHaveValue('Encoding Booking Manager');
+        await expect(srmForm.getByRole('combobox', { name: 'Service item script' })).toHaveValue('SRM_Booking Wizard');
+        await srmForm.getByRole('combobox', { name: 'Implementation reference' }).selectOption('reservation-1');
+        await srmForm.getByRole('textbox', { name: 'Label' }).fill('Linked encoder booking');
+        await srmForm.getByRole('button', { name: 'Add item', exact: true }).click();
+        await expect(rows.filter({ hasText: 'Linked encoder booking' })).toContainText('SRM Booking');
+
+        await details.getByRole('button', { name: 'Booking actions for Linked encoder booking', exact: true }).click();
+        const bookingMenu = page.getByRole('menu', { name: 'Booking actions for Linked encoder booking' });
+        await expect(bookingMenu.getByRole('menuitem')).toHaveText([
+            'play_arrowStart Booking',
+            'cancelCancel Booking',
+            'deleteDelete Booking',
+            'stop_circleFinish Booking',
+            'scheduleChange Booking Time',
+            'more_timeExtend Booking Time',
+        ]);
+        await bookingMenu.getByRole('menuitem', { name: /Start Booking/ }).click();
+        await expect.poll(() => mock.calls.some(call => call.method === 'ExecuteAutomationScript' && call.body.script?.Name === 'SLC_SM_AS_Service Item ContextMenu Actions')).toBe(true);
+        const contextActionCall = mock.calls.find(call => call.method === 'ExecuteAutomationScript' && call.body.script?.Name === 'SLC_SM_AS_Service Item ContextMenu Actions');
+        expect(contextActionCall?.body.script.Parameters).toEqual([
+            expect.objectContaining({ ParameterId: 10, Name: 'DOM ID', Value: '["service-1"]' }),
+            expect.objectContaining({ ParameterId: 11, Name: 'Service Item Label', Value: '["Linked encoder booking"]' }),
+            expect.objectContaining({ ParameterId: 12, Name: 'ContextMenu Action', Value: '["Start"]' }),
+        ]);
+
+        await details.getByRole('button', { name: 'Delete Linked encoder booking', exact: true }).click();
+        await page.getByRole('alertdialog', { name: 'Confirm deletion' }).getByRole('button', { name: 'Delete', exact: true }).click();
+        await expect(rows.filter({ hasText: 'Linked encoder booking' })).toHaveCount(0);
 
         await details.getByRole('button', { name: 'Edit Playout workflow', exact: true }).click();
         const editForm = page.getByRole('form', { name: 'Edit service item' });

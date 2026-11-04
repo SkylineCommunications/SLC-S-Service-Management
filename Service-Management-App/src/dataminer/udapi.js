@@ -365,6 +365,11 @@ export async function fetchServiceItemList(serviceId) {
     return Array.isArray(payload) ? payload : [];
 }
 
+export async function fetchServiceItemOptions() {
+    const payload = await callServiceManagementUdapi('service/itemOptions');
+    return payload && typeof payload === 'object' ? payload : {};
+}
+
 export async function addInventoryServiceItem(serviceId, body) {
     return callServiceManagementUdapi(serviceRoute(serviceId, 'item'), { method: 'POST', body });
 }

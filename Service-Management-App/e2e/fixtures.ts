@@ -98,6 +98,7 @@ export interface GqiMock { mode: GqiMode; itemsFail: boolean; calls: { method: s
 
 export const IAS_SCRIPT_ID = 42;
 export const SUBSCRIPT_ID = 43;
+export const CONTEXT_ACTION_SCRIPT_ID = 44;
 export const SUBSCRIPT_DEST_VARS = { bookingName: 'dv-booking-name', start: 'dv-booking-start', details: 'dv-error-details', toggle: 'dv-error-toggle', cancel: 'dv-booking-cancel', create: 'dv-booking-create', close: 'dv-error-close' } as const;
 // Rows returned by the mocked "Get Service Items" data source for SAMPLE_SERVICE.
 const SAMPLE_SERVICE_ITEMS = [
@@ -210,10 +211,11 @@ async function mockIasWebSocket(page: Page, mock: GqiMock, orders: Record<string
                 launchId = message.ClientSubscriptionID;
                 activeScriptId = parameters.scriptID;
                 subscriptExpanded = false;
-                if (parameters.connection !== CONNECTION_GUID || ![IAS_SCRIPT_ID, SUBSCRIPT_ID].includes(parameters.scriptID)) return event('WebSocketError', { Message: `Unexpected LaunchAutomationScript parameters ${JSON.stringify(parameters)}` });
+                if (parameters.connection !== CONNECTION_GUID || ![IAS_SCRIPT_ID, SUBSCRIPT_ID, CONTEXT_ACTION_SCRIPT_ID].includes(parameters.scriptID)) return event('WebSocketError', { Message: `Unexpected LaunchAutomationScript parameters ${JSON.stringify(parameters)}` });
                 if (mock.ias.launchError) return event('WebSocketError', { Message: mock.ias.launchError });
                 event('DMAAutomationScriptBasicUpdate', { Type: 'Started', Data: '' });
                 if (activeScriptId === SUBSCRIPT_ID) return renderSubscript();
+                if (activeScriptId === CONTEXT_ACTION_SCRIPT_ID) return event('DMAAutomationScriptBasicUpdate', { Type: 'Completed', Data: 'SUCCEEDED' });
                 state = { name: '', nameError: '', description: '', externalId: '', priority: 'High', organization: '-None-', contacts: '', expanded: false, completion: false, start: IAS_DEFAULT_DATE, end: IAS_DEFAULT_DATE };
                 return render(true);
             }
@@ -397,7 +399,11 @@ export async function mockDataMinerApi(page: Page, mode: GqiMode = 'ok'): Promis
         const body = route.request().postDataJSON() ?? {};
         mock.calls.push({ method: 'ExecuteAutomationScript', body });
         if (body.connection !== CONNECTION_GUID) return json(route, 500, { Message: 'Unexpected connection', ExceptionType: 'System.ArgumentException' });
-        const scriptIds: Record<string, number> = { 'SLC_SM_IAS_Add Service Order': IAS_SCRIPT_ID, 'Launch Interactive Subscript': SUBSCRIPT_ID };
+        const scriptIds: Record<string, number> = {
+            'SLC_SM_IAS_Add Service Order': IAS_SCRIPT_ID,
+            'Launch Interactive Subscript': SUBSCRIPT_ID,
+            'SLC_SM_AS_Service Item ContextMenu Actions': CONTEXT_ACTION_SCRIPT_ID,
+        };
         if (!scriptIds[body.script?.Name]) return json(route, 500, { Message: `Unexpected Automation script ${body.script?.Name}`, ExceptionType: 'System.ArgumentException' });
         if (mock.ias.executeError) return json(route, 500, { Message: mock.ias.executeError, ExceptionType: 'Skyline.DataMiner.Web.Common.WebApiException' });
         return json(route, 200, { d: scriptIds[body.script.Name] });
@@ -539,6 +545,26 @@ export async function mockDataMinerApi(page: Page, mode: GqiMode = 'ok'): Promis
                 }
             }
             if (resource === 'service') {
+                if (id === 'itemOptions' && request.RequestMethod === 1) {
+                    return respond(200, {
+                        workflowAvailable: true,
+                        srmAvailable: true,
+                        workflows: ['Default', 'Playout'],
+                        bookingManagers: [
+                            {
+                                name: 'Encoding Booking Manager',
+                                script: 'SRM_Booking Wizard',
+                                bookings: [{ id: 'reservation-1', name: 'Encoder Booking #1' }],
+                            },
+                            {
+                                name: 'Switching Booking Manager',
+                                script: 'SRM_Booking Wizard',
+                                bookings: [],
+                            },
+                        ],
+                        bookingScripts: ['SRM_Booking Wizard'],
+                    });
+                }
                 if (id === 'overview' && request.RequestMethod === 1) {
                     const serviceRows = services.map(service => toUdapiService(service));
                     const active = new Set(['active', 'reserved', 'designed']);

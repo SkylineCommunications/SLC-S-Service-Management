@@ -134,7 +134,7 @@ namespace SLC_SM_Delete_Service_Item
 			helper.UpdateSpecification(spec);
 		}
 
-		private static bool HasActiveLinkedReference(IServiceManagementApiHelper helper, Models.ServiceItem serviceItem)
+		private bool HasActiveLinkedReference(IServiceManagementApiHelper helper, Models.ServiceItem serviceItem)
 		{
 			if (!Guid.TryParse(serviceItem.ImplementationReference, out Guid referenceId) || referenceId == Guid.Empty)
 			{
@@ -142,6 +142,11 @@ namespace SLC_SM_Delete_Service_Item
 			}
 
 			var itemType = serviceItem.Type?.ToString();
+			if (String.Equals(itemType, "SRMBooking", StringComparison.OrdinalIgnoreCase))
+			{
+				return serviceItem.LinkedReferenceStillActive(_engine);
+			}
+
 			if (!String.Equals(itemType, "Service", StringComparison.OrdinalIgnoreCase))
 			{
 				return false;

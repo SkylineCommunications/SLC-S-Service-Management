@@ -88,6 +88,12 @@ namespace SLC_SM_Setup_UDAPI
 				route: "service/overview");
 
 			InstallEndpoint(
+				apiId: Constants.ApiDefinitions.ServiceInventory_ItemOptions_UDAPI_Id,
+				name: "Service Inventory - Service Item Options",
+				description: "UDAPI to retrieve workflow and SRM booking options for service items.",
+				route: "service/itemOptions");
+
+			InstallEndpoint(
 				apiId: Constants.ApiDefinitions.ServiceInventory_ById_UDAPI_Id,
 				name: "Service Inventory - Service By Id",
 				description: "UDAPI to retrieve, update or delete a service by id.",

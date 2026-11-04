@@ -23,6 +23,7 @@
 			// Service Inventory
 			public static readonly ApiDefinitionId ServiceInventory_UDAPI_Id = new ApiDefinitionId(Guid.Parse("8b27f8d4-f5d0-4d9f-b7f1-7e5e6db4e5c2"));
 			public static readonly ApiDefinitionId ServiceInventory_Overview_UDAPI_Id = new ApiDefinitionId(Guid.Parse("c4a81e2f-6b53-4d90-a7c2-1e5f9b3d8a64"));
+			public static readonly ApiDefinitionId ServiceInventory_ItemOptions_UDAPI_Id = new ApiDefinitionId(Guid.Parse("b7e91d42-3a68-4f15-9c83-2d4e6f8a0b19"));
 
 			public static readonly ApiDefinitionId ServiceInventory_ById_UDAPI_Id = new ApiDefinitionId(Guid.Parse("5f9c2a71-3c8b-44e9-a6f3-91d7b2c84f6e"));
 			public static readonly ApiDefinitionId ServiceInventory_ById_Transitions_UDAPI_Id = new ApiDefinitionId(Guid.Parse("8150ce8c-313b-431c-84a1-c7e263c061cb"));
