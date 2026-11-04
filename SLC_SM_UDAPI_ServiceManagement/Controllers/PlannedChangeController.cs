@@ -91,7 +91,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 				}
 
 				// TODO: add a filter for services that are not terminated or retired, and that started before the date.
-				var servicesFilter = ServiceExposers.StartTime.LessThanOrEqual(referenceDate)
+				var servicesFilter = ServiceExposers.StartTime.LessThan(referenceDate)
 					.AND(ServiceExposers.EndTime.GreaterThan(referenceDate).OR(ServiceExposers.EndTime.HasNoValue()));
 
 				if (String.Equals(pagination, "cursor", StringComparison.OrdinalIgnoreCase))
@@ -183,6 +183,8 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 		{
 			var services = (candidates ?? Enumerable.Empty<Service>())
 				.Where(s => s != null && s.ServiceConfigurationId != null && s.ServiceConfigurationId.Identifier != null && s.ConfigurationVersions != null && s.ConfigurationVersions.Count > 1)
+				.Where(s => s.Status != DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Service_Behavior.StatusesEnum.Terminated
+ 					&& s.Status != DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Service_Behavior.StatusesEnum.Retired)
 				.ToArray();
 
 			var result = new List<PlannedChange>();

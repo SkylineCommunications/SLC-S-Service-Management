@@ -21,8 +21,8 @@ internal sealed class SmgDataMigration
 	private const string ConfigurationsModuleId = "(slc)configurations";
 	private const string ServiceManagementModuleId = "(slc)servicemanagement";
 
-	// Covers the export (max 30 min) and import (max 30 min) sub-scripts, which run synchronously during the install.
-	private static readonly TimeSpan MigrationTimeout = TimeSpan.FromHours(1);
+	// Covers the export (max 1h) and import (max 3h) sub-scripts, which run synchronously during the install.
+	private static readonly TimeSpan MigrationTimeout = TimeSpan.FromHours(4);
 
 	private static readonly Guid ConfigurationParameterValueSectionId = new Guid("32879046-c83c-49d8-b6bc-39c77bc7b3b0");
 

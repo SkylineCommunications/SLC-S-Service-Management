@@ -1,6 +1,6 @@
 <ProjectReferences xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns="http://www.skyline.be/projectReferences">
 	<!-- Default include all -->
-	<ProjectReference Exclude="..\*\*.csproj" />
+	<ProjectReference Include="..\*\*.csproj" />
 	<!--<ProjectReference Include="..\Operators\SLC_SM_CO_RenameColumn\SLC_SM_CO_RenameColumn.csproj" />
 	
 	<SolutionFilter Include="..\MySolutionFilter.slnf" />
