@@ -5,12 +5,18 @@
 	using System.IO;
 	using System.Threading;
 	using System.Threading.Tasks;
+	using Microsoft.Extensions.DependencyInjection;
 	using Microsoft.Extensions.Logging;
 	using Moq;
 	using Newtonsoft.Json.Linq;
+	using IEngine = Skyline.DataMiner.Automation.IEngine;
+	using Skyline.DataMiner.Net.Apps.UserDefinableApis;
+	using Skyline.DataMiner.Net.Apps.UserDefinableApis.Actions;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 	using Skyline.DataMiner.SDM;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
+	using Skyline.DataMiner.Utils.UserDefinedApiToolkit;
 	using SLC_SM_UDAPI_ServiceManagement.Controllers;
 	using SLC_SM_UDAPI_ServiceManagement.Helpers;
 	using SLC_SM_UDAPI_ServiceManagement.Models.Inventory;
@@ -48,6 +54,31 @@
 		}
 
 		// ---- List ----
+		[TestMethod]
+		public void List_ThroughApiBuilder_ResolvesCategoryControllerDependencies()
+		{
+			var category = AddCategory("Registered category");
+			var api = UserDefinedApi.CreateBuilder()
+				.AddController<ServiceCategoryController>()
+				.AddServices()
+				.ConfigureServices(services => services.AddScoped<IServiceManagementApiHelper>(_ => Helper.Object))
+				.Build();
+
+			var connection = Mock.Of<Skyline.DataMiner.Net.IConnection>();
+			var engine = Mock.Of<IEngine>(value => value.GetUserConnection() == connection);
+			var response = api.Run(engine, new ApiTriggerInput
+			{
+				Route = "service-management/v1/serviceCategory",
+				RequestMethod = RequestMethod.Get,
+				Parameters = new Dictionary<string, string>(),
+				QueryParameters = new QueryParameters(new Dictionary<string, List<string>>()),
+				RouteParameters = new Dictionary<string, string>(),
+			});
+
+			Assert.AreEqual(200, (int)response.ResponseCode);
+			StringAssert.Contains(response.ResponseBody, category.Identifier);
+		}
+
 		[TestMethod]
 		public void List_NoFilter_ReturnsAllAsApiShape()
 		{

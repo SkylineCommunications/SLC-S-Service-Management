@@ -31,6 +31,7 @@
     </PackageReference>
   </ItemGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="SLC_SM_UDAPI_ServiceManagementTests" />
     <Folder Include="Helpers\Specification\" />
   </ItemGroup>
   <ItemGroup>

@@ -27,6 +27,7 @@
 			// keeping constructor parameter counts flat as new repos are needed.
 			return builder.ConfigureServices(services =>
 			{
+				services.AddSingleton<CategoryIconPropagationStore>(_ => new CategoryIconPropagationStore());
 				services.AddScoped<IServiceManagementApiHelper>(
 					sp => sp.GetRequiredService<IAccessor<IEngine>>().Value.GetServiceManagementApiHelper());
 				services.AddScoped<IMonitoringServiceManager>(
