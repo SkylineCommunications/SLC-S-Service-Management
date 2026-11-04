@@ -24,6 +24,7 @@ namespace SLC_SM_IAS_Add_Service_Order_1
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
+	using SLC_SM_Common.IdGeneration;
 	using SLC_SM_IAS_Add_Service_Order_1.Presenters;
 	using SLC_SM_IAS_Add_Service_Order_1.Views;
 	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
@@ -111,11 +112,10 @@ namespace SLC_SM_IAS_Add_Service_Order_1
 			List<Models.ServiceOrder> serviceOrders = api.ServiceOrder.ServiceOrders.Read(new TRUEFilterElement<Models.ServiceOrder>()).ToList();
 
 			var usedOrderItemLabels = serviceOrders.Select(o => o.Name).ToList();
-			var usedOrderIds = serviceOrders.Select(o => o.OrderId).ToList();
 
 			// Init views
 			var view = new ServiceOrderView(_engine);
-			var presenter = new ServiceOrderPresenter(_engine, view, usedOrderItemLabels, usedOrderIds);
+			var presenter = new ServiceOrderPresenter(_engine, view, usedOrderItemLabels);
 
 			// Events
 			view.BtnAdd.Pressed += (sender, args) =>
@@ -129,6 +129,12 @@ namespace SLC_SM_IAS_Add_Service_Order_1
 				if (action == Action.Add)
 				{
 					orderToUpdate.Identifier = Guid.NewGuid().ToString();
+					orderToUpdate.OrderId = new ServiceManagementIdGenerator().AllocateServiceOrderId(_engine);
+					if (String.IsNullOrWhiteSpace(orderToUpdate.Name))
+					{
+						orderToUpdate.Name = orderToUpdate.OrderId;
+					}
+
 					api.ServiceOrder.ServiceOrders.Create(new[] { orderToUpdate });
 				}
 				else
@@ -163,10 +169,6 @@ namespace SLC_SM_IAS_Add_Service_Order_1
 				throw new InvalidOperationException("No Action provided to the service-order API mode.");
 			}
 			var payload = _engine.ReadJsonPayload<ApiPayload>("Payload", "service-order");
-			if (action == Action.Add && String.IsNullOrWhiteSpace(payload.Name))
-			{
-				throw new InvalidOperationException("A service-order name is required.");
-			}
 
 			var connection = _engine.GetUserConnection();
 			var api = connection.GetServiceManagementApiHelper("Service Ordering");
@@ -180,7 +182,7 @@ namespace SLC_SM_IAS_Add_Service_Order_1
 					Identifier = Guid.NewGuid().ToString(),
 					ContactIds = new List<Guid>(),
 					OrderItems = new List<Models.ServiceOrderEntry>(),
-					OrderId = GetDefaultOrderId(serviceOrders.Select(order => order.OrderId)),
+					OrderId = new ServiceManagementIdGenerator().AllocateServiceOrderId(_engine),
 				};
 			}
 			else
@@ -190,7 +192,7 @@ namespace SLC_SM_IAS_Add_Service_Order_1
 					?? throw new InvalidOperationException($"No Service Order with ID '{domId}' found on the system.");
 			}
 
-			serviceOrder.Name = String.IsNullOrWhiteSpace(payload.Name) ? serviceOrder.Name : payload.Name;
+			serviceOrder.Name = String.IsNullOrWhiteSpace(payload.Name) ? (serviceOrder.Name ?? serviceOrder.OrderId) : payload.Name;
 			serviceOrder.Description = payload.Description ?? String.Empty;
 			serviceOrder.ExternalID = payload.ExternalId ?? String.Empty;
 
@@ -280,13 +282,5 @@ namespace SLC_SM_IAS_Add_Service_Order_1
 				&& (value.LastIndexOf('+') > timeSeparatorIndex || value.LastIndexOf('-') > timeSeparatorIndex);
 		}
 
-		private static string GetDefaultOrderId(IEnumerable<string> usedOrderIds)
-		{
-			int highest = usedOrderIds
-				.Select(orderId => Int32.TryParse(orderId?.Split('-').Last(), out int number) ? number : 0)
-				.DefaultIfEmpty()
-				.Max();
-			return $"ORDER-{highest + 1:000000}";
-		}
 	}
 }

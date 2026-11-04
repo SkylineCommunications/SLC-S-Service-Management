@@ -25,6 +25,7 @@ namespace SLCSMMigrationImport
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Utils.SecureCoding.SecureIO;
 
+	using SLC_SM_Common.IdGeneration;
 	using SLCSMMigrationImport.Migration;
 
 	/// <summary>
@@ -193,9 +194,30 @@ namespace SLCSMMigrationImport
 				cleanupDuration += total.Elapsed - cleanupStarted;
 			}
 
+			string counterSyncWarning = null;
+			if (!dryRun)
+			{
+				try
+				{
+					new ServiceManagementIdGenerator().SynchronizeCounters(engine);
+				}
+				catch (Exception ex) when (!(ex is ScriptAbortException || ex is ScriptForceAbortException || ex is ScriptTimeoutException))
+				{
+					// The data is already imported; report the failed sync instead of losing the report.
+					engine.Log("SMG migration: synchronizing the ID counters failed: " + ex);
+					counterSyncWarning = "The Service and Service Order ID counters could not be synchronized with the imported IDs: " + ex.Message +
+						" Run 'SLC_SM_InitializeServiceManagementCounters' once the Service Management Mediation element is reachable.";
+				}
+			}
+
 			report.ModelCleanup.AddRange(cleanup.Results);
 			report.GlobalWarnings.AddRange(cleanup.Warnings);
 			report.GlobalWarnings.AddRange(cleanup.Failures);
+			if (counterSyncWarning != null)
+			{
+				report.GlobalWarnings.Add(counterSyncWarning);
+			}
+
 			report.SourceFile = inputFile;
 			report.SourceHost = sourceHost;
 			report.ExportedAtUtc = exportedAtUtc;

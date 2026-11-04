@@ -1,5 +1,6 @@
 <CatalogReferences xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns="http://www.skyline.be/catalogReferences">
 
+	<!-- TODO: Add the Service Management Mediation catalog reference once its Catalog ID is provided. -->
 	<CatalogReference id="52173e49-9185-4772-9b60-c186ee365a81">
 		<Name>1.Standard Data Model Registration</Name>
 		<Selection>

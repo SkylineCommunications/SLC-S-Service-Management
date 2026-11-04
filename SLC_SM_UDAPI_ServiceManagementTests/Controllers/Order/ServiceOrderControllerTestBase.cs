@@ -10,6 +10,7 @@
 	using Skyline.DataMiner.Utils.UserDefinedApiToolkit;
 	using SLDataGateway.API.Types.Querying;
 	using SLC_SM_UDAPI_ServiceManagement.Controllers;
+	using SLC_SM_Common.IdGeneration;
 	using Cfg = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.Configurations;
 
 	using OrderStatus = DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Serviceorder_Behavior.StatusesEnum;
@@ -41,6 +42,8 @@
 		protected ServiceOrderController Controller { get; private set; }
 
 		protected IServiceManagementApiHelper Helper { get; private set; }
+
+		protected Mock<IServiceManagementIdGenerator> IdGenerator { get; private set; }
 
 		[TestInitialize]
 		public void BaseInitialize()
@@ -104,10 +107,19 @@
 			helper.SetupGet(h => h.ServiceInventory).Returns(inventory.Object);
 			helper.SetupGet(h => h.ServiceCatalog).Returns(catalog.Object);
 
+			IdGenerator = new Mock<IServiceManagementIdGenerator>();
+			int orderNumber = 0;
+			IdGenerator.Setup(generator => generator.AllocateServiceOrderId(It.IsAny<Skyline.DataMiner.Automation.IEngine>()))
+				.Returns(() => $"ORDER-{++orderNumber:000000}");
+			int serviceNumber = 0;
+			IdGenerator.Setup(generator => generator.AllocateServiceId(It.IsAny<Skyline.DataMiner.Automation.IEngine>()))
+				.Returns(() => $"SERVICE-{++serviceNumber:00000}");
+
 			Controller = new ServiceOrderController(
 				Mock.Of<ILogger<ServiceOrderController>>(),
 				helper.Object,
-				Mock.Of<IAccessor<Skyline.DataMiner.Automation.IEngine>>(a => a.Value == Mock.Of<Skyline.DataMiner.Automation.IEngine>()));
+				Mock.Of<IAccessor<Skyline.DataMiner.Automation.IEngine>>(a => a.Value == Mock.Of<Skyline.DataMiner.Automation.IEngine>()),
+				IdGenerator.Object);
 			Helper = helper.Object;
 
 			AttachContext(Controller);

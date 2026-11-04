@@ -179,14 +179,14 @@
 		}
 
 		[TestMethod]
-		public void CreateServiceOrder_GeneratesNextOrderId()
+		public void CreateServiceOrder_UsesCentralOrderCounter()
 		{
 			AddOrder().OrderId = "ORDER-000041";
 			var request = new CreateServiceOrderRequest { Name = "x", OrderItems = new List<CreateServiceOrderItemRequest> { new CreateServiceOrderItemRequest() } };
 
 			Controller.CreateServiceOrder(request);
 
-			Orders.Verify(r => r.Create(It.Is<IEnumerable<ServiceOrder>>(o => o.Single().OrderId == "ORDER-000042")), Times.Once);
+			Orders.Verify(r => r.Create(It.Is<IEnumerable<ServiceOrder>>(o => o.Single().OrderId == "ORDER-000001")), Times.Once);
 		}
 
 		[TestMethod]
@@ -196,11 +196,11 @@
 		}
 
 		[TestMethod]
-		public void CreateServiceOrder_MissingName_Returns400()
+		public void CreateServiceOrder_MissingName_UsesAllocatedOrderIdAsName()
 		{
 			var request = new CreateServiceOrderRequest { OrderItems = new List<CreateServiceOrderItemRequest> { new CreateServiceOrderItemRequest() } };
-			Assert.AreEqual(400, StatusCode(Controller.CreateServiceOrder(request)));
-			Orders.Verify(r => r.Create(It.IsAny<IEnumerable<ServiceOrder>>()), Times.Never);
+			Assert.AreEqual(201, StatusCode(Controller.CreateServiceOrder(request)));
+			Orders.Verify(r => r.Create(It.Is<IEnumerable<ServiceOrder>>(o => o.Single().Name == "ORDER-000001" && o.Single().OrderId == "ORDER-000001")), Times.Once);
 		}
 
 		[TestMethod]

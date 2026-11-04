@@ -15,6 +15,7 @@
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
 
+	using SLC_SM_Common.IdGeneration;
 	using SLC_SM_Create_Service_Inventory_Item.Views;
 
 	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
@@ -24,15 +25,13 @@
 		private const string DefaultDropDownOption = "-None-";
 
 		private readonly List<string> existingServiceNames;
-		private readonly List<string> existingServiceIds;
 		private readonly IEngine engine;
 		private readonly IServiceManagementApiHelper sdmHelper;
 		private readonly ServiceView view;
 		private readonly IEnumerable<IDmsService> dmsServices;
-		private readonly string generatedServiceId;
-
 		private Models.Service instanceToReturn;
 		private bool isEdit;
+		private bool hasPreviewServiceId;
 
 		public ServicePresenter(IEngine engine, IServiceManagementApiHelper sdmHelper, ServiceView view, IEnumerable<IDmsService> serviceList)
 		{
@@ -43,15 +42,13 @@
 
 			var services = sdmHelper.ServiceInventory.Services.Read(new TRUEFilterElement<Models.Service>()).ToList();
 			existingServiceNames = services.Select(x => x.Name).Where(x => !String.IsNullOrWhiteSpace(x)).ToList();
-			existingServiceIds = services.Select(x => x.ServiceID).Where(x => !String.IsNullOrWhiteSpace(x)).ToList();
-			generatedServiceId = GenerateUniqueServiceId(existingServiceIds);
 
 			instanceToReturn = new Models.Service
 			{
 				Identifier = Guid.NewGuid().ToString(),
-				Name = generatedServiceId,
-				ServiceID = generatedServiceId,
-				Description = generatedServiceId,
+				Name = String.Empty,
+				ServiceID = String.Empty,
+				Description = String.Empty,
 				MonitoringService = String.Empty,
 				ServiceItems = new List<Models.ServiceItem>(),
 				ServiceItemsRelationships = new List<Models.ServiceItemRelationship>(),
@@ -59,15 +56,13 @@
 			};
 
 			view.TboxName.PlaceHolder = instanceToReturn.Name;
-			view.ServiceId.Text = instanceToReturn.ServiceID;
 
 			view.IndefiniteRuntime.Changed += (sender, args) => view.End.IsEnabled = !args.IsChecked;
 			view.TboxName.Changed += (sender, args) => ValidateLabel(args.Value);
-			view.ServiceId.Changed += (sender, args) => ValidateServiceId(args.Value);
 			view.LinkService.Changed += (sender, args) => view.MonitoringServices.IsEnabled = args.IsChecked;
 		}
 
-		public string Name => String.IsNullOrWhiteSpace(view.TboxName.Text) ? view.TboxName.PlaceHolder : view.TboxName.Text;
+		public string Name => String.IsNullOrWhiteSpace(view.TboxName.Text) ? (hasPreviewServiceId ? String.Empty : view.TboxName.PlaceHolder) : view.TboxName.Text;
 
 		public string ServiceId => view.ServiceId.Text?.Trim();
 
@@ -76,7 +71,7 @@
 			get
 			{
 				instanceToReturn.Name = Name;
-				instanceToReturn.ServiceID = ServiceId;
+				instanceToReturn.ServiceID = hasPreviewServiceId ? String.Empty : ServiceId;
 				instanceToReturn.Description = instanceToReturn.Description ?? String.Empty;
 				instanceToReturn.StartTime = view.Start.DateTime.ToUniversalTime();
 				instanceToReturn.EndTime = view.IndefiniteRuntime.IsChecked ? default(DateTime?) : view.End.DateTime.ToUniversalTime();
@@ -107,8 +102,38 @@
 			}
 		}
 
+		/// <summary>
+		/// Builds the new service and allocates its Service ID; call only when saving a new or duplicated service.
+		/// A blank name or description defaults to the allocated Service ID.
+		/// </summary>
+		public Models.Service CreateNewSdmInstance()
+		{
+			var service = SdmInstance;
+			service.ServiceID = new ServiceManagementIdGenerator().AllocateServiceId(engine);
+			if (String.IsNullOrWhiteSpace(service.Name))
+			{
+				service.Name = service.ServiceID;
+			}
+
+			if (String.IsNullOrWhiteSpace(service.Description))
+			{
+				service.Description = service.ServiceID;
+			}
+
+			return service;
+		}
+
 		public void LoadFromModel()
 		{
+			if (String.IsNullOrWhiteSpace(instanceToReturn.ServiceID))
+			{
+				// Preview only; the real Service ID is allocated on save so cancelling does not consume a number.
+				string previewId = new ServiceManagementIdGenerator().PeekNextServiceId(engine);
+				hasPreviewServiceId = true;
+				view.ServiceId.Text = previewId;
+				view.TboxName.PlaceHolder = previewId;
+			}
+
 			var categoryOptions = sdmHelper.ServiceCatalog.ServiceCategories
 				.Read(new TRUEFilterElement<Models.ServiceCategory>())
 				.Where(x => !String.IsNullOrEmpty(x?.Name))
@@ -184,7 +209,6 @@
 		public bool Validate()
 		{
 			bool ok = true;
-			ok &= ValidateServiceId(ServiceId);
 			ok &= ValidateLabel(view.TboxName.Text);
 
 			if (!isEdit && view.Start.DateTime < DateTime.Now)
@@ -213,28 +237,6 @@
 			}
 
 			return ok;
-		}
-
-		public void ShowServiceIdExistsError()
-		{
-			view.ServiceId.ValidationText = $"Service ID '{ServiceId}' already exists.";
-			view.ServiceId.ValidationState = UIValidationState.Invalid;
-			UpdateAddButtonState();
-		}
-
-		private static string GenerateUniqueServiceId(IEnumerable<string> existingServiceIds)
-		{
-			var maxValue = existingServiceIds
-				.Where(x => !String.IsNullOrWhiteSpace(x))
-				.Select(x =>
-				{
-					var parts = x.Split('-');
-					return parts.Length > 1 && Int32.TryParse(parts.Last(), out var number) ? number : 0;
-				})
-				.DefaultIfEmpty(0)
-				.Max();
-
-			return $"SERVICE-{maxValue + 1:00000}";
 		}
 
 		private static Models.Service CloneService(Models.Service source)
@@ -278,8 +280,8 @@
 		{
 			var duplicate = CloneService(source);
 			duplicate.Identifier = Guid.NewGuid().ToString();
-			duplicate.ServiceID = generatedServiceId;
-			duplicate.Name = (source.Name ?? generatedServiceId) + " (Copy)";
+			duplicate.ServiceID = String.Empty;
+			duplicate.Name = String.IsNullOrWhiteSpace(source.Name) ? String.Empty : source.Name + " (Copy)";
 			duplicate.GenerateMonitoringService = false;
 			duplicate.MonitoringService = String.Empty;
 			return duplicate;
@@ -432,30 +434,7 @@
 
 		private void UpdateAddButtonState()
 		{
-			view.BtnAdd.IsEnabled = view.ServiceId.ValidationState != UIValidationState.Invalid && view.TboxName.ValidationState != UIValidationState.Invalid;
-		}
-
-		private bool ValidateServiceId(string value)
-		{
-			bool isValid = true;
-			if (String.IsNullOrWhiteSpace(value))
-			{
-				view.ServiceId.ValidationText = "Service ID is required.";
-				isValid = false;
-			}
-			else if (!isEdit && existingServiceIds.Contains(value.Trim(), StringComparer.InvariantCultureIgnoreCase))
-			{
-				view.ServiceId.ValidationText = "Service ID already exists!";
-				isValid = false;
-			}
-			else
-			{
-				view.ServiceId.ValidationText = String.Empty;
-			}
-
-			view.ServiceId.ValidationState = isValid ? UIValidationState.Valid : UIValidationState.Invalid;
-			UpdateAddButtonState();
-			return isValid;
+			view.BtnAdd.IsEnabled = view.TboxName.ValidationState != UIValidationState.Invalid;
 		}
 
 		private bool ValidateLabel(string newValue)

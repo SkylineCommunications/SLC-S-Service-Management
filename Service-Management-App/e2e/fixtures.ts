@@ -567,8 +567,9 @@ export async function mockDataMinerApi(page: Page, mode: GqiMode = 'ok'): Promis
                     return respond(200, { ...page, items: page.items.map(row => selectUdapiFields(row, request)) });
                 }
                 if (!id && request.RequestMethod === 3) {
-                    if (services.some(row => row['Service ID'] === requestBody.serviceId)) return respond(409, { error: [{ errorCode: 'Conflict', detail: `Service ID '${requestBody.serviceId}' is already in use.`, faultingNode: '', title: 'Conflict' }] });
-                    const created = applyServiceRequest({ 'DOM ID': `service-${services.length + 1}`, 'Service Status': 'New', 'Service Logo': '', 'Service Category': '', 'Service Category Type': '', 'Service Specification': '', 'Service Organization': '', 'Monitoring Service': '' }, requestBody, categories);
+                    if ('serviceId' in requestBody) return respond(400, { error: [{ errorCode: 'InvalidRequest', detail: 'Service ID is assigned automatically and cannot be supplied.', faultingNode: '', title: 'Invalid request' }] });
+                    const nextServiceNumber = Math.max(0, ...services.map(row => Number(row['Service ID'].match(/^SERVICE-(\d+)$/)?.[1] ?? 0))) + 1;
+                    const created = applyServiceRequest({ 'DOM ID': `service-${services.length + 1}`, 'Service ID': `SERVICE-${nextServiceNumber}`, 'Service Status': 'New', 'Service Logo': '', 'Service Category': '', 'Service Category Type': '', 'Service Specification': '', 'Service Organization': '', 'Monitoring Service': '' }, requestBody, categories);
                     services.push(created);
                     return respond(201, toUdapiService(created));
                 }

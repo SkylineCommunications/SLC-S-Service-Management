@@ -18,6 +18,7 @@ internal class Script
 {
 	private const string DomImportExportScriptName = "DOM ImportExport";
 	private const string RegisterSolutionScriptName = "SLC_SM_AS_RegisterSolution";
+	private const string InitializeServiceManagementCountersScriptName = "SLC_SM_InitializeServiceManagementCounters";
 	private const string SolutionCatalogId = "97599e37-6da8-4c0a-9c59-11838d130a77";
 	private const string SolutionDisplayName = "Service Management";
 	private const string MediaOpsCatalogId = "1b67a623-4ca6-4d25-8b3d-ed4e39496a75";
@@ -74,11 +75,27 @@ internal class Script
 
 			migration.MigrateExportedData();
 
+			// Always initialize from current DOM records, even when no legacy export/import was needed.
+			InitializeServiceManagementCounters(engine);
+
 			RegisterSolution(engine, installer, context);
 		}
 		catch (Exception e)
 		{
 			engine.ExitFail($"Exception encountered during installation: {e}");
+		}
+	}
+
+	private static void InitializeServiceManagementCounters(IEngine engine)
+	{
+		var subscript = engine.PrepareSubScript(InitializeServiceManagementCountersScriptName);
+		subscript.Synchronous = true;
+		subscript.ExtendedErrorInfo = true;
+		subscript.StartScript();
+
+		if (subscript.HadError)
+		{
+			throw new InvalidOperationException($"Run Subscript '{InitializeServiceManagementCountersScriptName}' failed: {String.Join(" -> ", subscript.GetErrorMessages())}");
 		}
 	}
 

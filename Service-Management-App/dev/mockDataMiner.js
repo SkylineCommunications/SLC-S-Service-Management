@@ -783,10 +783,10 @@ function handleUdapiRequest(request) {
                 : { status: 200, response: rows };
         }
         if (!id && request.RequestMethod === 3) {
-            if (!body.name?.trim()) return error(400, 'Invalid request', "'name' is required.");
             if (body.serviceId && !/^SERVICE-\d+$/.test(body.serviceId)) return error(400, 'Invalid request', "'serviceId' must use the format SERVICE-<number>.");
             if (SERVICES.some(row => row['Service ID'].toLowerCase() === String(body.serviceId || '').toLowerCase())) return error(409, 'Conflict', `Service ID '${body.serviceId}' is already in use.`);
-            const created = applyServiceRequest({ 'DOM ID': guid(9500 + SERVICES.length), 'Service ID': `SERVICE-${400 + SERVICES.length}`, 'Service Status': 'New', 'Alarm Level': '0' }, body);
+            const newServiceId = `SERVICE-${400 + SERVICES.length}`;
+            const created = applyServiceRequest({ 'DOM ID': guid(9500 + SERVICES.length), 'Service ID': newServiceId, 'Service Status': 'New', 'Alarm Level': '0' }, { ...body, name: body.name?.trim() || newServiceId });
             SERVICES.unshift(created);
             return { status: 201, response: toUdapiService(created) };
         }
