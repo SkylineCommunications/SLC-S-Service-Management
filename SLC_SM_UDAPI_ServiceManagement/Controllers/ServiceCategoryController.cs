@@ -14,6 +14,7 @@
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 	using Skyline.DataMiner.SDM;
 	using Skyline.DataMiner.Utils.UserDefinedApiToolkit;
+	using SLC_SM_UDAPI_ServiceManagement.Helpers;
 	using SLC_SM_UDAPI_ServiceManagement.Models;
 	using SLC_SM_UDAPI_ServiceManagement.Models.Inventory;
 
@@ -28,17 +29,20 @@
 
 		private readonly ILogger<ServiceCategoryController> _logger;
 		private readonly IServiceManagementApiHelper serviceManagementApiHelper;
+		private readonly CategoryIconPropagationStore iconPropagationStore;
 
 		/// <summary>
 		/// Initializes a new instance of the <see cref="ServiceCategoryController"/> class.
 		/// </summary>
 		/// <param name="logger">Logger used for request tracing and error diagnostics.</param>
 		/// <param name="serviceManagementApiHelper">Service Management API used to read and modify categories, services and service order items.</param>
+		/// <param name="iconPropagationStore">Optional recovery journal; defaults to shared application data on this agent.</param>
 		/// <exception cref="ArgumentNullException"><paramref name="logger"/> or <paramref name="serviceManagementApiHelper"/> is <see langword="null"/>.</exception>
-		public ServiceCategoryController(ILogger<ServiceCategoryController> logger, IServiceManagementApiHelper serviceManagementApiHelper)
+		public ServiceCategoryController(ILogger<ServiceCategoryController> logger, IServiceManagementApiHelper serviceManagementApiHelper, CategoryIconPropagationStore iconPropagationStore = null)
 		{
 			_logger = logger ?? throw new ArgumentNullException(nameof(logger));
 			this.serviceManagementApiHelper = serviceManagementApiHelper ?? throw new ArgumentNullException(nameof(serviceManagementApiHelper));
+			this.iconPropagationStore = iconPropagationStore ?? new CategoryIconPropagationStore();
 		}
 
 		/// <summary>
@@ -248,6 +252,7 @@
 		/// Changing the icon also updates services in this category whose icon matches the previous category icon.
 		/// Custom service icons are preserved.
 		/// Updates to the same category are serialized across Automation executions on this agent.
+		/// An interrupted icon propagation is recovered from the agent-local journal before applying another update.
 		/// </remarks>
 		/// <param name="id">Resource ID (DOM instance GUID) of the category.</param>
 		/// <param name="patch">Request body with the properties to change.</param>
@@ -321,6 +326,13 @@
 				return NotFound(CreateError("Not found", $"Service category '{categoryId}' does not exist.", 404));
 			}
 
+			var pending = iconPropagationStore.Read(categoryId);
+			if (pending != null)
+			{
+				_logger.LogWarning("Recovering pending icon propagation for {CategoryId}", categoryId);
+				CompleteIconPropagation(categoryId, category, pending);
+			}
+
 			var request = patch.ToObject<ServiceCategoryRequest>();
 			if (Has(patch, "name"))
 			{
@@ -354,7 +366,10 @@
 				string icon = request.Icon?.Trim() ?? String.Empty;
 				if (!String.Equals(category.Icon ?? String.Empty, icon, StringComparison.Ordinal))
 				{
-					UpdateInheritedServiceIcons(categoryId, category.Icon, icon);
+					pending = new CategoryIconPropagation { PreviousIcon = category.Icon ?? String.Empty, Icon = icon };
+					iconPropagationStore.Save(categoryId, pending);
+					CompleteIconPropagation(categoryId, category, pending);
+					return Ok(ToResponse(ReadCategory(categoryId) ?? category));
 				}
 
 				category.Icon = icon;
@@ -362,6 +377,20 @@
 
 			serviceManagementApiHelper.ServiceCatalog.ServiceCategories.Update(category);
 			return Ok(ToResponse(ReadCategory(categoryId) ?? category));
+		}
+
+		private void CompleteIconPropagation(Guid categoryId, ServiceCategory category, CategoryIconPropagation pending)
+		{
+			if (!String.Equals(category.Icon ?? String.Empty, pending.PreviousIcon, StringComparison.Ordinal)
+				&& !String.Equals(category.Icon ?? String.Empty, pending.Icon, StringComparison.Ordinal))
+			{
+				throw new InvalidOperationException("The category icon conflicts with its pending propagation.");
+			}
+
+			UpdateInheritedServiceIcons(categoryId, pending.PreviousIcon, pending.Icon);
+			category.Icon = pending.Icon;
+			serviceManagementApiHelper.ServiceCatalog.ServiceCategories.Update(category);
+			iconPropagationStore.Complete(categoryId);
 		}
 
 		private void UpdateInheritedServiceIcons(Guid categoryId, string previousIcon, string icon)
@@ -376,7 +405,7 @@
 				.Where(service => String.Equals(service.Icon ?? String.Empty, previousIcon ?? String.Empty, StringComparison.Ordinal))
 				.ToList();
 
-			// Keep the old category icon until every service update succeeds so a partial failure can be retried.
+			// The journal retains both icons until every service and the category have been saved.
 			foreach (var service in inheritedServices)
 			{
 				service.Icon = icon;

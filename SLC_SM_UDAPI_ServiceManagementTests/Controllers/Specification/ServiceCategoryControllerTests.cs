@@ -2,6 +2,7 @@
 {
 	using System;
 	using System.Collections.Generic;
+	using System.IO;
 	using System.Threading;
 	using System.Threading.Tasks;
 	using Microsoft.Extensions.Logging;
@@ -11,18 +12,32 @@
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 	using Skyline.DataMiner.SDM;
 	using SLC_SM_UDAPI_ServiceManagement.Controllers;
+	using SLC_SM_UDAPI_ServiceManagement.Helpers;
 	using SLC_SM_UDAPI_ServiceManagement.Models.Inventory;
 
 	[TestClass]
 	public class ServiceCategoryControllerTests : ServiceCatalogTestBase
 	{
 		private ServiceCategoryController controller;
+		private string journalDirectory;
+		private CategoryIconPropagationStore journal;
 
 		[TestInitialize]
 		public void Initialize()
 		{
-			controller = new ServiceCategoryController(Mock.Of<ILogger<ServiceCategoryController>>(), Helper.Object);
+			journalDirectory = Path.Combine(Path.GetTempPath(), "SLC_SM_CategoryIconTests_" + Guid.NewGuid().ToString("N"));
+			journal = new CategoryIconPropagationStore(journalDirectory);
+			controller = new ServiceCategoryController(Mock.Of<ILogger<ServiceCategoryController>>(), Helper.Object, journal);
 			AttachContext(controller);
+		}
+
+		[TestCleanup]
+		public void Cleanup()
+		{
+			if (Directory.Exists(journalDirectory))
+			{
+				Directory.Delete(journalDirectory, true);
+			}
 		}
 
 		[TestMethod]
@@ -247,8 +262,11 @@
 			repository.Verify(r => r.Update(It.IsAny<Service>()), Times.Never);
 		}
 
-		[TestMethod]
-		public void Update_ServiceIconWriteFails_CanRetryAfterPartialUpdate()
+		[DataTestMethod]
+		[DataRow("new.svg")]
+		[DataRow("different.svg")]
+		[DataRow("old.svg")]
+		public void Update_ServiceIconWriteFails_RecoversBeforeAcceptingAnyTarget(string target)
 		{
 			var category = AddCategory("A", "Video", "old.svg");
 			var first = AddWithId(Services, new Service
@@ -283,14 +301,106 @@
 			Assert.AreEqual("old.svg", category.Icon);
 			Assert.AreEqual("new.svg", first.Icon);
 			Assert.AreEqual("old.svg", second.Icon);
+			Assert.AreEqual("new.svg", journal.Read(Guid.Parse(category.Identifier)).Icon);
 			StringAssert.Contains(ErrorDetail(result), "retry the category update");
 			Mock.Get(Helper.Object.ServiceCatalog.ServiceCategories).Verify(r => r.Update(It.IsAny<ServiceCategory>()), Times.Never);
 
+			// A new controller/journal instance models recovery by another API execution.
+			controller = new ServiceCategoryController(
+				Mock.Of<ILogger<ServiceCategoryController>>(),
+				Helper.Object,
+				new CategoryIconPropagationStore(journalDirectory));
+			AttachContext(controller);
+			Assert.AreEqual(500, StatusCode(controller.UpdateServiceCategory(category.Identifier, new JObject { ["icon"] = target })));
+			Assert.AreEqual("old.svg", category.Icon, "A different target must not be accepted while recovery is failing.");
+
 			failSecondWrite = false;
-			Assert.AreEqual(200, StatusCode(controller.UpdateServiceCategory(category.Identifier, new JObject { ["icon"] = "new.svg" })));
-			Assert.AreEqual("new.svg", category.Icon);
-			Assert.AreEqual("new.svg", second.Icon);
-			repository.Verify(r => r.Update(It.Is<Service>(service => service.Identifier == first.Identifier)), Times.Once);
+			Assert.AreEqual(200, StatusCode(controller.UpdateServiceCategory(category.Identifier, new JObject { ["icon"] = target })));
+			Assert.AreEqual(target, category.Icon);
+			Assert.AreEqual(target, first.Icon);
+			Assert.AreEqual(target, second.Icon);
+			Assert.IsNull(journal.Read(Guid.Parse(category.Identifier)));
+			repository.Verify(r => r.Update(It.Is<Service>(service => service.Identifier == first.Identifier)), Times.Exactly(target == "new.svg" ? 1 : 2));
+		}
+
+		[TestMethod]
+		public void Update_CategoryWriteFails_RecoversServicesBeforeChangingTarget()
+		{
+			var category = AddCategory("A", "Video", "old.svg");
+			var inherited = AddWithId(Services, new Service
+			{
+				CategoryId = new SdmObjectReference<ServiceCategory>(category.Identifier),
+				Icon = "old.svg",
+			});
+			var custom = AddWithId(Services, new Service
+			{
+				CategoryId = new SdmObjectReference<ServiceCategory>(category.Identifier),
+				Icon = "custom.svg",
+			});
+			var categories = Mock.Get(Helper.Object.ServiceCatalog.ServiceCategories);
+			categories.Setup(r => r.Read(It.IsAny<FilterElement<ServiceCategory>>()))
+				.Returns<FilterElement<ServiceCategory>>(filter => Categories.Where(filter.getLambda()).Select(value => new ServiceCategory
+				{
+					Identifier = value.Identifier, Name = value.Name, Type = value.Type, Icon = value.Icon,
+				}).ToList());
+			bool failCategoryWrite = true;
+			categories.Setup(r => r.Update(It.IsAny<ServiceCategory>())).Returns<ServiceCategory>(value =>
+			{
+				if (failCategoryWrite)
+				{
+					throw new InvalidOperationException("Category save failed");
+				}
+
+				category.Icon = value.Icon;
+				return value;
+			});
+
+			Assert.AreEqual(500, StatusCode(controller.UpdateServiceCategory(category.Identifier, new JObject { ["icon"] = "new.svg" })));
+			Assert.AreEqual("old.svg", category.Icon);
+			Assert.AreEqual("new.svg", inherited.Icon);
+			Assert.IsNotNull(journal.Read(Guid.Parse(category.Identifier)));
+			failCategoryWrite = false;
+			Assert.AreEqual(200, StatusCode(controller.UpdateServiceCategory(category.Identifier, new JObject { ["icon"] = "last.svg" })));
+			Assert.AreEqual("last.svg", category.Icon);
+			Assert.AreEqual("last.svg", inherited.Icon);
+			Assert.AreEqual("custom.svg", custom.Icon);
+			Assert.IsNull(journal.Read(Guid.Parse(category.Identifier)));
+		}
+
+		[TestMethod]
+		public void Update_JournalCannotBeWritten_DoesNotChangeAnyIcons()
+		{
+			var category = AddCategory("A", "Video", "old.svg");
+			// A file at the directory path makes durable intent creation fail.
+			File.WriteAllText(journalDirectory, "not a directory");
+			try
+			{
+				Assert.AreEqual(500, StatusCode(controller.UpdateServiceCategory(category.Identifier, new JObject { ["icon"] = "new.svg" })));
+				Assert.AreEqual("old.svg", category.Icon);
+				Mock.Get(Helper.Object.ServiceInventory.Services).Verify(r => r.Update(It.IsAny<Service>()), Times.Never);
+				Mock.Get(Helper.Object.ServiceCatalog.ServiceCategories).Verify(r => r.Update(It.IsAny<ServiceCategory>()), Times.Never);
+			}
+			finally
+			{
+				File.Delete(journalDirectory);
+			}
+		}
+
+		[TestMethod]
+		public void Update_CategoryAlreadySaved_RecoversJournalBeforeReverting()
+		{
+			var category = AddCategory("A", "Video", "new.svg");
+			var inherited = AddWithId(Services, new Service
+			{
+				CategoryId = new SdmObjectReference<ServiceCategory>(category.Identifier),
+				Icon = "new.svg",
+			});
+			journal.Save(Guid.Parse(category.Identifier), new CategoryIconPropagation { PreviousIcon = "old.svg", Icon = "new.svg" });
+
+			Assert.AreEqual(200, StatusCode(controller.UpdateServiceCategory(category.Identifier, new JObject { ["icon"] = "old.svg" })));
+			Assert.AreEqual("old.svg", category.Icon);
+			Assert.AreEqual("old.svg", inherited.Icon);
+			Assert.IsNull(journal.Read(Guid.Parse(category.Identifier)));
 		}
 
 		[TestMethod]
@@ -302,7 +412,7 @@
 				CategoryId = new SdmObjectReference<ServiceCategory>(category.Identifier),
 				Icon = "old.svg",
 			});
-			var otherController = new ServiceCategoryController(Mock.Of<ILogger<ServiceCategoryController>>(), Helper.Object);
+			var otherController = new ServiceCategoryController(Mock.Of<ILogger<ServiceCategoryController>>(), Helper.Object, journal);
 			AttachContext(otherController);
 			var categories = Mock.Get(Helper.Object.ServiceCatalog.ServiceCategories);
 			int categoryReads = 0;
