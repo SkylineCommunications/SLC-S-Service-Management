@@ -6,6 +6,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 	using DomHelpers.SlcRelationships;
 	using DomHelpers.SlcServicemanagement;
 	using DomHelpers.SlcWorkflow;
+	using Library.Dom;
 	using Skyline.DataMiner.Net.Apps.DataMinerObjectModel;
 	using Skyline.DataMiner.Net.Messages;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
