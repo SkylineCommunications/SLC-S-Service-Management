@@ -3,6 +3,7 @@
 	using System;
 	using System.Collections.Generic;
 	using System.Linq;
+	using System.Threading;
 
 	using Microsoft.Extensions.Logging;
 
@@ -13,6 +14,7 @@
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 	using Skyline.DataMiner.SDM;
 	using Skyline.DataMiner.Utils.UserDefinedApiToolkit;
+	using SLC_SM_UDAPI_ServiceManagement.Helpers;
 	using SLC_SM_UDAPI_ServiceManagement.Models;
 	using SLC_SM_UDAPI_ServiceManagement.Models.Inventory;
 
@@ -27,17 +29,20 @@
 
 		private readonly ILogger<ServiceCategoryController> _logger;
 		private readonly IServiceManagementApiHelper serviceManagementApiHelper;
+		private readonly CategoryIconPropagationStore iconPropagationStore;
 
 		/// <summary>
 		/// Initializes a new instance of the <see cref="ServiceCategoryController"/> class.
 		/// </summary>
 		/// <param name="logger">Logger used for request tracing and error diagnostics.</param>
 		/// <param name="serviceManagementApiHelper">Service Management API used to read and modify categories, services and service order items.</param>
+		/// <param name="iconPropagationStore">Optional recovery journal; defaults to shared application data on this agent.</param>
 		/// <exception cref="ArgumentNullException"><paramref name="logger"/> or <paramref name="serviceManagementApiHelper"/> is <see langword="null"/>.</exception>
-		public ServiceCategoryController(ILogger<ServiceCategoryController> logger, IServiceManagementApiHelper serviceManagementApiHelper)
+		public ServiceCategoryController(ILogger<ServiceCategoryController> logger, IServiceManagementApiHelper serviceManagementApiHelper, CategoryIconPropagationStore iconPropagationStore = null)
 		{
 			_logger = logger ?? throw new ArgumentNullException(nameof(logger));
 			this.serviceManagementApiHelper = serviceManagementApiHelper ?? throw new ArgumentNullException(nameof(serviceManagementApiHelper));
+			this.iconPropagationStore = iconPropagationStore ?? new CategoryIconPropagationStore();
 		}
 
 		/// <summary>
@@ -244,6 +249,10 @@
 		/// <remarks>
 		/// <c>PATCH service-management/v1/serviceCategory/{id}</c> with <c>application/json</c>. Only the properties present in the
 		/// body (<c>name</c>, <c>type</c>, <c>icon</c>) are changed; values are stored trimmed. The name must stay unique (case-insensitive).
+		/// Changing the icon also updates services in this category whose icon matches the previous category icon.
+		/// Custom service icons are preserved.
+		/// Updates to the same category are serialized across Automation executions on this agent.
+		/// An interrupted icon propagation is recovered from the agent-local journal before applying another update.
 		/// </remarks>
 		/// <param name="id">Resource ID (DOM instance GUID) of the category.</param>
 		/// <param name="patch">Request body with the properties to change.</param>
@@ -251,7 +260,7 @@
 		/// <c>200</c> with the updated <c>{ id, name, type, icon }</c>;
 		/// <c>400</c> when <paramref name="id"/> is not a valid UUID, the body is missing, or <c>name</c>/<c>type</c> is empty;
 		/// <c>404</c> when the category does not exist;
-		/// <c>409</c> when another category already uses the name;
+		/// <c>409</c> when another category already uses the name or a concurrent category update does not finish within 30 seconds;
 		/// <c>500</c> on an unexpected error.
 		/// </returns>
 		[HttpPatch("{id}")]
@@ -272,52 +281,135 @@
 					return BadRequest(CreateError("Invalid request", "A request body is required.", 400));
 				}
 
-				var category = ReadCategory(categoryId);
-				if (category == null)
+				// A named mutex also coordinates separate Automation executions/AppDomains on this agent.
+				using (var mutex = new Mutex(false, $@"Global\SLC_SM_ServiceCategory_{categoryId:N}"))
 				{
-					return NotFound(CreateError("Not found", $"Service category '{categoryId}' does not exist.", 404));
-				}
-
-				var request = patch.ToObject<ServiceCategoryRequest>();
-				if (Has(patch, "name"))
-				{
-					string name = request.Name?.Trim();
-					if (String.IsNullOrEmpty(name))
+					bool acquired;
+					try
 					{
-						return BadRequest(CreateError("Invalid request", "'name' cannot be empty.", 400));
+						acquired = mutex.WaitOne(TimeSpan.FromSeconds(30));
+					}
+					catch (AbandonedMutexException ex)
+					{
+						_logger.LogWarning(ex, "Previous category update was interrupted for {CategoryId}", categoryId);
+						acquired = true;
 					}
 
-					if (ReadAll().Any(c => !IsSameId(c.Identifier, categoryId) && String.Equals(c.Name?.Trim(), name, StringComparison.OrdinalIgnoreCase)))
+					if (!acquired)
 					{
-						return Conflict(CreateError("Conflict", $"A service category with name '{name}' already exists.", 409));
+						_logger.LogWarning("Category update lock timed out for {CategoryId}", categoryId);
+						return Conflict(CreateError("Conflict", "The service category is being updated. Retry the category update.", 409));
 					}
 
-					category.Name = name;
-				}
-
-				if (Has(patch, "type"))
-				{
-					string type = request.Type?.Trim();
-					if (String.IsNullOrEmpty(type))
+					try
 					{
-						return BadRequest(CreateError("Invalid request", "'type' cannot be empty.", 400));
+						return UpdateCategory(categoryId, patch);
 					}
-
-					category.Type = type;
+					finally
+					{
+						mutex.ReleaseMutex();
+					}
 				}
-
-				if (Has(patch, "icon"))
-				{
-					category.Icon = request.Icon?.Trim() ?? String.Empty;
-				}
-
-				serviceManagementApiHelper.ServiceCatalog.ServiceCategories.Update(category);
-				return Ok(ToResponse(ReadCategory(categoryId) ?? category));
 			}
 			catch (Exception ex)
 			{
 				_logger.LogError(ex, "UpdateServiceCategory failed: {Message}", ex.Message);
-				return InternalServerError(CreateError("Internal server error", "An unexpected error occurred while updating the service category.", 500));
+				return InternalServerError(CreateError("Internal server error", "An unexpected error occurred while updating the service category. Some service logos may already have been updated; retry the category update to complete it.", 500));
+			}
+		}
+
+		private IApiResult UpdateCategory(Guid categoryId, JObject patch)
+		{
+			var category = ReadCategory(categoryId);
+			if (category == null)
+			{
+				return NotFound(CreateError("Not found", $"Service category '{categoryId}' does not exist.", 404));
+			}
+
+			var pending = iconPropagationStore.Read(categoryId);
+			if (pending != null)
+			{
+				_logger.LogWarning("Recovering pending icon propagation for {CategoryId}", categoryId);
+				CompleteIconPropagation(categoryId, category, pending);
+			}
+
+			var request = patch.ToObject<ServiceCategoryRequest>();
+			if (Has(patch, "name"))
+			{
+				string name = request.Name?.Trim();
+				if (String.IsNullOrEmpty(name))
+				{
+					return BadRequest(CreateError("Invalid request", "'name' cannot be empty.", 400));
+				}
+
+				if (ReadAll().Any(c => !IsSameId(c.Identifier, categoryId) && String.Equals(c.Name?.Trim(), name, StringComparison.OrdinalIgnoreCase)))
+				{
+					return Conflict(CreateError("Conflict", $"A service category with name '{name}' already exists.", 409));
+				}
+
+				category.Name = name;
+			}
+
+			if (Has(patch, "type"))
+			{
+				string type = request.Type?.Trim();
+				if (String.IsNullOrEmpty(type))
+				{
+					return BadRequest(CreateError("Invalid request", "'type' cannot be empty.", 400));
+				}
+
+				category.Type = type;
+			}
+
+			if (Has(patch, "icon"))
+			{
+				string icon = request.Icon?.Trim() ?? String.Empty;
+				if (!String.Equals(category.Icon ?? String.Empty, icon, StringComparison.Ordinal))
+				{
+					pending = new CategoryIconPropagation { PreviousIcon = category.Icon ?? String.Empty, Icon = icon };
+					iconPropagationStore.Save(categoryId, pending);
+					CompleteIconPropagation(categoryId, category, pending);
+					return Ok(ToResponse(ReadCategory(categoryId) ?? category));
+				}
+
+				category.Icon = icon;
+			}
+
+			serviceManagementApiHelper.ServiceCatalog.ServiceCategories.Update(category);
+			return Ok(ToResponse(ReadCategory(categoryId) ?? category));
+		}
+
+		private void CompleteIconPropagation(Guid categoryId, ServiceCategory category, CategoryIconPropagation pending)
+		{
+			if (!String.Equals(category.Icon ?? String.Empty, pending.PreviousIcon, StringComparison.Ordinal)
+				&& !String.Equals(category.Icon ?? String.Empty, pending.Icon, StringComparison.Ordinal))
+			{
+				throw new InvalidOperationException("The category icon conflicts with its pending propagation.");
+			}
+
+			UpdateInheritedServiceIcons(categoryId, pending.PreviousIcon, pending.Icon);
+			category.Icon = pending.Icon;
+			serviceManagementApiHelper.ServiceCatalog.ServiceCategories.Update(category);
+			iconPropagationStore.Complete(categoryId);
+		}
+
+		private void UpdateInheritedServiceIcons(Guid categoryId, string previousIcon, string icon)
+		{
+			var services = serviceManagementApiHelper.ServiceInventory.Services;
+			var filter = new ManagedFilter<Service, SdmObjectReference<ServiceCategory>>(
+				ServiceExposers.CategoryId,
+				Comparer.Equals,
+				new SdmObjectReference<ServiceCategory>(categoryId.ToString()),
+				service => IsSameId(service.CategoryId.Identifier, categoryId));
+			var inheritedServices = (services.Read(filter) ?? Enumerable.Empty<Service>())
+				.Where(service => String.Equals(service.Icon ?? String.Empty, previousIcon ?? String.Empty, StringComparison.Ordinal))
+				.ToList();
+
+			// The journal retains both icons until every service and the category have been saved.
+			foreach (var service in inheritedServices)
+			{
+				service.Icon = icon;
+				services.Update(service);
 			}
 		}
 
