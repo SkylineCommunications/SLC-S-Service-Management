@@ -1,0 +1,7 @@
+{
+  "AssistantOptions": {
+    "ShowUserInterface": true,
+    "CustomAgents":  { "Enabled": true },
+    "Insights":      { "CanRunAutomationScripts": true }
+  }
+}
