@@ -760,6 +760,29 @@ function handleUdapiRequest(request) {
         }
     }
     if (resource === 'service') {
+        if (id === 'itemOptions' && request.RequestMethod === 1) {
+            return {
+                status: 200,
+                response: {
+                    workflowAvailable: true,
+                    srmAvailable: true,
+                    workflows: ['Default', 'Playout'],
+                    bookingManagers: [
+                        {
+                            name: 'Encoding Booking Manager',
+                            script: 'SRM_Booking Wizard',
+                            bookings: [{ id: 'reservation-1', name: 'Encoder Booking #1' }],
+                        },
+                        {
+                            name: 'Switching Booking Manager',
+                            script: 'SRM_Booking Wizard',
+                            bookings: [],
+                        },
+                    ],
+                    bookingScripts: ['SRM_Booking Wizard'],
+                },
+            };
+        }
         if (id === 'overview' && request.RequestMethod === 1) {
             const rows = SERVICES.map(toUdapiService);
             const active = new Set(['active', 'reserved', 'designed']);

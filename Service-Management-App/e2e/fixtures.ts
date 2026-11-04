@@ -94,10 +94,11 @@ export interface IasMock {
     launchError: string | null;
     subscriptError: string | null;
 }
-export interface GqiMock { mode: GqiMode; itemsFail: boolean; calls: { method: string; body: Record<string, any> }[]; ias: IasMock }
+export interface GqiMock { mode: GqiMode; itemsFail: boolean; calls: { method: string; body: Record<string, any> }[]; ias: IasMock; services?: Record<string, string>[] }
 
 export const IAS_SCRIPT_ID = 42;
 export const SUBSCRIPT_ID = 43;
+export const CONTEXT_ACTION_SCRIPT_ID = 44;
 export const SUBSCRIPT_DEST_VARS = { bookingName: 'dv-booking-name', start: 'dv-booking-start', details: 'dv-error-details', toggle: 'dv-error-toggle', cancel: 'dv-booking-cancel', create: 'dv-booking-create', close: 'dv-error-close' } as const;
 // Rows returned by the mocked "Get Service Items" data source for SAMPLE_SERVICE.
 const SAMPLE_SERVICE_ITEMS = [
@@ -210,10 +211,11 @@ async function mockIasWebSocket(page: Page, mock: GqiMock, orders: Record<string
                 launchId = message.ClientSubscriptionID;
                 activeScriptId = parameters.scriptID;
                 subscriptExpanded = false;
-                if (parameters.connection !== CONNECTION_GUID || ![IAS_SCRIPT_ID, SUBSCRIPT_ID].includes(parameters.scriptID)) return event('WebSocketError', { Message: `Unexpected LaunchAutomationScript parameters ${JSON.stringify(parameters)}` });
+                if (parameters.connection !== CONNECTION_GUID || ![IAS_SCRIPT_ID, SUBSCRIPT_ID, CONTEXT_ACTION_SCRIPT_ID].includes(parameters.scriptID)) return event('WebSocketError', { Message: `Unexpected LaunchAutomationScript parameters ${JSON.stringify(parameters)}` });
                 if (mock.ias.launchError) return event('WebSocketError', { Message: mock.ias.launchError });
                 event('DMAAutomationScriptBasicUpdate', { Type: 'Started', Data: '' });
                 if (activeScriptId === SUBSCRIPT_ID) return renderSubscript();
+                if (activeScriptId === CONTEXT_ACTION_SCRIPT_ID) return event('DMAAutomationScriptBasicUpdate', { Type: 'Completed', Data: 'SUCCEEDED' });
                 state = { name: '', nameError: '', description: '', externalId: '', priority: 'High', organization: '-None-', contacts: '', expanded: false, completion: false, start: IAS_DEFAULT_DATE, end: IAS_DEFAULT_DATE };
                 return render(true);
             }
@@ -252,6 +254,19 @@ async function mockIasWebSocket(page: Page, mock: GqiMock, orders: Record<string
 }
 
 async function json(route: Route, status: number, body: unknown): Promise<void> { await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) }); }
+// Mirrors the UDAPI cursor filters: 'status' (CSV of camelCase status names), 'search'/'name' (case-insensitive contains)
+// and 'sort' ('key' or '-key'); without a sort the default key is used in descending order.
+function cursorQuery<T>(rows: T[], request: any, options: { status?: (row: T) => string; searchText: (row: T) => unknown[]; sortKeys: Record<string, (row: T) => string>; defaultSortKey: (row: T) => string }) {
+    const query = request.QueryParameters ?? {};
+    const statuses = new Set(String(query.status?.[0] ?? '').split(',').map(status => status.trim().toLowerCase()).filter(Boolean));
+    const search = String(query.search?.[0] ?? query.name?.[0] ?? '').trim().toLowerCase();
+    const filtered = rows.filter(row => (statuses.size === 0 || statuses.has(String(options.status?.(row) ?? '').toLowerCase()))
+        && (!search || options.searchText(row).some(text => String(text ?? '').toLowerCase().includes(search))));
+    const sort = String(query.sort?.[0] ?? '');
+    const sortKey = options.sortKeys[sort.replace(/^[-+]/, '')];
+    return { rows: filtered, getSortKey: sortKey ?? options.defaultSortKey, descending: !sortKey || sort.startsWith('-') };
+}
+
 function cursorPage<T>(rows: T[], request: any, getSortKey: (row: T) => string, getIdentifier: (row: T) => string = getSortKey, getSecondarySortKey: (row: T) => string = () => '', descending = false, secondaryDescending = descending, metrics: any = null): { items: T[]; totalCount: number; pageInfo: any; metrics?: any } {
     const query = request.QueryParameters ?? {};
     const limit = Math.min(500, Math.max(1, Number(query.limit?.[0] ?? 100)));
@@ -374,6 +389,7 @@ export async function mockDataMinerApi(page: Page, mode: GqiMode = 'ok'): Promis
     const orderItemConfigurationOverrides = new Map<string, Record<string, unknown>[]>();
     const categories = SAMPLE_CATEGORIES.map(category => ({ ...category }));
     const services: Record<string, string>[] = [{ ...SAMPLE_SERVICE }];
+    mock.services = services;
     const monitoringServices = [{ Id: 'monitoring-1', Name: 'Monitoring service 1' }];
     let sessionCount = 0;
     await serveAppAtBasePath(page);
@@ -383,7 +399,11 @@ export async function mockDataMinerApi(page: Page, mode: GqiMode = 'ok'): Promis
         const body = route.request().postDataJSON() ?? {};
         mock.calls.push({ method: 'ExecuteAutomationScript', body });
         if (body.connection !== CONNECTION_GUID) return json(route, 500, { Message: 'Unexpected connection', ExceptionType: 'System.ArgumentException' });
-        const scriptIds: Record<string, number> = { 'SLC_SM_IAS_Add Service Order': IAS_SCRIPT_ID, 'Launch Interactive Subscript': SUBSCRIPT_ID };
+        const scriptIds: Record<string, number> = {
+            'SLC_SM_IAS_Add Service Order': IAS_SCRIPT_ID,
+            'Launch Interactive Subscript': SUBSCRIPT_ID,
+            'SLC_SM_AS_Service Item ContextMenu Actions': CONTEXT_ACTION_SCRIPT_ID,
+        };
         if (!scriptIds[body.script?.Name]) return json(route, 500, { Message: `Unexpected Automation script ${body.script?.Name}`, ExceptionType: 'System.ArgumentException' });
         if (mock.ias.executeError) return json(route, 500, { Message: mock.ias.executeError, ExceptionType: 'Skyline.DataMiner.Web.Common.WebApiException' });
         return json(route, 200, { d: scriptIds[body.script.Name] });
@@ -438,13 +458,19 @@ export async function mockDataMinerApi(page: Page, mode: GqiMode = 'ok'): Promis
                 }
                 if (!id && request.RequestMethod === 1) {
                     const orderRows = mock.mode === 'empty' ? [] : orders.map(toUdapiOrder);
-                    return respond(200, request.QueryParameters?.pagination?.[0] === 'cursor'
-                        ? cursorPage(orderRows, request, row => row.OrderId || '', row => row.Identifier, () => '', true, true, {
-                            openCount: orderRows.filter(order => !new Set(['completed', 'cancelled', 'rejected', 'failed']).has(order.StatusName)).length,
-                            attentionCount: orderRows.filter(order => new Set(['held', 'assessCancellation', 'pendingCancellation', 'partiallyFailed', 'failed', 'rejected']).has(order.StatusName)).length,
-                            completedCount: orderRows.filter(order => order.StatusName === 'completed').length,
-                        })
-                        : orderRows);
+                    if (request.QueryParameters?.pagination?.[0] !== 'cursor') return respond(200, orderRows);
+                    const selection = cursorQuery(orderRows, request, {
+                        status: row => row.StatusName,
+                        searchText: row => [row.Name, row.OrderId, row.ExternalID, row.Description, row.StatusName, ['High', 'Medium', 'Low'][row.Priority], row.OrganizationName],
+                        sortKeys: { orderId: row => row.OrderId || '', name: row => row.Name || '' },
+                        defaultSortKey: row => row.OrderId || '',
+                    });
+                    return respond(200, cursorPage(selection.rows, request, selection.getSortKey, row => row.Identifier, () => '', selection.descending, selection.descending, {
+                        totalCount: orderRows.length,
+                        openCount: orderRows.filter(order => !new Set(['completed', 'cancelled', 'rejected', 'failed']).has(order.StatusName)).length,
+                        attentionCount: orderRows.filter(order => new Set(['held', 'assessCancellation', 'pendingCancellation', 'partiallyFailed', 'failed', 'rejected']).has(order.StatusName)).length,
+                        completedCount: orderRows.filter(order => order.StatusName === 'completed').length,
+                    }));
                 }
                 const order = orders.find(row => row.OrderId === id);
                 if (!order) return notFound();
@@ -519,6 +545,26 @@ export async function mockDataMinerApi(page: Page, mode: GqiMode = 'ok'): Promis
                 }
             }
             if (resource === 'service') {
+                if (id === 'itemOptions' && request.RequestMethod === 1) {
+                    return respond(200, {
+                        workflowAvailable: true,
+                        srmAvailable: true,
+                        workflows: ['Default', 'Playout'],
+                        bookingManagers: [
+                            {
+                                name: 'Encoding Booking Manager',
+                                script: 'SRM_Booking Wizard',
+                                bookings: [{ id: 'reservation-1', name: 'Encoder Booking #1' }],
+                            },
+                            {
+                                name: 'Switching Booking Manager',
+                                script: 'SRM_Booking Wizard',
+                                bookings: [],
+                            },
+                        ],
+                        bookingScripts: ['SRM_Booking Wizard'],
+                    });
+                }
                 if (id === 'overview' && request.RequestMethod === 1) {
                     const serviceRows = services.map(service => toUdapiService(service));
                     const active = new Set(['active', 'reserved', 'designed']);
@@ -530,13 +576,21 @@ export async function mockDataMinerApi(page: Page, mode: GqiMode = 'ok'): Promis
                     });
                 }
                 if (!id && request.RequestMethod === 1) {
-                    const serviceRows = services.map(service => selectUdapiFields(toUdapiService(service), request));
-                    return respond(200, request.QueryParameters?.pagination?.[0] === 'cursor'
-                        ? cursorPage(serviceRows, request, row => row.ServiceID, row => row.Identifier, () => '', true, true, {
-                            activeCount: serviceRows.filter(service => new Set(['active', 'reserved', 'designed']).has(service.StatusName)).length,
-                            retiredCount: serviceRows.filter(service => service.StatusName === 'retired').length,
-                        })
-                        : serviceRows);
+                    const fullRows = services.map(service => toUdapiService(service));
+                    if (request.QueryParameters?.pagination?.[0] !== 'cursor') return respond(200, fullRows.map(row => selectUdapiFields(row, request)));
+                    const selection = cursorQuery(fullRows, request, {
+                        status: row => row.StatusName,
+                        searchText: row => [row.Name, row.ServiceID, row.StatusName, row.CategoryName, row.CategoryType, row.ServiceSpecificationName],
+                        sortKeys: { serviceId: row => row.ServiceID || '', name: row => row.Name || '' },
+                        defaultSortKey: row => row.ServiceID || '',
+                    });
+                    // PascalCase mirrors the serialization of previously deployed UDAPI versions; the app normalizes keys.
+                    const page = cursorPage(selection.rows, request, selection.getSortKey, row => row.Identifier, () => '', selection.descending, selection.descending, {
+                        TotalCount: fullRows.length,
+                        ActiveCount: fullRows.filter(service => new Set(['active', 'reserved', 'designed']).has(service.StatusName)).length,
+                        RetiredCount: fullRows.filter(service => service.StatusName === 'retired').length,
+                    });
+                    return respond(200, { ...page, items: page.items.map(row => selectUdapiFields(row, request)) });
                 }
                 if (!id && request.RequestMethod === 3) {
                     if (services.some(row => row['Service ID'] === requestBody.serviceId)) return respond(409, { error: [{ errorCode: 'Conflict', detail: `Service ID '${requestBody.serviceId}' is already in use.`, faultingNode: '', title: 'Conflict' }] });
@@ -544,7 +598,8 @@ export async function mockDataMinerApi(page: Page, mode: GqiMode = 'ok'): Promis
                     services.push(created);
                     return respond(201, toUdapiService(created));
                 }
-                const service = services.find(row => row['Service ID'] === id);
+                // Mirrors the UDAPI: GET accepts the SERVICE-123 ID or the DOM GUID; other routes only the SERVICE-123 ID.
+                const service = services.find(row => row['Service ID'] === id || (!subResource && request.RequestMethod === 1 && row['DOM ID'] === id));
                 if (!service) return notFound();
                 if (!subResource && request.RequestMethod === 1) return respond(200, selectUdapiFields(toUdapiService(service), request));
                 if (!subResource && request.RequestMethod === 4) {
@@ -606,6 +661,16 @@ export async function mockDataMinerApi(page: Page, mode: GqiMode = 'ok'): Promis
                         scripts.splice(index, 1);
                         return respond(204);
                     }
+                }
+                if (subResource === 'configurationVersion' && subAction === 'duplicate' && request.RequestMethod === 3) {
+                    const rows = serviceConfigurationOverrides.get(service['DOM ID']) ?? SAMPLE_SPECIFICATION_CONFIGURATIONS.map(row => ({ ...row }));
+                    const sourceRows = rows.filter(row => row['Version ID'] === subId);
+                    if (sourceRows.length === 0) return notFound();
+                    const versionIds = new Set(rows.map(row => row['Version ID']));
+                    const copyId = `${subId}-copy-${versionIds.size}`;
+                    const copyName = `${sourceRows[0]['Version Name']} (Copy)`;
+                    serviceConfigurationOverrides.set(service['DOM ID'], [...rows, ...sourceRows.map(row => ({ ...row, 'Version ID': copyId, 'Version Name': copyName, 'Is Active': 'false' }))]);
+                    return respond(201, { Identifier: copyId, VersionName: copyName });
                 }
                 if (subResource === 'duplicate' && request.RequestMethod === 3) {
                     const nextServiceNumber = Math.max(0, ...services.map(row => Number(row['Service ID'].match(/^SERVICE-(\d+)$/)?.[1] ?? 0))) + 1;
@@ -675,9 +740,12 @@ export async function mockDataMinerApi(page: Page, mode: GqiMode = 'ok'): Promis
             }
             if (resource === 'serviceSpecification' && request.RequestMethod === 1 && !id) {
                 const specificationRows = [SAMPLE_SPECIFICATION, ...Array.from({ length: 11 }, (_, index) => ({ ...SAMPLE_SPECIFICATION, 'Specification ID': `spec-${index + 2}`, Name: `A Specification ${index + 2}` }))].map(row => ({ Identifier: row['Specification ID'], Name: row.Name, Description: row.Description, CreatedAt: '2026-09-01T14:40:53Z', CreatedBy: row['Created By'], LastModified: '2026-09-02T22:13:44Z', LastModifiedBy: row['Created By'], ServiceItems: Array.from({ length: Number(row['Service Item Count']) }, (_, index) => ({ ID: index, Label: `Item ${index + 1}` })) }));
-                return respond(200, request.QueryParameters?.pagination?.[0] === 'cursor' ? cursorPage(specificationRows, request, row => row.Name, row => row.Identifier, () => '', true, true, {
+                if (request.QueryParameters?.pagination?.[0] !== 'cursor') return respond(200, specificationRows);
+                const selection = cursorQuery(specificationRows, request, { searchText: row => [row.Name], sortKeys: { name: row => row.Name }, defaultSortKey: row => row.Name });
+                return respond(200, cursorPage(selection.rows, request, selection.getSortKey, row => row.Identifier, () => '', selection.descending, selection.descending, {
+                    totalCount: specificationRows.length,
                     totalItemCount: specificationRows.reduce((total, row) => total + row.ServiceItems.length, 0),
-                }) : specificationRows);
+                }));
             }
             if (resource === 'serviceSpecification' && request.RequestMethod === 1 && id && !subResource) {
                 // The DOM definition always stores an empty placeholder item next to the real ones; Type is the SDM enum number.

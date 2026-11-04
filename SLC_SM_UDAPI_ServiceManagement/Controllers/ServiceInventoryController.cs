@@ -23,6 +23,7 @@
 	using SLC_SM_UDAPI_ServiceManagement.Models.Inventory.FullService;
 	using Cfg = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.Configurations;
 	using IEngine = Skyline.DataMiner.Automation.IEngine;
+	using ServiceStatus = DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Service_Behavior.StatusesEnum;
 
 	[ApiController]
 	[Route("service-management/v1/service")]
@@ -350,6 +351,14 @@
 				var services = serviceManagementApiHelper.ServiceInventory.Services;
 				if ((service.ServiceItems?.Count ?? 0) > 0 || (service.ServiceItemsRelationships?.Count ?? 0) > 0)
 				{
+					foreach (var item in service.ServiceItems ?? new List<ServiceItem>())
+					{
+						if (item != null)
+						{
+							itemImplementations.Unlink(item);
+						}
+					}
+
 					service.ServiceItems = new List<ServiceItem>();
 					service.ServiceItemsRelationships = new List<ServiceItemRelationship>();
 					services.Update(service);
@@ -428,13 +437,28 @@
 		{
 			_logger.LogInformation("GetService called with id={Id}, fields={Fields}, full={Full}", id, fields, full);
 
-			if (String.IsNullOrWhiteSpace(id) || !ServiceIdPattern.IsMatch(id))
+			if (String.IsNullOrWhiteSpace(id))
+			{
+				return NotFound();
+			}
+
+			string key = id.Trim();
+			FilterElement<Service> filter;
+			if (ServiceIdPattern.IsMatch(key))
+			{
+				filter = ServiceExposers.ServiceID.Equal(key);
+			}
+			else if (Guid.TryParse(key, out Guid domId) && domId != Guid.Empty)
+			{
+				filter = ServiceExposers.Identifier.Equal(domId.ToString());
+			}
+			else
 			{
 				return NotFound();
 			}
 
 			var service = serviceManagementApiHelper.ServiceInventory.Services
-				.Read(ServiceExposers.ServiceID.Equal(id))
+				.Read(filter)
 				.FirstOrDefault();
 
 			if (service == null)
@@ -555,16 +579,22 @@
 			[FromQuery] string after = null,
 			[FromQuery] string before = null,
 			[FromQuery] bool includeTotalCount = true,
-			[FromQuery] bool includeMetrics = false)
+			[FromQuery] bool includeMetrics = false,
+			[FromQuery] string search = null)
 		{
-			_logger.LogInformation("ListServices called with parameters:\ncategoryId={CategoryId}\nendDate={EndDate}\nfields={Fields}\nlimit={Limit}\nname={Name}\noffset={Offset}\norganizationId={OrganizationId}\nparameter={Parameter}\nprofileDefinition={ProfileDefinition}\nserviceSpecificationId={ServiceSpecificationId}\nsort={Sort}\nstartDate={StartDate}\nstatus={Status}",
-				categoryId, endDate, fields, limit, name, offset, organizationId, JsonConvert.SerializeObject(parameter), profileDefinition, serviceSpecificationId, sort, startDate, JsonConvert.SerializeObject(status));
+			_logger.LogInformation("ListServices called with parameters:\ncategoryId={CategoryId}\nendDate={EndDate}\nfields={Fields}\nlimit={Limit}\nname={Name}\noffset={Offset}\norganizationId={OrganizationId}\nparameter={Parameter}\nprofileDefinition={ProfileDefinition}\nserviceSpecificationId={ServiceSpecificationId}\nsort={Sort}\nstartDate={StartDate}\nstatus={Status}\nsearch={Search}",
+				categoryId, endDate, fields, limit, name, offset, organizationId, JsonConvert.SerializeObject(parameter), profileDefinition, serviceSpecificationId, sort, startDate, JsonConvert.SerializeObject(status), search);
 
 			try
 			{
 				if (String.Equals(pagination, "cursor", StringComparison.OrdinalIgnoreCase))
 				{
-					return ListServicesCursor(limit, fields, after, before, offset, name, status, categoryId, serviceSpecificationId, organizationId, parameter, profileDefinition, sort, startDate, endDate, includeTotalCount, includeMetrics);
+					return ListServicesCursor(limit, fields, after, before, offset, name, status, search, categoryId, serviceSpecificationId, organizationId, parameter, profileDefinition, sort, startDate, endDate, includeTotalCount, includeMetrics);
+				}
+
+				if (!String.IsNullOrWhiteSpace(search))
+				{
+					return BadRequest(CreateError("Invalid request", "'search' is only supported with 'pagination=cursor'.", 400));
 				}
 
 				var query = new ListServicesQuery
@@ -583,9 +613,9 @@
 					Statuses = SplitCommaSeparatedValues(status),
 				};
 
-				var search = new ServiceParameterSearch(new TimedServiceSearchDataSource(new ServiceSearchDataSource(serviceManagementApiHelper), _logger));
+				var parameterSearch = new ServiceParameterSearch(new TimedServiceSearchDataSource(new ServiceSearchDataSource(serviceManagementApiHelper), _logger));
 				var requestedFields = ParseRequestedFields(fields);
-				var matchedServices = search.Find(query);
+				var matchedServices = parameterSearch.Find(query);
 				var services = ToServiceResponses(matchedServices, requestedFields);
 
 				if (requestedFields.Count == 0)
@@ -615,6 +645,7 @@
 			int offset,
 			string name,
 			string status,
+			string search,
 			string categoryId,
 			string serviceSpecificationId,
 			string organizationId,
@@ -626,13 +657,13 @@
 			bool includeTotalCount,
 			bool includeMetrics)
 		{
-			if (offset != 0 || !String.IsNullOrWhiteSpace(name) || !String.IsNullOrWhiteSpace(status)
+			if (offset != 0 || !String.IsNullOrWhiteSpace(name)
 				|| !String.IsNullOrWhiteSpace(categoryId) || !String.IsNullOrWhiteSpace(serviceSpecificationId)
 				|| !String.IsNullOrWhiteSpace(organizationId) || (parameter != null && parameter.Any())
-				|| !String.IsNullOrWhiteSpace(profileDefinition) || !String.IsNullOrWhiteSpace(sort)
+				|| !String.IsNullOrWhiteSpace(profileDefinition)
 				|| startDate.HasValue || endDate.HasValue)
 			{
-				return BadRequest(CreateError("Invalid query", "Cursor pagination currently supports an unfiltered, ServiceID-ordered list only.", 400));
+				return BadRequest(CreateError("Invalid query", "Cursor pagination supports the 'status', 'search' and 'sort' filters only.", 400));
 			}
 
 			if (limit < 1 || limit > 500)
@@ -645,25 +676,32 @@
 				return BadRequest(CreateError("Invalid query", "Only one of 'after' or 'before' can be supplied.", 400));
 			}
 
+			var order = CursorListFilter.ParseSort(sort, "serviceId", "name");
+			var filter = CursorListFilter.All(
+				CursorListFilter.Any(CursorListFilter.ParseStatuses<ServiceStatus>(status).Select(s => ServiceExposers.Status.Equal(s))),
+				CreateServiceSearchFilter(search));
+			bool byName = order.Key == "name";
+			bool descending = order.Key == null || order.Descending;
+
 			CursorPage<Service> page;
 			try
 			{
 				page = ((IReadableRepository<Service>)serviceManagementApiHelper.ServiceInventory.Services).ReadCursorPage(
-					ServiceExposers.ServiceID,
-					service => service.ServiceID ?? String.Empty,
+					byName ? ServiceExposers.Name : ServiceExposers.ServiceID,
+					byName ? (Func<Service, string>)(service => service.Name ?? String.Empty) : service => service.ServiceID ?? String.Empty,
 					CursorKeySerialization.SerializeString,
 					CursorKeySerialization.DeserializeString,
 					ServiceExposers.Identifier,
 					service => service.Identifier,
 					CursorKeySerialization.SerializeString,
 					CursorKeySerialization.DeserializeString,
-					filter: null,
+					filter: filter,
 					limit: limit,
 					cursor: String.IsNullOrWhiteSpace(before) ? after : before,
 					direction: String.IsNullOrWhiteSpace(before) ? CursorDirection.After : CursorDirection.Before,
-					descending: true,
-					secondaryDescending: true,
-					includeTotalCount: includeTotalCount && !includeMetrics);
+					descending: descending,
+					secondaryDescending: descending,
+					includeTotalCount: includeTotalCount && (filter != null || !includeMetrics));
 			}
 			catch (ArgumentException)
 			{
@@ -676,8 +714,9 @@
 			return Ok(new CursorPageResponse<JObject>
 			{
 				Items = items,
-				TotalCount = metrics?.TotalCount ?? page.TotalCount,
-				Metrics = metrics == null ? null : JObject.FromObject(metrics),
+				// The metrics always describe all services; the total count describes the filtered list.
+				TotalCount = filter != null ? page.TotalCount : metrics?.TotalCount ?? page.TotalCount,
+				Metrics = CursorMetricsSerialization.ToJObject(metrics),
 				PageInfo = new CursorPageInfo
 				{
 					NextAfterCursor = page.NextAfterCursor,
@@ -686,6 +725,44 @@
 					HasPreviousPage = page.HasPreviousPage,
 				},
 			});
+		}
+
+		/// <summary>
+		/// Creates the storage filter for a free-text service search: name, service ID, status, category (name or type) and specification name.
+		/// </summary>
+		/// <param name="search">The search text, or <see langword="null"/>.</param>
+		/// <returns>The filter, or <see langword="null"/> when there is no search text.</returns>
+		private FilterElement<Service> CreateServiceSearchFilter(string search)
+		{
+			var variants = CursorListFilter.SearchVariants(search);
+			if (variants.Count == 0)
+			{
+				return null;
+			}
+
+			var filters = new List<FilterElement<Service>>();
+			filters.AddRange(variants.Select(v => ServiceExposers.Name.Contains(v)));
+			filters.AddRange(variants.Select(v => ServiceExposers.ServiceID.Contains(v)));
+			filters.AddRange(CursorListFilter.StatusesMatching<ServiceStatus>(search).Select(s => ServiceExposers.Status.Equal(s)));
+
+			var categoryIds = CursorListFilter.MatchingIds(
+				f => serviceManagementApiHelper.ServiceCatalog.ServiceCategories.Read(f),
+				CursorListFilter.Any(variants.SelectMany(v => new[] { ServiceCategoryExposers.Name.Contains(v), ServiceCategoryExposers.Type.Contains(v) })),
+				search,
+				c => c.Identifier,
+				c => c.Name,
+				c => c.Type);
+			filters.AddRange(categoryIds.Select(id => ServiceExposers.CategoryId.Equal((SdmObjectReference<ServiceCategory>)new ServiceCategory { Identifier = id })));
+
+			var specificationIds = CursorListFilter.MatchingIds(
+				f => serviceManagementApiHelper.ServiceCatalog.ServiceSpecifications.Read(f),
+				CursorListFilter.Any(variants.Select(v => ServiceSpecificationExposers.Name.Contains(v))),
+				search,
+				s => s.Identifier,
+				s => s.Name);
+			filters.AddRange(specificationIds.Select(id => ServiceExposers.ServiceSpecificationId.Equal((SdmObjectReference<ServiceSpecification>)new ServiceSpecification { Identifier = id })));
+
+			return CursorListFilter.Any(filters);
 		}
 
 		[HttpGet("overview")]
@@ -1386,10 +1463,15 @@
 
 		private bool HasActiveLinkedReference(ServiceItem serviceItem)
 		{
-			// A linked service that still exists blocks removal.
+			// A linked service that still exists or an active SRM booking blocks removal.
 			if (!Guid.TryParse(serviceItem.ImplementationReference, out Guid referenceId) || referenceId == Guid.Empty)
 			{
 				return false;
+			}
+
+			if (serviceItem.Type == SlcServicemanagementIds.Enums.ServiceItemTypesEnum.SRMBooking)
+			{
+				return itemImplementations.IsActive(serviceItem);
 			}
 
 			if (!String.Equals(serviceItem.Type?.ToString(), "Service", StringComparison.OrdinalIgnoreCase))

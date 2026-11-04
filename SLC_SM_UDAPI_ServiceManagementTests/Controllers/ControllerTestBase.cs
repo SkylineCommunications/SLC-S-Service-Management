@@ -3,7 +3,11 @@ namespace SLC_SM_UDAPI_ServiceManagement.Tests.Controllers
 	using System.Collections.Generic;
 	using System.Reflection;
 	using Newtonsoft.Json.Linq;
+	using Skyline.DataMiner.Net.Messages.SLDataGateway;
+	using Skyline.DataMiner.SDM;
 	using Skyline.DataMiner.Utils.UserDefinedApiToolkit;
+	using SLDataGateway.API.Querying;
+	using SLDataGateway.API.Types.Querying;
 
 	/// <summary>
 	/// Common helpers for all UDAPI controller tests: API context wiring and result inspection.
@@ -29,6 +33,14 @@ namespace SLC_SM_UDAPI_ServiceManagement.Tests.Controllers
 		{
 			var value = result.GetType().GetProperty("Value").GetValue(result);
 			return (string)JObject.FromObject(value)["error"][0]["detail"];
+		}
+
+		/// <summary>Returns the items matching a query as a single native page, like a paged repository read.</summary>
+		protected static IEnumerable<IPagedResult<T>> OnePage<T>(IEnumerable<T> store, IQuery<T> query)
+			where T : class
+		{
+			var items = store.Where(query.Filter.getLambda()).ToList();
+			yield return new PagedResult<T>(items, 0, Math.Max(1, items.Count), false);
 		}
 
 		/// <summary>Sets the read-only SDM <c>Status</c> property through its backing field.</summary>

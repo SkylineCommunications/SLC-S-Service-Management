@@ -20,6 +20,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 	using SLC_SM_UDAPI_ServiceManagement.Helpers.Order;
 	using DataHelperOrganization = Skyline.DataMiner.ProjectApi.ServiceManagement.API.PeopleAndOrganization.DataHelperOrganization;
 	using IEngine = Skyline.DataMiner.Automation.IEngine;
+	using OrderStatus = DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Serviceorder_Behavior.StatusesEnum;
 
 	/// <summary>
 	/// Service orders and their items: create, read, update, delete and status transitions.
@@ -881,16 +882,22 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 					[FromQuery] string after = null,
 					[FromQuery] string before = null,
 					[FromQuery] bool includeTotalCount = true,
-					[FromQuery] bool includeMetrics = false)
+					[FromQuery] bool includeMetrics = false,
+					[FromQuery] string search = null)
 		{
-			_logger.LogInformation("ListServiceOrders called with parameters:\noffset={Offset}\nlimit={Limit}\nfields={Fields}\nsort={Sort}\nstatus={Status}\npriority={Priority}\nexternalId={ExternalId}\norganizationId={OrganizationId}\nrequestedStartDate.gte={RequestedStartDateGte}\nrequestedStartDate.lte={RequestedStartDateLte}",
-				offset, limit, fields, sort, status, priority, externalId, organizationId, requestedStartDateGte, requestedStartDateLte);
+			_logger.LogInformation("ListServiceOrders called with parameters:\noffset={Offset}\nlimit={Limit}\nfields={Fields}\nsort={Sort}\nstatus={Status}\npriority={Priority}\nexternalId={ExternalId}\norganizationId={OrganizationId}\nrequestedStartDate.gte={RequestedStartDateGte}\nrequestedStartDate.lte={RequestedStartDateLte}\nsearch={Search}",
+				offset, limit, fields, sort, status, priority, externalId, organizationId, requestedStartDateGte, requestedStartDateLte, search);
 
 			try
 			{
 				if (String.Equals(pagination, "cursor", StringComparison.OrdinalIgnoreCase))
 				{
-					return ListServiceOrdersCursor(limit, fields, after, before, offset, sort, status, priority, externalId, organizationId, requestedStartDateGte, requestedStartDateLte, includeTotalCount, includeMetrics);
+					return ListServiceOrdersCursor(limit, fields, after, before, offset, sort, status, search, priority, externalId, organizationId, requestedStartDateGte, requestedStartDateLte, includeTotalCount, includeMetrics);
+				}
+
+				if (!String.IsNullOrWhiteSpace(search))
+				{
+					throw new InvalidQueryException("'search' is only supported with 'pagination=cursor'.");
 				}
 
 				var query = new ListServiceOrdersQuery
@@ -907,8 +914,8 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 					RequestedStartDateLte = requestedStartDateLte,
 				};
 
-				var search = new ServiceOrderSearch(new TimedServiceOrderSearchDataSource(new ServiceOrderSearchDataSource(_serviceManagementApiHelper), _logger));
-				var orders = search.Find(query);
+				var orderSearch = new ServiceOrderSearch(new TimedServiceOrderSearchDataSource(new ServiceOrderSearchDataSource(_serviceManagementApiHelper), _logger));
+				var orders = orderSearch.Find(query);
 
 				var response = ToOrderResponses(orders);
 				return Ok(response);
@@ -933,6 +940,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 			int offset,
 			string sort,
 			string status,
+			string search,
 			string priority,
 			string externalId,
 			string organizationId,
@@ -941,11 +949,11 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 			bool includeTotalCount,
 			bool includeMetrics)
 		{
-			if (offset != 0 || !String.IsNullOrWhiteSpace(sort) || !String.IsNullOrWhiteSpace(status)
+			if (offset != 0
 				|| !String.IsNullOrWhiteSpace(priority) || !String.IsNullOrWhiteSpace(externalId)
 				|| !String.IsNullOrWhiteSpace(organizationId) || requestedStartDateGte.HasValue || requestedStartDateLte.HasValue)
 			{
-				return BadRequest(CreateError("Invalid query", "Cursor pagination currently supports an unfiltered, creation-time/OrderId-ordered list only.", 400));
+				return BadRequest(CreateError("Invalid query", "Cursor pagination supports the 'status', 'search' and 'sort' filters only.", 400));
 			}
 
 			if (limit < 1 || limit > 500)
@@ -958,25 +966,32 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 				return BadRequest(CreateError("Invalid query", "Only one of 'after' or 'before' can be supplied.", 400));
 			}
 
+			var order = CursorListFilter.ParseSort(sort, "orderId", "name");
+			var filter = CursorListFilter.All(
+				CursorListFilter.Any(CursorListFilter.ParseStatuses<OrderStatus>(status).Select(s => ServiceOrderExposers.Status.Equal(s))),
+				CreateOrderSearchFilter(search));
+			bool byName = order.Key == "name";
+			bool descending = order.Key == null || order.Descending;
+
 			CursorPage<ServiceOrder> page;
 			try
 			{
 				page = ((IReadableRepository<ServiceOrder>)_serviceManagementApiHelper.ServiceOrder.ServiceOrders).ReadCursorPage(
-					ServiceOrderExposers.OrderId,
-					order => order.OrderId ?? String.Empty,
+					byName ? ServiceOrderExposers.Name : ServiceOrderExposers.OrderId,
+					byName ? (Func<ServiceOrder, string>)(o => o.Name ?? String.Empty) : o => o.OrderId ?? String.Empty,
 					CursorKeySerialization.SerializeString,
 					CursorKeySerialization.DeserializeString,
 					ServiceOrderExposers.Identifier,
-					order => order.Identifier,
+					o => o.Identifier,
 					CursorKeySerialization.SerializeString,
 					CursorKeySerialization.DeserializeString,
-					filter: null,
+					filter: filter,
 					limit: limit,
 					cursor: String.IsNullOrWhiteSpace(before) ? after : before,
 					direction: String.IsNullOrWhiteSpace(before) ? CursorDirection.After : CursorDirection.Before,
-					descending: true,
-					secondaryDescending: true,
-					includeTotalCount: includeTotalCount && !includeMetrics);
+					descending: descending,
+					secondaryDescending: descending,
+					includeTotalCount: includeTotalCount && (filter != null || !includeMetrics));
 			}
 			catch (ArgumentException)
 			{
@@ -989,8 +1004,9 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 			return Ok(new CursorPageResponse<JObject>
 			{
 				Items = String.IsNullOrWhiteSpace(fields) ? items : items.Select(item => SelectFields(item, SplitCommaSeparatedValues(fields))).ToList(),
-				TotalCount = metrics?.TotalCount ?? page.TotalCount,
-				Metrics = metrics == null ? null : JObject.FromObject(metrics),
+				// The metrics always describe all orders; the total count describes the filtered list.
+				TotalCount = filter != null ? page.TotalCount : metrics?.TotalCount ?? page.TotalCount,
+				Metrics = CursorMetricsSerialization.ToJObject(metrics),
 				PageInfo = new CursorPageInfo
 				{
 					NextAfterCursor = page.NextAfterCursor,
@@ -999,6 +1015,40 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 					HasPreviousPage = page.HasPreviousPage,
 				},
 			});
+		}
+
+		/// <summary>
+		/// Creates the storage filter for a free-text order search: name, order ID, external ID, description, status, priority and organization name.
+		/// </summary>
+		/// <param name="search">The search text, or <see langword="null"/>.</param>
+		/// <returns>The filter, or <see langword="null"/> when there is no search text.</returns>
+		private FilterElement<ServiceOrder> CreateOrderSearchFilter(string search)
+		{
+			var variants = CursorListFilter.SearchVariants(search);
+			if (variants.Count == 0)
+			{
+				return null;
+			}
+
+			var filters = new List<FilterElement<ServiceOrder>>();
+			filters.AddRange(variants.Select(v => ServiceOrderExposers.Name.Contains(v)));
+			filters.AddRange(variants.Select(v => ServiceOrderExposers.OrderId.Contains(v)));
+			filters.AddRange(variants.Select(v => ServiceOrderExposers.ExternalID.Contains(v)));
+			filters.AddRange(variants.Select(v => ServiceOrderExposers.Description.Contains(v)));
+			filters.AddRange(CursorListFilter.StatusesMatching<OrderStatus>(search).Select(s => ServiceOrderExposers.Status.Equal(s)));
+			filters.AddRange(CursorListFilter.StatusesMatching<SlcServicemanagementIds.Enums.ServiceOrderPriorityEnum>(search)
+				.Select(p => new ManagedFilter<ServiceOrder, SlcServicemanagementIds.Enums.ServiceOrderPriorityEnum?>(
+					ServiceOrderExposers.Priority,
+					Comparer.Equals,
+					p,
+					o => o.Priority == p)));
+
+			// Every matching organization is included: a cap here would silently drop their orders from all pages and from the total count.
+			filters.AddRange(ReadOrganizationNames()
+				.Where(o => CursorListFilter.TextMatches(o.Value, search))
+				.Select(o => ServiceOrderExposers.OrganizationId.Equal(o.Key)));
+
+			return CursorListFilter.Any(filters);
 		}
 
 		[HttpGet("overview")]

@@ -174,8 +174,33 @@ namespace SLCSMMigrationImport
 			export = null;
 			target.ClearCache();
 
+			var stores = KnownIds.ModulesInScope.Select(m => new DomHelperLegacyStore(target.GetHelper(m))).ToList();
+			var cleanup = new ObsoleteDomCleanup(line => engine.Log("SMG migration cleanup: " + line), dryRun);
+			bool clean = plan.FatalErrors.Count == 0;
+			TimeSpan cleanupStarted = total.Elapsed;
+			if (clean)
+			{
+				// Rejected items and the instances the import overwrites keep their legacy values, so a failure leaves them intact.
+				var leaveUntouched = ObsoleteDomCleanup.InstancesToLeaveUntouched(plan);
+				stores.ForEach(store => cleanup.CleanInstances(store, leaveUntouched));
+			}
+
+			TimeSpan cleanupDuration = total.Elapsed - cleanupStarted;
+			TimeSpan executeStarted = total.Elapsed;
 			var report = new MigrationExecutor(target, line => engine.Log("SMG migration " + line)).Execute(plan, dryRun);
+			TimeSpan executeDuration = total.Elapsed - executeStarted;
+
+			if (clean)
+			{
+				// The legacy model is only removed now, keeping what instances whose migration failed still use.
+				cleanupStarted = total.Elapsed;
+				var failed = report.Items.Where(i => i.Outcome == ItemOutcome.Failed).Select(i => new InstanceKey(i.ModuleId, i.InstanceId)).ToList();
+				stores.ForEach(store => cleanup.CleanModel(store, failed));
+				cleanupDuration += total.Elapsed - cleanupStarted;
+			}
+
 			report.ModelCleanup.AddRange(cleanup.Results);
+			report.GlobalWarnings.AddRange(cleanup.Warnings);
 			report.GlobalWarnings.AddRange(cleanup.Failures);
 			report.SourceFile = inputFile;
 			report.SourceHost = sourceHost;
@@ -185,7 +210,7 @@ namespace SLCSMMigrationImport
 			report.ReadDuration = readDuration;
 			report.CleanupDuration = cleanupDuration;
 			report.PlanDuration = planDuration;
-			report.ExecuteDuration = total.Elapsed - readDuration - cleanupDuration - planDuration;
+			report.ExecuteDuration = executeDuration;
 			report.TotalDuration = total.Elapsed;
 
 			string reportFile = WriteReport(report);

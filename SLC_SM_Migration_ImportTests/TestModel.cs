@@ -33,11 +33,23 @@ namespace SLC_SM_Migration_ImportTests
 		public static readonly Guid RemovedSection = Guid.NewGuid();
 		public static readonly Guid RemovedField = Guid.NewGuid();
 
-		public Dictionary<string, TargetModuleSchema> Schemas { get; } = new Dictionary<string, TargetModuleSchema>(StringComparer.OrdinalIgnoreCase)
+		/// <summary>
+		/// Real legacy section and field IDs, as left on the target by an in-place upgrade until <see cref="ObsoleteDomCleanup"/> removes them.
+		/// </summary>
+		public static readonly Guid LegacySection = KnownIds.RemovedSections.Keys.First();
+		public static readonly Guid LegacySectionField = Guid.NewGuid();
+		public static readonly Guid LegacyField = KnownIds.RemovedFields.Keys.Last();
+
+		public TestModel(bool withLegacyParts = false)
 		{
-			{ Config, BuildConfigSchema() },
-			{ Smg, BuildSmgSchema() },
-		};
+			Schemas = new Dictionary<string, TargetModuleSchema>(StringComparer.OrdinalIgnoreCase)
+			{
+				{ Config, BuildConfigSchema() },
+				{ Smg, BuildSmgSchema(withLegacyParts) },
+			};
+		}
+
+		public Dictionary<string, TargetModuleSchema> Schemas { get; }
 
 		public static FieldDescriptor Field(Guid id, string name, Type type)
 		{
@@ -150,7 +162,7 @@ namespace SLC_SM_Migration_ImportTests
 			return new TargetModuleSchema(Config, new[] { definition, profileDefinition }, new SectionDefinition[] { section, profileSection }, Array.Empty<DomBehaviorDefinition>());
 		}
 
-		private static TargetModuleSchema BuildSmgSchema()
+		private static TargetModuleSchema BuildSmgSchema(bool withLegacyParts)
 		{
 			var section = new CustomSectionDefinition { ID = new SectionDefinitionID(ServiceSection) { ModuleId = Smg }, Name = "Service Info" };
 			section.AddOrReplaceFieldDescriptor(Field(ServiceName, "Service Name", typeof(string)));
@@ -180,6 +192,21 @@ namespace SLC_SM_Migration_ImportTests
 
 			var definitions = new List<DomDefinition> { definition };
 			var sections = new List<SectionDefinition> { section };
+			if (withLegacyParts)
+			{
+				section.AddOrReplaceFieldDescriptor(Field(LegacyField, "Tested Protocols", typeof(string)));
+				var legacySection = new CustomSectionDefinition { ID = new SectionDefinitionID(LegacySection) { ModuleId = Smg }, Name = "Legacy Info" };
+				legacySection.AddOrReplaceFieldDescriptor(Field(LegacySectionField, "Legacy", typeof(string)));
+				sections.Add(legacySection);
+				definition.SectionDefinitionLinks.Add(new SectionDefinitionLink(new SectionDefinitionID(LegacySection) { ModuleId = Smg }));
+				definitions.Add(new DomDefinition
+				{
+					ID = new DomDefinitionId(RemovedDefinition) { ModuleId = Smg },
+					Name = "ServiceProperties",
+					SectionDefinitionLinks = { new SectionDefinitionLink(new SectionDefinitionID(LegacySection) { ModuleId = Smg }) },
+				});
+			}
+
 			foreach (var container in KnownIds.ProfileContainers)
 			{
 				var ownerSection = new CustomSectionDefinition { ID = new SectionDefinitionID(container.Section) { ModuleId = Smg }, Name = container.Name + " Info" };
@@ -232,6 +259,50 @@ namespace SLC_SM_Migration_ImportTests
 		public bool ServiceExists(string serviceKey) => true;
 
 		public bool ScriptExists(string scriptName) => scriptName != "MissingScript";
+	}
+
+	internal sealed class FakeLegacyStore : ILegacyDomStore
+	{
+		public FakeLegacyStore(string moduleId)
+		{
+			ModuleId = moduleId;
+		}
+
+		public string ModuleId { get; }
+
+		public List<DomDefinition> Definitions { get; } = new List<DomDefinition>();
+
+		public List<SectionDefinition> SectionDefinitions { get; } = new List<SectionDefinition>();
+
+		public Dictionary<Guid, DomInstance> Instances { get; } = new Dictionary<Guid, DomInstance>();
+
+		public DomInstance Add(DomInstance instance)
+		{
+			Instances[instance.ID.Id] = instance;
+			return instance;
+		}
+
+		public IEnumerable<DomDefinition> GetDefinitions() => Definitions.ToList();
+
+		public IEnumerable<SectionDefinition> GetSectionDefinitions() => SectionDefinitions.ToList();
+
+		public IEnumerable<DomInstance> GetAllInstances() => Instances.Values.Select(i => (DomInstance)i.Clone()).ToList();
+
+		public IEnumerable<DomInstance> GetInstancesOfDefinition(Guid definitionId) => GetAllInstances().Where(i => i.DomDefinitionId.Id == definitionId).ToList();
+
+		public IEnumerable<DomInstance> GetInstances(IEnumerable<Guid> ids) => ids.Where(Instances.ContainsKey).Select(id => (DomInstance)Instances[id].Clone()).ToList();
+
+		public void UpdateInstance(DomInstance instance) => Instances[instance.ID.Id] = (DomInstance)instance.Clone();
+
+		public void DeleteInstance(DomInstance instance) => Instances.Remove(instance.ID.Id);
+
+		public void UpdateSectionDefinition(SectionDefinition section)
+		{
+		}
+
+		public void DeleteSectionDefinition(SectionDefinition section) => SectionDefinitions.Remove(section);
+
+		public void DeleteDefinition(DomDefinition definition) => Definitions.Remove(definition);
 	}
 
 	internal sealed class FakeWriter : IDomWriter
