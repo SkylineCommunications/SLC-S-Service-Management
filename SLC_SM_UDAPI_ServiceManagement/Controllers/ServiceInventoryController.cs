@@ -15,6 +15,7 @@
 	using Skyline.DataMiner.SDM;
 	using Skyline.DataMiner.SDM.OData;
 	using Skyline.DataMiner.Utils.UserDefinedApiToolkit;
+	using SLC_SM_Common.IdGeneration;
 	using SLC_SM_UDAPI_ServiceManagement.Exceptions;
 	using SLC_SM_UDAPI_ServiceManagement.Helpers;
 	using SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory;
@@ -59,6 +60,7 @@
 		private readonly IMonitoringServiceManager monitoringServices;
 		private readonly IServiceOrganizationRepository organizations;
 		private readonly IServiceManagementApiHelper serviceManagementApiHelper;
+		private readonly IServiceManagementIdGenerator idGenerator;
 
 		private sealed class ServiceFieldSelector
 		{
@@ -79,7 +81,8 @@
 			IAccessor<IEngine> engineAccessor,
 			IMonitoringServiceManager monitoringServices,
 			IServiceOrganizationRepository organizations,
-			IServiceItemImplementations itemImplementations)
+			IServiceItemImplementations itemImplementations,
+			IServiceManagementIdGenerator idGenerator = null)
 		{
 			_logger = logger ?? throw new ArgumentNullException(nameof(logger));
 			this.serviceManagementApiHelper = serviceManagementApiHelper ?? throw new ArgumentNullException(nameof(serviceManagementApiHelper));
@@ -87,6 +90,7 @@
 			this.monitoringServices = monitoringServices ?? throw new ArgumentNullException(nameof(monitoringServices));
 			this.organizations = organizations ?? throw new ArgumentNullException(nameof(organizations));
 			this.itemImplementations = itemImplementations ?? throw new ArgumentNullException(nameof(itemImplementations));
+			this.idGenerator = idGenerator ?? new ServiceManagementIdGenerator();
 			_translator = new ODataSdmTranslator<Service>();
 		}
 
@@ -209,8 +213,7 @@
 		{
 			/* TODO:
 			 * 1.Status isn't set explicitly. I assumed DOM starts new services as new; this needs checking on a live system.
-			 * 2.Same ID race as Service Order.Two requests at the same moment could get the same service ID.
-			 * 3.400 for a missing mandatory configuration parameter isn't covered. Configuration versions start empty.
+			 * 2.400 for a missing mandatory configuration parameter isn't covered. Configuration versions start empty.
 			*/
 
 			_logger.LogInformation("CreateService called with name={Name}", request?.Name);
@@ -218,6 +221,10 @@
 			try
 			{
 				ValidateCreateRequest(request);
+				if (!String.IsNullOrWhiteSpace(request.ServiceId))
+				{
+					return BadRequest(CreateError("Invalid request", "Service ID is assigned automatically and cannot be supplied.", 400));
+				}
 
 				var catalog = serviceManagementApiHelper.ServiceCatalog;
 
@@ -234,18 +241,14 @@
 				ValidateOrganization(request.OrganizationId);
 
 				var services = serviceManagementApiHelper.ServiceInventory.Services;
-				string name = request.Name.Trim();
-				if (services.Read(ServiceExposers.Name.Equal(name)).Any())
+				string requestedName = request.Name?.Trim();
+				if (!String.IsNullOrEmpty(requestedName) && services.Read(ServiceExposers.Name.Equal(requestedName)).Any())
 				{
-					return Conflict(CreateError("Conflict", $"A service with name '{name}' already exists.", 409));
+					return Conflict(CreateError("Conflict", $"A service with name '{requestedName}' already exists.", 409));
 				}
 
-				var existingServiceIds = services.Read(new TRUEFilterElement<Service>()).Select(s => s.ServiceID).ToList();
-				string serviceId = String.IsNullOrWhiteSpace(request.ServiceId) ? GenerateServiceId(existingServiceIds) : request.ServiceId.Trim();
-				if (existingServiceIds.Any(id => String.Equals(id, serviceId, StringComparison.OrdinalIgnoreCase)))
-				{
-					return Conflict(CreateError("Conflict", $"A service with ID '{serviceId}' already exists.", 409));
-				}
+				string serviceId = idGenerator.AllocateServiceId(engineAccessor.Value);
+				string name = String.IsNullOrEmpty(requestedName) ? serviceId : requestedName;
 
 				bool generateMonitoringService = request.GenerateMonitoringService ?? false;
 				if (generateMonitoringService && monitoringServices.Exists(name))
@@ -1100,17 +1103,6 @@
 				?? new List<ServiceItem>();
 		}
 
-		private static string GenerateServiceId(IEnumerable<string> existingServiceIds)
-		{
-			int max = existingServiceIds
-				.Where(id => !String.IsNullOrWhiteSpace(id))
-				.Select(id => Int32.TryParse(id.Split('-').Last(), out int number) ? number : 0)
-				.DefaultIfEmpty(0)
-				.Max();
-
-			return $"SERVICE-{max + 1:00000}";
-		}
-
 		private static bool Has(JObject patch, string property)
 		{
 			return patch.TryGetValue(property, StringComparison.OrdinalIgnoreCase, out _);
@@ -1241,16 +1233,6 @@
 			if (request == null)
 			{
 				throw new InvalidQueryException("A request body is required.");
-			}
-
-			if (String.IsNullOrWhiteSpace(request.Name))
-			{
-				throw new InvalidQueryException("'name' is required.");
-			}
-
-			if (!String.IsNullOrWhiteSpace(request.ServiceId) && !ServiceIdPattern.IsMatch(request.ServiceId.Trim()))
-			{
-				throw new InvalidQueryException("'serviceId' must use the format SERVICE-<number>.");
 			}
 
 			if (request.StartTime.HasValue && request.EndTime.HasValue && request.EndTime.Value < request.StartTime.Value)

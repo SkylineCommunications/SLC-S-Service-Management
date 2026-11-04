@@ -78,7 +78,7 @@
 
 		// ---- POST /service ----
 		[TestMethod]
-		public void CreateService_Valid_StoresServiceWithNextIdAndReturns201()
+		public void CreateService_Valid_UsesCentralCounterAndReturns201()
 		{
 			AddService("Existing", number: 7);
 
@@ -86,7 +86,7 @@
 
 			Assert.AreEqual(201, StatusCode(result));
 			var created = StoredServices.Single(s => s.Name == "New");
-			Assert.AreEqual("SERVICE-00008", created.ServiceID);
+			Assert.AreEqual("SERVICE-00001", created.ServiceID);
 			Assert.AreEqual("d", created.Description);
 			Services.Verify(r => r.Create(It.IsAny<Service>()), Times.Once);
 		}
@@ -100,11 +100,12 @@
 		[DataTestMethod]
 		[DataRow(null)]
 		[DataRow("  ")]
-		public void CreateService_MissingName_Returns400(string name)
+		public void CreateService_MissingName_UsesAllocatedServiceIdAsName(string name)
 		{
 			var result = Controller.CreateService(new CreateServiceRequest { Name = name });
-			Assert.AreEqual(400, StatusCode(result));
-			StringAssert.Contains(ErrorDetail(result), "'name'");
+			Assert.AreEqual(201, StatusCode(result));
+			Assert.AreEqual("SERVICE-00001", StoredServices.Single().Name);
+			Assert.AreEqual("SERVICE-00001", StoredServices.Single().ServiceID);
 		}
 
 		[TestMethod]
@@ -353,26 +354,30 @@
 
 		// ---- POST /service: script parity ----
 		[TestMethod]
-		public void CreateService_CustomServiceId_UsesIt()
+		public void CreateService_AssignsServiceIdFromCounter()
 		{
 			AddService("Existing", number: 7);
-			Assert.AreEqual(201, StatusCode(Controller.CreateService(new CreateServiceRequest { Name = "New", ServiceId = " SERVICE-00100 " })));
+			IdGenerator.Setup(generator => generator.AllocateServiceId(It.IsAny<Skyline.DataMiner.Automation.IEngine>()))
+				.Returns("SERVICE-00100");
+
+			Assert.AreEqual(201, StatusCode(Controller.CreateService(new CreateServiceRequest { Name = "New" })));
 			Assert.AreEqual("SERVICE-00100", StoredServices.Single(s => s.Name == "New").ServiceID);
 		}
 
 		[TestMethod]
-		public void CreateService_InvalidServiceId_Returns400()
+		public void CreateService_RejectsCallerSuppliedServiceId()
 		{
 			var result = Controller.CreateService(new CreateServiceRequest { Name = "New", ServiceId = "SVC-1" });
 			Assert.AreEqual(400, StatusCode(result));
-			StringAssert.Contains(ErrorDetail(result), "'serviceId'");
+			StringAssert.Contains(ErrorDetail(result), "assigned automatically");
+			Services.Verify(r => r.Create(It.IsAny<Service>()), Times.Never);
 		}
 
 		[TestMethod]
-		public void CreateService_ServiceIdInUse_Returns409()
+		public void CreateService_RejectsCallerSuppliedExistingServiceId()
 		{
 			var existing = AddService("Existing", number: 3);
-			Assert.AreEqual(409, StatusCode(Controller.CreateService(new CreateServiceRequest { Name = "New", ServiceId = existing.ServiceID })));
+			Assert.AreEqual(400, StatusCode(Controller.CreateService(new CreateServiceRequest { Name = "New", ServiceId = existing.ServiceID })));
 			Services.Verify(r => r.Create(It.IsAny<Service>()), Times.Never);
 		}
 

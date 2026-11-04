@@ -22,14 +22,18 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 			_api = api ?? throw new ArgumentNullException(nameof(api));
 		}
 
-		public Service Duplicate(Service source, IEnumerable<string> existingServiceIds)
+		public Service Duplicate(Service source, string newServiceId)
 		{
 			if (source == null)
 			{
 				throw new ArgumentNullException(nameof(source));
 			}
 
-			string newServiceId = GenerateUniqueServiceId(existingServiceIds);
+			if (String.IsNullOrWhiteSpace(newServiceId))
+			{
+				throw new ArgumentException("A generated service ID is required.", nameof(newServiceId));
+			}
+
 			var versionMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 			var versionIds = DuplicateConfigurationVersions(source, newServiceId, versionMap);
 
@@ -539,16 +543,6 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 					Icon = item.Icon,
 				})
 				.ToList();
-		}
-
-		private static string GenerateUniqueServiceId(IEnumerable<string> existingServiceIds)
-		{
-			int highest = (existingServiceIds ?? Enumerable.Empty<string>())
-				.Where(value => !String.IsNullOrWhiteSpace(value))
-				.Select(value => Int32.TryParse(value.Split('-').Last(), out var number) ? number : 0)
-				.DefaultIfEmpty()
-				.Max();
-			return $"SERVICE-{highest + 1:00000}";
 		}
 
 		private static SdmObjectReference<T> CopyReference<T>(SdmObjectReference<T> reference)

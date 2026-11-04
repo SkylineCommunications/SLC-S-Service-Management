@@ -12,6 +12,7 @@
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
 
+	using SLC_SM_Common.IdGeneration;
 	using SLC_SM_IAS_Add_Service_Order_1.Views;
 	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 
@@ -19,17 +20,16 @@
 	{
 		private readonly IEngine engine;
 		private readonly List<string> getServiceOrderItemLabels;
-		private readonly List<string> usedOrderIds;
 		private readonly ServiceOrderView view;
 		private Models.ServiceOrder instanceToReturn;
 		private PeopleInstance[] peopleInstances;
+		private bool isNew;
 
-		public ServiceOrderPresenter(IEngine engine, ServiceOrderView view, List<string> getServiceOrderItemLabels, List<string> usedOrderIds)
+		public ServiceOrderPresenter(IEngine engine, ServiceOrderView view, List<string> getServiceOrderItemLabels)
 		{
 			this.engine = engine;
 			this.view = view;
 			this.getServiceOrderItemLabels = getServiceOrderItemLabels;
-			this.usedOrderIds = usedOrderIds;
 			instanceToReturn = new Models.ServiceOrder
 			{
 				ContactIds = new List<Guid>(),
@@ -65,13 +65,24 @@
 			}
 		}
 
-		public string Name => String.IsNullOrWhiteSpace(view.TboxName.Text) ? view.TboxName.PlaceHolder : view.TboxName.Text;
+		public string Name => String.IsNullOrWhiteSpace(view.TboxName.Text) ? (isNew ? String.Empty : view.TboxName.PlaceHolder) : view.TboxName.Text;
 
 		public void LoadFromModel()
 		{
-			string defaultOrderId = GetDefaultOrderId(usedOrderIds);
-			view.TboxName.PlaceHolder = defaultOrderId;
-			view.OrderId.Text = defaultOrderId;
+			isNew = true;
+			LoadFromModel(previewOrderId: true);
+		}
+
+		private void LoadFromModel(bool previewOrderId)
+		{
+			if (previewOrderId)
+			{
+				// Preview only; the real Order ID is allocated on save so cancelling does not consume a number.
+				string orderId = new ServiceManagementIdGenerator().PeekNextServiceOrderId(engine);
+				view.TboxName.PlaceHolder = orderId;
+				view.OrderId.Text = orderId;
+			}
+
 			view.CompletedByStart.DateTime = DateTime.UtcNow + TimeSpan.FromDays(7);
 			view.FullyCompletedBy.DateTime = DateTime.UtcNow + TimeSpan.FromDays(7);
 			OnUpdateCompletionDetails(false);
@@ -121,7 +132,7 @@
 			getServiceOrderItemLabels.RemoveAll(x => x == instance.Name);
 
 			// Load correct types
-			LoadFromModel();
+			LoadFromModel(previewOrderId: false);
 
 			view.BtnAdd.Text = "Save";
 			view.TboxName.Text = instance.Name;
@@ -176,13 +187,6 @@
 			ok &= ValidateLabel(Name);
 
 			return ok;
-		}
-
-		private static string GetDefaultOrderId(List<string> usedOrderIds)
-		{
-			var maxServiceId = usedOrderIds.Select(label => Int32.TryParse(label.Split('-').Last(), out int res) ? res : 0).ToArray();
-			int newNumber = maxServiceId.Length > 0 ? maxServiceId.Max() : 0;
-			return $"ORDER-{newNumber + 1:000000}";
 		}
 
 		private void OnUpdateCompletionDetails(bool areSettingsAvailable)
