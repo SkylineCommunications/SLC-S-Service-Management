@@ -195,25 +195,22 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 			var activeServicesEnding = services
 				.ToDictionary(s => s.Identifier, s => new { ActiveVersion = s.ServiceConfigurationId, NonActiveVersion = s.ConfigurationVersions.FirstOrDefault(x => !x.Identifier.Equals(s.ServiceConfigurationId.Identifier)) });
 
-			var activeVersionsFilter = new ORFilterElement<ServiceConfigurationVersion>();
-			var nonActiveVersionFilter = new ORFilterElement<ServiceConfigurationVersion>();
+			FilterElement<ServiceConfigurationVersion> activeVersionsFilter = new ORFilterElement<ServiceConfigurationVersion>();
+			FilterElement<ServiceConfigurationVersion> nonActiveVersionFilter = new ORFilterElement<ServiceConfigurationVersion>();
 
 			foreach (var service in activeServicesEnding)
 			{
-				activeVersionsFilter.OR(ServiceConfigurationVersionExposers.Identifier.Equal(service.Value.ActiveVersion.Identifier));
+				activeVersionsFilter = activeVersionsFilter.OR(ServiceConfigurationVersionExposers.Identifier.Equal(service.Value.ActiveVersion.Identifier));
 
 				if (service.Value.NonActiveVersion != null)
 				{
-					nonActiveVersionFilter.OR(ServiceConfigurationVersionExposers.Identifier.Equal(service.Value.NonActiveVersion.Identifier));
+					nonActiveVersionFilter = nonActiveVersionFilter.OR(ServiceConfigurationVersionExposers.Identifier.Equal(service.Value.NonActiveVersion.Identifier));
 				}
 			}
 
-			activeVersionsFilter.AND(ServiceConfigurationVersionExposers.EndDate.LessThanOrEqual(referenceDate));
-			nonActiveVersionFilter
-				.AND(ServiceConfigurationVersionExposers.StartDate.LessThan(referenceDate.AddHours(1))) // TODO: remove add hours
-				.AND(ServiceConfigurationVersionExposers.EndDate.GreaterThan(referenceDate));
-
-			var filter = activeVersionsFilter.OR(nonActiveVersionFilter);
+			var filter = activeVersionsFilter
+				.AND(ServiceConfigurationVersionExposers.EndDate.LessThan(referenceDate))
+				.OR(nonActiveVersionFilter.AND(ServiceConfigurationVersionExposers.StartDate.LessThan(referenceDate)));
 			var changingVersionsEnding = _serviceManagementApiHelper.ServiceInventory.ServiceConfigurationVersions
 				.Read(filter)
 				.ToList();
