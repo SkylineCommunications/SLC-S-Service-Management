@@ -69,9 +69,12 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 			[FromQuery] int limit = 100,
 			[FromQuery] string after = null,
 			[FromQuery] string before = null,
-			[FromQuery] bool full = false)
+			[FromQuery] bool full = false,
+			[FromQuery] string search = null,
+			[FromQuery] string sort = null,
+			[FromQuery] bool includeTotalCount = false)
 		{
-			_logger.LogInformation("ListPlannedChanges called with date={Date}, pagination={Pagination}, limit={Limit}, after={After}, before={Before}, full={Full}", date, pagination, limit, after, before, full);
+			_logger.LogInformation("ListPlannedChanges called with date={Date}, pagination={Pagination}, limit={Limit}, after={After}, before={Before}, full={Full}, search={Search}, sort={Sort}, includeTotalCount={IncludeTotalCount}", date, pagination, limit, after, before, full, search, sort, includeTotalCount);
 
 			try
 			{
@@ -96,7 +99,20 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 
 				if (String.Equals(pagination, "cursor", StringComparison.OrdinalIgnoreCase))
 				{
-					return ListPlannedChangesCursor(servicesFilter, referenceDate, limit, after, before, full);
+					return ListPlannedChangesCursor(
+						CursorListFilter.All(servicesFilter, CreateSearchFilter(search)),
+						referenceDate,
+						limit,
+						after,
+						before,
+						sort,
+						includeTotalCount,
+						full);
+				}
+
+				if (!String.IsNullOrWhiteSpace(search) || !String.IsNullOrWhiteSpace(sort))
+				{
+					throw new InvalidQueryException("'search' and 'sort' are only supported with 'pagination=cursor'.");
 				}
 
 				var services = _serviceManagementApiHelper.ServiceInventory.Services.Read(servicesFilter);
@@ -104,20 +120,28 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 			}
 			catch (InvalidQueryException ex)
 			{
-				_logger.LogWarning(ex, "Invalid ListPlannedChanges request: {Message}", ex.Message);
+				_logger.LogWarning(ex, "Invalid ListPlannedChanges request: {Message}", ex);
 				return BadRequest(CreateError("Invalid request", ex.Message, 400));
 			}
 			catch (Exception ex)
 			{
-				_logger.LogError(ex, "ListPlannedChanges failed: {Message}", ex.Message);
+				_logger.LogError(ex, "ListPlannedChanges failed: {Message}", ex);
 				return InternalServerError(CreateError("Internal server error", "An unexpected error occurred while listing the planned changes.", 500));
 			}
 		}
 
-		private IApiResult ListPlannedChangesCursor(FilterElement<Service> servicesFilter, DateTime referenceDate, int limit, string after, string before, bool full)
+		private IApiResult ListPlannedChangesCursor(
+			FilterElement<Service> servicesFilter,
+			DateTime referenceDate,
+			int limit,
+			string after,
+			string before,
+			string sort,
+			bool includeTotalCount,
+			bool full)
 		{
-			// TODO: Pages are taken from the services that pass the date filter, sorted by ServiceID (newest first).
-			// The planned-change checks run after that, so a page can hold fewer than limit items while hasNextPage is still true.
+			// Pages are taken from the services that pass the server-side filter; the configuration-version checks run on the page,
+			// so a page can hold fewer than limit items while hasNextPage is still true.
 			if (limit < 1 || limit > MaxLimit)
 			{
 				_logger.LogWarning("ListPlannedChanges rejected: limit={Limit} is out of range [1, {MaxLimit}].", limit, MaxLimit);
@@ -130,14 +154,17 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 				return BadRequest(CreateError("Invalid query", "Only one of 'after' or 'before' can be supplied.", 400));
 			}
 
+			var order = CursorListFilter.ParseSort(sort, "serviceId", "name");
+			bool byName = order.Key == "name";
+			bool descending = order.Key == null || order.Descending;
+
 			var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 			CursorPage<Service> page;
 			try
 			{
-				// Same paging as the other list controllers (ServiceID-ordered, descending), restricted to services active at the reference date.
 				page = ((IReadableRepository<Service>)_serviceManagementApiHelper.ServiceInventory.Services).ReadCursorPage(
-					ServiceExposers.ServiceID,
-					service => service.ServiceID ?? String.Empty,
+					byName ? ServiceExposers.Name : ServiceExposers.ServiceID,
+					byName ? (Func<Service, string>)(service => service.Name ?? String.Empty) : service => service.ServiceID ?? String.Empty,
 					CursorKeySerialization.SerializeString,
 					CursorKeySerialization.DeserializeString,
 					ServiceExposers.Identifier,
@@ -148,9 +175,9 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 					limit: limit,
 					cursor: String.IsNullOrWhiteSpace(before) ? after : before,
 					direction: String.IsNullOrWhiteSpace(before) ? CursorDirection.After : CursorDirection.Before,
-					descending: true,
-					secondaryDescending: true,
-					includeTotalCount: false);
+					descending: descending,
+					secondaryDescending: descending,
+					includeTotalCount: includeTotalCount);
 			}
 			catch (ArgumentException)
 			{
@@ -179,9 +206,17 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 			});
 		}
 
+		private static FilterElement<Service> CreateSearchFilter(string search)
+		{
+			var variants = CursorListFilter.SearchVariants(search);
+			return CursorListFilter.Any(variants
+				.SelectMany(v => new[] { ServiceExposers.Name.Contains(v), ServiceExposers.ServiceID.Contains(v) }));
+		}
+
 		private List<PlannedChange> BuildPlannedChanges(IEnumerable<Service> candidates, DateTime referenceDate, bool full)
 		{
 			var services = (candidates ?? Enumerable.Empty<Service>())
+				.Where(s => s != null && (!s.EndTime.HasValue || s.EndTime.Value.ToUniversalTime() > referenceDate))
 				.Where(s => s != null && s.ServiceConfigurationId != null && s.ServiceConfigurationId.Identifier != null && s.ConfigurationVersions != null && s.ConfigurationVersions.Count > 1)
 				.Where(s => s.Status != DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Service_Behavior.StatusesEnum.Terminated
  					&& s.Status != DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Service_Behavior.StatusesEnum.Retired)
