@@ -59,7 +59,8 @@
 			Orders.Setup(r => r.TransitionStatus(It.IsAny<ServiceOrder>(), It.IsAny<OrderTransition>())).Returns<ServiceOrder, OrderTransition>((o, t) => o);
 
 			Items = new Mock<IServiceOrderItemRepository>();
-			Items.Setup(r => r.Read(It.IsAny<FilterElement<ServiceOrderItem>>())).Returns(() => StoredItems.ToList());
+			Items.Setup(r => r.Read(It.IsAny<FilterElement<ServiceOrderItem>>())).Returns<FilterElement<ServiceOrderItem>>(f => StoredItems.Where(f.getLambda()).ToList());
+			Items.Setup(r => r.ReadPaged(It.IsAny<IQuery<ServiceOrderItem>>(), It.IsAny<int>())).Returns<IQuery<ServiceOrderItem>, int>((q, size) => OnePage(StoredItems, q));
 			Items.Setup(r => r.Create(It.IsAny<ServiceOrderItem>())).Returns<ServiceOrderItem>(i => i);
 			Items.Setup(r => r.Update(It.IsAny<ServiceOrderItem>())).Returns<ServiceOrderItem>(i => i);
 			Items.Setup(r => r.TransitionStatus(It.IsAny<ServiceOrderItem>(), It.IsAny<ItemTransition>())).Returns<ServiceOrderItem, ItemTransition>((i, t) => i);
@@ -70,6 +71,8 @@
 			var itemConfigurations = new Mock<IBulkRepository<ServiceOrderItemConfigurationValue>>();
 			itemConfigurations.Setup(r => r.Read(It.IsAny<FilterElement<ServiceOrderItemConfigurationValue>>()))
 				.Returns(new List<ServiceOrderItemConfigurationValue>());
+			itemConfigurations.Setup(r => r.ReadPaged(It.IsAny<IQuery<ServiceOrderItemConfigurationValue>>(), It.IsAny<int>()))
+				.Returns<IQuery<ServiceOrderItemConfigurationValue>, int>((q, size) => OnePage(new List<ServiceOrderItemConfigurationValue>(), q));
 			orderApi.SetupGet(a => a.ServiceOrderItemConfigurationValues).Returns(itemConfigurations.Object);
 
 			StoredSpecifications = new List<ServiceSpecification>();
@@ -86,6 +89,8 @@
 			Services = new Mock<IServiceRepository>();
 			Services.Setup(r => r.Read(It.IsAny<FilterElement<Service>>()))
 				.Returns<FilterElement<Service>>(f => StoredServices.Where(f.getLambda()).ToList());
+			Services.Setup(r => r.ReadPaged(It.IsAny<IQuery<Service>>(), It.IsAny<int>()))
+				.Returns<IQuery<Service>, int>((q, size) => OnePage(StoredServices, q));
 			Services.Setup(r => r.Create(It.IsAny<Service>()))
 				.Callback<Service>(service => StoredServices.Add(service))
 				.Returns<Service>(service => service);
@@ -93,6 +98,10 @@
 				.Callback<Service>(service => StoredServices.Remove(service));
 			var inventory = new Mock<IServiceInventoryApi>();
 			inventory.SetupGet(a => a.Services).Returns(Services.Object);
+			var versions = new Mock<IBulkRepository<ServiceConfigurationVersion>>();
+			versions.Setup(repository => repository.Create(It.IsAny<ServiceConfigurationVersion>()))
+				.Returns<ServiceConfigurationVersion>(version => version);
+			inventory.SetupGet(a => a.ServiceConfigurationVersions).Returns(versions.Object);
 
 			var catalog = new Mock<IServiceCatalogApi>();
 			catalog.SetupGet(c => c.ServiceSpecifications).Returns(specifications.Object);

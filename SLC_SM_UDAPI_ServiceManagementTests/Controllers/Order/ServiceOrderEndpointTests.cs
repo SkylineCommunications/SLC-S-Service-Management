@@ -19,6 +19,9 @@
 
 	using IEngine = Skyline.DataMiner.Automation.IEngine;
 	using OrderTransition = DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Serviceorder_Behavior.TransitionsEnum;
+	using ItemTransition = DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Serviceorderitem_Behavior.TransitionsEnum;
+	using ServiceStatus = DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Service_Behavior.StatusesEnum;
+	using ServiceTransition = DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Service_Behavior.TransitionsEnum;
 
 	[TestClass]
 	public class ServiceOrderEndpointTests : ServiceOrderControllerTestBase
@@ -279,10 +282,16 @@
 		}
 
 		// ---- DELETE /serviceOrder/{id} ----
-		[TestMethod]
-		public void DeleteServiceOrder_New_DeletesAndReturns204()
+		[DataTestMethod]
+		[DataRow("New")]
+		[DataRow("Cancelled")]
+		[DataRow("Completed")]
+		[DataRow("Rejected")]
+		[DataRow("Failed")]
+		[DataRow("PartiallyFailed")]
+		public void DeleteServiceOrder_DeletableStatus_DeletesAndReturns204(string status)
 		{
-			var order = AddOrder();
+			var order = AddOrder(status);
 			Assert.AreEqual(204, StatusCode(Controller.DeleteServiceOrder(OrderId)));
 			Orders.Verify(r => r.Delete(order), Times.Once);
 		}
@@ -299,10 +308,16 @@
 			Assert.AreEqual(404, StatusCode(Controller.DeleteServiceOrder(OrderId)));
 		}
 
-		[TestMethod]
-		public void DeleteServiceOrder_NotNew_Returns409()
+		[DataTestMethod]
+		[DataRow("Acknowledged")]
+		[DataRow("InProgress")]
+		[DataRow("Pending")]
+		[DataRow("Held")]
+		[DataRow("AssessCancellation")]
+		[DataRow("PendingCancellation")]
+		public void DeleteServiceOrder_NonDeletableStatus_Returns409(string status)
 		{
-			AddOrder("Acknowledged");
+			AddOrder(status);
 			Assert.AreEqual(409, StatusCode(Controller.DeleteServiceOrder(OrderId)));
 			Orders.Verify(r => r.Delete(It.IsAny<ServiceOrder>()), Times.Never);
 		}
@@ -377,6 +392,82 @@
 			AddOrder("New");
 			Assert.AreEqual(409, StatusCode(Controller.TransitionServiceOrder(OrderId, new TransitionServiceOrderRequest { TargetStatus = "new" })));
 			Orders.Verify(r => r.TransitionStatus(It.IsAny<ServiceOrder>(), It.IsAny<OrderTransition>()), Times.Never);
+		}
+
+		[TestMethod]
+		public void TransitionServiceOrder_Acknowledge_AcknowledgesNewItems()
+		{
+			var newItem = AddItem("New");
+			var acknowledgedItem = AddItem("Acknowledged");
+			AddOrder("New", newItem, acknowledgedItem);
+
+			Assert.AreEqual(200, StatusCode(Controller.TransitionServiceOrder(OrderId, new TransitionServiceOrderRequest { TargetStatus = "acknowledged" })));
+
+			Items.Verify(r => r.TransitionStatus(newItem, ItemTransition.New_To_Acknowledged), Times.Once);
+			Items.Verify(r => r.TransitionStatus(acknowledgedItem, It.IsAny<ItemTransition>()), Times.Never);
+			Orders.Verify(r => r.TransitionStatus(It.IsAny<ServiceOrder>(), OrderTransition.New_To_Acknowledged), Times.Once);
+		}
+
+		[TestMethod]
+		public void TransitionServiceOrder_Reject_RejectsItemsAndRetiresTerminatedService()
+		{
+			var service = new Service { Identifier = Guid.NewGuid().ToString(), Name = "S" };
+			SetStatus(service, ServiceStatus.Terminated);
+			StoredServices.Add(service);
+			var linkedItem = AddItem("Acknowledged");
+			linkedItem.ServiceInfo.ServiceId = new Skyline.DataMiner.SDM.SdmObjectReference<Service>(service.Identifier);
+			var newItem = AddItem("New");
+			AddOrder("Acknowledged", linkedItem, newItem);
+
+			var result = Controller.TransitionServiceOrder(OrderId, new TransitionServiceOrderRequest { TargetStatus = "rejected", CancellationInfo = new CancellationInfoRequest { Reason = "r" } });
+
+			Assert.AreEqual(200, StatusCode(result));
+			Items.Verify(r => r.TransitionStatus(linkedItem, ItemTransition.Acknowledged_To_Rejected), Times.Once);
+			Items.Verify(r => r.TransitionStatus(newItem, ItemTransition.New_To_Rejected), Times.Once);
+			Services.Verify(r => r.TransitionStatus(service, ServiceTransition.Terminated_To_Retired), Times.Once);
+			Orders.Verify(r => r.TransitionStatus(It.IsAny<ServiceOrder>(), OrderTransition.Acknowledged_To_Rejected), Times.Once);
+		}
+
+		[TestMethod]
+		public void TransitionServiceOrder_Start_StartsItemsAndInitializesServices()
+		{
+			var item = AddItem("Acknowledged");
+			item.ServiceInfo.SpecificationId = new Skyline.DataMiner.SDM.SdmObjectReference<ServiceSpecification>(AddSpecification().ToString());
+			AddOrder("Acknowledged", item);
+
+			Assert.AreEqual(200, StatusCode(Controller.TransitionServiceOrder(OrderId, new TransitionServiceOrderRequest { TargetStatus = "inProgress" })));
+
+			Items.Verify(r => r.TransitionStatus(item, ItemTransition.Acknowledged_To_Inprogress), Times.Once);
+			Assert.AreEqual(1, StoredServices.Count);
+			Assert.AreEqual(StoredServices[0].Identifier, item.ServiceInfo.ServiceId.Identifier);
+			Orders.Verify(r => r.TransitionStatus(It.IsAny<ServiceOrder>(), OrderTransition.Acknowledged_To_Inprogress), Times.Once);
+		}
+
+		[DataTestMethod]
+		[DataRow("New", "Rejected", "acknowledged", "")]
+		[DataRow("Acknowledged", "Acknowledged", "rejected", "Active")]
+		[DataRow("Acknowledged", "Acknowledged", "inProgress", "")]
+		[DataRow("InProgress", "InProgress", "completed", "")]
+		[DataRow("PendingCancellation", "Completed", "cancelled", "")]
+		public void TransitionServiceOrder_ItemsBlockTransition_Returns409WithoutChanges(string orderStatus, string itemStatus, string target, string linkedServiceStatus)
+		{
+			var item = AddItem(itemStatus);
+			if (!String.IsNullOrEmpty(linkedServiceStatus))
+			{
+				var service = new Service { Identifier = Guid.NewGuid().ToString(), Name = "S" };
+				SetStatus(service, Enum.Parse(typeof(ServiceStatus), linkedServiceStatus));
+				StoredServices.Add(service);
+				item.ServiceInfo.ServiceId = new Skyline.DataMiner.SDM.SdmObjectReference<Service>(service.Identifier);
+			}
+
+			AddOrder(orderStatus, item);
+
+			var result = Controller.TransitionServiceOrder(OrderId, new TransitionServiceOrderRequest { TargetStatus = target, CancellationInfo = new CancellationInfoRequest { Reason = "r" } });
+
+			Assert.AreEqual(409, StatusCode(result));
+			Items.Verify(r => r.TransitionStatus(It.IsAny<ServiceOrderItem>(), It.IsAny<ItemTransition>()), Times.Never);
+			Orders.Verify(r => r.TransitionStatus(It.IsAny<ServiceOrder>(), It.IsAny<OrderTransition>()), Times.Never);
+			Orders.Verify(r => r.Update(It.IsAny<ServiceOrder>()), Times.Never);
 		}
 
 		private static DMSMessage RespondWith(DMSMessage request, List<DomInstance> instances)

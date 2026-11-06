@@ -21,6 +21,11 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 	using DataHelperOrganization = Skyline.DataMiner.ProjectApi.ServiceManagement.API.PeopleAndOrganization.DataHelperOrganization;
 	using IEngine = Skyline.DataMiner.Automation.IEngine;
 	using OrderStatus = DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Serviceorder_Behavior.StatusesEnum;
+	using OrderTransition = DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Serviceorder_Behavior.TransitionsEnum;
+	using ItemStatus = DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Serviceorderitem_Behavior.StatusesEnum;
+	using ItemTransition = DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Serviceorderitem_Behavior.TransitionsEnum;
+	using ServiceStatus = DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Service_Behavior.StatusesEnum;
+	using ServiceTransition = DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Service_Behavior.TransitionsEnum;
 
 	/// <summary>
 	/// Service orders and their items: create, read, update, delete and status transitions.
@@ -147,8 +152,10 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 		/// <summary>
 		/// Creates a service from an order item's specification and links the service back to the order item.
 		/// </summary>
+		/// <remarks>Copies the item's description, dates and category. Configuration values are copied independently by default;
+		/// set <c>copyConfiguration</c> to false to omit them. An already-linked service is returned without modification.</remarks>
 		[HttpPost("{id}/item/{itemId}/initializeService")]
-		public IApiResult InitializeServiceFromOrderItem(string id, string itemId)
+		public IApiResult InitializeServiceFromOrderItem(string id, string itemId, [FromBody] InitializeServiceRequest request = null)
 		{
 			try
 			{
@@ -158,86 +165,117 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 					return lookupError;
 				}
 
-				string existingServiceId = item.ServiceInfo == null ? null : item.ServiceInfo.ServiceId.Identifier;
-				if (!String.IsNullOrWhiteSpace(existingServiceId))
-				{
-					var existingService = _serviceManagementApiHelper.ServiceInventory.Services
-						.Read(ServiceExposers.Identifier.Equal(existingServiceId))
-						.FirstOrDefault();
-					if (existingService != null)
-					{
-						return Ok(existingService);
-					}
-				}
-
-				SdmObjectReference<ServiceSpecification>? specificationReference = item.ServiceInfo == null
-					? (SdmObjectReference<ServiceSpecification>?)null
-					: item.ServiceInfo.SpecificationId;
-				if (!specificationReference.HasValue || String.IsNullOrWhiteSpace(specificationReference.Value.Identifier))
-				{
-					return BadRequest(CreateError("Invalid request", "A service specification must be assigned before initializing a service.", 400));
-				}
-
-				var specification = _serviceManagementApiHelper.ServiceCatalog.ServiceSpecifications
-					.Read(ServiceSpecificationExposers.Identifier.Equal(specificationReference.Value.Identifier))
-					.FirstOrDefault();
-				if (specification == null)
-				{
-					return BadRequest(CreateError("Invalid request", "The service specification assigned to this order item could not be found.", 400));
-				}
-
-				var categoryReference = item.ServiceInfo.ServiceCategoryId;
-				var category = String.IsNullOrWhiteSpace(categoryReference.Identifier)
-					? null
-					: _serviceManagementApiHelper.ServiceCatalog.ServiceCategories
-						.Read(ServiceCategoryExposers.Identifier.Equal(categoryReference.Identifier))
-						.FirstOrDefault();
-
-				var services = _serviceManagementApiHelper.ServiceInventory.Services;
-				var existingServices = services.Read(new TRUEFilterElement<Service>()).ToList();
-				var service = new Service
-				{
-					Identifier = Guid.NewGuid().ToString(),
-					ServiceID = GenerateNextServiceId(existingServices.Select(candidate => candidate.ServiceID)),
-					Name = GenerateUniqueServiceName(item.Name, existingServices.Select(candidate => candidate.Name)),
-					Description = item.Name,
-					StartTime = item.StartTime,
-					EndTime = item.EndTime,
-					ServiceSpecificationId = specificationReference.Value,
-					CategoryId = categoryReference,
-					Icon = category?.Icon ?? String.Empty,
-					ServiceItems = specification.ServiceItems?.ToList() ?? new List<ServiceItem>(),
-					ServiceItemsRelationships = specification.ServiceItemsRelationships?.ToList() ?? new List<ServiceItemRelationship>(),
-				};
-
-				services.Create(service);
-				try
-				{
-					item.ServiceInfo = item.ServiceInfo ?? new ServiceOrderItemServiceInfo();
-					item.ServiceInfo.ServiceId = new SdmObjectReference<Service>(service.Identifier);
-					_serviceManagementApiHelper.ServiceOrder.ServiceOrderItems.Update(item);
-				}
-				catch
-				{
-					try
-					{
-						services.Delete(service);
-					}
-					catch (Exception cleanupException)
-					{
-						_logger.LogWarning(cleanupException, "Could not remove unlinked service {ServiceInstanceId} after order item linking failed.", service.Identifier);
-					}
-
-					throw;
-				}
-
-				return Created(service);
+				var service = InitializeServiceForItem(item, request?.CopyConfiguration ?? true, out bool created);
+				return created ? Created(service) : Ok(service);
+			}
+			catch (InvalidConfigurationException ex)
+			{
+				_logger.LogWarning(ex, "Invalid configuration while initializing service for order {OrderId}, item {ItemId}.", id, itemId);
+				return BadRequest(CreateError("Invalid request", ex.Message, 400));
 			}
 			catch (Exception ex)
 			{
 				_logger.LogError(ex, "InitializeServiceFromOrderItem failed for order {OrderId}, item {ItemId}: {Message}", id, itemId, ex.Message);
 				return InternalServerError(CreateError("Internal server error", "An unexpected error occurred while initializing a service from the order item.", 500));
 			}
+		}
+
+		/// <summary>Creates and links a service for the item, or returns the service it is already linked to.</summary>
+		/// <exception cref="InvalidConfigurationException">The item has no usable service specification.</exception>
+		private Service InitializeServiceForItem(ServiceOrderItem item, bool copyConfiguration, out bool created)
+		{
+			created = false;
+			var linkedService = FindLinkedService(item);
+			if (linkedService != null)
+			{
+				return linkedService;
+			}
+
+			SdmObjectReference<ServiceSpecification>? specificationReference = item.ServiceInfo == null
+				? (SdmObjectReference<ServiceSpecification>?)null
+				: item.ServiceInfo.SpecificationId;
+			if (!specificationReference.HasValue || String.IsNullOrWhiteSpace(specificationReference.Value.Identifier))
+			{
+				throw new InvalidConfigurationException("A service specification must be assigned before initializing a service.");
+			}
+
+			var specification = _serviceManagementApiHelper.ServiceCatalog.ServiceSpecifications
+				.Read(ServiceSpecificationExposers.Identifier.Equal(specificationReference.Value.Identifier))
+				.FirstOrDefault();
+			if (specification == null)
+			{
+				throw new InvalidConfigurationException("The service specification assigned to this order item could not be found.");
+			}
+
+			var categoryReference = item.ServiceInfo.ServiceCategoryId;
+			var category = String.IsNullOrWhiteSpace(categoryReference.Identifier)
+				? null
+				: _serviceManagementApiHelper.ServiceCatalog.ServiceCategories
+					.Read(ServiceCategoryExposers.Identifier.Equal(categoryReference.Identifier))
+					.FirstOrDefault();
+
+			var services = _serviceManagementApiHelper.ServiceInventory.Services;
+			var existingServices = PagedRead.All<Service>(services);
+			var service = new Service
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				ServiceID = ServiceIdGenerator.Next(existingServices.Select(candidate => candidate.ServiceID)),
+				Name = GenerateUniqueServiceName(item.Name, existingServices.Select(candidate => candidate.Name)),
+				Description = item.Description,
+				StartTime = item.StartTime,
+				EndTime = item.EndTime,
+				ServiceSpecificationId = specificationReference.Value,
+				CategoryId = categoryReference,
+				Icon = category?.Icon ?? String.Empty,
+				ServiceItems = specification.ServiceItems?.ToList() ?? new List<ServiceItem>(),
+				ServiceItemsRelationships = specification.ServiceItemsRelationships?.ToList() ?? new List<ServiceItemRelationship>(),
+			};
+
+			var cleanup = new Stack<Action>();
+			var previousServiceReference = item.ServiceInfo.ServiceId;
+			try
+			{
+				if (copyConfiguration)
+				{
+					new ServiceDuplicator(_serviceManagementApiHelper).CopyOrderItemConfiguration(item, specification, service, cleanup);
+				}
+
+				cleanup.Push(() => services.Delete(service));
+				services.Create(service);
+				item.ServiceInfo = item.ServiceInfo ?? new ServiceOrderItemServiceInfo();
+				item.ServiceInfo.ServiceId = new SdmObjectReference<Service>(service.Identifier);
+				_serviceManagementApiHelper.ServiceOrder.ServiceOrderItems.Update(item);
+			}
+			catch
+			{
+				item.ServiceInfo.ServiceId = previousServiceReference;
+				while (cleanup.Count > 0)
+				{
+					try
+					{
+						cleanup.Pop()();
+					}
+					catch (Exception cleanupException)
+					{
+						_logger.LogError(cleanupException, "Could not clean up initialized service {ServiceInstanceId} or its configuration.", service.Identifier);
+					}
+				}
+
+				throw;
+			}
+
+			created = true;
+			return service;
+		}
+
+		private Service FindLinkedService(ServiceOrderItem item)
+		{
+			string serviceId = item?.ServiceInfo == null ? null : item.ServiceInfo.ServiceId.Identifier;
+			return String.IsNullOrWhiteSpace(serviceId)
+				? null
+				: _serviceManagementApiHelper.ServiceInventory.Services
+					.Read(ServiceExposers.Identifier.Equal(serviceId))
+					.FirstOrDefault();
 		}
 
 		private IApiResult FindServiceOrderItem(string orderId, string itemId, out ServiceOrderItem item)
@@ -418,7 +456,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 				var configurationPlans = BuildConfigurationPlans(request.OrderItems);
 
 				var orders = _serviceManagementApiHelper.ServiceOrder.ServiceOrders;
-				var existingOrderIds = orders.Read(new TRUEFilterElement<ServiceOrder>()).Select(o => o.OrderId).ToList();
+				var existingOrderIds = PagedRead.All<ServiceOrder>(orders).Select(o => o.OrderId).ToList();
 
 				var items = new List<ServiceOrderItem>();
 				var entries = new List<ServiceOrderEntry>();
@@ -511,14 +549,15 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 		/// Deletes a service order together with its items and their configuration.
 		/// </summary>
 		/// <remarks>
-		/// <para><c>DELETE service-management/v1/serviceOrder/{id}</c>. Only orders in status <c>new</c> can be deleted; use the transition endpoint to cancel others.</para>
+		/// <para><c>DELETE service-management/v1/serviceOrder/{id}</c>. Orders in status <c>new</c> and orders in a status without further transitions
+		/// (<c>completed</c>, <c>rejected</c>, <c>failed</c>, <c>partiallyFailed</c>, <c>cancelled</c>) can be deleted.</para>
 		/// <para>
 		/// The order is deleted first, then its items, their configuration values and the parameter values those point to.
 		/// Parameter values still used by another item are kept. Cleanup failures are logged and do not fail the request.
 		/// </para>
 		/// </remarks>
 		/// <param name="id">The order ID.</param>
-		/// <returns>204 on success; 400 when <paramref name="id"/> is empty; 404 when the order does not exist; 409 when the order is not in status <c>new</c>; 500 on an unexpected error.</returns>
+		/// <returns>204 on success; 400 when <paramref name="id"/> is empty; 404 when the order does not exist; 409 when the order is not in a deletable status; 500 on an unexpected error.</returns>
 		[HttpDelete("{id}")]
 		public IApiResult DeleteServiceOrder(string id)
 		{
@@ -539,9 +578,10 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 					return NotFound(CreateError("Not found", $"Service order '{orderId}' does not exist.", 404));
 				}
 
-				if (!String.Equals(order.Status.ToString(), "New", StringComparison.OrdinalIgnoreCase))
+				var status = order.Status;
+				if (!IsDeletableOrderStatus(status))
 				{
-					return Conflict(CreateError("Conflict", $"Service order '{orderId}' cannot be deleted in status '{order.Status}'. Only orders in status 'new' can be deleted; use the transition endpoint to cancel it.", 409));
+					return Conflict(CreateError("Conflict", $"Service order '{orderId}' cannot be deleted in status '{ToApiStatus(status.ToString())}'. Only new orders or orders without further transitions can be deleted.", 409));
 				}
 
 				// Collect item IDs first: once the order is deleted nothing references its items.
@@ -1109,18 +1149,23 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 		/// <para><c>POST service-management/v1/serviceOrder/{id}/transition</c>. The move must be a transition of the service order behavior.</para>
 		/// <para>
 		/// <c>cancellationInfo.reason</c> is required for <c>assessCancellation</c>. When cancellation info is supplied it is saved
-		/// before the transition; for <c>cancelled</c> the cancellation date defaults to now. The order's items keep their own status.
+		/// before the transition; for <c>cancelled</c> the cancellation date defaults to now.
+		/// </para>
+		/// <para>
+		/// The order's items follow the order: <c>acknowledged</c> acknowledges new items; <c>rejected</c> rejects every item and
+		/// retires terminated linked services; <c>inProgress</c> (from <c>acknowledged</c>) starts acknowledged and pending items
+		/// and initializes a service for each. <c>completed</c> requires all items to be completed or cancelled, and
+		/// <c>cancelled</c> requires all items to be cancelled. Items are checked before anything changes and moved before the order.
 		/// </para>
 		/// </remarks>
 		/// <param name="id">The order ID.</param>
 		/// <param name="request">The target status, optional comment and optional cancellation info.</param>
-		/// <returns>200 with the updated order; 400 when the request is invalid; 404 when the order does not exist; 409 when the transition is not allowed; 500 on an unexpected error.</returns>
+		/// <returns>200 with the updated order; 400 when the request is invalid; 404 when the order does not exist; 409 when the transition is not allowed or the order's items block it; 500 on an unexpected error.</returns>
 		[HttpPost("{id}/transition")]
 		public IApiResult TransitionServiceOrder(string id, [FromBody] TransitionServiceOrderRequest request)
 		{
-			/* TODO: Order items unchanged: only the order's status changes; its items keep their own status.
-			 * Your definition mentions the item lifecycle (Serviceorderitem_Behavior) too, so tell me if items should follow the order.
-			 * Partial update possible: if the cancellation info is saved but the status change then fails, the cancellation info stays on the order.
+			/* TODO: Partial update possible: if the cancellation info is saved but the status change then fails, the cancellation info stays on the order.
+			 * The item cascade is not transactional: a failure halfway leaves earlier items moved and the order unchanged.
 			*/
 			_logger.LogInformation("TransitionServiceOrder called with parameters:\nid={Id}\ntargetStatus={TargetStatus}\ncomment={Comment}", id, request?.TargetStatus, request?.Comment);
 
@@ -1168,6 +1213,13 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 					return Conflict(CreateError("Conflict", $"Service order '{orderId}' cannot move from '{currentStatus}' to '{targetStatus}'.", 409));
 				}
 
+				var orderItems = ReadOrderItems(order);
+				var itemConflict = ValidateItemsForOrderTransition(transition.Transition, orderItems);
+				if (itemConflict != null)
+				{
+					return Conflict(CreateError("Conflict", itemConflict, 409));
+				}
+
 				if (request.CancellationInfo != null)
 				{
 					order.CancellationInfo = new ServiceOrderCancellationInfo
@@ -1180,6 +1232,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 					order = orders.Update(order);
 				}
 
+				CascadeOrderTransitionToItems(transition.Transition, orderItems);
 				orders.TransitionStatus(order, transition.Transition);
 
 				var updated = orders.Read(ServiceOrderExposers.OrderId.Equal(orderId)).FirstOrDefault() ?? order;
@@ -1753,17 +1806,6 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 			return $"ORDER-{max + 1:000000}";
 		}
 
-		private static string GenerateNextServiceId(IEnumerable<string> existingServiceIds)
-		{
-			int max = (existingServiceIds ?? Enumerable.Empty<string>())
-				.Where(id => !String.IsNullOrWhiteSpace(id))
-				.Select(id => Int32.TryParse(id.Split('-').Last(), out int number) ? number : 0)
-				.DefaultIfEmpty(0)
-				.Max();
-
-			return $"SERVICE-{max + 1:00000}";
-		}
-
 		private static string GenerateUniqueServiceName(string requestedName, IEnumerable<string> existingServiceNames)
 		{
 			string baseName = String.IsNullOrWhiteSpace(requestedName) ? "Service" : requestedName.Trim();
@@ -2049,6 +2091,133 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 		{
 			var key = (status ?? String.Empty).Replace("_", String.Empty).Trim();
 			return ApiStatusNames.TryGetValue(key, out var name) ? name : key;
+		}
+
+		private List<ServiceOrderItem> ReadOrderItems(ServiceOrder order)
+		{
+			var repository = _serviceManagementApiHelper.ServiceOrder.ServiceOrderItems;
+			return (order.OrderItems ?? new List<ServiceOrderEntry>())
+				.Where(entry => entry?.ServiceOrderItemId != null && !String.IsNullOrWhiteSpace(entry.ServiceOrderItemId.Identifier))
+				.Select(entry => entry.ServiceOrderItemId.Identifier)
+				.Distinct(StringComparer.OrdinalIgnoreCase)
+				.Select(itemId => repository.Read(ServiceOrderItemExposers.Identifier.Equal(itemId)).FirstOrDefault())
+				.Where(item => item != null)
+				.ToList();
+		}
+
+		/// <summary>Returns why the order's items block the transition, or null when the transition may proceed.</summary>
+		private string ValidateItemsForOrderTransition(OrderTransition transition, IReadOnlyCollection<ServiceOrderItem> items)
+		{
+			List<ServiceOrderItem> blocking;
+			switch (transition)
+			{
+				case OrderTransition.New_To_Acknowledged:
+					blocking = items.Where(item => item.Status != ItemStatus.New && item.Status != ItemStatus.Acknowledged).ToList();
+					return blocking.Count == 0 ? null : $"All order items must be new or acknowledged before the order can be acknowledged. Blocking items: {ItemNames(blocking)}.";
+
+				case OrderTransition.New_To_Rejected:
+				case OrderTransition.Acknowledged_To_Rejected:
+					blocking = items.Where(item => !CanRejectItem(item)).ToList();
+					return blocking.Count == 0 ? null : $"The order can only be rejected while all order items are new or acknowledged and their linked services, if any, are terminated or retired. Blocking items: {ItemNames(blocking)}.";
+
+				case OrderTransition.Acknowledged_To_Inprogress:
+					blocking = items.Where(item => IsStartableItem(item) && FindLinkedService(item) == null && !HasExistingSpecification(item)).ToList();
+					return blocking.Count == 0 ? null : $"A service specification must be assigned to every order item before the order can be started. Missing for: {ItemNames(blocking)}.";
+
+				case OrderTransition.Inprogress_To_Completed:
+					blocking = items.Where(item => item.Status != ItemStatus.Completed && item.Status != ItemStatus.Cancelled).ToList();
+					return blocking.Count == 0 ? null : $"All order items must be completed or cancelled before the order can be completed. Open items: {ItemNames(blocking)}.";
+
+				case OrderTransition.Pendingcancellation_To_Cancelled:
+					blocking = items.Where(item => item.Status != ItemStatus.Cancelled).ToList();
+					return blocking.Count == 0 ? null : $"All order items must be cancelled before the order can be cancelled. Open items: {ItemNames(blocking)}.";
+
+				default:
+					return null;
+			}
+		}
+
+		private void CascadeOrderTransitionToItems(OrderTransition transition, IEnumerable<ServiceOrderItem> items)
+		{
+			var repository = _serviceManagementApiHelper.ServiceOrder.ServiceOrderItems;
+			foreach (var item in items)
+			{
+				switch (transition)
+				{
+					case OrderTransition.New_To_Acknowledged:
+						if (item.Status == ItemStatus.New)
+						{
+							repository.TransitionStatus(item, ItemTransition.New_To_Acknowledged);
+						}
+
+						break;
+
+					case OrderTransition.New_To_Rejected:
+					case OrderTransition.Acknowledged_To_Rejected:
+						repository.TransitionStatus(item, item.Status == ItemStatus.New ? ItemTransition.New_To_Rejected : ItemTransition.Acknowledged_To_Rejected);
+						var linkedService = FindLinkedService(item);
+						if (linkedService?.Status == ServiceStatus.Terminated)
+						{
+							_serviceManagementApiHelper.ServiceInventory.Services.TransitionStatus(linkedService, ServiceTransition.Terminated_To_Retired);
+						}
+
+						break;
+
+					case OrderTransition.Acknowledged_To_Inprogress:
+						if (IsStartableItem(item))
+						{
+							var started = repository.TransitionStatus(item, item.Status == ItemStatus.Acknowledged ? ItemTransition.Acknowledged_To_Inprogress : ItemTransition.Pending_To_Inprogress) ?? item;
+							InitializeServiceForItem(started, copyConfiguration: true, out _);
+						}
+
+						break;
+				}
+			}
+		}
+
+		private bool CanRejectItem(ServiceOrderItem item)
+		{
+			if (item.Status != ItemStatus.New && item.Status != ItemStatus.Acknowledged)
+			{
+				return false;
+			}
+
+			var linkedService = FindLinkedService(item);
+			return linkedService == null
+				|| linkedService.Status == ServiceStatus.Terminated
+				|| linkedService.Status == ServiceStatus.Retired;
+		}
+
+		private bool HasExistingSpecification(ServiceOrderItem item)
+		{
+			string specificationId = item.ServiceInfo == null ? null : item.ServiceInfo.SpecificationId.Identifier;
+			return !String.IsNullOrWhiteSpace(specificationId)
+				&& _serviceManagementApiHelper.ServiceCatalog.ServiceSpecifications
+					.Read(ServiceSpecificationExposers.Identifier.Equal(specificationId))
+					.Any();
+		}
+
+		private static bool IsStartableItem(ServiceOrderItem item)
+		{
+			return item.Status == ItemStatus.Acknowledged || item.Status == ItemStatus.Pending;
+		}
+
+		private static string ItemNames(IEnumerable<ServiceOrderItem> items)
+		{
+			return String.Join(", ", items.Select(item => String.IsNullOrWhiteSpace(item.Name) ? item.Identifier : $"'{item.Name}'"));
+		}
+
+		private static bool IsDeletableOrderStatus(SlcServicemanagementIds.Behaviors.Serviceorder_Behavior.StatusesEnum status)
+		{
+			if (status == SlcServicemanagementIds.Behaviors.Serviceorder_Behavior.StatusesEnum.New)
+			{
+				return true;
+			}
+
+			var current = ToApiStatus(status.ToString());
+			return !Enum.GetNames(typeof(SlcServicemanagementIds.Behaviors.Serviceorder_Behavior.TransitionsEnum))
+				.Select(name => name.Split(new[] { "_To_" }, StringSplitOptions.None))
+				.Any(parts => parts.Length == 2 && String.Equals(ToApiStatus(parts[0]), current, StringComparison.OrdinalIgnoreCase));
 		}
 
 		/// <summary>Parses an identifier as a UUID.</summary>

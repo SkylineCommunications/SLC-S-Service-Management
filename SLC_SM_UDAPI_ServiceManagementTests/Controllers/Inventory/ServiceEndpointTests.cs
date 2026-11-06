@@ -4,6 +4,8 @@
 	using Microsoft.Extensions.Logging;
 	using Moq;
 	using Newtonsoft.Json.Linq;
+	using Skyline.DataMiner.Net.Messages.SLDataGateway;
+	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 	using Skyline.DataMiner.SDM;
 	using SLDataGateway.API.Types.Querying;
@@ -16,6 +18,101 @@
 	[TestClass]
 	public class ServiceEndpointTests : ServiceInventoryControllerTestBase
 	{
+		[TestMethod]
+		public void RelatedOrders_WhenUnpagedOrderReadIsIncomplete_FindsOrderThroughPagedRead()
+		{
+			var service = AddService();
+			var item = new ServiceOrderItem
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				Action = "Add",
+				ServiceInfo = new ServiceOrderItemServiceInfo { ServiceId = new SdmObjectReference<Service>(service.Identifier) },
+			};
+			StoredOrderItems.Add(item);
+			var order = new ServiceOrder
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				OrderId = "ORDER-1",
+				Name = "Related order",
+				OrderItems = new List<ServiceOrderEntry> { new ServiceOrderEntry { ServiceOrderItemId = new SdmObjectReference<ServiceOrderItem>(item.Identifier) } },
+			};
+			var orders = new Mock<IServiceOrderRepository>();
+			orders.Setup(repository => repository.Read(It.IsAny<FilterElement<ServiceOrder>>())).Returns(new ServiceOrder[0]);
+			orders.Setup(repository => repository.ReadPaged(It.IsAny<IQuery<ServiceOrder>>(), It.IsAny<int>()))
+				.Returns<IQuery<ServiceOrder>, int>((query, size) => OnePage(new[] { order }, query));
+			Mock.Get(ApiHelper.Object.ServiceOrder).SetupGet(api => api.ServiceOrders).Returns(orders.Object);
+
+			var rows = JArray.FromObject(Value<object>(Controller.ListRelatedServiceOrders(service.Identifier)));
+
+			Assert.AreEqual(1, rows.Count);
+			Assert.AreEqual("Related order", (string)rows[0]["OrderName"]);
+		}
+
+		[TestMethod]
+		public void RelatedOrders_ReturnsCurrentItemStatusInsteadOfOrderStatus()
+		{
+			var service = AddService();
+			var item = new ServiceOrderItem
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				Action = "Add",
+				ServiceInfo = new ServiceOrderItemServiceInfo
+				{
+					ServiceId = new SdmObjectReference<Service>(service.Identifier),
+				},
+			};
+			SetStatus(item, DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Serviceorderitem_Behavior.StatusesEnum.New);
+			StoredOrderItems.Add(item);
+			var unrelated = new ServiceOrderItem
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				ServiceInfo = new ServiceOrderItemServiceInfo
+				{
+					ServiceId = new SdmObjectReference<Service>(Guid.NewGuid().ToString()),
+				},
+			};
+			StoredOrderItems.Add(unrelated);
+			var order = new ServiceOrder
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				OrderId = "ORDER-1",
+				Name = "Related order",
+				OrderItems = new List<ServiceOrderEntry>
+				{
+					new ServiceOrderEntry { ServiceOrderItemId = new SdmObjectReference<ServiceOrderItem>(item.Identifier) },
+					new ServiceOrderEntry { ServiceOrderItemId = new SdmObjectReference<ServiceOrderItem>(unrelated.Identifier) },
+					new ServiceOrderEntry { ServiceOrderItemId = new SdmObjectReference<ServiceOrderItem>(Guid.NewGuid().ToString()) },
+					null,
+				},
+			};
+			var orders = new Mock<IServiceOrderRepository>();
+			orders.Setup(repository => repository.Read(It.IsAny<FilterElement<ServiceOrder>>())).Returns(() => new[] { order });
+			orders.Setup(repository => repository.ReadPaged(It.IsAny<IQuery<ServiceOrder>>(), It.IsAny<int>()))
+				.Returns<IQuery<ServiceOrder>, int>((query, size) => OnePage(new[] { order }, query));
+			Mock.Get(ApiHelper.Object.ServiceOrder).SetupGet(api => api.ServiceOrders).Returns(orders.Object);
+
+			SetStatus(order, DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Serviceorder_Behavior.StatusesEnum.InProgress);
+			var result = Controller.ListRelatedServiceOrders(service.ServiceID);
+			Assert.AreEqual(200, StatusCode(result));
+			var rows = JArray.FromObject(Value<object>(result));
+			Assert.AreEqual(1, rows.Count);
+			Assert.AreEqual("New", (string)rows[0]["State"]);
+			Assert.AreEqual(item.Identifier, (string)rows[0]["ServiceOrderItemId"]);
+			Assert.AreEqual("Add", (string)rows[0]["Action"]);
+
+			SetStatus(order, DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Serviceorder_Behavior.StatusesEnum.Completed);
+			SetStatus(item, DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Serviceorderitem_Behavior.StatusesEnum.InProgress);
+			rows = JArray.FromObject(Value<object>(Controller.ListRelatedServiceOrders(service.ServiceID)));
+			Assert.AreEqual("InProgress", (string)rows[0]["State"]);
+
+			var other = AddService("Same public ID");
+			StoredServices.Remove(other);
+			StoredServices.Insert(0, other);
+			rows = JArray.FromObject(Value<object>(Controller.ListRelatedServiceOrders(service.Identifier)));
+			Assert.AreEqual(1, rows.Count);
+			Assert.AreEqual(item.Identifier, (string)rows[0]["ServiceOrderItemId"]);
+		}
+
 		// ---- GET /service/{id} ----
 		[TestMethod]
 		public void GetService_Existing_Returns200WithService()
@@ -189,6 +286,19 @@
 		public void UpdateService_Unknown_Returns404()
 		{
 			Assert.AreEqual(404, StatusCode(Controller.UpdateService("SERVICE-00042", new JObject())));
+		}
+
+		[TestMethod]
+		public void UpdateService_ByInstanceId_ChangesOnlySelectedServiceWithDuplicatePublicId()
+		{
+			var other = AddService("Other service");
+			var selected = AddService("Selected service");
+
+			var result = Controller.UpdateService(selected.Identifier, JObject.FromObject(new { description = "Selected description" }));
+
+			Assert.AreEqual(200, StatusCode(result));
+			Assert.AreEqual("Selected description", selected.Description);
+			Assert.AreNotEqual("Selected description", other.Description);
 		}
 
 		[TestMethod]

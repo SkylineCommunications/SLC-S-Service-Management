@@ -81,7 +81,8 @@ const UDAPI_STATUSES = ['New', 'Acknowledged', 'In Progress', 'Completed', 'Reje
 function enumLabel(value, labels) {
     if (typeof value === 'number') return labels[value] ?? '';
     const text = String(value ?? '').trim().replace(/([a-z])([A-Z])/g, '$1 $2');
-    return text ? text[0].toUpperCase() + text.slice(1) : '';
+    const key = text.replace(/\s+/g, '').toLowerCase();
+    return labels.find(label => label.replace(/\s+/g, '').toLowerCase() === key) ?? (text ? text[0].toUpperCase() + text.slice(1) : '');
 }
 
 function udapiDate(value) { return getDataMinerTimestamp(value) > 0 ? value : ''; }
@@ -152,7 +153,7 @@ export async function fetchRelatedServiceOrders(serviceId) {
     const rows = await fetchRelatedServiceOrderList(serviceId);
     return rows.map(row => ({
         order: { id: row.OrderInstanceId ?? row.orderInstanceId ?? row.OrderId ?? row.orderId ?? '', name: row.OrderName ?? row.orderName ?? '' },
-        item: { id: row.ServiceOrderItemId ?? row.serviceOrderItemId ?? '', action: row.Action ?? row.action ?? '', status: row.State ?? row.state ?? '' },
+        item: { id: row.ServiceOrderItemId ?? row.serviceOrderItemId ?? '', action: enumLabel(row.Action ?? row.action, ['Add', 'Modify', 'Delete', 'No Change']), status: enumLabel(row.State ?? row.state, UDAPI_STATUSES) },
     }));
 }
 

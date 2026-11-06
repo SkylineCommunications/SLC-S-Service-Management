@@ -10,6 +10,7 @@
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 	using Skyline.DataMiner.SDM;
 	using Skyline.DataMiner.Utils.UserDefinedApiToolkit;
+	using SLDataGateway.API.Types.Querying;
 
 	using ItemStatus = DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Serviceorderitem_Behavior.StatusesEnum;
 
@@ -98,6 +99,9 @@
 			items.Setup(r => r.Read(It.IsAny<FilterElement<ServiceOrderItem>>()))
 				.Callback(() => OrderItemReads++)
 				.Returns(() => OrderItems.ToList());
+			items.Setup(r => r.ReadPaged(It.IsAny<IQuery<ServiceOrderItem>>(), It.IsAny<int>()))
+				.Callback(() => OrderItemReads++)
+				.Returns<IQuery<ServiceOrderItem>, int>((q, size) => OnePage(OrderItems, q));
 			var order = new Mock<IServiceOrderApi>();
 			order.SetupGet(o => o.ServiceOrderItems).Returns(items.Object);
 

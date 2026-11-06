@@ -30,6 +30,23 @@
 
 		// ---- GET /service/{id}/configurationVersion ----
 		[TestMethod]
+		public void GetConfiguration_ByInstanceId_ReturnsSelectedServiceWhenPublicIdIsDuplicated()
+		{
+			var wrongService = AddService("Other service with same public ID");
+			StoredServices.Remove(wrongService);
+			StoredServices.Insert(0, wrongService);
+			var version = AddVersion(service, "From order item");
+			service.ServiceConfigurationId = new SdmObjectReference<ServiceConfigurationVersion>(version.Identifier);
+
+			var result = Controller.GetServiceConfiguration(service.Identifier);
+
+			Assert.AreEqual(200, StatusCode(result));
+			var rows = Value<List<ConfigurationRecord>>(result);
+			Assert.IsTrue(rows.Any(row => row.VersionId == version.Identifier && row.VersionName == "From order item"));
+			Assert.AreEqual(0, Value<List<ConfigurationRecord>>(Controller.GetServiceConfiguration(wrongService.Identifier)).Count(row => row.RecordType == "Version"));
+		}
+
+		[TestMethod]
 		public void ListConfigurationVersions_SortsNewestStartDateFirstAndUndatedLast()
 		{
 			AddVersion(service, "undated");

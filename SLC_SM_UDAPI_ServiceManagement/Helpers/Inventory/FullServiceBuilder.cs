@@ -222,11 +222,9 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 
 			for (int start = 0; start < distinct.Count; start += BatchSize)
 			{
-				FilterElement<T> batchFilter = new ORFilterElement<T>();
-				foreach (var id in distinct.Skip(start).Take(BatchSize))
-				{
-					batchFilter = batchFilter.OR(filterFor(id));
-				}
+				// A flat OR without an empty seed element; empty or deeply nested ORs are not translated reliably by every database.
+				var filters = distinct.Skip(start).Take(BatchSize).Select(filterFor).ToArray();
+				FilterElement<T> batchFilter = filters.Length == 1 ? filters[0] : new ORFilterElement<T>(filters);
 
 				foreach (var item in read(batchFilter))
 				{

@@ -309,7 +309,7 @@ function isServiceOrderItemId(id) {
     return ORDERS.some(order => itemsFor(order['Order ID']).some(item => item.ID === id));
 }
 
-function initializeServiceFromOrderItem(orderItemId) {
+function initializeServiceFromOrderItem(orderItemId, copyConfiguration = true) {
     for (const order of ORDERS) {
         const items = itemsFor(order['Order ID']);
         const item = items.find(candidate => candidate.ID === orderItemId);
@@ -328,6 +328,7 @@ function initializeServiceFromOrderItem(orderItemId) {
             'DOM ID': guid(8500 + SERVICES.length),
             'Service ID': `SERVICE-${String(highestServiceNumber + 1).padStart(5, '0')}`,
             'Service Name': item.Name || 'New service',
+            'Service Description': item.Description || '',
             'Service Status': 'New',
             'Service Start': item.Start || 'No Start Time',
             'Service End': item.End || 'No End Time',
@@ -338,6 +339,27 @@ function initializeServiceFromOrderItem(orderItemId) {
             'Alarm Level': '0',
         };
         SERVICES.push(service);
+        const sourceRows = copyConfiguration ? [
+            ...serviceConfigurationsFor(orderItemId, { includeProfiles: false }),
+            ...serviceConfigurationsFor(item['Service Specification ID']).filter(row => ['Profile', 'ProfileParameter', 'NestedProfile', 'NestedProfileParameter'].includes(row['Record Type'])),
+        ] : [];
+        const copiedIds = new Map();
+        const copyId = id => {
+            if (!id) return '';
+            if (!copiedIds.has(id)) copiedIds.set(id, crypto.randomUUID());
+            return copiedIds.get(id);
+        };
+        const versionId = crypto.randomUUID();
+        SERVICE_CONFIGURATION_OVERRIDES.set(service['DOM ID'], sourceRows.map(row => !String(row['Record Type']).startsWith('Available') ? {
+            ...row,
+            'Version ID': versionId,
+            'Configuration ID': copyId(row['Configuration ID']),
+            'Parameter Value ID': copyId(row['Parameter Value ID']),
+            'Profile ID': copyId(row['Profile ID']),
+            'Nested Profile ID': copyId(row['Nested Profile ID']),
+            'Profile Reusable': 'false',
+            'Is Active': 'true',
+        } : { ...row }));
         item.Service = service['Service Name'];
         item.ServiceId = service['DOM ID'];
         EXTRA_ITEMS.set(order['Order ID'], items);
@@ -659,6 +681,7 @@ function handleUdapiRequest(request) {
         const order = id ? ORDERS.find(row => orderIdFor(row['Order ID']) === id) : null;
         if (id && !order) return error(404, 'Not found', `Service order '${id}' does not exist.`);
         if (order && !subResource && request.RequestMethod === 4) {
+            if (!['New', 'Cancelled', 'Completed', 'Rejected'].includes(order.State)) return error(409, 'Conflict', `Service order '${id}' cannot be deleted in status '${order.State}'. Only orders in status 'new', 'cancelled', 'completed' or 'rejected' can be deleted.`);
             ORDERS = ORDERS.filter(candidate => candidate !== order);
             EXTRA_ITEMS.delete(order['Order ID']);
             return { status: 204 };
@@ -716,7 +739,7 @@ function handleUdapiRequest(request) {
                 }
             }
             if (item && subAction === 'initializeService' && request.RequestMethod === 3) {
-                const result = initializeServiceFromOrderItem(subId);
+                const result = initializeServiceFromOrderItem(subId, body.copyConfiguration !== false);
                 if (result.error) return error(400, 'Invalid request', result.error);
                 const service = SERVICES.find(candidate => candidate['DOM ID'] === result.serviceId);
                 return service
@@ -813,7 +836,7 @@ function handleUdapiRequest(request) {
             SERVICES.unshift(created);
             return { status: 201, response: toUdapiService(created) };
         }
-        const service = id ? SERVICES.find(row => row['Service ID'] === id) : null;
+        const service = id ? SERVICES.find(row => row['DOM ID'] === id) ?? SERVICES.find(row => row['Service ID'] === id) : null;
         if (!service) return error(404, 'Not found', `Service '${id}' does not exist.`);
         if (!subResource && request.RequestMethod === 4) {
             SERVICES.splice(SERVICES.indexOf(service), 1);

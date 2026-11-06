@@ -513,7 +513,7 @@ function ConfigurationProfilesSectionV2({ profiles, availableProfiles, available
     const [expandedProfileId, setExpandedProfileId] = useState('');
     const [profileChoice, setProfileChoice] = useState('');
     const [reusableChoice, setReusableChoice] = useState('');
-    const reusableOptions = availableNestedProfiles.filter(profile => profile.definitionId === profileChoice && !profiles.some(current => current.id === profile.id));
+    const reusableOptions = profileChoice ? availableNestedProfiles.filter(profile => profile.definitionId === profileChoice && !profiles.some(current => current.id === profile.id)) : [];
     const addProfile = () => {
         if (!profileChoice) return;
         setExpandedProfileId(onAdd(profileChoice) || '');
@@ -1161,7 +1161,7 @@ function TabbedServiceDetailPanel({ service, onClose, onEdit, onDelete, onDuplic
         return () => { document.removeEventListener('keydown', onKey); document.body.classList.remove('drawer-open'); previous?.focus?.(); };
     }, [onClose]);
     const details = [['Service ID', service.serviceId], ['Service specification', service.specification], ['Service category', service.category], ['Category type', service.categoryType], ['Start date', service.start], ['End date', service.end]];
-    const relatedOrdersContent = relatedOrders.status === 'loading' ? <div className="service-related-empty"><span className="icon spin" aria-hidden="true">refresh</span>Loading related orders…</div> : relatedOrders.status === 'error' ? <div className="service-related-empty error"><span className="icon" aria-hidden="true">error</span>{relatedOrders.error}</div> : relatedOrders.items.length === 0 ? <div className="service-related-empty"><span className="icon" aria-hidden="true">assignment</span>No related service orders.</div> : <div className="related-orders-table-wrap"><table className="related-orders-table"><thead><tr><th>Name</th><th>Action</th><th>State</th></tr></thead><tbody>{relatedOrders.items.map(({ order, item }, index) => <tr key={`${order.id}-${item.id || index}`}><td>{order.name || 'Unnamed order'}</td><td>{item.action || '—'}</td><td><span className={`state-badge ${stateTone(item.status)}`}>{item.status || 'Unknown'}</span></td></tr>)}</tbody></table></div>;
+    const relatedOrdersContent = relatedOrders.status === 'loading' ? <div className="service-related-empty"><span className="icon spin" aria-hidden="true">refresh</span>Loading related orders…</div> : relatedOrders.status === 'error' ? <div className="service-related-empty error"><span className="icon" aria-hidden="true">error</span>{relatedOrders.error}</div> : relatedOrders.items.length === 0 ? <div className="service-related-empty"><span className="icon" aria-hidden="true">assignment</span>No related service orders.</div> : <div className="related-orders-table-wrap"><table className="related-orders-table"><thead><tr><th>Name</th><th>Action</th><th>Item status</th></tr></thead><tbody>{relatedOrders.items.map(({ order, item }, index) => <tr key={`${order.id}-${item.id || index}`}><td>{order.name || 'Unnamed order'}</td><td><span className={`order-action-chip ${orderItemAction(item)}`}>{item.action || '—'}</span></td><td><span className={`state-badge ${stateTone(item.status)}`}>{item.status || 'Unknown'}</span></td></tr>)}</tbody></table></div>;
     const busy = actionState?.status === 'running';
     const serviceView = <>
         <section className="service-workspace-summary" aria-label="Service details">
@@ -1920,10 +1920,11 @@ function NewServiceDialog({ busy, onClose, onSubmit, initialService = null, acti
     const organizationData = useDataList(fetchServiceOrganizations);
     const linkedServiceData = useDataList(fetchMonitoringServices);
     const existingServiceFetcher = useCallback(async () => {
-        if (!initialService?.serviceId) return [];
-        const service = await fetchServiceDetails(initialService.serviceId);
+        const id = serviceApiId(initialService);
+        if (!id) return [];
+        const service = await fetchServiceDetails(id);
         return service ? [service] : [];
-    }, [initialService?.serviceId]);
+    }, [initialService?.id, initialService?.serviceId]);
     const existingServiceData = useDataList(existingServiceFetcher);
     const update = (field, value) => {
         if (field === 'organization') setOrganizationTouched(true);
@@ -2485,6 +2486,30 @@ function OrderItems({ itemsState, onAdd, onEdit, onDelete, onSelect, onInitializ
     return <section className="order-items-section" aria-labelledby="order-items-title"><div className="order-items-heading"><div className="order-items-title"><h3 id="order-items-title">Order items</h3>{status === 'ready' && <span className="count-pill" data-testid="order-item-count">{items.length}</span>}</div><button className="quiet-button add-item-button" type="button" onClick={onAdd} disabled={busy}><span className="icon" aria-hidden="true">add</span>Add item</button></div>{body}</section>;
 }
 
+function InitializeServiceDialog({ item, busy, onClose, onSubmit }) {
+    const [copyConfiguration, setCopyConfiguration] = useState(true);
+    const form = useRef(null);
+    useEffect(() => {
+        const previous = document.activeElement;
+        form.current?.querySelector('input')?.focus();
+        return () => previous?.focus?.();
+    }, []);
+    return <div className="confirm-layer order-form-layer" onKeyDown={event => {
+        if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); if (!busy) onClose(); }
+    }}>
+        <div className="confirm-backdrop" onClick={() => { if (!busy) onClose(); }} aria-hidden="true" />
+        <form ref={form} className="order-form-dialog initialize-service-dialog" aria-labelledby="initialize-service-title" onSubmit={event => { event.preventDefault(); onSubmit(copyConfiguration); }}>
+            <header className="order-form-header"><div><p className="eyebrow">Service order item</p><h2 id="initialize-service-title">Initialize service</h2></div><button className="icon-button" type="button" aria-label="Close initialization form" onClick={onClose} disabled={busy}><span className="icon" aria-hidden="true">close</span></button></header>
+            <div className="order-form-grid">
+                <p className="wide">Create a service using the details of this order item.</p>
+                <label className="form-checkbox wide"><input type="checkbox" checked={copyConfiguration} onChange={event => setCopyConfiguration(event.target.checked)} disabled={busy} />Copy configuration</label>
+                <p className="form-field-hint wide">Changes to the service will not affect the original configuration.</p>
+            </div>
+            <footer className="order-form-actions"><button className="quiet-button" type="button" onClick={onClose} disabled={busy}>Cancel</button><button className="primary-button" type="submit" disabled={busy}>{busy ? 'Initializing…' : 'Create service'}</button></footer>
+        </form>
+    </div>;
+}
+
 function ServiceOrderItemDetailPanel({ order, item, onClose, onEdit, onTransition, onInitialize, initializing, onSaveConfiguration, onConfirmConfiguration, busy }) {
     const closeButton = useRef(null);
     const onCloseRef = useRef(onClose);
@@ -2495,7 +2520,7 @@ function ServiceOrderItemDetailPanel({ order, item, onClose, onEdit, onTransitio
         const previous = document.activeElement;
         closeButton.current?.focus();
         // Capture phase so the order pop-up underneath does not also close on the same Escape.
-        const onKey = event => { if (event.key === 'Escape' && !event.defaultPrevented) { event.preventDefault(); onCloseRef.current(); } };
+        const onKey = event => { if (event.key === 'Escape' && !event.defaultPrevented && !event.target.closest?.('.initialize-service-dialog')) { event.preventDefault(); onCloseRef.current(); } };
         document.addEventListener('keydown', onKey, true);
         return () => { document.removeEventListener('keydown', onKey, true); previous?.focus?.(); };
     }, []);
@@ -2548,6 +2573,7 @@ function OrderDetailPanel({ order, onClose, onRunApi, onActionFailure, onConfirm
     const lastSelectedItem = useRef(null);
     const [itemEditor, setItemEditor] = useState(null);
     const [initializingItemId, setInitializingItemId] = useState(null);
+    const [initializationTarget, setInitializationTarget] = useState(null);
     const [pendingCancellationTransition, setPendingCancellationTransition] = useState(null);
     const busy = actionState?.status === 'running';
     const transitions = getOrderTransitions(order.state);
@@ -2594,16 +2620,21 @@ function OrderDetailPanel({ order, onClose, onRunApi, onActionFailure, onConfirm
         setItemEditor(null);
         setItemsRefreshKey(value => value + 1);
     };
-    const initializeService = async item => {
+    const initializeService = item => {
         if (!item?.id || item.serviceId || String(item.action || '').trim().toLowerCase() === 'delete') return;
         if (!item.specificationId) {
             onActionFailure('Assign a service specification before initializing a service.');
             return;
         }
+        setInitializationTarget(item);
+    };
+    const submitInitialization = async copyConfiguration => {
+        const item = initializationTarget;
+        if (!item || initializingItemId) return;
         setInitializingItemId(item.id);
         try {
             const initialized = await onRunApi(
-                () => initializeServiceFromOrderItem(order.orderId, item.id),
+                () => initializeServiceFromOrderItem(order.orderId, item.id, copyConfiguration),
                 `Initializing service for ${item.name || 'order item'}`,
                 async () => {
                     const refreshedItems = await fetchServiceOrderItems(order);
@@ -2613,6 +2644,7 @@ function OrderDetailPanel({ order, onClose, onRunApi, onActionFailure, onConfirm
                 },
             );
             if (!initialized) return;
+            setInitializationTarget(null);
             setItemsRefreshKey(value => value + 1);
         }
         catch (error) {
@@ -2625,11 +2657,14 @@ function OrderDetailPanel({ order, onClose, onRunApi, onActionFailure, onConfirm
     const applyOrderTransition = async (transition, cancellationReason) => {
         const requiresConfirmation = ['Reject', 'Cancel', 'Confirm Cancellation'].includes(transition.label);
         if (requiresConfirmation && !await onConfirmAction(`Transition "${order.name || 'this service order'}" to ${transition.label.toLowerCase()}?`)) return false;
-        return onRunApi(
+        const transitioned = await onRunApi(
             () => transitionServiceOrder(order.orderId, transition.next, cancellationReason),
             `${transition.label} service order`,
             onOrdersChanged,
         );
+        // The backend moves the order's items too, so their statuses must be reloaded.
+        if (transitioned) setItemsRefreshKey(value => value + 1);
+        return transitioned;
     };
     const transitionOrder = async (_item, transition) => {
         if (String(transition.next).replace(/\s+/g, '').toLowerCase() === 'assesscancellation') {
@@ -2687,6 +2722,7 @@ function OrderDetailPanel({ order, onClose, onRunApi, onActionFailure, onConfirm
                 {order.description && <div className="order-modal-description"><dt>Description</dt><dd>{order.description}</dd></div>}
             </dl>
             <OrderItems itemsState={itemsState} onAdd={addItem} onEdit={editItem} onDelete={deleteItem}             onSelect={selectItem} onInitialize={initializeService} initializingItemId={initializingItemId} busy={busy} />
+            {initializationTarget && <InitializeServiceDialog item={initializationTarget} busy={busy || initializingItemId !== null} onClose={() => setInitializationTarget(null)} onSubmit={submitInitialization} />}
         </div>
                 </section>{selectedItem && <ServiceOrderItemDetailPanel order={order} item={selectedItem} onClose={closeSelectedItem} onEdit={() => editItem(selectedItem)} onTransition={transitionOrderItem} onInitialize={initializeService} initializing={initializingItemId === selectedItem.id} onSaveConfiguration={(values, refresh) => saveItemConfiguration(selectedItem, values, refresh)} onConfirmConfiguration={onConfirmAction} busy={busy} />}</div>{itemEditor && <ServiceOrderItemDialog key={`${itemEditor.action}-${itemEditor.item?.id || 'new'}`} busy={actionState?.status === 'running'} order={order} action={itemEditor.action} initialItem={itemEditor.item} onClose={() => setItemEditor(null)} onSubmit={submitItem} />}{pendingCancellationTransition && <CancellationReasonDialog busy={busy} onClose={() => setPendingCancellationTransition(null)} onSubmit={submitCancellationReason} />}</>;
 }

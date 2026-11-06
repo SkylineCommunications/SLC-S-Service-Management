@@ -241,8 +241,10 @@
 					return Conflict(CreateError("Conflict", $"A service with name '{name}' already exists.", 409));
 				}
 
-				var existingServiceIds = services.Read(new TRUEFilterElement<Service>()).Select(s => s.ServiceID).ToList();
-				string serviceId = String.IsNullOrWhiteSpace(request.ServiceId) ? GenerateServiceId(existingServiceIds) : request.ServiceId.Trim();
+				var existingServiceIds = PagedRead.All<Service>(services).Select(s => s.ServiceID).ToList();
+				string serviceId = String.IsNullOrWhiteSpace(request.ServiceId)
+					? ServiceIdGenerator.Next(existingServiceIds)
+					: request.ServiceId.Trim();
 				if (existingServiceIds.Any(id => String.Equals(id, serviceId, StringComparison.OrdinalIgnoreCase)))
 				{
 					return Conflict(CreateError("Conflict", $"A service with ID '{serviceId}' already exists.", 409));
@@ -898,7 +900,7 @@
 
 			try
 			{
-				if (String.IsNullOrWhiteSpace(id) || !ServiceIdPattern.IsMatch(id.Trim()))
+				if (String.IsNullOrWhiteSpace(id) || (!ServiceIdPattern.IsMatch(id.Trim()) && (!Guid.TryParse(id.Trim(), out Guid instanceId) || instanceId == Guid.Empty)))
 				{
 					return NotFound(CreateError("Not found", $"Service '{id?.Trim()}' does not exist.", 404));
 				}
@@ -1107,17 +1109,6 @@
 				})
 				.ToList()
 				?? new List<ServiceItem>();
-		}
-
-		private static string GenerateServiceId(IEnumerable<string> existingServiceIds)
-		{
-			int max = existingServiceIds
-				.Where(id => !String.IsNullOrWhiteSpace(id))
-				.Select(id => Int32.TryParse(id.Split('-').Last(), out int number) ? number : 0)
-				.DefaultIfEmpty(0)
-				.Max();
-
-			return $"SERVICE-{max + 1:00000}";
 		}
 
 		private static bool Has(JObject patch, string property)
@@ -1441,7 +1432,7 @@
 		}
 
 		/// <summary>
-		/// Finds a service by its public ID. Only the SERVICE-xxxxx format is accepted; any other value returns null (404).
+		/// Finds a service by its immutable DOM identifier or public SERVICE-xxxxx ID.
 		/// </summary>
 		private Service FindService(string id)
 		{
@@ -1451,6 +1442,13 @@
 			}
 
 			string key = id.Trim();
+			if (Guid.TryParse(key, out Guid instanceId) && instanceId != Guid.Empty)
+			{
+				return serviceManagementApiHelper.ServiceInventory.Services
+					.Read(ServiceExposers.Identifier.Equal(instanceId.ToString()))
+					.FirstOrDefault();
+			}
+
 			if (!ServiceIdPattern.IsMatch(key))
 			{
 				return null;

@@ -11,6 +11,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
 	using Skyline.DataMiner.Utils.UserDefinedApiToolkit;
 	using SLC_SM_UDAPI_ServiceManagement.Exceptions;
+	using SLC_SM_UDAPI_ServiceManagement.Helpers;
 	using SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory;
 	using SLC_SM_UDAPI_ServiceManagement.Models.Inventory;
 
@@ -30,17 +31,27 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 					return NotFound(CreateError("Not found", $"Service '{id?.Trim()}' does not exist.", 404));
 				}
 
-				var serviceItems = serviceManagementApiHelper.ServiceOrder.ServiceOrderItems
-					.Read(ServiceOrderItemExposers.ServiceInfo.ServiceId.Equal(new SdmObjectReference<Service>(service.Identifier)))
-					.Where(item => item != null && !String.IsNullOrWhiteSpace(item.Identifier))
-					.ToDictionary(item => item.Identifier, StringComparer.OrdinalIgnoreCase);
-				if (serviceItems.Count == 0)
+				if (!Guid.TryParse(service.Identifier, out var serviceGuid))
 				{
-					return Ok(new object[0]);
+					return Ok(new List<object>());
 				}
 
-				var orders = serviceManagementApiHelper.ServiceOrder.ServiceOrders.Read(new TRUEFilterElement<ServiceOrder>());
-				var related = orders
+				bool IsLinked(ServiceOrderItem item) => item?.ServiceInfo != null
+					&& Guid.TryParse(item.ServiceInfo.ServiceId.Identifier, out var linkedId)
+					&& linkedId == serviceGuid;
+
+				var serviceItems = serviceManagementApiHelper.ServiceOrder.ServiceOrderItems
+					.Read(ServiceOrderItemExposers.ServiceInfo.ServiceId.Equal(new SdmObjectReference<Service>(service.Identifier)))
+					.Where(IsLinked)
+					.GroupBy(item => item.Identifier, StringComparer.OrdinalIgnoreCase)
+					.ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+				if (serviceItems.Count == 0)
+				{
+					return Ok(new List<object>());
+				}
+
+				// Paged: an unpaged read of all orders can be incomplete on large systems.
+				var related = PagedRead.All<ServiceOrder>(serviceManagementApiHelper.ServiceOrder.ServiceOrders)
 					.SelectMany(order => (order.OrderItems ?? new List<ServiceOrderEntry>())
 						.Where(entry => entry?.ServiceOrderItemId != null
 							&& !String.IsNullOrWhiteSpace(entry.ServiceOrderItemId.Identifier)
@@ -157,9 +168,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 					return NotFound(CreateError("Not found", $"Service '{id?.Trim()}' does not exist.", 404));
 				}
 
-				var services = serviceManagementApiHelper.ServiceInventory.Services
-					.Read(new TRUEFilterElement<Service>())
-					.ToList();
+				var services = PagedRead.All<Service>(serviceManagementApiHelper.ServiceInventory.Services);
 				var duplicate = new ServiceDuplicator(serviceManagementApiHelper)
 					.Duplicate(source, services.Select(service => service.ServiceID));
 				return Created(duplicate);

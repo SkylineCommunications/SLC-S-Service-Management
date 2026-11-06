@@ -164,8 +164,7 @@
 				}
 
 				// No ServiceOrderItem exposer exists for ServiceInfo.SpecificationId in this SDK version, so this stays in memory.
-				int openItemCount = (serviceManagementApiHelper.ServiceOrder.ServiceOrderItems
-					.Read(new TRUEFilterElement<ServiceOrderItem>()) ?? Enumerable.Empty<ServiceOrderItem>())
+				int openItemCount = PagedRead.All<ServiceOrderItem>(serviceManagementApiHelper.ServiceOrder.ServiceOrderItems)
 					.Count(i => i.ServiceInfo != null && IsSameId(i.ServiceInfo.SpecificationId.Identifier, key) && !ClosedItemStatuses.Contains(i.Status.ToString()));
 
 				if (openItemCount > 0)

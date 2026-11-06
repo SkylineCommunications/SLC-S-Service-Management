@@ -527,6 +527,22 @@ export async function mockDataMinerApi(page: Page, mode: GqiMode = 'ok'): Promis
                     };
                     services.push(created);
                     serviceItemsByDomId.set(created['DOM ID'], []);
+                    const sourceRows = [
+                        ...(orderItemConfigurationOverrides.get(`${id}:${subId}`) ?? []),
+                        ...(item['Service Specification ID'] === SAMPLE_SPECIFICATION['Specification ID']
+                            ? SAMPLE_SPECIFICATION_CONFIGURATIONS.filter(row => ['Profile', 'ProfileParameter', 'NestedProfile', 'NestedProfileParameter'].includes(row['Record Type'])) : []),
+                    ];
+                    const copiedRows = requestBody.copyConfiguration === false ? [] : sourceRows.filter(row => !row['Record Type'].startsWith('Available')).map(row => ({
+                        ...row,
+                        'Version ID': `${created['DOM ID']}-version`,
+                        'Configuration ID': row['Configuration ID'] ? `${created['DOM ID']}-${row['Configuration ID']}` : '',
+                        'Parameter Value ID': row['Parameter Value ID'] ? `${created['DOM ID']}-${row['Parameter Value ID']}` : '',
+                        'Profile ID': row['Profile ID'] ? `${created['DOM ID']}-${row['Profile ID']}` : '',
+                        'Nested Profile ID': row['Nested Profile ID'] ? `${created['DOM ID']}-${row['Nested Profile ID']}` : '',
+                        'Profile Reusable': 'false',
+                        'Is Active': 'true',
+                    }));
+                    serviceConfigurationOverrides.set(created['DOM ID'], copiedRows);
                     item.ServiceId = created['DOM ID'];
                     item.Service = created['Service Name'];
                     return respond(201, toUdapiService(created));
@@ -598,8 +614,8 @@ export async function mockDataMinerApi(page: Page, mode: GqiMode = 'ok'): Promis
                     services.push(created);
                     return respond(201, toUdapiService(created));
                 }
-                // Mirrors the UDAPI: GET accepts the SERVICE-123 ID or the DOM GUID; other routes only the SERVICE-123 ID.
-                const service = services.find(row => row['Service ID'] === id || (!subResource && request.RequestMethod === 1 && row['DOM ID'] === id));
+                // Service routes accept the immutable DOM identifier as well as the public ID.
+                const service = services.find(row => row['DOM ID'] === id) ?? services.find(row => row['Service ID'] === id);
                 if (!service) return notFound();
                 if (!subResource && request.RequestMethod === 1) return respond(200, selectUdapiFields(toUdapiService(service), request));
                 if (!subResource && request.RequestMethod === 4) {
@@ -623,8 +639,8 @@ export async function mockDataMinerApi(page: Page, mode: GqiMode = 'ok'): Promis
                             OrderId: order.OrderId,
                             OrderName: order.Name,
                             ServiceOrderItemId: item.ID,
-                            Action: item.Action,
-                            State: item.Status,
+                            Action: item.Action.toLowerCase(),
+                            State: item.Status.replace(/\s+/g, ''),
                         })));
                     return respond(200, related);
                 }

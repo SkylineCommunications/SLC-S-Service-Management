@@ -570,6 +570,10 @@ button.configuration-nested-chip { width:100%; min-height:36px; justify-content:
 .related-orders-table th { padding:8px 10px; border-bottom:1px solid var(--color5); color:var(--color10); font-size:11px; text-align:left; text-transform:uppercase; }
 .related-orders-table td { padding:10px; border-bottom:1px solid var(--color5); color:var(--color12); font-size:12px; vertical-align:middle; }
 .related-orders-table tr:last-child td { border-bottom:0; }
+.related-orders-table th:first-child { width:46%; }
+.related-orders-table td:first-child { font-weight:500; overflow-wrap:anywhere; }
+.related-orders-table .order-action-chip { text-transform:none; letter-spacing:normal; font-weight:500; }
+.related-orders-table .state-badge { min-width:0; white-space:normal; border-radius:12px; }
 @media (max-width:800px) {
     .configuration-version-grid, .configuration-version-details { grid-template-columns:1fr 1fr; }
     .configuration-version-details label:nth-of-type(2) { grid-column:auto; }
@@ -926,6 +930,7 @@ button.configuration-nested-chip > span:first-child { font-size:13px; font-weigh
 .order-items-section { display:flex; flex-direction:column; gap:12px; }
 .order-modal .order-items-heading { padding:0; display:flex; align-items:center; justify-content:space-between; gap:12px; }
 .order-items-title { display:flex; align-items:center; gap:10px; }
+.order-items-title .count-pill { margin:0; }
 .order-items-title h3 { margin:0; color:var(--color10); font-size:13px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; }
 .order-modal .order-items-heading .count-pill { margin:0; }
 .order-modal .list-message { border-top:0; padding:16px; border:1px dashed var(--color6); border-radius:10px; background:var(--color2); }
@@ -1208,3 +1213,9 @@ button.configuration-nested-chip > span:first-child { font-size:13px; font-weigh
     .service-workspace .configuration-version-toolbar select { min-width:0; max-width:100%; }
     .service-workspace .configuration-version-actions { margin-left:0; }
 }
+
+/* Consistent select chevron: the native arrow sits too close to the right edge and cannot be spaced. */
+:root { --select-chevron:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5 6 8l3.5-3.5' fill='none' stroke='%23727579' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"); }
+:root[data-theme='dark'] { --select-chevron:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5 6 8l3.5-3.5' fill='none' stroke='%23a0a2a6' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"); }
+select:not([multiple]):not([size]) { -webkit-appearance:none; appearance:none; padding-right:34px !important; background-image:var(--select-chevron) !important; background-repeat:no-repeat !important; background-position:right 12px center !important; background-size:12px 12px !important; }
+.orders-filter select { background-image:none !important; }

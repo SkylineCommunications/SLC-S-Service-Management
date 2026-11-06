@@ -248,8 +248,8 @@ export async function saveServiceOrderItemConfiguration(orderId, itemId, body) {
     return callServiceManagementUdapi(serviceOrderRoute(orderId, 'item', itemId, 'configuration'), { method: 'PUT', body });
 }
 
-export async function initializeServiceFromOrderItem(orderId, itemId) {
-    return callServiceManagementUdapi(serviceOrderRoute(orderId, 'item', itemId, 'initializeService'), { method: 'POST', body: {} });
+export async function initializeServiceFromOrderItem(orderId, itemId, copyConfiguration = true) {
+    return callServiceManagementUdapi(serviceOrderRoute(orderId, 'item', itemId, 'initializeService'), { method: 'POST', body: { copyConfiguration } });
 }
 
 export async function updateServiceOrder(orderId, body) {

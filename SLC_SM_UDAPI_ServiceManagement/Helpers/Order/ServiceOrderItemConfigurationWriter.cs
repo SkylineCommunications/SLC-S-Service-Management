@@ -71,6 +71,8 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Order
 					throw new InvalidConfigurationException(ex.Message, ex);
 				}
 
+				value.Label = parameter.Label ?? value.Label ?? String.Empty;
+				value.IsLinked = parameter.IsLinked;
 				value.ValueFixed = parameter.Fixed;
 				_api.ServiceCatalog.ConfigurationParameterValues.CreateOrUpdate(new[] { value });
 
@@ -255,8 +257,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Order
 
 			if (parameterValueIds.Count > 0)
 			{
-				foreach (var configuration in _api.ServiceOrder.ServiceOrderItemConfigurationValues
-					.Read(new TRUEFilterElement<ServiceOrderItemConfigurationValue>()))
+				foreach (var configuration in PagedRead.All<ServiceOrderItemConfigurationValue>(_api.ServiceOrder.ServiceOrderItemConfigurationValues))
 				{
 					if (deletedConfigurationIds.Contains(configuration.Identifier))
 					{

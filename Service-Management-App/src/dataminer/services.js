@@ -45,7 +45,7 @@ export function isUdapiService(service) {
 }
 
 export function serviceApiId(service) {
-    return String(service?.serviceId ?? service?.id ?? '').trim();
+    return String(service?.id || service?.serviceId || '').trim();
 }
 
 export const SERVICE_STATUSES = ['New', 'Designed', 'Reserved', 'Active', 'Terminated', 'Retired'];

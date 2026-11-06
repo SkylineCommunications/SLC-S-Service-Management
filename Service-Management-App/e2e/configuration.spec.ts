@@ -64,7 +64,7 @@ for (const owner of ['service', 'specification']) {
     test(`reuses parameter definitions independently in ${owner} configurations`, async ({ page, context }) => {
         await setSessionCookie(context);
         await mockDataMinerApi(page);
-        const resource = owner === 'service' ? 'service/SERVICE-1' : 'serviceSpecification/spec-1';
+        const resource = owner === 'service' ? 'service/service-1' : 'serviceSpecification/spec-1';
         const version = { versionId: 'spec-1', versionName: 'Current version', isActive: 'true' };
         let parameters = [
             { ConfigurationId: 'main', ParameterValueId: 'main-value', ParameterId: 'port', Label: 'Main', Value: '5000' },

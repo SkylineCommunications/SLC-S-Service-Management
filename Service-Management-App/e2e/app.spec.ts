@@ -121,7 +121,7 @@ test.describe('Service Management workspace', () => {
         await expect(form.getByRole('button', { name: 'Add item', exact: true })).toBeEnabled();
     });
     test('lists, adds, edits and deletes service items through the UDAPI item routes', { tag: ['@S2', '@S5'] }, async ({ page }) => {
-        const itemsRoute = `${SERVICES_ROUTE}/SERVICE-1/item`;
+        const itemsRoute = `${SERVICES_ROUTE}/service-1/item`;
         const lastRequest = (method: number) => udapiRequests(mock).filter(request => request.RequestMethod === method && String(request.Route).startsWith(itemsRoute)).at(-1);
         await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: /Services/ }).click();
         await page.locator('.service-row').filter({ hasText: 'Test service' }).getByRole('button', { name: 'Open details of Test service' }).click();
@@ -229,7 +229,7 @@ test.describe('Service Management workspace', () => {
         await expect(form.getByRole('combobox', { name: 'Organization' })).toHaveValue('Skyline Broadcast');
         const serviceReads = udapiRequests(mock).filter(request => request.RequestMethod === 1);
         expect(serviceReads.filter(request => request.Route === SERVICES_ROUTE)).toHaveLength(1);
-        expect(serviceReads.find(request => request.Route === `${SERVICES_ROUTE}/SERVICE-1`)).toMatchObject({
+        expect(serviceReads.find(request => request.Route === `${SERVICES_ROUTE}/service-1`)).toMatchObject({
             QueryParameters: { fields: ['OrganizationId,OrganizationName'] },
         });
         expect(mock.calls.some(call => call.method === 'OpenQuerySession' && JSON.parse(call.body.query.Options[0].Value.Value).ScriptName === 'SLC_SM_GQIDS_Get Services')).toBeFalsy();
@@ -245,18 +245,18 @@ test.describe('Service Management workspace', () => {
         expect(fields).toContain('StatusName');
         expect(fields).toContain('CategoryName');
         expect(fields).not.toMatch(/ServiceItems|ServiceItemRelationships|ServiceConfigurationId|ConfigurationVersions|ServiceScripts|OrganizationId|OrganizationName/);
-        expect(udapiRequests(mock).some(request => request.Route === `${SERVICES_ROUTE}/SERVICE-1/configuration`)).toBeFalsy();
+        expect(udapiRequests(mock).some(request => request.Route === `${SERVICES_ROUTE}/service-1/configuration`)).toBeFalsy();
 
         await row.getByRole('button', { name: 'Open details of Test service' }).click();
         const details = page.getByRole('dialog');
         await expect(details).toBeVisible();
-        await expect.poll(() => udapiRequests(mock).some(request => request.Route === `${SERVICES_ROUTE}/SERVICE-1/item`)).toBeTruthy();
-        await expect.poll(() => udapiRequests(mock).some(request => request.Route === `${SERVICES_ROUTE}/SERVICE-1/relatedOrder`)).toBeTruthy();
-        await expect.poll(() => udapiRequests(mock).some(request => request.Route === `${SERVICES_ROUTE}/SERVICE-1/script`)).toBeTruthy();
-        expect(udapiRequests(mock).some(request => request.Route === `${SERVICES_ROUTE}/SERVICE-1/configuration`)).toBeFalsy();
+        await expect.poll(() => udapiRequests(mock).some(request => request.Route === `${SERVICES_ROUTE}/service-1/item`)).toBeTruthy();
+        await expect.poll(() => udapiRequests(mock).some(request => request.Route === `${SERVICES_ROUTE}/service-1/relatedOrder`)).toBeTruthy();
+        await expect.poll(() => udapiRequests(mock).some(request => request.Route === `${SERVICES_ROUTE}/service-1/script`)).toBeTruthy();
+        expect(udapiRequests(mock).some(request => request.Route === `${SERVICES_ROUTE}/service-1/configuration`)).toBeFalsy();
 
         await details.getByRole('button', { name: 'Configurations', exact: true }).click();
-        await expect.poll(() => udapiRequests(mock).some(request => request.Route === `${SERVICES_ROUTE}/SERVICE-1/configuration`)).toBeTruthy();
+        await expect.poll(() => udapiRequests(mock).some(request => request.Route === `${SERVICES_ROUTE}/service-1/configuration`)).toBeTruthy();
     });
     test('creates, edits, re-logos and transitions services through the UDAPI service routes', { tag: ['@S3', '@S6'] }, async ({ page }) => {
         const lastRequest = (method: number) => udapiRequests(mock).filter(request => request.RequestMethod === method && String(request.Route).startsWith(SERVICES_ROUTE)).at(-1);
@@ -289,14 +289,14 @@ test.describe('Service Management workspace', () => {
         await editForm.getByRole('button', { name: 'Save', exact: true }).click();
         await expect(editForm).toBeHidden();
         const edit = lastRequest(5);
-        expect(edit.Route).toBe(`${SERVICES_ROUTE}/SERVICE-7`);
+        expect(edit.Route).toBe(`${SERVICES_ROUTE}/service-2`);
         const editBody = JSON.parse(edit.Body);
         expect(editBody).toMatchObject({ name: 'UDAPI service renamed', organizationId: null });
         expect(editBody).not.toHaveProperty('serviceId');
         expect(editBody).not.toHaveProperty('serviceSpecificationId');
 
         await page.getByRole('dialog', { name: 'UDAPI service renamed' }).getByRole('button', { name: 'Design', exact: true }).click();
-        await expect.poll(() => lastRequest(3)?.Route).toBe(`${SERVICES_ROUTE}/SERVICE-7/transition`);
+        await expect.poll(() => lastRequest(3)?.Route).toBe(`${SERVICES_ROUTE}/service-2/transition`);
         expect(JSON.parse(lastRequest(3).Body)).toEqual({ targetStatus: 'Designed' });
 
         await page.keyboard.press('Escape');
@@ -305,7 +305,7 @@ test.describe('Service Management workspace', () => {
         await logoForm.getByRole('combobox', { name: 'Logo category' }).selectOption('Connectivity');
         await logoForm.getByRole('button', { name: 'Apply logo', exact: true }).click();
         await expect(logoForm).toBeHidden();
-        expect(lastRequest(5).Route).toBe(`${SERVICES_ROUTE}/SERVICE-7`);
+        expect(lastRequest(5).Route).toBe(`${SERVICES_ROUTE}/service-2`);
         expect(JSON.parse(lastRequest(5).Body)).toEqual({ category: { name: 'Connectivity' } });
         expect(mock.calls.some(call => /^SLC_SM_(Create Service Inventory Item|Service_StateTransitions)$/.test(call.body.script?.Name ?? ''))).toBeFalsy();
     });
@@ -418,8 +418,12 @@ test.describe('Service Management workspace', () => {
         const related = dialog.getByRole('heading', { name: 'Related service orders' }).locator('..');
         await expect(related).toContainText('1');
         await expect(dialog).toContainText('Network refresh');
+        const relatedRow = dialog.locator('.related-orders-table tbody tr').filter({ hasText: 'Network refresh' });
+        await expect(relatedRow.locator('.state-badge')).toHaveText('In Progress');
+        await expect(relatedRow.locator('.order-action-chip')).toHaveText('Add');
+        await expect(dialog.getByRole('columnheader', { name: 'Item status', exact: true })).toBeVisible();
         expect(udapiRequests(mock)).toContainEqual(expect.objectContaining({
-            Route: `${SERVICES_ROUTE}/SERVICE-1/relatedOrder`,
+            Route: `${SERVICES_ROUTE}/service-1/relatedOrder`,
             RequestMethod: 1,
         }));
         expect(mock.calls.some(call => {
@@ -431,7 +435,7 @@ test.describe('Service Management workspace', () => {
     test('loads service configuration only for the selected service when requested', { tag: '@C3' }, async ({ page }) => {
         await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: /Services/ }).click();
         const serviceRow = page.locator('.service-row').filter({ hasText: 'Test service' });
-        const configurationRoute = `${SERVICES_ROUTE}/SERVICE-1/configuration`;
+        const configurationRoute = `${SERVICES_ROUTE}/service-1/configuration`;
         const configurationRequests = () => udapiRequests(mock).filter(request => request.Route === configurationRoute);
 
         expect(configurationRequests()).toHaveLength(0);
@@ -524,10 +528,10 @@ test.describe('Service Management workspace', () => {
         await dialog.getByRole('combobox', { name: 'Value for Polarization' }).selectOption({ label: 'Vertical' });
         await dialog.getByRole('button', { name: 'Save configuration', exact: true }).click();
         await expect.poll(() => udapiRequests(mock).some(request =>
-            request.Route === `${SERVICES_ROUTE}/SERVICE-1/configuration` && request.RequestMethod === 2,
+            request.Route === `${SERVICES_ROUTE}/service-1/configuration` && request.RequestMethod === 2,
         )).toBeTruthy();
         const saveRequest = udapiRequests(mock).find(request =>
-            request.Route === `${SERVICES_ROUTE}/SERVICE-1/configuration` && request.RequestMethod === 2,
+            request.Route === `${SERVICES_ROUTE}/service-1/configuration` && request.RequestMethod === 2,
         );
         expect(JSON.parse(saveRequest.Body).Parameters).toEqual(expect.arrayContaining([
             expect.objectContaining({ ParameterId: 'parameter-discrete', Value: 'Vertical' }),
@@ -548,7 +552,7 @@ test.describe('Service Management workspace', () => {
         await dialog.getByRole('button', { name: 'Save configuration', exact: true }).click();
 
         const saveRequest = () => udapiRequests(mock).find(request =>
-            request.Route === `${SERVICES_ROUTE}/SERVICE-1/configuration` && request.RequestMethod === 2,
+            request.Route === `${SERVICES_ROUTE}/service-1/configuration` && request.RequestMethod === 2,
         );
         await expect.poll(saveRequest).toBeTruthy();
         expect(JSON.parse(saveRequest().Body).Parameters).toEqual(expect.arrayContaining([
@@ -579,7 +583,7 @@ test.describe('Service Management workspace', () => {
         await dialog.getByRole('button', { name: 'Duplicate configuration' }).click();
         await confirmation.getByRole('button', { name: 'Duplicate', exact: true }).click();
         await expect.poll(() => udapiRequests(mock).some(request =>
-            request.Route === `${SERVICES_ROUTE}/SERVICE-1/configurationVersion/spec-1/duplicate` && request.RequestMethod === 3,
+            request.Route === `${SERVICES_ROUTE}/service-1/configurationVersion/spec-1/duplicate` && request.RequestMethod === 3,
         )).toBe(true);
         const version = dialog.getByRole('combobox', { name: 'Version' });
         await expect(version.locator('option:checked')).toHaveText('Current version (Copy)');
@@ -849,7 +853,7 @@ test.describe('Service Management workspace', () => {
         await addForm.getByRole('button', { name: 'Add operation' }).click();
         await expect(panel.getByText('Provisioning operation', { exact: true })).toBeVisible();
 
-        const scriptsRoute = `${SERVICES_ROUTE}/SERVICE-1/script`;
+        const scriptsRoute = `${SERVICES_ROUTE}/service-1/script`;
         const addRequest = udapiRequests(mock).find(request => request.Route === scriptsRoute && request.RequestMethod === 3);
         expect(addRequest).toBeTruthy();
         expect(JSON.parse(addRequest.Body)).toEqual({ name: 'Provision service', description: 'Provisioning operation' });
@@ -1080,21 +1084,61 @@ test.describe('Service Management workspace', () => {
         expect(serviceListRequests.at(-1).QueryParameters.search).toEqual(['filler service 1']);
         expect(serviceListRequests.every(request => request.QueryParameters.pagination?.[0] === 'cursor')).toBe(true);
     });
-    test('initializes a service when its specification has no configuration', { tag: '@W3' }, async ({ page }) => {
+    for (const copyConfiguration of [true, false]) test(`initializes a service with configuration copy ${copyConfiguration ? 'enabled' : 'disabled'}`, { tag: '@W3' }, async ({ page }) => {
         await page.locator('.order-row').filter({ hasText: 'Network refresh' }).getByRole('button', { name: 'Open details of Network refresh' }).click();
         const panel = page.getByRole('dialog', { name: 'Network refresh' });
         const item = panel.locator('.order-item').filter({ hasText: 'Core switch B' });
         const initialize = item.getByRole('button', { name: 'Initialize service for Core switch B' });
         await expect(initialize).toBeEnabled();
         await initialize.click();
+        const form = page.getByRole('form', { name: 'Initialize service', exact: true });
+        const checkbox = form.getByRole('checkbox', { name: 'Copy configuration', exact: true });
+        await expect(checkbox).toBeChecked();
+        await page.setViewportSize({ width: 390, height: 844 });
+        expect(await form.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBeTruthy();
+        await checkbox.press('Escape');
+        await expect(form).toHaveCount(0);
+        await expect(panel).toBeVisible();
+        expect(udapiRequests(mock).filter(request => request.Route.endsWith('/initializeService'))).toHaveLength(0);
+        await initialize.click();
+        await expect(checkbox).toBeChecked();
+        if (!copyConfiguration) await checkbox.uncheck();
+        await form.getByRole('button', { name: 'Create service', exact: true }).click();
+        await expect(form).toHaveCount(0);
         await expect(item.getByRole('button', { name: 'Open service Core switch B' })).toBeVisible();
         const requests = udapiRequests(mock);
         const initializeRequests = requests.filter(request => request.Route.endsWith('/initializeService'));
         expect(initializeRequests).toHaveLength(1);
         expect(initializeRequests[0].Route).toBe(`${ORDERS_ROUTE}/${SAMPLE_ORDERS[0].OrderId}/item/a2/initializeService`);
         expect(initializeRequests[0].RequestMethod).toBe(3);
+        expect(JSON.parse(initializeRequests[0].Body)).toEqual({ copyConfiguration });
         expect(requests.some(request => request.Route === 'service-management/v1/serviceSpecification/unconfigured-spec/configuration')).toBe(false);
         await expect.poll(() => mock.calls.filter(call => call.method === 'ExecuteAutomationScriptWithOutput' && call.body.script?.Name === 'SLC_SM_Create Service Inventory Item')).toHaveLength(0);
+        await item.getByRole('button', { name: 'Open service Core switch B' }).click();
+        const serviceDialog = page.getByRole('dialog', { name: 'Core switch B', exact: true });
+        const relatedRow = serviceDialog.locator('.related-orders-table tbody tr').filter({ hasText: 'Network refresh' });
+        await expect(relatedRow.locator('.order-action-chip')).toHaveText('Modify');
+        await expect(relatedRow.locator('.state-badge')).toHaveText('New');
+    });
+    test('opens the initialized service configuration and related order when public IDs collide', async ({ page }) => {
+        await page.getByRole('button', { name: 'Open details of Network refresh', exact: true }).click();
+        const orderDialog = page.getByRole('dialog', { name: 'Network refresh', exact: true });
+        await orderDialog.getByRole('button', { name: 'View Core switch B', exact: true }).click();
+        const itemDialog = page.getByRole('dialog', { name: 'Core switch B', exact: true });
+        await itemDialog.getByRole('button', { name: 'Save configuration', exact: true }).click();
+        await expect(itemDialog.getByRole('button', { name: 'Save configuration', exact: true })).toBeEnabled();
+        await itemDialog.getByRole('button', { name: 'Initialize service for Core switch B', exact: true }).click();
+        await page.getByRole('form', { name: 'Initialize service', exact: true }).getByRole('button', { name: 'Create service', exact: true }).click();
+        await expect(itemDialog.getByRole('button', { name: 'Open service Core switch B', exact: true })).toBeVisible();
+        const initializedService = mock.services!.find(service => service['Service Name'] === 'Core switch B')!;
+        mock.services![0]['Service ID'] = initializedService['Service ID'];
+        await itemDialog.getByRole('button', { name: 'Open service Core switch B', exact: true }).click();
+        const serviceDialog = page.getByRole('dialog', { name: 'Core switch B', exact: true });
+        await expect(serviceDialog.locator('.related-orders-table tbody tr').filter({ hasText: 'Network refresh' })).toContainText('Modify');
+        await serviceDialog.getByRole('button', { name: 'Configurations', exact: true }).click();
+        await serviceDialog.getByRole('button', { name: 'Expand standalone parameters', exact: true }).click();
+        await expect(serviceDialog.getByLabel('Value for Max Overall Bitrate', { exact: true })).toHaveValue('30');
+        expect(udapiRequests(mock).filter(request => request.Route.startsWith(`${SERVICES_ROUTE}/${initializedService['Service ID']}/`))).toHaveLength(0);
     });
     test('disables order-item creation until IAS-required selections are valid', { tag: '@D5' }, async ({ page }) => {
        await page.locator('.order-row').filter({ hasText: 'Network refresh' }).getByRole('button', { name: 'Open details of Network refresh' }).click();
