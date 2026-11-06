@@ -16,6 +16,9 @@
 		<ScriptParameter id="2" type="string" values="">
 			<Description>Action</Description>
 		</ScriptParameter>
+		<ScriptParameter id="20" type="string" values="">
+			<Description>Payload</Description>
+		</ScriptParameter>
 	</Parameters>
 	<Script>
 		<Exe id="3" type="csharp">

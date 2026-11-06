@@ -311,7 +311,6 @@
 				StringValue = source.StringValue,
 				DoubleValue = source.DoubleValue,
 				ValueFixed = source.ValueFixed,
-				LinkedConfigurationReference = source.LinkedConfigurationReference,
 				IsLinked = source.IsLinked,
 				LinkedScript = source.LinkedScript,
 				LinkedConsumers = source.LinkedConsumers,

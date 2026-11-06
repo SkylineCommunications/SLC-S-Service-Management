@@ -12,9 +12,94 @@
 	using Skyline.DataMiner.Net.Apps.Modules;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.Net.Sections;
+	using Skyline.DataMiner.Utils.SecureCoding.SecureSerialization.Json.Newtonsoft;
+	using Skyline.DataMiner.Utils.ServiceManagement.Common.IAS;
 
 	public static class ScriptExtensions
 	{
+		public static T ReadJsonPayload<T>(this IEngine engine, string parameterName, string payloadName)
+			where T : class
+		{
+			string raw = engine.ReadScriptParamFromApp(parameterName);
+			if (String.IsNullOrWhiteSpace(raw))
+			{
+				throw new InvalidOperationException($"The {payloadName} payload was empty or invalid.");
+			}
+
+			try
+			{
+				return SecureNewtonsoftDeserialization.DeserializeObject<T>(raw)
+					?? throw new InvalidOperationException($"The {payloadName} payload was empty or invalid.");
+			}
+			catch (JsonException exception)
+			{
+				throw new InvalidOperationException($"The {payloadName} payload was empty or invalid.", exception);
+			}
+		}
+
+		public static bool ReadBooleanScriptParam(this IEngine engine, string name)
+		{
+			string raw = engine.ReadScriptParamFromApp(name);
+			if (String.IsNullOrWhiteSpace(raw))
+			{
+				return false;
+			}
+
+			if (Boolean.TryParse(raw, out bool value))
+			{
+				return value;
+			}
+
+			throw new InvalidOperationException($"Script input parameter '{name}' must be true or false.");
+		}
+
+		public static void HandleUnexpectedException(this IEngine engine, Exception exception)
+		{
+			engine.Log("Run|Unexpected exception: " + exception);
+			if (engine.IsInteractive)
+			{
+				engine.ShowErrorDialog(exception);
+				return;
+			}
+
+			engine.ExitFail(GetErrorMessage(exception));
+		}
+
+		public static string GetErrorMessage(Exception exception)
+		{
+			var messages = new List<string>();
+			var pending = new Queue<Exception>();
+			pending.Enqueue(exception);
+
+			while (pending.Count > 0 && messages.Count < 5)
+			{
+				var current = pending.Dequeue();
+				if (current == null)
+				{
+					continue;
+				}
+
+				if (current is AggregateException aggregate)
+				{
+					foreach (var inner in aggregate.InnerExceptions)
+					{
+						pending.Enqueue(inner);
+					}
+
+					continue;
+				}
+
+				if (!String.IsNullOrWhiteSpace(current.Message) && !messages.Contains(current.Message))
+				{
+					messages.Add(current.Message);
+				}
+
+				pending.Enqueue(current.InnerException);
+			}
+
+			return messages.Count == 0 ? "Runtime operation failed." : String.Join(" ", messages);
+		}
+
 		public static T ReadScriptParamFromApp<T>(this IEngine engine, string name)
 		{
 			return ReadScriptParamsFromApp<T>(engine, name).FirstOrDefault();
@@ -35,7 +120,7 @@
 
 			if (param.StartsWith("[") && param.EndsWith("]"))
 			{
-				return JsonConvert.DeserializeObject<ICollection<T>>(param);
+				return SecureNewtonsoftDeserialization.DeserializeObject<ICollection<T>>(param);
 			}
 
 			object value;

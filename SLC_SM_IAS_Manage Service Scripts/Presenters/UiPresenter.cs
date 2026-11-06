@@ -26,14 +26,65 @@ namespace SLC_SM_IAS_Manage_Service_Scripts.Presenters
 
 		public void Handle()
 		{
-			data.ValidateInputParameters();
-
 			var helper = new ServiceManagementApiHelper(engine.GetUserConnection(), engine.UserLoginName);
 			var service = GetService(helper);
 			var scripts = service.ServiceScripts ?? new List<SdmModels.ServiceScript>();
 			if (!TryExecuteAction(scripts, service.ServiceID))
 			{
 				return;
+			}
+
+			service.ServiceScripts = scripts;
+			helper.ServiceInventory.Services.Update(service);
+		}
+
+		public void HandleApi()
+		{
+			var helper = new ServiceManagementApiHelper(engine.GetUserConnection(), engine.UserLoginName);
+			var service = GetService(helper);
+			var scripts = service.ServiceScripts ?? new List<SdmModels.ServiceScript>();
+			var existingDescription = String.IsNullOrWhiteSpace(data.OriginalScriptDescription)
+				? data.ScriptDescription
+				: data.OriginalScriptDescription;
+
+			switch (data.Action)
+			{
+				case ScriptAction.Add:
+					if (scripts.Any(existing => String.Equals(existing.Description, data.ScriptDescription, StringComparison.OrdinalIgnoreCase)))
+					{
+						throw new InvalidOperationException("A service script with this description already exists.");
+					}
+
+					scripts.Add(new SdmModels.ServiceScript
+					{
+						Name = data.ScriptName,
+						Description = data.ScriptDescription,
+					});
+					break;
+				case ScriptAction.Update:
+					var existingIndex = scripts.FindIndex(existing => String.Equals(existing.Description, existingDescription, StringComparison.OrdinalIgnoreCase));
+					if (existingIndex < 0)
+					{
+						throw new InvalidOperationException("The service script to update was not found.");
+					}
+
+					if (scripts.Where((existing, index) => index != existingIndex)
+						.Any(existing => String.Equals(existing.Description, data.ScriptDescription, StringComparison.OrdinalIgnoreCase)))
+					{
+						throw new InvalidOperationException("A service script with this description already exists.");
+					}
+
+					scripts[existingIndex].Name = data.ScriptName;
+					scripts[existingIndex].Description = data.ScriptDescription;
+					break;
+				case ScriptAction.Remove:
+					if (scripts.RemoveAll(existing => String.Equals(existing.Description, existingDescription, StringComparison.OrdinalIgnoreCase)) == 0)
+					{
+						throw new InvalidOperationException("The service script to remove was not found.");
+					}
+					break;
+				default:
+					throw new InvalidOperationException($"Unsupported action '{data.Action}'.");
 			}
 
 			service.ServiceScripts = scripts;
@@ -50,7 +101,7 @@ namespace SLC_SM_IAS_Manage_Service_Scripts.Presenters
 			return JsonConvert.SerializeObject(parameters);
 		}
 
-		private static Dictionary<string, string> DeserializeInputParameters(string json)
+		private Dictionary<string, string> DeserializeInputParameters(string json)
 		{
 			if (String.IsNullOrWhiteSpace(json))
 			{
@@ -61,9 +112,10 @@ namespace SLC_SM_IAS_Manage_Service_Scripts.Presenters
 			{
 				return SecureNewtonsoftDeserialization.DeserializeObject<Dictionary<string, string>>(json) ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 			}
-			catch (Exception)
+			catch (Exception exception)
 			{
-				return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+				engine.Log("DeserializeInputParameters|Unexpected exception: " + exception);
+				throw new InvalidOperationException("The stored script input parameters are invalid.", exception);
 			}
 		}
 
@@ -102,7 +154,12 @@ namespace SLC_SM_IAS_Manage_Service_Scripts.Presenters
 
 		private bool RemoveScript(List<SdmModels.ServiceScript> scripts)
 		{
-			return scripts.RemoveAll(existing => String.Equals(existing.Description, data.ScriptDescription, StringComparison.OrdinalIgnoreCase)) > 0;
+			if (scripts.RemoveAll(existing => String.Equals(existing.Description, data.ScriptDescription, StringComparison.OrdinalIgnoreCase)) == 0)
+			{
+				throw new InvalidOperationException($"No service script with description '{data.ScriptDescription}' was found.");
+			}
+
+			return true;
 		}
 
 		private bool AddScript(List<SdmModels.ServiceScript> scripts, string serviceId)
@@ -133,7 +190,7 @@ namespace SLC_SM_IAS_Manage_Service_Scripts.Presenters
 			var existingIndex = scripts.FindIndex(existing => String.Equals(existing.Description, data.ScriptDescription, StringComparison.OrdinalIgnoreCase));
 			if (existingIndex < 0)
 			{
-				return false;
+				throw new InvalidOperationException($"No service script with description '{data.ScriptDescription}' was found.");
 			}
 
 			var existingDescriptions = scripts

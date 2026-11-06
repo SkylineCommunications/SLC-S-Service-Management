@@ -6,6 +6,7 @@
 	<Author>RME</Author>
 	<CheckSets>FALSE</CheckSets>
 	<Folder>Service Management</Folder>
+	<Interactivity>Optional</Interactivity>
 
 	<Protocols>
 	</Protocols>
@@ -16,6 +17,9 @@
 	<Parameters>
 		<ScriptParameter id="10" type="string" values="">
 			<Description>DOM ID</Description>
+		</ScriptParameter>
+		<ScriptParameter id="20" type="string" values="">
+			<Description>Payload</Description>
 		</ScriptParameter>
 	</Parameters>
 

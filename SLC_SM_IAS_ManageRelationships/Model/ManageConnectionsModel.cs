@@ -5,6 +5,7 @@
 	using System.Linq;
 	using DomHelpers.SlcServicemanagement;
 	using DomHelpers.SlcWorkflow;
+	using Library.Dom;
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Net.Apps.DataMinerObjectModel;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
@@ -167,7 +168,7 @@
 			if (spec != null)
 			{
 				spec.ServiceItemsRelationships = relationships;
-				_serviceManagementApi.ServiceCatalog.ServiceSpecifications.Update(spec);
+				_serviceManagementApi.UpdateSpecification(spec);
 			}
 		}
 

@@ -97,6 +97,8 @@ namespace SLCSMGQIDSGetServiceScripts
 			var domId = Guid.TryParse(service.Identifier, out var parsedId) ? parsedId : serviceGuid;
 
 			return service.ServiceScripts
+				.Where(script => script != null
+					&& (!String.IsNullOrWhiteSpace(script.Name) || !String.IsNullOrWhiteSpace(script.Description)))
 				.Select(script => new GQIRow(
 					new[]
 					{

@@ -3,7 +3,6 @@
 	using Library;
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
-	using SLC_SM_IAS_Profiles.Presenters;
 
 	public class ProfileDefinitionRow : Row
 	{

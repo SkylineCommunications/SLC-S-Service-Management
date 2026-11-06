@@ -1,0 +1,2887 @@
+import { StrictMode, useCallback, useEffect, useRef, useState } from 'react';
+import { createRoot } from 'react-dom/client';
+import { DataMinerAuthError } from './dataminer/transport.js';
+import { addCatalogSpecificationItem, createCatalogCategory, createCatalogSpecification, deleteCatalogCategory, deleteCatalogSpecification, deleteCatalogSpecificationItem, fetchDocumentHubLogos, fetchServiceCategories, fetchServiceSpecificationOverview, fetchServiceSpecificationPage, fetchServiceSpecifications, fetchServiceSpecificationConfigurations, fetchSpecificationItems, saveCatalogSpecificationConfiguration, updateCatalogCategory, updateCatalogSpecification, updateCatalogSpecificationItem } from './dataminer/catalog.js';
+import { addServiceOrderItem, createServiceOrder, deleteServiceOrder, deleteServiceOrderItem, fetchRelatedServiceOrders, fetchServiceOrderItemConfigurations, fetchServiceOrderItems, fetchServiceOrderOverviewData, fetchServiceOrderPage, fetchServiceOrganizations, getOrderItemTransitions, getOrderTransitions, transitionServiceOrder, transitionServiceOrderItem, updateServiceOrder, updateServiceOrderItem, saveServiceOrderItemConfiguration, initializeServiceFromOrderItem } from './dataminer/serviceOrders.js';
+import { addInventoryServiceItem, addServiceScript, configurationParameterKey, createInventoryService, deleteInventoryService, deleteInventoryServiceItem, deleteServiceScript, duplicateInventoryService, duplicateServiceConfigurationVersion, fetchInventoryServiceItems, fetchMonitoringServices, fetchServiceConfigurations, fetchServiceDetails, fetchServiceForDisplay, fetchServiceItemReferenceOptions, fetchServiceOverviewData, fetchServicePage, fetchServiceScripts, fetchServices, saveServiceConfiguration as saveInventoryServiceConfiguration, serviceApiId, SERVICE_INVENTORY_SCRIPTS, SERVICE_TRANSITIONS, SRM_BOOKING_ACTIONS, transitionInventoryService, updateInventoryService, updateInventoryServiceItem, updateServiceScript } from './dataminer/services.js';
+import { getConnectionFromCookie, redirectToAuth } from './dataminer/session.js';
+import { IasDialog } from './IasDialog.jsx';
+import './styles.css';
+
+const pages = {
+    overview: { label: 'Overview', icon: 'dashboard', eyebrow: 'Workspace' },
+    orders: { label: 'Orders', icon: 'assignment', eyebrow: 'Service operations' },
+    services: { label: 'Services', icon: 'dm_service', eyebrow: 'Service operations' },
+    catalog: { label: 'Catalog', icon: 'inventory_2', eyebrow: 'Service design' },
+    settings: { label: 'Settings', icon: 'settings', eyebrow: 'Workspace' },
+};
+
+function readTheme() { return localStorage.getItem('service-management-theme') || 'system'; }
+
+function useTheme() {
+    const [theme, setTheme] = useState(readTheme);
+    const [systemDark, setSystemDark] = useState(() => window.matchMedia('(prefers-color-scheme: dark)').matches);
+    const resolvedTheme = theme === 'system' ? (systemDark ? 'dark' : 'light') : theme;
+    useEffect(() => { localStorage.setItem('service-management-theme', theme); document.documentElement.dataset.theme = resolvedTheme; }, [theme, resolvedTheme]);
+    useEffect(() => { const media = window.matchMedia('(prefers-color-scheme: dark)'); const update = () => setSystemDark(media.matches); media.addEventListener('change', update); return () => media.removeEventListener('change', update); }, []);
+    return { theme, setTheme, resolvedTheme };
+}
+
+async function verifySession() {
+    const connection = getConnectionFromCookie();
+    if (!connection) return false;
+    const response = await fetch('/API/v1/Json.asmx/IsConnectionAlive', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ connection }) });
+    if (response.status === 401 || response.status === 403) return false;
+    const payload = await response.json();
+    if (response.status === 500 && payload?.ExceptionType?.includes('NoConnectionWebApiException')) return false;
+    return response.ok;
+}
+
+function ThemeMenu({ theme, setTheme }) {
+    const [open, setOpen] = useState(false);
+    const labels = { system: 'System', light: 'Light', dark: 'Dark' };
+    return <div className="theme-control"><button className="icon-button" type="button" aria-label="Choose theme" aria-expanded={open} onClick={() => setOpen(!open)}><span className="icon">{theme === 'dark' ? 'dark_mode' : theme === 'light' ? 'light_mode' : 'contrast'}</span></button>{open && <div className="theme-menu" role="menu">{Object.entries(labels).map(([value, label]) => <button className={theme === value ? 'theme-option selected' : 'theme-option'} key={value} role="menuitem" type="button" onClick={() => { setTheme(value); setOpen(false); }}><span className="icon">{value === 'dark' ? 'dark_mode' : value === 'light' ? 'light_mode' : 'contrast'}</span>{label}{theme === value && <span className="icon option-check">check</span>}</button>)}</div>}</div>;
+}
+
+function LocalConnectionNotice() {
+    return <div className="app-shell"><main className="connection-page"><section className="connection-card"><span className="connection-icon icon" aria-hidden="true">cloud_off</span><p className="eyebrow">Live preview</p><h1>Connect this preview to DataMiner</h1><p>This local server is in live mode and does not load sample orders. Open the deployed DataMiner page for live DataMiner data, or configure <code>VITE_DATAMINER_ORIGIN</code> and restart the dev server.</p><div className="connection-options"><div><strong>Real DMA</strong><span>Open the app from its DataMiner-hosted URL.</span></div><div><strong>Local sample data</strong><span>Run <code>npm run dev:mock</code> explicitly.</span></div></div></section></main></div>;
+}
+
+function PageContent({ page, param, theme, setTheme, resolvedTheme }) {
+    if (page === 'settings') return <SettingsPage theme={theme} setTheme={setTheme} resolvedTheme={resolvedTheme} />;
+    if (page === 'overview') return <OverviewPage />;
+    if (page === 'orders') return <OrdersPage selectedId={param} />;
+    if (page === 'services') return <ServicesPage selectedId={param} />;
+    if (page === 'catalog') return <CatalogPage selectedId={param} />;
+    return null;
+}
+
+const stateTones = { completed: 'done', acknowledged: 'active', 'in progress': 'active', held: 'attention', rejected: 'attention', failed: 'attention', 'partially failed': 'attention', cancelled: 'closed' };
+function stateTone(state) { return stateTones[state.trim().toLowerCase()] || 'pending'; }
+function transitionIcon(label) {
+    const key = String(label || '').trim().toLowerCase();
+    if (['acknowledge', 'complete'].includes(key)) return 'check_circle';
+    if (['initialize', 'in progress'].includes(key)) return 'play_circle';
+    if (['reject', 'cancel', 'confirm cancellation'].includes(key)) return 'close';
+    if (['failed', 'partially failed', 'issue'].includes(key)) return 'error';
+    if (['information missing'].includes(key)) return 'info';
+    if (['request cancellation'].includes(key)) return 'cancel';
+    return 'arrow_forward';
+}
+function orderReference(order) { return order.externalId || String(order.id || '').split('-')[0].toUpperCase(); }
+const ORDER_FILTER_TITLES = { all: 'All orders', open: 'Open orders', attention: 'Orders needing attention', completed: 'Completed orders' };
+// UDAPI status names behind each Orders header card; they mirror the server's Open/Attention/Completed metrics.
+const ORDER_STATUS_QUERY = {
+    all: '',
+    open: 'new,acknowledged,inProgress,partiallyFailed,held,pending,assessCancellation,pendingCancellation',
+    attention: 'held,assessCancellation,pendingCancellation,partiallyFailed,failed,rejected',
+    completed: 'completed',
+};
+const serviceStateTones = { active: 'done', reserved: 'active', designed: 'active', new: 'pending', terminated: 'closed', retired: 'closed' };
+function serviceTone(state) { return serviceStateTones[state.trim().toLowerCase()] || 'pending'; }
+
+function useDataList(fetcher) {
+    const [state, setState] = useState({ status: 'loading', items: [], error: '', updatedAt: null });
+    const latestRequest = useRef(0);
+    const load = useCallback(({ rejectOnError = false } = {}) => {
+        const request = ++latestRequest.current;
+        setState(current => ({ ...current, status: 'loading', error: '' }));
+        return fetcher().then(items => { if (request === latestRequest.current) setState({ status: 'ready', items, error: '', updatedAt: new Date() }); return items; }, error => { if (request === latestRequest.current && !(error instanceof DataMinerAuthError)) setState({ status: 'error', items: [], error: error?.message || 'Unknown error.', updatedAt: null }); if (rejectOnError) throw error; return []; });
+    }, [fetcher]);
+    const reloadAndWait = useCallback(() => load({ rejectOnError: true }), [load]);
+    useEffect(() => { load(); return () => { latestRequest.current++; }; }, [load]);
+    return { ...state, reload: load, reloadAndWait };
+}
+
+function PageHeaderActions({ updatedAt, loading, onRefresh, primaryAction, refreshLabel = 'Refresh' }) {
+    const updatedLabel = updatedAt
+        ? `Updated ${new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(updatedAt)}`
+        : loading ? 'Loading data' : 'Not refreshed yet';
+    return <div className={`page-header-actions ${primaryAction ? 'has-primary-action' : 'refresh-only'}`}>
+        <span className="page-header-update" aria-label={`Data status: ${updatedLabel}`}>
+            <span className="icon" aria-hidden="true">schedule</span>{updatedLabel}
+        </span>
+        <button className="quiet-button page-header-refresh" type="button" onClick={onRefresh} disabled={loading}>
+            <span className={loading ? 'icon spin' : 'icon'} aria-hidden="true">refresh</span>{loading ? 'Refreshing' : refreshLabel}
+        </button>
+        {primaryAction && <div className="page-header-primary">{primaryAction}</div>}
+    </div>;
+}
+
+function OverviewMetric({ href, label, value, note, accent, icon }) {
+    return <a className="overview-metric" href={href} style={{ '--metric-accent': `var(${accent})` }}><div className="overview-metric-top"><span className="overview-metric-icon icon" aria-hidden="true">{icon}</span><span className="overview-metric-label">{label}</span></div><strong>{value}</strong><span className="overview-metric-note">{note}</span><span className="overview-metric-arrow icon" aria-hidden="true">arrow_forward</span></a>;
+}
+
+function OverviewListMessage({ status, error, emptyText }) {
+    if (status === 'loading') return <div className="overview-empty"><span className="icon spin" aria-hidden="true">refresh</span>Loading data…</div>;
+    if (status === 'error') return <div className="overview-empty error"><span className="icon" aria-hidden="true">error</span>{error}</div>;
+    return <div className="overview-empty"><span className="icon" aria-hidden="true">inbox</span>{emptyText}</div>;
+}
+
+function OverviewPage() {
+    const orderData = useDataList(fetchServiceOrderOverviewData);
+    const serviceData = useDataList(fetchServiceOverviewData);
+    const catalogData = useDataList(fetchServiceSpecificationOverview);
+    const orderOverview = Array.isArray(orderData.items) ? null : orderData.items;
+    const serviceOverview = Array.isArray(serviceData.items) ? null : serviceData.items;
+    const catalogOverview = Array.isArray(catalogData.items) ? null : catalogData.items;
+    const orders = orderOverview?.items ?? [];
+    const services = serviceOverview?.items ?? [];
+    const ordersReady = orderData.status === 'ready';
+    const servicesReady = serviceData.status === 'ready';
+    const catalogReady = catalogData.status === 'ready';
+    const openOrders = orderOverview?.openCount ?? 0;
+    const attentionOrders = orderOverview?.attentionCount ?? 0;
+    const activeServices = serviceOverview?.activeCount ?? 0;
+    const recentOrders = orders.slice(0, 6);
+    const reloadAll = () => { orderData.reload(); serviceData.reload(); catalogData.reload(); };
+    const overviewLoading = orderData.status === 'loading' || serviceData.status === 'loading' || catalogData.status === 'loading';
+    const overviewUpdatedAt = orderData.updatedAt && serviceData.updatedAt && catalogData.updatedAt
+        ? new Date(Math.min(orderData.updatedAt.getTime(), serviceData.updatedAt.getTime(), catalogData.updatedAt.getTime()))
+        : null;
+    return <main className="page-content overview-page">
+        <section className="overview-hero"><div><div className="overview-heading-meta"><p className="eyebrow">Workspace overview</p><span className="overview-status"><span aria-hidden="true" />Operational view</span></div><h1>Service Management</h1><p className="description">Monitor service orders, inventory, and the catalog from one operational view.</p></div><PageHeaderActions updatedAt={overviewUpdatedAt} loading={overviewLoading} onRefresh={reloadAll} /></section>
+        <section className="overview-metrics" aria-label="Workspace metrics">
+            <OverviewMetric href="#orders" label="Open orders" value={ordersReady ? openOrders : '—'} note={ordersReady ? `${orderOverview.totalCount} total orders` : 'Waiting for DataMiner'} accent="--palette-color4" icon="assignment" />
+            <OverviewMetric href="#orders" label="Orders needing attention" value={ordersReady ? attentionOrders : '—'} note="Held, partially failed, rejected, or cancelling" accent="--palette-color3" icon="error" />
+            <OverviewMetric href="#services" label="Active services" value={servicesReady ? activeServices : '—'} note={servicesReady ? `${serviceOverview.totalCount} in inventory` : 'Waiting for DataMiner'} accent="--success" icon="dm_service" />
+            <OverviewMetric href="#catalog" label="Catalog specifications" value={catalogReady ? catalogOverview.totalCount : '—'} note={catalogReady ? `${catalogOverview.totalItemCount} service items defined` : 'Waiting for DataMiner'} accent="--focus-color" icon="inventory_2" />
+        </section>
+        <section className="overview-columns">
+            <section className="overview-panel" aria-labelledby="overview-orders-title"><div className="overview-panel-heading"><div><p className="eyebrow">Service operations</p><h2 id="overview-orders-title">Recent orders</h2></div><a className="quiet-button" href="#orders">View all <span className="icon" aria-hidden="true">arrow_forward</span></a></div>{ordersReady && orders.length > 0 ? <div className="overview-list">{recentOrders.map(order => <a className="overview-list-row" href={`#orders/${encodeURIComponent(order.id)}`} key={order.id}><span className="overview-list-icon icon" aria-hidden="true">assignment</span><span className="overview-list-main"><strong>{order.name || 'Unnamed order'}</strong><span>{[orderReference(order), order.organization].filter(Boolean).join('  ·  ') || 'No reference information'}</span></span><span className={`state-badge ${stateTone(order.state)}`}>{order.state || 'Unknown'}</span><span className="icon overview-list-arrow" aria-hidden="true">chevron_right</span></a>)}</div> : <OverviewListMessage status={orderData.status} error={orderData.error} emptyText="No service orders yet." />}</section>
+            <section className="overview-panel" aria-labelledby="overview-services-title"><div className="overview-panel-heading"><div><p className="eyebrow">Service inventory</p><h2 id="overview-services-title">Current service inventory</h2></div><a className="quiet-button" href="#services">View inventory <span className="icon" aria-hidden="true">arrow_forward</span></a></div>{servicesReady && services.length > 0 ? <div className="overview-list">{services.slice(0, 6).map(service => <a className="overview-list-row" href="#services" key={service.id}><span className="overview-list-icon service icon" aria-hidden="true">dm_service</span><span className="overview-list-main"><strong>{service.name || 'Unnamed service'}</strong><span>{[service.serviceId, service.specification].filter(Boolean).join('  ·  ') || 'No reference information'}</span></span><span className={`state-badge ${serviceTone(service.status)}`}>{service.status || 'Unknown'}</span><span className="icon overview-list-arrow" aria-hidden="true">chevron_right</span></a>)}</div> : <OverviewListMessage status={serviceData.status} error={serviceData.error} emptyText="No services in inventory yet." />}</section>
+        </section>
+    </main>;
+}
+
+function useServiceItems(service) {
+    const { id, serviceId } = service ?? {};
+    const fetcher = useCallback(() => fetchInventoryServiceItems({ id, serviceId }), [id, serviceId]);
+    return useDataList(fetcher);
+}
+
+function useSpecificationItems(specificationId) {
+    const fetcher = useCallback(() => specificationId ? fetchSpecificationItems(specificationId) : Promise.resolve([]), [specificationId]);
+    return useDataList(fetcher);
+}
+
+function useRelatedServiceOrders(serviceId) {
+    const fetcher = useCallback(() => serviceId ? fetchRelatedServiceOrders(serviceId) : Promise.resolve([]), [serviceId]);
+    return useDataList(fetcher);
+}
+
+function useServiceScripts(serviceId) {
+    const fetcher = useCallback(() => serviceId ? fetchServiceScripts(serviceId) : Promise.resolve([]), [serviceId]);
+    return useDataList(fetcher);
+}
+
+const EMPTY_SERVICE_CONFIGURATION_DATA = { versions: [], availableParameters: [], availableProfiles: [] };
+
+function findConfigurationProfilePath(profiles, id, parentPath = []) {
+    for (const profile of profiles || []) {
+        const path = [...parentPath, profile];
+        if (profile.id === id || profile.clientId === id) return path;
+        const nestedPath = findConfigurationProfilePath(profile.nestedProfiles, id, path);
+        if (nestedPath) return nestedPath;
+    }
+    return null;
+}
+
+function findEmptyMandatoryParameter(parameters, profiles = []) {
+    const missingParameter = (parameters || []).find(parameter => parameter.mandatory && !String(parameter.value ?? '').trim());
+    if (missingParameter) return missingParameter.name || missingParameter.id;
+    for (const profile of profiles || []) {
+        const missingProfileParameter = findEmptyMandatoryParameter(profile.parameters, profile.nestedProfiles);
+        if (missingProfileParameter) return missingProfileParameter;
+    }
+    return '';
+}
+
+function ConfigurationParameterValueEditor({ parameter, disabled = false, onChange, ariaLabel }) {
+    const currentValue = String(parameter.value ?? '');
+    const options = Array.isArray(parameter.options) ? parameter.options : [];
+    const isDiscrete = String(parameter.type || '').trim().toLowerCase() === 'discrete';
+    const isNumber = String(parameter.type || '').trim().toLowerCase() === 'number';
+    if (disabled) {
+        const text = currentValue && isNumber && parameter.unit ? `${currentValue} ${parameter.unit}` : currentValue;
+        return <span className="parameter-value-text" title={text} aria-label={ariaLabel}>{text || '—'}</span>;
+    }
+    if (isNumber) {
+        return <input className="parameter-value-input number" type="number" min={parameter.start || undefined} max={parameter.end || undefined} step={parameter.step || 'any'} value={currentValue} onChange={event => onChange(event.target.value)} aria-label={ariaLabel} />;
+    }
+    if (!isDiscrete) {
+        return <input className="parameter-value-input text" value={currentValue} onChange={event => onChange(event.target.value)} aria-label={ariaLabel} />;
+    }
+    const hasCurrentValue = currentValue && !options.some(option => option.value === currentValue);
+    return <select className="parameter-value-input discrete" value={currentValue} onChange={event => onChange(event.target.value)} aria-label={ariaLabel}>
+        <option value="">Select value…</option>
+        {hasCurrentValue && <option value={currentValue}>{currentValue} (current)</option>}
+        {options.map(option => <option value={option.value} key={`${option.id}-${option.value}`}>{option.value}</option>)}
+        {options.length === 0 && <option value="" disabled>No discrete values available</option>}
+    </select>;
+}
+
+function createConfigurationParameter(parameter, siblings) {
+    const instances = siblings.filter(item => item.id === parameter.id);
+    const labels = new Set(instances.map(item => (item.label || '').trim().toLowerCase()));
+    const base = (parameter.label || parameter.name || parameter.id).trim();
+    let label = parameter.label || '';
+    if (instances.length > 0) {
+        label = base;
+        let suffix = 2;
+        while (labels.has(label.toLowerCase())) label = `${base} #${suffix++}`;
+    }
+    return { ...parameter, clientId: crypto.randomUUID(), label, value: '', configurationId: '', valueId: '', mandatory: false };
+}
+
+function findParameterLabelError(parameters, profiles = []) {
+    const groups = new Map();
+    for (const parameter of parameters || []) {
+        if (!groups.has(parameter.id)) groups.set(parameter.id, []);
+        groups.get(parameter.id).push(parameter);
+    }
+    for (const instances of groups.values()) {
+        if (instances.length < 2) continue;
+        const labels = instances.map(parameter => (parameter.label || '').trim().toLowerCase());
+        if (labels.some(label => !label) || new Set(labels).size !== labels.length) {
+            return `Repeated parameter "${instances[0].name || instances[0].id}" must have a non-empty, different label for each occurrence.`;
+        }
+    }
+    for (const profile of profiles) {
+        const error = findParameterLabelError(profile.parameters, profile.nestedProfiles || []);
+        if (error) return `${profile.name || 'Profile'}: ${error}`;
+    }
+    return '';
+}
+
+function ParameterLabelInput({ parameter, readOnly, onChange }) {
+    const name = parameter.name || parameter.id;
+    const label = parameter.label || '';
+    return readOnly
+        ? <span className="parameter-label-text" title={label || name}>{label || '—'}</span>
+        : <input className="parameter-label-input" type="text" value={label} placeholder="Add label" onChange={event => onChange(event.target.value)} aria-label={`Label for ${name}`} />;
+}
+
+function ProfileParameterHeader() {
+    return <div className="configuration-profile-parameter-row configuration-profile-parameter-header" aria-hidden="true"><span>Label</span><span>Parameter</span><span>Value</span><span /></div>;
+}
+
+function ProfileParameterList({ profileId, parameters, reusable, showValueDetails, showLifecycleDetails, onUpdateParameter, onRemoveParameter, className = '' }) {
+    if (showValueDetails || showLifecycleDetails) {
+        return <ConfigurationParameterTable
+            parameters={parameters}
+            readOnly={reusable}
+            showValueDetails={showValueDetails}
+            showLifecycleDetails={showLifecycleDetails}
+            lifecycleMode="Profile"
+            onValue={(parameterId, value) => onUpdateParameter(profileId, parameterId, value)}
+            onDetail={(parameterId, field, value) => onUpdateParameter(profileId, parameterId, value, field)}
+            onRemove={parameter => onRemoveParameter(profileId, parameter)}
+        />;
+    }
+    return <div className={`configuration-profile-parameters-list ${className}`}><ProfileParameterHeader />{parameters.map(parameter => <div className="configuration-profile-parameter-row" key={configurationParameterKey(parameter)}>
+        <ParameterLabelInput parameter={parameter} readOnly={reusable} onChange={label => onUpdateParameter(profileId, configurationParameterKey(parameter), label, 'label')} />
+        <span className="configuration-profile-parameter-name">{parameter.name || parameter.id}</span>
+        <ConfigurationParameterValueEditor parameter={parameter} disabled={reusable} onChange={value => onUpdateParameter(profileId, configurationParameterKey(parameter), value)} ariaLabel={`Value for ${parameter.name || parameter.id}`} />
+        {!reusable && <button className="table-icon-action danger" type="button" aria-label={`Delete profile parameter ${parameter.name || parameter.id}`} onClick={() => onRemoveParameter(profileId, parameter)}><span className="icon" aria-hidden="true">delete</span></button>}
+    </div>)}</div>;
+}
+
+function NativeConfigurationProfileView({ profile, profilePath, profilesAtLevel, availableProfiles, availableNestedProfiles, availableParameters, onBack, onAddProfileAtLevel, onAddNestedProfileDefinition, onAddNested, onRemoveNested, onAddParameter, onUpdateParameter, onUpdateProfileName, onRemoveParameter, onOpenNested, showValueDetails = false, showLifecycleDetails = false }) {
+    const [nestedChoice, setNestedChoice] = useState('');
+    const [parameterChoice, setParameterChoice] = useState('');
+    const [profileChoice, setProfileChoice] = useState('');
+    const [nestedDefinitionChoice, setNestedDefinitionChoice] = useState('');
+    const depth = profilePath.length;
+    const canNest = depth < 3;
+    const reusable = Boolean(profile.reusable);
+    const nestedProfiles = profile.nestedProfiles || [];
+    const parameters = profile.parameters || [];
+    const parentProfile = profilePath.length > 1 ? profilePath[profilePath.length - 2] : null;
+    const levelProfiles = profilesAtLevel || [];
+    const canAddProfileAtLevel = !parentProfile?.reusable;
+    const profileOptions = availableProfiles;
+    const nestedProfileOptions = availableNestedProfiles.filter(nested => nested.definitionId === nestedDefinitionChoice && !profilePath.some(pathProfile => (pathProfile.id || pathProfile.clientId) === nested.id) && !nestedProfiles.some(current => current.id === nested.id));
+    const addProfile = () => {
+        if (!profileChoice) return;
+        onAddProfileAtLevel(parentProfile?.id || parentProfile?.clientId || null, profileChoice);
+        setProfileChoice('');
+    };
+    const addNested = () => {
+        if (!nestedChoice) return;
+        onAddNested(profile.id || profile.clientId, nestedChoice);
+        onOpenNested(nestedChoice);
+        setNestedChoice('');
+    };
+    const addNestedDefinition = () => {
+        if (!nestedDefinitionChoice) return;
+        onAddNestedProfileDefinition(profile.id || profile.clientId, nestedDefinitionChoice);
+        setNestedChoice('');
+        setNestedDefinitionChoice('');
+    };
+    const addParameter = () => { if (parameterChoice) { onAddParameter(profile.id || profile.clientId, parameterChoice); setParameterChoice(''); } };
+    const backLabel = parentProfile ? `Back to ${parentProfile.name || 'parent profile'}` : 'Back to configuration';
+    return <div className="native-configuration-profile-view">
+        <div className="configuration-profile-screen-heading">
+            <button className="configuration-back-button" type="button" onClick={onBack}>
+                <span className="icon" aria-hidden="true">chevron_left</span>{backLabel}
+            </button>
+            <div>
+                <p className="eyebrow">Profile configuration</p>
+                {reusable
+                    ? <h2>{profile.name || 'Unnamed profile'}</h2>
+                    : <input className="configuration-profile-name-input" value={profile.name || ''} onChange={event => onUpdateProfileName(profile.id || profile.clientId, event.target.value)} aria-label={`Profile name for ${profile.name || 'profile'}`} />}
+                <nav className="configuration-profile-breadcrumbs" aria-label="Profile nesting path">
+                    <span>Configuration</span>
+                    {profilePath.map((pathProfile, index) => <span className="configuration-profile-breadcrumb" key={pathProfile.id || pathProfile.clientId || index}>
+                        <span className="icon" aria-hidden="true">chevron_right</span>
+                        <span aria-current={index === profilePath.length - 1 ? 'page' : undefined}>{pathProfile.name || 'Unnamed profile'}</span>
+                    </span>)}
+                </nav>
+            </div>
+        </div>
+        {depth > 1 && <section className="native-configuration-profiles native-profile-level-profiles">
+            <div className="service-items-heading">
+                <div><p className="eyebrow">Profiles at this level</p></div>
+                {canAddProfileAtLevel && <div className="configuration-add-controls">
+                    <select value={profileChoice} onChange={event => setProfileChoice(event.target.value)} aria-label="Select regular profile to add at this level">
+                        <option value="">Select profile…</option>
+                        {profileOptions.map(candidate => <option value={candidate.id} key={candidate.id}>{candidate.name || candidate.id}</option>)}
+                    </select>
+                    <button className="quiet-button" type="button" onClick={addProfile} disabled={!profileChoice}>Add</button>
+                </div>}
+            </div>
+            {levelProfiles.length === 0 ? <div className="configuration-empty">No profiles are assigned at this level.</div> : <ul className="configuration-nested-list native-profile-level-list">{levelProfiles.map(levelProfile => {
+                const id = levelProfile.id || levelProfile.clientId;
+                const isCurrent = id === (profile.id || profile.clientId);
+                return <li key={id || `${levelProfile.definitionId}-${levelProfile.name}`}>
+                    <button className="configuration-nested-chip" type="button" onClick={() => onOpenNested(id)} aria-current={isCurrent ? 'page' : undefined} aria-label={`Open ${levelProfile.name || levelProfile.id}`}>
+                        <span>{levelProfile.name || levelProfile.id}</span>
+                        <span className="icon" aria-hidden="true">chevron_right</span>
+                    </button>
+                </li>;
+            })}</ul>}
+        </section>}
+        <section className="native-configuration-parameters native-profile-parameters">
+            <div className="service-items-heading">
+                <div>
+                    <p className="eyebrow">Profile parameters</p>
+                    {reusable && <span className="configuration-profile-readonly">Reusable values are read-only.</span>}
+                </div>
+                {!reusable && <div className="configuration-add-controls">
+                    <select value={parameterChoice} onChange={event => setParameterChoice(event.target.value)} aria-label="Select profile parameter">
+                        <option value="">Select parameter…</option>
+                        {availableParameters.map(parameter => <option value={parameter.id} key={`${parameter.id}-${parameter.name}`}>{parameter.name || parameter.id}</option>)}
+                    </select>
+                    <button className="quiet-button" type="button" onClick={addParameter} disabled={!parameterChoice}>Add</button>
+                </div>}
+            </div>
+            {parameters.length === 0 ? <div className="configuration-empty">No profile parameters are assigned.</div> : <ProfileParameterList profileId={profile.id || profile.clientId} parameters={parameters} reusable={reusable} showValueDetails={showValueDetails} showLifecycleDetails={showLifecycleDetails} onUpdateParameter={onUpdateParameter} onRemoveParameter={onRemoveParameter} className="profile-parameter-editor-list" />}
+        </section>
+        <section className="native-configuration-profiles native-profile-nested-profiles">
+            <div className="service-items-heading">
+                <div>
+                    <p className="eyebrow">Nested profiles</p>
+                    {reusable && <span className="configuration-profile-readonly">Reusable profile structure is read-only.</span>}
+                </div>
+                {canNest && !reusable && <div className="nested-profile-add-controls">
+                    <div className="configuration-add-controls">
+                        <select value={nestedDefinitionChoice} onChange={event => { setNestedDefinitionChoice(event.target.value); setNestedChoice(''); }} aria-label="Select regular profile definition to add below this profile">
+                            <option value="">Add profile definition…</option>
+                            {availableProfiles.map(candidate => <option value={candidate.id} key={candidate.id}>{candidate.name || candidate.id}</option>)}
+                        </select>
+                        <button className="quiet-button" type="button" onClick={addNestedDefinition} disabled={!nestedDefinitionChoice}>Add</button>
+                    </div>
+                    {nestedDefinitionChoice && nestedProfileOptions.length > 0 && <div className="configuration-add-controls">
+                        <select value={nestedChoice} onChange={event => setNestedChoice(event.target.value)} aria-label="Select reusable nested profile">
+                            <option value="">Select reusable profile…</option>
+                            {nestedProfileOptions.map(nested => <option value={nested.id} key={`${nested.id}-${nested.name}`}>{nested.name || nested.id}</option>)}
+                        </select>
+                        <button className="quiet-button" type="button" onClick={addNested} disabled={!nestedChoice}>Add</button>
+                    </div>}
+                </div>}
+            </div>
+            {nestedProfiles.length === 0
+                ? <div className="configuration-empty">{canNest ? 'No nested profiles are assigned.' : 'No deeper profiles are assigned. New nested profiles are limited to level 3.'}</div>
+                : <ul className="configuration-nested-list native-profile-nested-list">{nestedProfiles.map(nested => {
+                const nestedId = nested.id || nested.clientId;
+                return <li key={nestedId}>
+                <button className="configuration-nested-chip" type="button" onClick={() => onOpenNested(nestedId)} aria-label={`Open ${nested.name || nested.id}`}>
+                    <span>{nested.name || nested.id}</span>
+                    <span className="icon" aria-hidden="true">chevron_right</span>
+                </button>
+                <button className="configuration-nested-remove" type="button" aria-label={`Remove nested profile ${nested.name || nested.id}`} onClick={() => onRemoveNested(profile.id || profile.clientId, nestedId)} disabled={reusable}>
+                    <span className="icon" aria-hidden="true">delete</span>
+                </button>
+            </li>;})}</ul>}
+        </section>
+    </div>;
+}
+
+function ConfigurationProfileNodeV2({ profile, depth, availableProfiles, availableNestedProfiles, availableParameters, onAddNestedProfileDefinition, onAddNested, onRemoveNested, onAddParameter, onUpdateParameter, onUpdateProfileName, onRemoveParameter, onRemove, onOpenNested, showValueDetails = false, showLifecycleDetails = false, onUpdateProfileLifecycle, initiallyExpanded = false }) {
+    const [collapsed, setCollapsed] = useState(!initiallyExpanded);
+    const [nestedChoice, setNestedChoice] = useState('');
+    const [nestedDefinitionChoice, setNestedDefinitionChoice] = useState('');
+    const [parameterChoice, setParameterChoice] = useState('');
+    const canNest = depth < 3;
+    const reusable = Boolean(profile.reusable);
+    const parentId = profile.id || profile.clientId;
+    const definitionLabel = profile.definitionName || profile.definitionId || '';
+    const showDefinitionLabel = definitionLabel && definitionLabel.trim().toLowerCase() !== String(profile.name || '').trim().toLowerCase();
+    const nested = profile.nestedProfiles || [];
+    const parameters = profile.parameters || [];
+    const reusableNestedOptions = availableNestedProfiles.filter(nestedItem => nestedItem.definitionId === nestedDefinitionChoice && nestedItem.id !== parentId && !nested.some(current => current.id === nestedItem.id));
+    const addNested = () => { if (nestedChoice) { onAddNested(parentId, nestedChoice); onOpenNested(nestedChoice); setNestedChoice(''); } };
+    const addNestedDefinition = () => {
+        if (!nestedDefinitionChoice) return;
+        onAddNestedProfileDefinition(parentId, nestedDefinitionChoice);
+        setNestedDefinitionChoice('');
+    };
+    const addParameter = () => { if (parameterChoice) { onAddParameter(parentId, parameterChoice); setParameterChoice(''); } };
+    return <article className={`configuration-profile-card profile-depth-${depth} ${collapsed ? 'collapsed' : ''}`}>
+        <div className="configuration-profile-heading">
+            <div className="configuration-profile-title">
+                <button className="profile-collapse-button" type="button" aria-expanded={!collapsed} aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${profile.name || 'profile'}`} onClick={() => setCollapsed(value => !value)}>
+                    <span className="icon" aria-hidden="true">{collapsed ? 'chevron_right' : 'expand_more'}</span>
+                </button>
+                <div>
+                    {reusable
+                        ? <strong>{profile.name || 'Unnamed profile'}</strong>
+                        : <input className="configuration-profile-name-input" value={profile.name || ''} onChange={event => onUpdateProfileName(profile.id || profile.clientId, event.target.value)} aria-label={`Profile name for ${profile.name || 'profile'}`} />}
+                    {showDefinitionLabel && <span className="configuration-profile-detail">{definitionLabel}</span>}
+                </div>
+            </div>
+            <button className="table-icon-action danger" type="button" aria-label={`Delete ${profile.name || 'profile'}`} onClick={() => onRemove(profile.id, profile.definitionId, profile.clientId)}>
+                <span className="icon" aria-hidden="true">delete</span>
+            </button>
+        </div>
+        {showLifecycleDetails && <div className="configuration-profile-lifecycle">
+            <label>Expose at order<input type="checkbox" checked={Boolean(profile.exposeAtOrder)} onChange={event => onUpdateProfileLifecycle(parentId, 'exposeAtOrder', event.target.checked)} /></label>
+            <label>Mandatory at order<input type="checkbox" checked={Boolean(profile.mandatoryAtOrder)} onChange={event => onUpdateProfileLifecycle(parentId, 'mandatoryAtOrder', event.target.checked)} /></label>
+            <label>Mandatory at service<input type="checkbox" checked={Boolean(profile.mandatoryAtService)} onChange={event => onUpdateProfileLifecycle(parentId, 'mandatoryAtService', event.target.checked)} /></label>
+        </div>}
+        {!collapsed && <div className="configuration-profile-content">
+            <div className="configuration-profile-parameters">
+                <div className="configuration-subsection-heading">
+                    <span className="eyebrow">Parameters</span>
+                    {reusable && <span className="configuration-profile-readonly">Reusable values are read-only.</span>}
+                    {!reusable && <div className="configuration-add-controls">
+                        <select value={parameterChoice} onChange={event => setParameterChoice(event.target.value)} aria-label={`Select parameter for ${profile.name || 'profile'}`}>
+                            <option value="">Select parameter…</option>
+                            {availableParameters.map(parameter => <option value={parameter.id} key={`${parameter.id}-${parameter.name}`}>{parameter.name || parameter.id}</option>)}
+                        </select>
+                        <button className="quiet-button" type="button" onClick={addParameter} disabled={!parameterChoice}>Add</button>
+                    </div>}
+                </div>
+                {parameters.length === 0 ? <span className="configuration-profile-empty">No profile parameters assigned.</span> : <ProfileParameterList profileId={parentId} parameters={parameters} reusable={reusable} showValueDetails={showValueDetails} showLifecycleDetails={showLifecycleDetails} onUpdateParameter={onUpdateParameter} onRemoveParameter={onRemoveParameter} />}
+            </div>
+            <div className="configuration-profile-nested">
+                <div className="configuration-subsection-heading">
+                    <span className="eyebrow">Nested profiles</span>
+                    {reusable ? <span className="configuration-profile-readonly">Reusable profile structure is read-only.</span> : canNest && <div className="nested-profile-add-controls">
+                        <div className="configuration-add-controls">
+                            <select value={nestedDefinitionChoice} onChange={event => { setNestedDefinitionChoice(event.target.value); setNestedChoice(''); }} aria-label={`Select profile definition to add below ${profile.name || 'profile'}`}>
+                                <option value="">Add profile definition…</option>
+                                {availableProfiles.map(candidate => <option value={candidate.id} key={candidate.id}>{candidate.name || candidate.id}</option>)}
+                            </select>
+                            <button className="quiet-button" type="button" onClick={addNestedDefinition} disabled={!nestedDefinitionChoice}>Add</button>
+                        </div>
+                        {nestedDefinitionChoice && reusableNestedOptions.length > 0 && <div className="configuration-add-controls">
+                            <select value={nestedChoice} onChange={event => setNestedChoice(event.target.value)} aria-label={`Select reusable nested profile for ${profile.name || 'profile'}`}>
+                                <option value="">Select reusable profile…</option>
+                                {reusableNestedOptions.map(nestedItem => <option value={nestedItem.id} key={`${nestedItem.id}-${nestedItem.name}`}>{nestedItem.name || nestedItem.id}</option>)}
+                            </select>
+                            <button className="quiet-button" type="button" onClick={addNested} disabled={!nestedChoice}>Add</button>
+                        </div>}
+                    </div>}
+                </div>
+                {nested.length === 0
+                    ? <span className="configuration-profile-empty">{canNest ? 'No nested profiles assigned.' : 'No deeper profiles assigned. New nested profiles are limited to level 3.'}</span>
+                    : <div className="configuration-nested-list">{nested.map(child => {
+                    const childId = child.id || child.clientId;
+                    return <button className="configuration-nested-chip" type="button" key={childId} onClick={() => onOpenNested(childId)} aria-label={`Open ${child.name || child.id}`}>
+                    <span>{child.name || child.id}</span>
+                    <span className="icon" aria-hidden="true">chevron_right</span>
+                </button>;
+                })}</div>}
+            </div>
+        </div>}
+    </article>;
+}
+function ConfigurationProfilesSectionV2({ profiles, availableProfiles, availableNestedProfiles, availableParameters, onAdd, onAddReusable, onRemove, onAddNestedProfileDefinition, onAddNested, onRemoveNested, onAddParameter, onUpdateParameter, onUpdateProfileName, onRemoveParameter, onOpenNested, showValueDetails = false, showLifecycleDetails = false, onUpdateProfileLifecycle }) {
+    const [collapsed, setCollapsed] = useState(true);
+    const [expandedProfileId, setExpandedProfileId] = useState('');
+    const [profileChoice, setProfileChoice] = useState('');
+    const [reusableChoice, setReusableChoice] = useState('');
+    const reusableOptions = profileChoice ? availableNestedProfiles.filter(profile => profile.definitionId === profileChoice && !profiles.some(current => current.id === profile.id)) : [];
+    const addProfile = () => {
+        if (!profileChoice) return;
+        setExpandedProfileId(onAdd(profileChoice) || '');
+        setProfileChoice('');
+        setCollapsed(false);
+    };
+    const addReusableProfile = () => {
+        if (!reusableChoice) return;
+        setExpandedProfileId(onAddReusable(reusableChoice) || '');
+        setReusableChoice('');
+        setCollapsed(false);
+    };
+    return <section className={`native-configuration-profiles ${collapsed ? 'collapsed' : ''}`}>
+        <div className="service-items-heading">
+            <div className="configuration-section-title">
+                <button className="profile-collapse-button" type="button" aria-expanded={!collapsed} aria-label={`${collapsed ? 'Expand' : 'Collapse'} profiles`} onClick={() => setCollapsed(value => !value)}>
+                    <span className="icon" aria-hidden="true">{collapsed ? 'chevron_right' : 'expand_more'}</span>
+                </button>
+                <div><p className="eyebrow">Profiles ({profiles.length})</p></div>
+            </div>
+            <div className="configuration-profile-add-controls">
+                <div className="configuration-add-controls">
+                    <select value={profileChoice} onChange={event => { setProfileChoice(event.target.value); setReusableChoice(''); }} aria-label="Select profile to add">
+                        <option value="">Select profile…</option>
+                        {availableProfiles.map(profile => <option value={profile.id} key={profile.id}>{profile.name || profile.id}</option>)}
+                    </select>
+                    <button className="quiet-button" type="button" onClick={addProfile} disabled={!profileChoice}>Add</button>
+                </div>
+                {reusableOptions.length > 0 && <div className="configuration-add-controls">
+                    <select value={reusableChoice} onChange={event => setReusableChoice(event.target.value)} aria-label="Select reusable profile to add">
+                        <option value="">Select reusable profile…</option>
+                        {reusableOptions.map(profile => <option value={profile.id} key={profile.id}>{profile.name || profile.id}</option>)}
+                    </select>
+                    <button className="quiet-button" type="button" onClick={addReusableProfile} disabled={!reusableChoice}>Add</button>
+                </div>}
+            </div>
+        </div>
+        {!collapsed && (profiles.length === 0 ? <div className="configuration-empty"><span className="icon" aria-hidden="true">account_tree</span>No profiles are assigned to this configuration version.</div> : <div className="configuration-profile-list">{profiles.map(profile => <ConfigurationProfileNodeV2
+            key={`${profile.id || profile.clientId || 'new'}-${profile.definitionId}`}
+            profile={profile}
+            depth={1}
+            availableProfiles={availableProfiles}
+            availableNestedProfiles={availableNestedProfiles}
+            availableParameters={availableParameters}
+            onAddNestedProfileDefinition={onAddNestedProfileDefinition}
+            onAddNested={onAddNested}
+            onRemoveNested={onRemoveNested}
+            onAddParameter={onAddParameter}
+            onUpdateParameter={onUpdateParameter}
+            onUpdateProfileName={onUpdateProfileName}
+            onRemoveParameter={onRemoveParameter}
+            onRemove={onRemove}
+            onOpenNested={onOpenNested}
+            showValueDetails={showValueDetails}
+            showLifecycleDetails={showLifecycleDetails}
+            onUpdateProfileLifecycle={onUpdateProfileLifecycle}
+            initiallyExpanded={expandedProfileId === (profile.id || profile.clientId)}
+        />)}</div>)}
+    </section>;
+}
+
+function NativeConfigurationParametersSection({ parameters, availableParameters, parameterToAdd, setParameterToAdd, addParameter, updateParameter, updateParameterDetail, removeParameter, heading = 'Standalone parameters', emptyMessage = 'No standalone parameters are assigned to this version.', showValueDetails = false, showLifecycleDetails = false, lifecycleMode = 'Specification', initiallyCollapsed = true }) {
+    const [collapsed, setCollapsed] = useState(initiallyCollapsed);
+    const addAndExpand = () => {
+        addParameter();
+        setCollapsed(false);
+    };
+    return <section className={`native-configuration-parameters ${collapsed ? 'collapsed' : ''}`}>
+        <div className="service-items-heading">
+            <div className="configuration-section-title">
+                <button className="profile-collapse-button" type="button" aria-expanded={!collapsed} aria-label={`${collapsed ? 'Expand' : 'Collapse'} standalone parameters`} onClick={() => setCollapsed(value => !value)}>
+                    <span className="icon" aria-hidden="true">{collapsed ? 'chevron_right' : 'expand_more'}</span>
+                </button>
+                <div>
+                    <p className="eyebrow">{heading} ({parameters.length})</p>
+                </div>
+            </div>
+            <div className="configuration-add-controls">
+                <select value={parameterToAdd} onChange={event => setParameterToAdd(event.target.value)} aria-label="Select parameter to add">
+                    <option value="">Select parameter…</option>
+                    {availableParameters.map(parameter => <option value={parameter.id} key={`${parameter.id}-${parameter.name}`}>{parameter.name || parameter.id}</option>)}
+                </select>
+                <button className="quiet-button" type="button" onClick={addAndExpand} disabled={!parameterToAdd}>Add</button>
+            </div>
+        </div>
+        {!collapsed && (parameters.length === 0 ? <div className="configuration-empty"><span className="icon" aria-hidden="true">tune</span>{emptyMessage}</div> : <ConfigurationParameterTable
+            parameters={parameters}
+            showValueDetails={showValueDetails}
+            showLifecycleDetails={showLifecycleDetails}
+            lifecycleMode={lifecycleMode}
+            onValue={updateParameter}
+            onDetail={updateParameterDetail}
+            onRemove={parameter => removeParameter(configurationParameterKey(parameter))}
+        />)}
+    </section>;
+}
+
+// Shared by standalone and profile parameters. Profile parameters only have per-parameter N/A and Fixed;
+// their order/service lifecycle is set on the profile itself.
+function ConfigurationParameterTable({ parameters, readOnly = false, showValueDetails = false, showLifecycleDetails = false, lifecycleMode = 'Specification', onValue, onDetail, onRemove }) {
+    const isOrderItem = lifecycleMode === 'OrderItem';
+    const isProfile = lifecycleMode === 'Profile';
+    const showOrderLifecycle = showLifecycleDetails && !isOrderItem && !isProfile;
+    const checkbox = (parameter, field, label, editable = !readOnly) => <td><input className="configuration-detail-checkbox" type="checkbox" checked={Boolean(parameter[field])} disabled={!editable} onChange={event => onDetail(configurationParameterKey(parameter), field, event.target.checked)} aria-label={`${label} for ${parameter.name || parameter.id}`} /></td>;
+    const wide = showValueDetails || showLifecycleDetails;
+    // Fixed table layout squeezes the Value column to nothing when detail columns are added, so scroll horizontally instead.
+    const checkColumns = (showValueDetails ? 1 : 0) + (showLifecycleDetails ? 2 + (isOrderItem ? 1 : 0) + (showOrderLifecycle ? 3 : 0) : 0);
+    const minWidth = wide ? 180 + 180 + 90 + 200 + checkColumns * 80 + (showValueDetails ? 6 * 90 : 0) + (!showLifecycleDetails && !isProfile ? 110 : 0) + (readOnly ? 0 : 48) : undefined;
+    return <div className="native-configuration-table-wrap">
+        <table className={`native-configuration-table ${wide ? 'details' : ''}`} style={minWidth ? { minWidth } : undefined}>
+            <thead><tr>
+                <th className="col-label">Label</th><th className="col-name">Parameter</th><th className="col-type">Type</th>
+                {showValueDetails && <th className="col-check">Link</th>}
+                {showLifecycleDetails && <th className="col-check">N/A</th>}
+                <th className="col-value">Value</th>
+                {showValueDetails && <><th className="col-small">Unit</th><th className="col-small">Start</th><th className="col-small">End</th><th className="col-small">Step size</th><th className="col-small">Decimals</th><th className="col-small">Values</th></>}
+                {!showLifecycleDetails && !isProfile && <th className="col-status">Mandatory</th>}
+                {showLifecycleDetails && <th className="col-check">Fixed</th>}
+                {showLifecycleDetails && isOrderItem && <th className="col-check">Mandatory</th>}
+                {showOrderLifecycle && <><th className="col-check">Expose at order</th><th className="col-check">Mandatory at order</th><th className="col-check">Mandatory at service</th></>}
+                {!readOnly && <th className="col-action"></th>}
+            </tr></thead>
+            <tbody>{parameters.map(parameter => {
+                const name = parameter.name || parameter.id;
+                const type = String(parameter.type || '').toLowerCase();
+                return <tr key={configurationParameterKey(parameter)}>
+                    <td><ParameterLabelInput parameter={parameter} readOnly={readOnly} onChange={label => onDetail(configurationParameterKey(parameter), 'label', label)} /></td>
+                    <td><strong>{name}</strong></td>
+                    <td>{parameter.type || '—'}</td>
+                    {showValueDetails && checkbox(parameter, 'isLinked', 'Link', false)}
+                    {showLifecycleDetails && checkbox(parameter, 'notApplicable', 'N/A')}
+                    <td><ConfigurationParameterValueEditor parameter={parameter} disabled={readOnly} onChange={value => onValue(configurationParameterKey(parameter), value)} ariaLabel={`Value for ${name}`} /></td>
+                    {showValueDetails && <>
+                        <td>{parameter.unit || '—'}</td>
+                        {['start', 'end', 'step', 'decimals'].map(field => <td key={field}>{type !== 'number' ? '—' : readOnly ? (parameter[field] || '—') : <input className="configuration-detail-number" type="number" value={parameter[field] ?? ''} onChange={event => onDetail(configurationParameterKey(parameter), field, event.target.value)} aria-label={`${field} for ${name}`} />}</td>)}
+                        <td>{type === 'discrete' ? <button className="quiet-button parameter-values-button" type="button" disabled={!parameter.options?.length} aria-label={`Values for ${name}`}>…</button> : '—'}</td>
+                    </>}
+                    {!showLifecycleDetails && !isProfile && <td><span className={parameter.mandatory ? 'parameter-required' : 'parameter-optional'}>{parameter.mandatory ? 'Required' : 'Optional'}</span></td>}
+                    {showLifecycleDetails && checkbox(parameter, 'fixed', 'Fixed')}
+                    {showLifecycleDetails && isOrderItem && checkbox(parameter, 'mandatory', 'Mandatory', false)}
+                    {showOrderLifecycle && <>{checkbox(parameter, 'exposeAtOrder', 'Expose at order')}{checkbox(parameter, 'mandatoryAtOrder', 'Mandatory at order')}{checkbox(parameter, 'mandatoryAtService', 'Mandatory at service')}</>}
+                    {!readOnly && <td><button className="table-icon-action danger" type="button" aria-label={`Delete ${name}`} onClick={() => onRemove(parameter)}><span className="icon" aria-hidden="true">delete</span></button></td>}
+                </tr>;
+            })}</tbody>
+        </table>
+    </div>;
+}
+
+function NativeServiceConfigurationsView({ service, actionState, onSave, onDuplicateVersion, onConfirm, fetchConfigurations = fetchServiceConfigurations, configurationOwnerId, heading = 'Service configuration', allowVersionDelete = true, allowVersionAdd = false, showVersionMetadata = true, supportsProfiles = true, allowInitialVersion = false, parameterHeading, parameterEmptyMessage, lifecycleMode = 'Specification', eyebrow = 'Configurations', parametersExpanded = false }) {
+    const configurationId = configurationOwnerId ? service.id : serviceApiId(service);
+    const configurationFetcher = useCallback(
+        () => configurationOwnerId ? fetchConfigurations(configurationOwnerId, configurationId) : fetchConfigurations(configurationId),
+        [configurationId, configurationOwnerId, fetchConfigurations],
+    );
+    const data = useDataList(configurationFetcher);
+    const [versionId, setVersionId] = useState('');
+    const [draft, setDraft] = useState(null);
+    const [parameterToAdd, setParameterToAdd] = useState('');
+    const [profileToAdd, setProfileToAdd] = useState('');
+    const [deletedConfigurationIds, setDeletedConfigurationIds] = useState([]);
+    const [deletedProfileIds, setDeletedProfileIds] = useState([]);
+    const [deletedProfileParameterIds, setDeletedProfileParameterIds] = useState([]);
+    const [openProfileId, setOpenProfileId] = useState(null);
+    const [validationError, setValidationError] = useState('');
+    const [showValueDetails, setShowValueDetails] = useState(false);
+    const [showLifecycleDetails, setShowLifecycleDetails] = useState(false);
+    const busy = actionState?.status === 'running';
+    const configurationData = data.items && !Array.isArray(data.items) ? data.items : EMPTY_SERVICE_CONFIGURATION_DATA;
+    const configurations = configurationData.versions;
+    const availableParameters = configurationData.availableParameters;
+    const availableProfiles = configurationData.availableProfiles;
+    const availableNestedProfiles = configurationData.availableNestedProfiles || [];
+    const selectedProfilePath = openProfileId && draft ? findConfigurationProfilePath(draft.profiles, openProfileId) : null;
+    const selectedProfile = selectedProfilePath ? selectedProfilePath[selectedProfilePath.length - 1] : null;
+    const profilesAtLevel = selectedProfilePath && selectedProfilePath.length > 1
+        ? selectedProfilePath[selectedProfilePath.length - 2].nestedProfiles || []
+        : draft?.profiles || [];
+    const openProfile = id => { if (id) setOpenProfileId(id); };
+    const returnToPreviousProfile = () => {
+        if (!selectedProfilePath || selectedProfilePath.length <= 2) {
+            setOpenProfileId(null);
+            return;
+        }
+        const parent = selectedProfilePath[selectedProfilePath.length - 2];
+        setOpenProfileId(parent ? parent.id || parent.clientId : null);
+    };
+    const addInitialVersion = () => {
+        setVersionId('');
+        setDraft({ id: '', name: 'Initial version', description: '', start: '', end: '', active: true, parameters: [], profiles: [] });
+        setParameterToAdd('');
+        setProfileToAdd('');
+        setDeletedConfigurationIds([]);
+        setDeletedProfileIds([]);
+        setDeletedProfileParameterIds([]);
+        setOpenProfileId(null);
+        setValidationError('');
+    };
+    const addNewVersion = () => {
+        setVersionId('__new__');
+        setDraft({ id: '', name: 'New version', description: '', start: '', end: '', active: false, parameters: [], profiles: [] });
+        setParameterToAdd('');
+        setProfileToAdd('');
+        setDeletedConfigurationIds([]);
+        setDeletedProfileIds([]);
+        setDeletedProfileParameterIds([]);
+        setOpenProfileId(null);
+        setValidationError('');
+    };
+    useEffect(() => {
+        if (versionId === '__new__') return;
+        if (configurations.length === 0) {
+            setVersionId('');
+            setDraft(null);
+            return;
+        }
+        const active = configurations.find(version => version.active) || configurations[0];
+        setVersionId(current => current && configurations.some(version => version.id === current) ? current : active.id);
+    }, [configurations, versionId]);
+    useEffect(() => {
+        if (versionId === '__new__') return;
+        const version = configurations.find(item => item.id === versionId);
+        setDraft(version ? { ...version, parameters: version.parameters.map(parameter => ({ ...parameter })), profiles: version.profiles.map(profile => ({ ...profile, parameters: profile.parameters.map(parameter => ({ ...parameter })), nestedProfiles: (profile.nestedProfiles || []).map(nested => ({ ...nested, parameters: nested.parameters || [], nestedProfiles: nested.nestedProfiles || [] })) })) } : null);
+        setDeletedConfigurationIds([]);
+        setDeletedProfileIds([]);
+        setDeletedProfileParameterIds([]);
+        setOpenProfileId(null);
+    }, [configurations, versionId]);
+    const update = (field, value) => setDraft(current => ({ ...current, [field]: value }));
+    const updateParameter = (id, value) => setDraft(current => ({ ...current, parameters: current.parameters.map(parameter => configurationParameterKey(parameter) === id ? { ...parameter, value } : parameter) }));
+    const withDetail = (parameter, field, value) => ({ ...parameter, [field]: value, ...(field === 'notApplicable' && value ? { value: '' } : {}) });
+    const updateParameterDetail = (id, field, value) => setDraft(current => ({ ...current, parameters: current.parameters.map(parameter => configurationParameterKey(parameter) === id ? withDetail(parameter, field, value) : parameter) }));
+    const addParameter = () => {
+        const parameter = availableParameters.find(item => item.id === parameterToAdd);
+        if (!parameter || !draft) return;
+        const instance = createConfigurationParameter(parameter, draft.parameters);
+        setDraft(current => ({ ...current, parameters: [...current.parameters, instance] }));
+        setParameterToAdd('');
+    };
+    const removeParameter = id => {
+        const parameter = draft?.parameters.find(item => configurationParameterKey(item) === id);
+        if (parameter?.configurationId) setDeletedConfigurationIds(current => [...new Set([...current, parameter.configurationId])]);
+        setDraft(current => ({ ...current, parameters: current.parameters.filter(item => configurationParameterKey(item) !== id) }));
+    };
+    const createProfile = (definition, siblings = []) => {
+        const duplicates = siblings.filter(profile => profile.definitionId === definition.id).length;
+        return ({
+        id: '',
+        clientId: `new-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        name: duplicates ? `${definition.name} #${duplicates + 1}` : definition.name,
+        definitionId: definition.id,
+        definitionName: definition.name,
+        reusable: false,
+        mandatory: false,
+        parameters: [],
+        nestedProfiles: [],
+        });
+    };
+    const addProfile = profileIdOverride => {
+        const definition = availableProfiles.find(item => item.id === (profileIdOverride || profileToAdd));
+        if (!definition || !draft) return;
+        const newProfile = createProfile(definition, draft.profiles);
+        setDraft(current => ({ ...current, profiles: [...current.profiles, newProfile] }));
+        setProfileToAdd('');
+        return newProfile.clientId;
+    };
+    const addReusableProfile = profileId => {
+        const reusable = availableNestedProfiles.find(item => item.id === profileId);
+        if (!reusable || !draft || draft.profiles.some(profile => profile.id === reusable.id)) return;
+        const newProfile = {
+            id: reusable.id,
+            clientId: '',
+            name: reusable.name,
+            definitionId: reusable.definitionId,
+            definitionName: reusable.definitionName,
+            reusable: true,
+            mandatory: false,
+            parameters: [],
+            nestedProfiles: [],
+        };
+        setDraft(current => ({ ...current, profiles: [...current.profiles, newProfile] }));
+        return newProfile.id;
+    };
+    const mapProfileTree = (profiles, updater) => profiles.map(profile => {
+        const updated = updater(profile);
+        return updated === profile ? { ...profile, nestedProfiles: mapProfileTree(profile.nestedProfiles || [], updater) } : updated;
+    });
+    const addProfileAtLevel = (parentId, definitionId) => {
+        const definition = availableProfiles.find(item => item.id === definitionId);
+        if (!definition || !draft) return;
+        const parentPath = parentId ? findConfigurationProfilePath(draft.profiles, parentId) : null;
+        const parent = parentPath ? parentPath[parentPath.length - 1] : null;
+        if (parentId && (!parent || parent.reusable)) return;
+        const siblings = parent ? parent.nestedProfiles || [] : draft.profiles;
+        const newProfile = createProfile(definition, siblings);
+        setDraft(current => parent
+            ? { ...current, profiles: mapProfileTree(current.profiles, profile => (profile.id === parentId || profile.clientId === parentId) ? { ...profile, nestedProfiles: [...(profile.nestedProfiles || []), newProfile] } : profile) }
+            : { ...current, profiles: [...current.profiles, newProfile] });
+        setOpenProfileId(newProfile.clientId);
+    };
+    const addNestedProfileDefinition = (parentId, definitionId) => {
+        const definition = availableProfiles.find(item => item.id === definitionId);
+        if (!definition || !draft) return;
+        const parentPath = findConfigurationProfilePath(draft.profiles, parentId);
+        const parent = parentPath ? parentPath[parentPath.length - 1] : null;
+        if (!parent || parent.reusable || parentPath.length >= 3) return;
+        const newProfile = createProfile(definition, parent.nestedProfiles || []);
+        setDraft(current => ({ ...current, profiles: mapProfileTree(current.profiles, profile => (profile.id === parentId || profile.clientId === parentId) ? { ...profile, nestedProfiles: [...(profile.nestedProfiles || []), newProfile] } : profile) }));
+        setOpenProfileId(newProfile.clientId);
+    };
+    const addNestedProfile = (parentId, nestedId) => {
+        const nested = availableNestedProfiles.find(profile => profile.id === nestedId);
+        if (!nested || !draft || !nestedId) return;
+        setDraft(current => ({ ...current, profiles: mapProfileTree(current.profiles, profile => (profile.id === parentId || profile.clientId === parentId) ? { ...profile, nestedProfiles: profile.nestedProfiles.some(item => item.id === nestedId) ? profile.nestedProfiles : [...profile.nestedProfiles, { ...nested, parameters: [], nestedProfiles: [] }] } : profile) }));
+    };
+    const removeNestedProfile = (parentId, nestedId) => setDraft(current => ({ ...current, profiles: mapProfileTree(current.profiles, profile => (profile.id === parentId || profile.clientId === parentId) ? { ...profile, nestedProfiles: profile.nestedProfiles.filter(item => (item.id || item.clientId) !== nestedId) } : profile) }));
+    const addProfileParameter = (profileId, parameterId) => {
+        const parameter = availableParameters.find(item => item.id === parameterId);
+        if (!parameter || !draft || !parameterId) return;
+        setDraft(current => ({ ...current, profiles: mapProfileTree(current.profiles, profile => (profile.id === profileId || profile.clientId === profileId) ? { ...profile, parameters: [...profile.parameters, createConfigurationParameter(parameter, profile.parameters)] } : profile) }));
+    };
+    const updateProfileParameter = (profileId, parameterId, value, field = 'value') => setDraft(current => ({ ...current, profiles: mapProfileTree(current.profiles, profile => (profile.id === profileId || profile.clientId === profileId) ? { ...profile, parameters: profile.parameters.map(parameter => configurationParameterKey(parameter) === parameterId ? withDetail(parameter, field, value) : parameter) } : profile) }));
+    const updateProfileName = (profileId, name) => setDraft(current => ({ ...current, profiles: mapProfileTree(current.profiles, profile => (profile.id === profileId || profile.clientId === profileId) ? { ...profile, name } : profile) }));
+    const updateProfileLifecycle = (profileId, field, value) => setDraft(current => ({ ...current, profiles: mapProfileTree(current.profiles, profile => (profile.id === profileId || profile.clientId === profileId) ? { ...profile, [field]: value } : profile) }));
+    const removeProfileParameter = (profileId, parameter) => {
+        if (parameter.valueId) setDeletedProfileParameterIds(current => [...new Set([...current, parameter.valueId])]);
+        setDraft(current => ({ ...current, profiles: mapProfileTree(current.profiles, profile => (profile.id === profileId || profile.clientId === profileId) ? { ...profile, parameters: profile.parameters.filter(item => configurationParameterKey(item) !== configurationParameterKey(parameter)) } : profile) }));
+    };
+    const serializeProfile = profile => {
+        const { clientId, parameters, nestedProfiles, ...payload } = profile;
+        return {
+            ...payload,
+            MandatoryAtService: profile.mandatoryAtService ?? profile.mandatory ?? false,
+            MandatoryAtServiceOrder: profile.mandatoryAtOrder ?? profile.mandatoryAtServiceOrder ?? false,
+            ExposeAtServiceOrder: profile.exposeAtOrder ?? profile.exposeAtServiceOrder ?? false,
+            Parameters: (parameters || []).map(parameter => ({
+                ParameterId: parameter.id,
+                ParameterValueId: parameter.valueId,
+                Value: parameter.value,
+                Mandatory: parameter.mandatory,
+                Label: parameter.label,
+                IsLinked: parameter.isLinked,
+                UnitId: parameter.unitId,
+                Start: parameter.start,
+                End: parameter.end,
+                StepSize: parameter.step,
+                Decimals: parameter.decimals,
+                Fixed: parameter.fixed,
+                ExposeAtServiceOrder: parameter.exposeAtOrder,
+                MandatoryAtServiceOrder: parameter.mandatoryAtOrder,
+                MandatoryAtService: parameter.mandatoryAtService,
+            })),
+            NestedProfileIds: (nestedProfiles || []).map(nested => nested.id).filter(Boolean),
+            NestedProfiles: (nestedProfiles || []).map(serializeProfile),
+        };
+    };
+    const removeProfile = (id, definitionId, clientId) => {
+        if (id) setDeletedProfileIds(current => [...new Set([...current, id])]);
+        setDraft(current => ({ ...current, profiles: current.profiles.filter(profile => clientId ? profile.clientId !== clientId : profile.id !== id || profile.definitionId !== definitionId) }));
+    };
+    const deleteVersion = async () => {
+        if (!draft || !await onConfirm(`Delete configuration "${draft.name || 'this version'}"?`)) return;
+        await onSave({ 'DOM ID': service.id, Payload: JSON.stringify({ VersionId: draft.id, DeleteVersion: true }) }, data.reloadAndWait);
+    };
+    const duplicateVersion = async () => {
+        if (!onDuplicateVersion || !draft?.id) return;
+        if (onConfirm && !await onConfirm(`Are you sure you want to duplicate the configuration "${draft.name || 'this version'}"? Unsaved changes are not included in the copy.`, { title: 'Duplicate configuration', confirmLabel: 'Duplicate', icon: 'content_copy', tone: 'neutral' })) return;
+        const created = await onDuplicateVersion(draft, data.reloadAndWait);
+        const createdId = created?.Identifier || created?.identifier || created?.id;
+        if (createdId) setVersionId(createdId);
+    };
+    const save = async ({ activateVersion = draft?.active } = {}) => {
+        if (!draft) return;
+        const parameterLabelError = findParameterLabelError(draft.parameters, draft.profiles);
+        if (parameterLabelError) {
+            setValidationError(parameterLabelError);
+            return;
+        }
+        const emptyMandatoryParameter = findEmptyMandatoryParameter(draft.parameters, draft.profiles);
+        if (emptyMandatoryParameter) {
+            setValidationError(`Required parameter "${emptyMandatoryParameter}" must have a value before saving.`);
+            return;
+        }
+        setValidationError('');
+        const payload = {
+            DeleteConfigurationIds: deletedConfigurationIds,
+            Parameters: draft.parameters.map(parameter => ({
+                ConfigurationId: parameter.configurationId,
+                ParameterId: parameter.id,
+                ParameterValueId: parameter.valueId,
+                Value: parameter.value,
+                Mandatory: parameter.mandatory,
+                Label: parameter.label,
+                IsLinked: parameter.isLinked,
+                Fixed: parameter.fixed,
+                UnitId: parameter.unitId,
+                Start: parameter.start,
+                End: parameter.end,
+                StepSize: parameter.step,
+                Decimals: parameter.decimals,
+                ExposeAtServiceOrder: parameter.exposeAtOrder,
+                MandatoryAtServiceOrder: parameter.mandatoryAtOrder,
+                MandatoryAtService: parameter.mandatoryAtService,
+            })),
+        };
+        if (showVersionMetadata) {
+            Object.assign(payload, {
+                VersionId: draft.id,
+                VersionName: draft.name,
+                Description: draft.description,
+                StartDate: dateTimeLocalToUtc(draft.start),
+                EndDate: dateTimeLocalToUtc(draft.end),
+                ActivateVersion: Boolean(activateVersion),
+            });
+        }
+        if (supportsProfiles) {
+            Object.assign(payload, {
+                DeletedProfileParameterIds: deletedProfileParameterIds,
+                DeletedProfileIds: deletedProfileIds,
+                Profiles: draft.profiles.map(serializeProfile),
+            });
+        }
+        if (await onSave({
+            'DOM ID': service.id,
+            Payload: JSON.stringify(payload),
+        }, data.reloadAndWait)) {
+            if (versionId === '__new__') setVersionId('');
+        }
+    };
+    return <div className="service-drawer-body native-configuration-view">
+        <div className="service-drawer-heading">
+            <div><p className="eyebrow">{eyebrow}</p><h2>{heading}</h2></div>
+            <div className="configuration-view-actions">
+                <button className="quiet-button" type="button" onClick={() => setShowValueDetails(value => !value)}>{showValueDetails ? 'Hide Value Details' : 'Show Value Details'}</button>
+                <button className="quiet-button" type="button" onClick={() => setShowLifecycleDetails(value => !value)}>{showLifecycleDetails ? 'Hide Lifecycle Details' : 'Show Lifecycle Details'}</button>
+                <button className="primary-button" type="button" onClick={save} disabled={busy || !draft}>
+                    <span className={busy ? 'icon spin' : 'icon'} aria-hidden="true">{busy ? 'refresh' : 'save'}</span>
+                    {busy ? 'Saving…' : 'Save configuration'}
+                </button>
+            </div>
+        </div>
+        {validationError && <div className="configuration-validation-error" role="alert"><span className="icon" aria-hidden="true">error</span>{validationError}</div>}
+        {data.status === 'loading' ? <div className="configuration-empty"><span className="icon spin" aria-hidden="true">refresh</span>{showVersionMetadata ? 'Loading configuration versions…' : 'Loading configuration parameters…'}</div>
+            : data.status === 'error' ? <div className="configuration-empty error"><span className="icon" aria-hidden="true">error</span>{data.error}<button className="quiet-button" type="button" onClick={data.reload}>Retry</button></div>
+                : configurations.length === 0 && !draft ? <div className={allowInitialVersion ? 'configuration-empty initial-version-empty' : 'configuration-empty'}><span className="icon" aria-hidden="true">tune</span><span>{showVersionMetadata ? 'No configuration versions are defined for this service yet.' : 'No configuration parameters are available for this order item.'}</span>{allowInitialVersion && <button className="primary-button" type="button" onClick={addInitialVersion} disabled={busy}>Add initial version</button>}</div>
+                : !draft ? <div className="configuration-empty" role="status"><span className="icon spin" aria-hidden="true">refresh</span>Loading selected configuration…</div>
+                    : selectedProfile && selectedProfilePath
+                    ? <NativeConfigurationProfileView
+                            profile={selectedProfile}
+                            profilePath={selectedProfilePath}
+                            profilesAtLevel={profilesAtLevel}
+                            availableProfiles={availableProfiles}
+                            availableNestedProfiles={availableNestedProfiles}
+                            availableParameters={availableParameters}
+                            onBack={returnToPreviousProfile}
+                            onAddProfileAtLevel={addProfileAtLevel}
+                            onAddNestedProfileDefinition={addNestedProfileDefinition}
+                            onAddNested={addNestedProfile}
+                            onRemoveNested={removeNestedProfile}
+                            onAddParameter={addProfileParameter}
+                            onUpdateParameter={updateProfileParameter}
+                            onUpdateProfileName={updateProfileName}
+                            onUpdateProfileLifecycle={updateProfileLifecycle}
+                            onRemoveParameter={removeProfileParameter}
+                            onOpenNested={openProfile}
+                            showValueDetails={showValueDetails}
+                            showLifecycleDetails={showLifecycleDetails}
+                        />
+                        : <>
+                            {showVersionMetadata && <section className="native-configuration-version">
+                                <div className="configuration-version-toolbar">
+                                    <label>Version<select value={versionId} onChange={event => setVersionId(event.target.value)}>{draft.id === '' && <option value="">Initial version</option>}{configurations.map(version => <option value={version.id} key={version.id}>{version.name || version.id}{version.active ? ' (Active)' : ''}</option>)}</select></label>
+                                    {versionId === '__new__'
+                                        ? <span className="configuration-version-status">Inactive until Activate</span>
+                                        : <button className={draft.active ? 'configuration-version-active active' : 'configuration-version-active'} type="button" onClick={() => save({ activateVersion: true })} disabled={busy || draft.active} title={draft.active ? 'This version is active.' : 'Make this version active.'}>
+                                            <span className="icon" aria-hidden="true">check_circle</span>{draft.active ? 'Active' : 'Activate'}
+                                        </button>}
+                                    <div className="configuration-version-actions">
+                                        {allowVersionAdd && <button className="quiet-button" type="button" onClick={addNewVersion} disabled={busy}><span className="icon" aria-hidden="true">add</span>New version</button>}
+                                        {onDuplicateVersion && <button className="quiet-button" type="button" onClick={duplicateVersion} disabled={busy || !draft.id || versionId === '__new__'} title={!draft.id ? 'Save this version before duplicating it.' : 'Create an inactive copy of the saved configuration version.'}><span className="icon" aria-hidden="true">content_copy</span>Duplicate configuration</button>}
+                                        {allowVersionDelete && <button className="danger-button" type="button" onClick={deleteVersion} disabled={busy || draft.active || !draft.id} title={draft.active ? 'Active versions cannot be deleted.' : !draft.id ? 'Save this version before deleting it.' : 'Delete this configuration version.'}><span className="icon" aria-hidden="true">delete</span>Delete configuration</button>}
+                                    </div>
+                                </div>
+                                <div className="configuration-version-form">
+                                    <label>Version name<input value={draft.name} onChange={event => update('name', event.target.value)} /></label>
+                                    <label>Description<input value={draft.description} onChange={event => update('description', event.target.value)} /></label>
+                                    <label>Start date<input type="datetime-local" value={dateTimeInputValue(draft.start)} onChange={event => update('start', event.target.value)} /></label>
+                                    <label>End date<input type="datetime-local" value={dateTimeInputValue(draft.end)} onChange={event => update('end', event.target.value)} /></label>
+                                </div>
+                            </section>}
+                            <NativeConfigurationParametersSection parameters={draft.parameters} availableParameters={availableParameters} parameterToAdd={parameterToAdd} setParameterToAdd={setParameterToAdd} addParameter={addParameter} updateParameter={updateParameter} updateParameterDetail={updateParameterDetail} removeParameter={removeParameter} heading={parameterHeading} emptyMessage={parameterEmptyMessage} showValueDetails={showValueDetails} showLifecycleDetails={showLifecycleDetails} lifecycleMode={lifecycleMode} initiallyCollapsed={!parametersExpanded} />
+                            {supportsProfiles && <ConfigurationProfilesSectionV2
+                                profiles={draft.profiles}
+                                availableProfiles={availableProfiles}
+                                availableNestedProfiles={availableNestedProfiles}
+                                availableParameters={availableParameters}
+                                onAdd={addProfile}
+                                onAddReusable={addReusableProfile}
+                                onRemove={removeProfile}
+                                onAddNestedProfileDefinition={addNestedProfileDefinition}
+                                onAddNested={addNestedProfile}
+                                onRemoveNested={removeNestedProfile}
+                                onAddParameter={addProfileParameter}
+                                onUpdateParameter={updateProfileParameter}
+                                onUpdateProfileName={updateProfileName}
+                                onRemoveParameter={removeProfileParameter}
+                                onOpenNested={openProfile}
+                                showValueDetails={showValueDetails}
+                                showLifecycleDetails={showLifecycleDetails && lifecycleMode !== 'OrderItem'}
+                                onUpdateProfileLifecycle={updateProfileLifecycle}
+                            />}
+                        </>}
+    </div>;
+}
+
+function ServiceOperationDialog({ action, initialScript, busy, onClose, onSubmit }) {
+    const [name, setName] = useState(initialScript?.name || '');
+    const [description, setDescription] = useState(initialScript?.description || '');
+    const submit = async event => {
+        event.preventDefault();
+        if (!name.trim() || !description.trim()) return;
+        await onSubmit({ name: name.trim(), description: description.trim(), originalDescription: initialScript?.description || '' });
+    };
+    return <div className="confirm-layer order-form-layer"><div className="confirm-backdrop" onClick={onClose} aria-hidden="true" /><form className="order-form-dialog specification-form-dialog" onSubmit={submit} aria-labelledby="service-operation-form-title"><header className="order-form-header"><div><p className="eyebrow">Service operations</p><h2 id="service-operation-form-title">{action === 'Update' ? 'Edit service operation' : 'Add service operation'}</h2></div><button className="icon-button" type="button" aria-label="Close service operation form" onClick={onClose}><span className="icon" aria-hidden="true">close</span></button></header><div className="order-form-grid"><label className="wide">Script name<input autoFocus required value={name} onChange={event => setName(event.target.value)} placeholder="Automation script name" /></label><label className="wide">Description<input required value={description} onChange={event => setDescription(event.target.value)} placeholder="Operation description" /></label></div><footer className="order-form-actions"><button className="quiet-button" type="button" onClick={onClose} disabled={busy}>Cancel</button><button className="primary-button" type="submit" disabled={busy}>{busy ? 'Saving…' : action === 'Update' ? 'Save operation' : 'Add operation'}</button></footer></form></div>;
+}
+
+function ServiceOperationsView({ scripts, busy, onSubmit, onDelete }) {
+    const [editor, setEditor] = useState(null);
+    const submit = async values => {
+        if (await onSubmit(editor.action, values, scripts.reloadAndWait)) {
+            setEditor(null);
+        }
+    };
+    const deleteOperation = async script => {
+        return onDelete(script, scripts.reloadAndWait);
+    };
+    return <section className="service-operations-panel" aria-labelledby="service-operations-title">
+        <div className="service-items-heading">
+            <div className="order-items-title"><h3 id="service-operations-title">Service operations</h3><span className="count-pill">{scripts.status === 'ready' ? scripts.items.length : '—'}</span></div>
+            <button className="quiet-button" type="button" onClick={() => setEditor({ action: 'Add', script: null })} disabled={busy}><span className="icon" aria-hidden="true">add</span>Add</button>
+        </div>
+        {scripts.status === 'error'
+            ? <div className="list-message error" role="alert"><div className="list-message-text"><strong>Service operations could not be loaded</strong><span>{scripts.error}</span></div><button className="quiet-button" type="button" onClick={scripts.reload}>Retry</button></div>
+            : <div className="service-operations-table-wrap"><table><thead><tr><th>Description</th><th>Script name</th><th><span className="sr-only">Actions</span></th></tr></thead><tbody>{scripts.status === 'loading' ? <tr><td colSpan="3">Loading operations…</td></tr> : scripts.items.length === 0 ? <tr><td colSpan="3">Nothing to show.</td></tr> : scripts.items.map(script => <tr key={`${script.name}-${script.description}`}><td>{script.description || '—'}</td><td>{script.name || '—'}</td><td><div className="service-actions"><button className="table-icon-action" type="button" aria-label={`Edit operation ${script.description || script.name}`} onClick={() => setEditor({ action: 'Update', script })} disabled={busy}><span className="icon" aria-hidden="true">edit</span></button><button className="table-icon-action danger" type="button" aria-label={`Delete operation ${script.description || script.name}`} onClick={() => deleteOperation(script)} disabled={busy}><span className="icon" aria-hidden="true">delete</span></button></div></td></tr>)}</tbody></table></div>}
+        {editor && <ServiceOperationDialog action={editor.action} initialScript={editor.script} busy={busy} onClose={() => setEditor(null)} onSubmit={submit} />}
+    </section>;
+}
+
+function TabbedServiceDetailPanel({ service, onClose, onEdit, onDelete, onDuplicate, onDeleteItem, onAddItem, onEditItem, onTransitionService, onSaveConfiguration, onDuplicateConfiguration, onConfirmConfiguration, onManageOperation, onDeleteOperation, onConfirmOperation, onActionNotice, onActionFailure, actionState }) {
+    const closeButton = useRef(null);
+    const [tab, setTab] = useState('service');
+    const [itemEditor, setItemEditor] = useState(null);
+    const [scriptItem, setScriptItem] = useState(null);
+    const [bookingMenu, setBookingMenu] = useState(null);
+    const [bookingActionRun, setBookingActionRun] = useState(null);
+    const itemData = useServiceItems(service);
+    const relatedOrders = useRelatedServiceOrders(serviceApiId(service));
+    const scripts = useServiceScripts(serviceApiId(service));
+    const transitions = SERVICE_TRANSITIONS[service.status.trim().toLowerCase()] || [];
+    const closeItemScript = useCallback(() => setScriptItem(null), []);
+    const closeBookingAction = useCallback(() => setBookingActionRun(null), []);
+    const reloadItems = itemData.reloadAndWait;
+    const finishItemScript = useCallback(async ({ cancelled }) => {
+        const label = scriptItem?.label || 'service item';
+        setScriptItem(null);
+        if (cancelled) return;
+        onActionNotice('running', 'Refreshing service items…');
+        try {
+            await reloadItems();
+            onActionNotice('success', `Script for "${label}" completed.`);
+        } catch (error) {
+            onActionFailure(error?.message || 'The service items could not be refreshed.');
+        }
+    }, [scriptItem, onActionNotice, onActionFailure, reloadItems]);
+    const finishBookingAction = useCallback(async ({ cancelled }) => {
+        const label = bookingActionRun?.item?.label || 'service item';
+        const actionLabel = bookingActionRun?.action?.label || 'Booking action';
+        setBookingActionRun(null);
+        if (cancelled) return;
+        onActionNotice('running', 'Refreshing service items…');
+        try {
+            await reloadItems();
+            onActionNotice('success', `${actionLabel} for "${label}" completed.`);
+        } catch (error) {
+            onActionFailure(error?.message || 'The service items could not be refreshed.');
+        }
+    }, [bookingActionRun, onActionNotice, onActionFailure, reloadItems]);
+    useEffect(() => {
+        if (!bookingMenu) return undefined;
+        const closeMenu = event => {
+            if (!event.target?.closest?.('.booking-actions-menu, .booking-actions-trigger')) setBookingMenu(null);
+        };
+        const onKey = event => {
+            if (event.key === 'Escape') {
+                event.stopPropagation();
+                setBookingMenu(null);
+            }
+        };
+        document.addEventListener('mousedown', closeMenu);
+        document.addEventListener('keydown', onKey, true);
+        return () => {
+            document.removeEventListener('mousedown', closeMenu);
+            document.removeEventListener('keydown', onKey, true);
+        };
+    }, [bookingMenu]);
+    const isSrmBookingItem = item => String(item?.type || '').replace(/\s+/g, '').toLowerCase() === 'srmbooking';
+    const canRunBookingAction = item => isSrmBookingItem(item) && Boolean(item?.definition?.trim()) && Boolean(item?.implementationReference?.trim());
+    const openBookingMenuFromButton = (event, item) => {
+        const rect = event.currentTarget.getBoundingClientRect();
+        setBookingMenu(current => current?.itemKey === (item.id || item.label) ? null : {
+            item,
+            itemKey: item.id || item.label,
+            top: Math.min(window.innerHeight - 240, rect.bottom + 4),
+            left: Math.max(12, Math.min(window.innerWidth - 210, rect.right - 196)),
+        });
+    };
+    const openBookingMenuFromContext = (event, item) => {
+        if (!canRunBookingAction(item) || busy) return;
+        event.preventDefault();
+        setBookingMenu({
+            item,
+            itemKey: item.id || item.label,
+            top: Math.min(window.innerHeight - 240, event.clientY),
+            left: Math.max(12, Math.min(window.innerWidth - 210, event.clientX)),
+        });
+    };
+    const deleteItem = async item => { await onDeleteItem(item, itemData.reloadAndWait); };
+    const submitItem = async values => {
+        const success = await (itemEditor?.action === 'Edit' ? onEditItem(service, values, itemData.reloadAndWait, itemEditor.item) : onAddItem(service, values, itemData.reloadAndWait));
+        if (success) {
+            setItemEditor(null);
+        }
+    };
+    const submitOperation = (action, values, refresh) => onManageOperation(service, action, values, refresh);
+    const deleteOperation = async (script, refresh) => {
+        if (!await onConfirmOperation(`Delete operation "${script.description || script.name}"?`)) return false;
+        return onDeleteOperation(service, script, refresh);
+    };
+    const lifecycle = ['New', 'Designed', 'Reserved', 'Active', 'Terminated', 'Retired'];
+    useEffect(() => {
+        const previous = document.activeElement;
+        closeButton.current?.focus();
+        const onKey = event => { if (event.key === 'Escape') onClose(); };
+        document.addEventListener('keydown', onKey);
+        document.body.classList.add('drawer-open');
+        return () => { document.removeEventListener('keydown', onKey); document.body.classList.remove('drawer-open'); previous?.focus?.(); };
+    }, [onClose]);
+    const details = [['Service ID', service.serviceId], ['Service specification', service.specification], ['Service category', service.category], ['Category type', service.categoryType], ['Start date', service.start], ['End date', service.end]];
+    const relatedOrdersContent = relatedOrders.status === 'loading' ? <div className="service-related-empty"><span className="icon spin" aria-hidden="true">refresh</span>Loading related orders…</div> : relatedOrders.status === 'error' ? <div className="service-related-empty error"><span className="icon" aria-hidden="true">error</span>{relatedOrders.error}</div> : relatedOrders.items.length === 0 ? <div className="service-related-empty"><span className="icon" aria-hidden="true">assignment</span>No related service orders.</div> : <div className="related-orders-table-wrap"><table className="related-orders-table"><thead><tr><th>Name</th><th>Action</th><th>Item status</th></tr></thead><tbody>{relatedOrders.items.map(({ order, item }, index) => <tr key={`${order.id}-${item.id || index}`}><td>{order.name || 'Unnamed order'}</td><td><span className={`order-action-chip ${orderItemAction(item)}`}>{item.action || '—'}</span></td><td><span className={`state-badge ${stateTone(item.status)}`}>{item.status || 'Unknown'}</span></td></tr>)}</tbody></table></div>;
+    const busy = actionState?.status === 'running';
+    const serviceView = <>
+        <section className="service-workspace-summary" aria-label="Service details">
+            <dl>{details.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value || '—'}</dd></div>)}</dl>
+        </section>
+        <section className="service-items-panel" aria-labelledby="service-workspace-items-title">
+            <div className="service-items-heading">
+                <div className="order-items-title"><h3 id="service-workspace-items-title">Service items</h3><span className="count-pill">{itemData.status === 'ready' ? itemData.items.length : '—'}</span></div>
+                <button className="quiet-button" type="button" onClick={() => setItemEditor({ action: 'Add', item: null })} disabled={busy}><span className="icon" aria-hidden="true">add</span>Add item</button>
+            </div>
+            {itemData.status === 'loading'
+                ? <div className="service-related-empty"><span className="icon spin" aria-hidden="true">refresh</span>Loading service items…</div>
+                : itemData.status === 'error'
+                    ? <div className="list-message error" role="alert"><div className="list-message-text"><strong>Service items could not be loaded</strong><span>{itemData.error}</span></div><button className="quiet-button" type="button" onClick={itemData.reload}>Retry</button></div>
+                    : itemData.items.length === 0
+                        ? <div className="service-related-empty"><span className="icon" aria-hidden="true">inbox</span>Nothing to show.</div>
+                        : <div className="service-items-table-wrap"><table className="service-items-table">
+                            <thead><tr><th>Label</th><th>Service item type</th><th>Definition reference</th><th>Implementation reference</th><th>Implementation state</th><th>Monitoring service state</th><th>Actions</th></tr></thead>
+                            <tbody>{itemData.items.map(item => <tr key={item.id || item.label} onContextMenu={event => openBookingMenuFromContext(event, item)}>
+                                <td>{item.label || '—'}</td><td><span className="service-item-type">{item.type || '—'}</span></td><td>{item.definition || '—'}</td><td>{item.implementation || item.implementationReference || '—'}</td><td>{item.implementationState || '—'}</td><td>{item.monitoringState || '—'}</td>
+                                <td><div className="service-actions">
+                                    <button className="table-icon-action" type="button" aria-label={`Launch script for ${item.label || 'service item'}`} title={item.script ? `Launch ${item.script}` : 'No service item script is configured'} onClick={() => setScriptItem(item)} disabled={!item.script || !item.label || busy}><span className="icon" aria-hidden="true">play_circle</span></button>
+                                    {isSrmBookingItem(item) && <button className="table-icon-action booking-actions-trigger" type="button" aria-label={`Booking actions for ${item.label || 'service item'}`} aria-haspopup="menu" aria-expanded={bookingMenu?.itemKey === (item.id || item.label)} title={canRunBookingAction(item) ? 'Booking actions' : 'No SRM booking is linked yet'} onClick={event => openBookingMenuFromButton(event, item)} disabled={!canRunBookingAction(item) || busy}><span className="icon" aria-hidden="true">more_vert</span></button>}
+                                    <button className="table-icon-action" type="button" aria-label={`Edit ${item.label || 'service item'}`} onClick={() => setItemEditor({ action: 'Edit', item })} disabled={busy}><span className="icon" aria-hidden="true">edit</span></button>
+                                    <button className="table-icon-action danger" type="button" aria-label={`Delete ${item.label || 'service item'}`} onClick={() => deleteItem(item)} disabled={busy}><span className="icon" aria-hidden="true">delete</span></button>
+                                </div></td>
+                            </tr>)}</tbody>
+                        </table></div>}
+            {bookingMenu && <div className="booking-actions-menu" role="menu" aria-label={`Booking actions for ${bookingMenu.item.label || 'service item'}`} style={{ top: `${bookingMenu.top}px`, left: `${bookingMenu.left}px` }}>
+                {SRM_BOOKING_ACTIONS.map(action => <button key={action.value} className="booking-actions-item" role="menuitem" type="button" onClick={() => { const selectedItem = bookingMenu.item; setBookingMenu(null); setBookingActionRun({ item: selectedItem, action }); }}>
+                    <span className="icon" aria-hidden="true">{action.icon}</span>
+                    <span>{action.label}</span>
+                </button>)}
+            </div>}
+        </section>
+        <div className="service-workspace-secondary">
+            <ServiceOperationsView scripts={scripts} busy={busy} onSubmit={submitOperation} onDelete={deleteOperation} />
+            <section className="service-items-panel" aria-labelledby="service-related-orders-title">
+                <div className="service-items-heading"><div className="order-items-title"><h3 id="service-related-orders-title">Related service orders</h3><span className="count-pill">{relatedOrders.status === 'ready' ? relatedOrders.items.length : '—'}</span></div></div>
+                {relatedOrdersContent}
+            </section>
+        </div>
+    </>;
+    return <>
+        <div className="drawer-layer order-modal-layer">
+            <div className="drawer-backdrop" onClick={onClose} aria-hidden="true" />
+            <section className="order-modal service-workspace" role="dialog" aria-modal="true" aria-labelledby="service-detail-title">
+                <header className="service-workspace-header">
+                    <div className="service-workspace-heading">
+                        <div className="order-modal-heading"><p className="eyebrow">Service inventory</p><div className="order-modal-title-row"><h2 id="service-detail-title">{service.name || 'Unnamed service'}</h2><span className={`state-badge ${serviceTone(service.status)}`}>{service.status || 'Unknown'}</span></div></div>
+                        <div className="order-modal-actions">
+                            <button className="quiet-button" type="button" onClick={onEdit} disabled={busy}>Edit</button>
+                            <button className="quiet-button" type="button" onClick={() => onDuplicate(service)} disabled={busy}>Duplicate</button>
+                            <button className="danger-button" type="button" onClick={onDelete} disabled={busy}>Delete</button>
+                            <button ref={closeButton} className="icon-button" type="button" aria-label="Close service details" onClick={onClose}><span className="icon" aria-hidden="true">close</span></button>
+                        </div>
+                    </div>
+                    <div className="service-workspace-navigation">
+                        <nav aria-label="Service detail sections">
+                            <button className={tab === 'service' ? 'service-tab active' : 'service-tab'} type="button" onClick={() => setTab('service')} aria-pressed={tab === 'service'}>Service &amp; Operations</button>
+                            <button className={tab === 'configurations' ? 'service-tab active' : 'service-tab'} type="button" onClick={() => setTab('configurations')} aria-pressed={tab === 'configurations'}>Configurations</button>
+                        </nav>
+                    </div>
+                    <OrderLifecycle state={service.status} steps={lifecycle} transitions={transitions} busy={busy} onTransition={transition => onTransitionService(service, transition)} label="Service lifecycle" finalMessage="No further transitions are available for this service." compact />
+                </header>
+                <div className="order-modal-body service-workspace-body">
+                    {tab === 'service' ? serviceView : <NativeServiceConfigurationsView service={service} actionState={actionState} onSave={onSaveConfiguration} onDuplicateVersion={onDuplicateConfiguration} onConfirm={onConfirmConfiguration} allowInitialVersion allowVersionAdd />}
+                </div>
+            </section>
+        </div>
+        {itemEditor && <ServiceItemDialog key={`${itemEditor.action}-${itemEditor.item?.label || 'new'}`} busy={busy} parentId={service.id} parentService={service} action={itemEditor.action} initialItem={itemEditor.item} context="Service" onClose={() => setItemEditor(null)} onSubmit={submitItem} />}
+        {scriptItem && <IasDialog script={SERVICE_INVENTORY_SCRIPTS.launchItemScript} parameters={{ 'DOM ID': service.id, 'Item Label': scriptItem.label }} eyebrow={`Service item · ${scriptItem.label}`} onClose={closeItemScript} onFinished={finishItemScript} />}
+        {bookingActionRun && <IasDialog script={SERVICE_INVENTORY_SCRIPTS.serviceItemContextMenuAction} parameters={{ 'DOM ID': service.id, 'Service Item Label': bookingActionRun.item.label, 'ContextMenu Action': bookingActionRun.action.value }} eyebrow={`${bookingActionRun.action.label} · ${bookingActionRun.item.label}`} onClose={closeBookingAction} onFinished={finishBookingAction} />}
+    </>;
+}
+
+// UDAPI status names behind each Services header card; they mirror the server's Active/Retired metrics.
+const SERVICE_STATUS_QUERY = { all: '', active: 'designed,reserved,active', retired: 'retired' };
+const toSortQuery = sort => (sort.key === 'default' ? '' : `${sort.direction === 'desc' ? '-' : ''}${sort.key}`);
+const SERVICE_FILTER_TITLES = { all: 'All services', active: 'Active services', retired: 'Retired services' };
+const formatCount = value => (value === null || value === undefined ? '—' : value);
+
+function ServicesPage({ selectedId }) {
+    const [search, setSearch] = useState('');
+    const [newServiceOpen, setNewServiceOpen] = useState(false);
+    const [editServiceTarget, setEditServiceTarget] = useState(null);
+    const [logoEditor, setLogoEditor] = useState(null);
+    const [statusFilter, setStatusFilter] = useState('all');
+    const [sort, setSort] = useState({ key: 'default', direction: 'asc' });
+    const [servicesPageSize, setServicesPageSize] = useState(10);
+    const debouncedSearch = useDebouncedValue(search.trim(), 300);
+    const { status, items: services, error, updatedAt, totalCount, metrics, page: cursorPage, pageInfo, reload, reloadAndWait, nextPage, previousPage } = useCursorList({
+        pageSize: servicesPageSize,
+        fetchPage: fetchServicePage,
+        query: { status: SERVICE_STATUS_QUERY[statusFilter], search: debouncedSearch, sort: toSortQuery(sort) },
+    });
+    const isFiltered = Boolean(search.trim()) || statusFilter !== 'all';
+    const { state: actionState, runApi, fail: failAction, notify: notifyAction, dismiss: dismissAction } = useAutomationActions();
+    const { confirm, dialog: confirmationDialog } = useConfirmation();
+    const loading = status === 'loading';
+    const hasData = status === 'ready' || (loading && services.length > 0);
+    const activeCount = metrics?.activeCount;
+    const retiredCount = metrics?.retiredCount;
+    const listedService = selectedId ? services.find(service => service.id === selectedId) : null;
+    const [fallbackService, setFallbackService] = useState(null);
+    const fallbackServiceRef = useRef(null);
+    fallbackServiceRef.current = fallbackService;
+    const listedServiceFound = Boolean(listedService);
+    useEffect(() => {
+        if (!selectedId || listedServiceFound) return undefined;
+        let cancelled = false;
+        const isRefresh = fallbackServiceRef.current?.id === selectedId;
+        fetchServiceForDisplay(selectedId)
+            .then(service => {
+                if (cancelled) return;
+                setFallbackService(service);
+                if (!service && !isRefresh) failAction('The selected service could not be found.');
+            })
+            .catch(error => {
+                if (!cancelled && !isRefresh) failAction(error?.message || 'The selected service could not be loaded.');
+            });
+        return () => { cancelled = true; };
+        // Refetch after list reloads (updatedAt) so edits to an off-page service are reflected.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [selectedId, listedServiceFound, updatedAt]);
+    const selectedService = listedService || (fallbackService?.id === selectedId ? fallbackService : null);
+    const createService = () => setNewServiceOpen(true);
+    const submitNewService = async (_values, fields) => {
+        const created = await runApi(() => createInventoryService(fields), 'Creating service', reloadAndWait);
+        if (created) {
+            setNewServiceOpen(false);
+        }
+    };
+    const submitEditedService = async (_values, { serviceId, ...fields }) => {
+        const saved = await runApi(() => updateInventoryService(serviceApiId(editServiceTarget), fields), 'Saving service', reloadAndWait);
+        if (saved) {
+            setEditServiceTarget(null);
+        }
+    };
+    const saveServiceLogo = async category => {
+        const service = logoEditor?.service;
+        if (!service) return;
+        const saved = await runApi(
+            () => updateInventoryService(serviceApiId(service), { category: category ? { name: category } : null }),
+            'Saving service logo',
+            reloadAndWait,
+        );
+        if (saved) {
+            setLogoEditor(null);
+        }
+    };
+    const editService = service => setEditServiceTarget(service);
+    const duplicateService = async service => {
+        if (!await runApi(() => duplicateInventoryService(serviceApiId(service)), 'Duplicating service', reloadAndWait)) return;
+        location.hash = 'services';
+    };
+    const deleteService = async service => {
+        if (!await confirm(`Delete "${service.name || 'this service'}"?`)) return;
+        if (await runApi(() => deleteInventoryService(serviceApiId(service)), 'Deleting service', async () => {
+            const refreshedServices = await reloadAndWait();
+            if (refreshedServices.some(candidate => candidate.id === service.id || candidate.serviceId === service.serviceId)) {
+                throw new Error('The service was deleted, but it is still returned by the Service Management API.');
+            }
+        })) {
+            if (selectedId === service.id) location.hash = 'services';
+        }
+    };
+    const deleteServiceItem = async (service, item, refresh) => {
+        if (!await confirm(`Delete "${item.label || 'this service item'}"?`)) return false;
+        return runApi(() => deleteInventoryServiceItem(serviceApiId(service), item.id), 'Deleting service item', refresh);
+    };
+    const addServiceItem = (service, values, refresh) => runApi(
+        () => addInventoryServiceItem(serviceApiId(service), serviceItemRequest(values)),
+        'Creating service item',
+        refresh,
+    );
+    const editServiceItem = (service, values, refresh, item) => runApi(
+        () => updateInventoryServiceItem(serviceApiId(service), item.id, serviceItemRequest(values)),
+        'Saving service item',
+        refresh,
+    );
+    const transitionService = async (service, transition) => {
+        await runApi(() => transitionInventoryService(serviceApiId(service), transition.next), `${transition.label} service`, reloadAndWait);
+    };
+    const saveServiceConfiguration = (values, refresh) => runApi(
+        () => saveInventoryServiceConfiguration(serviceApiId(selectedService), JSON.parse(values.Payload || '{}')),
+        'Saving service configuration',
+        refresh,
+    );
+    const duplicateServiceConfiguration = async (version, refresh) => {
+        let created = null;
+        const duplicated = await runApi(
+            async () => { created = await duplicateServiceConfigurationVersion(serviceApiId(selectedService), version.id); },
+            'Duplicating configuration',
+            refresh,
+        );
+        return duplicated ? created || {} : null;
+    };
+    const manageServiceOperation = (service, action, values, refresh) => runApi(
+        () => action === 'Update'
+            ? updateServiceScript(serviceApiId(service), {
+                originalDescription: values.originalDescription,
+                name: values.name,
+                description: values.description,
+            })
+            : addServiceScript(serviceApiId(service), { name: values.name, description: values.description }),
+        `${action === 'Update' ? 'Updating' : 'Adding'} service operation`,
+        refresh,
+    );
+    const deleteServiceOperation = (service, script, refresh) => runApi(
+        () => deleteServiceScript(serviceApiId(service), script.description),
+        'Deleting service operation',
+        refresh,
+    );
+    const serviceTableCount = totalCount;
+    const toggleSort = key => setSort(current => current.key === key ? { key, direction: current.direction === 'asc' ? 'desc' : 'asc' } : { key, direction: 'asc' });
+    const sortIndicator = key => <span className={`table-sort-icon ${sort.key === key ? sort.direction : 'muted'}`} aria-hidden="true" />;
+    const sortButton = (key, label) => <button className="table-sort" type="button" onClick={() => toggleSort(key)}>{label}{sortIndicator(key)}</button>;
+    let body;
+    if (status === 'error') body = <div className="list-message error" role="alert"><span className="icon" aria-hidden="true">error</span><div className="list-message-text"><strong>Services could not be loaded</strong><span>{error}</span></div><button className="quiet-button" type="button" onClick={reload}>Retry</button></div>;
+    else if (!hasData) body = <div className="list-message" role="status"><span className="icon spin" aria-hidden="true">refresh</span>Loading services…</div>;
+    else if (services.length === 0 && !isFiltered) body = <div className="list-message" role="status"><span className="icon" aria-hidden="true">inbox</span>No services in inventory yet.</div>;
+    else if (services.length === 0) body = <div className="services-empty" role="status"><span className="icon" aria-hidden="true">search_off</span><div><strong>No services match these filters</strong><span>Try a different search or status.</span></div><button className="quiet-button" type="button" onClick={() => { setSearch(''); setStatusFilter('all'); }}>Clear filters</button></div>;
+    else body = <div className="services-table-wrap" aria-busy={loading}><table className="services-table"><colgroup><col className="service-icon-column" /><col className="service-id-column" /><col className="service-name-column" /><col className="service-status-column" /><col className="service-start-column" /><col className="service-end-column" /><col className="service-specification-column" /><col className="service-category-column" /><col className="service-category-type-column" /><col className="service-action-column" /></colgroup><thead><tr><th scope="col">Icon</th><th scope="col">{sortButton('serviceId', 'ID')}</th><th scope="col">{sortButton('name', 'Name')}</th><th scope="col">State</th><th scope="col">Start date</th><th scope="col">End date</th><th scope="col">Spec</th><th scope="col">Category</th><th scope="col">Type</th><th scope="col"><span className="sr-only">Actions</span></th></tr></thead><tbody>{services.map(service => <tr className={service.id && service.id === selectedId ? 'service-row selected' : 'service-row'} key={service.id || service.serviceId || service.name} onDoubleClick={() => { if (service.id) location.hash = `services/${encodeURIComponent(service.id)}`; }    }><td><button className="service-logo-button" type="button" aria-label={`Set logo for ${service.name || 'unnamed service'}`} onClick={event => { event.stopPropagation(); setLogoEditor({ service }); }}><span className="service-logo">{service.logo ? <img src={service.logo} alt="" /> : <span className="icon" aria-hidden="true">add_photo_alternate</span>}</span></button></td><td title={service.serviceId || undefined}><span className="table-primary">{service.serviceId || '—'}</span></td><td title={service.name || undefined}><span className="table-primary">{service.name || 'Unnamed service'}</span></td><td><span className={`state-badge ${serviceTone(service.status)}`}>{service.status || 'Unknown'}</span></td><td title={service.start || undefined}><span className="table-description">{service.start || '—'}</span></td><td title={service.end || undefined}><span className="table-description">{service.end || '—'}</span></td><td title={service.specification || undefined}><span className="table-primary">{service.specification || '—'}</span></td><td title={service.category || undefined}><span className="table-primary">{service.category || '—'}</span></td><td title={service.categoryType || undefined}><span className="table-primary">{service.categoryType || '—'}</span></td><td><div className="service-actions"><button className="table-row-open" type="button" aria-label={`Open details of ${service.name || 'unnamed service'}`} onClick={() => { location.hash = `services/${encodeURIComponent(service.id)}`; }}><span className="icon" aria-hidden="true">chevron_right</span></button></div></td></tr>)}</tbody></table></div>;
+    return <main className="page-content services-page"><section className="services-hero"><div><p className="eyebrow">{pages.services.eyebrow}</p><h1>Services</h1><p className="description">Explore the services currently defined in the Service Inventory.</p></div><PageHeaderActions updatedAt={updatedAt} loading={loading} onRefresh={reload} primaryAction={<button className="primary-button" type="button" onClick={createService} disabled={actionState?.status === 'running'}><span className="icon" aria-hidden="true">add</span>Add service</button>} /></section><ActionNotice state={actionState} onDismiss={dismissAction} />{confirmationDialog}{newServiceOpen && <NewServiceDialog busy={actionState?.status === 'running'} existingServices={services} onClose={() => setNewServiceOpen(false)} onSubmit={submitNewService} />}{editServiceTarget && <NewServiceDialog key={editServiceTarget.id} busy={actionState?.status === 'running'} existingServices={services} action="Edit" initialService={editServiceTarget} onClose={() => setEditServiceTarget(null)} onSubmit={submitEditedService} />}{logoEditor && <ServiceLogoDialog service={logoEditor.service} busy={actionState?.status === 'running'} onClose={() => setLogoEditor(null)} onSubmit={saveServiceLogo} />}<section className="services-metrics" aria-label="Service inventory metrics"><button className={statusFilter === 'all' ? 'service-metric selected' : 'service-metric'} type="button" onClick={() => setStatusFilter('all')}><span className="overview-metric-top"><span className="overview-metric-icon icon" aria-hidden="true">dm_service</span><span>All services</span></span><strong>{formatCount(metrics?.totalCount ?? (isFiltered ? null : totalCount))}</strong><small>Inventory records</small></button><button className={statusFilter === 'active' ? 'service-metric selected' : 'service-metric'} type="button" onClick={() => setStatusFilter('active')}><span className="overview-metric-top"><span className="overview-metric-icon icon" aria-hidden="true">check_circle</span><span>Active</span></span><strong>{formatCount(activeCount)}</strong><small>Designed, reserved, or active</small></button><button className={statusFilter === 'retired' ? 'service-metric selected' : 'service-metric'} type="button" onClick={() => setStatusFilter('retired')}><span className="overview-metric-top"><span className="overview-metric-icon icon" aria-hidden="true">pause_circle</span><span>Retired</span></span><strong>{formatCount(retiredCount)}</strong><small>No longer in operation</small></button></section><section className="services-surface" aria-labelledby="services-table-title"><div className="services-toolbar"><div className="orders-toolbar-title"><div><p className="eyebrow">Service inventory</p><h2 id="services-table-title">{SERVICE_FILTER_TITLES[statusFilter] || 'All services'}</h2></div>{hasData && <span className="orders-total-copy">{formatCount(serviceTableCount)} {serviceTableCount === 1 ? 'service' : 'services'}{isFiltered ? ' found' : ' in total'}</span>}</div><div className="orders-toolbar-controls"><label className="orders-search"><span className="icon" aria-hidden="true">search</span><span className="sr-only">Search services</span><input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Search services" aria-label="Search services" />{search && <button type="button" aria-label="Clear search" onClick={() => setSearch('')}><span className="icon" aria-hidden="true">close</span></button>}</label><label className="orders-filter"><span className="sr-only">Filter services by status</span><select value={statusFilter} onChange={event => setStatusFilter(event.target.value)} aria-label="Filter services by status"><option value="all">All statuses</option><option value="active">Active</option><option value="retired">Retired</option></select><span className="icon" aria-hidden="true">expand_more</span></label></div></div>{body}</section><CursorTablePagination page={cursorPage} pageSize={servicesPageSize} total={totalCount} pageInfo={pageInfo} onPrevious={previousPage} onNext={nextPage} onPageSizeChange={size => { setServicesPageSize(size); }} />{selectedService && <TabbedServiceDetailPanel service={selectedService} onClose={() => { location.hash = 'services'; }} onEdit={() => editService(selectedService)} onDelete={() => deleteService(selectedService)} onDuplicate={() => duplicateService(selectedService)} onDeleteItem={(item, refresh) => deleteServiceItem(selectedService, item, refresh)} onAddItem={addServiceItem} onEditItem={editServiceItem} onTransitionService={transitionService} onSaveConfiguration={saveServiceConfiguration} onDuplicateConfiguration={duplicateServiceConfiguration} onConfirmConfiguration={confirm} onManageOperation={manageServiceOperation} onDeleteOperation={deleteServiceOperation} onConfirmOperation={confirm} onActionNotice={notifyAction} onActionFailure={failAction} actionState={actionState} />}</main>;
+}
+
+function TabbedSpecificationDetailPanel({ specification, onClose, onEdit, onDelete, onAddItem, onEditItem, onDeleteItem, onSaveConfiguration, onConfirmConfiguration, actionState }) {
+    const closeButton = useRef(null);
+    const onCloseRef = useRef(onClose);
+    onCloseRef.current = onClose;
+    const [itemEditor, setItemEditor] = useState(null);
+    const itemData = useSpecificationItems(specification.id);
+    const deleteItem = async item => { await onDeleteItem(item, itemData.reloadAndWait); };
+    const submitItem = async values => {
+        const success = await (itemEditor?.action === 'Edit' ? onEditItem(values, itemData.reloadAndWait) : onAddItem(values, itemData.reloadAndWait));
+        if (success) {
+            setItemEditor(null);
+        }
+    };
+    useEffect(() => {
+        const previous = document.activeElement;
+        closeButton.current?.focus();
+        const onKey = event => { if (event.key === 'Escape' && !event.defaultPrevented) onCloseRef.current(); };
+        document.addEventListener('keydown', onKey);
+        document.body.classList.add('drawer-open');
+        return () => { document.removeEventListener('keydown', onKey); document.body.classList.remove('drawer-open'); previous?.focus?.(); };
+    }, []);
+    const details = [['Created at', specification.createdAt], ['Created by', specification.createdBy], ['Last modified', specification.lastModified], ['Last modified by', specification.lastModifiedBy]];
+    const itemsContent = itemData.status === 'loading'
+        ? <div className="service-related-empty"><span className="icon spin" aria-hidden="true">refresh</span>Loading service items…</div>
+        : itemData.items.length === 0
+            ? <div className="service-related-empty"><span className="icon" aria-hidden="true">inbox</span>Nothing to show.</div>
+            : <div className="specification-service-items">{itemData.items.map(item => <article className="specification-service-item" key={item.id || item.label}>
+                <div className="specification-service-item-heading">
+                    <strong>{item.label || 'Unnamed service item'}</strong>
+                    <span className="specification-service-item-type">{item.type || '—'}</span>
+                </div>
+                <div className="specification-service-item-details">
+                    <span><strong>Definition:</strong> {item.definition || '—'}</span>
+                    <span><strong>Script:</strong> {item.script || '—'}</span>
+                </div>
+                <div className="service-actions">
+                    <button className="table-icon-action" type="button" aria-label={`Edit ${item.label || 'service item'}`} onClick={() => setItemEditor({ action: 'Edit', item })} disabled={actionState?.status === 'running'}><span className="icon" aria-hidden="true">edit</span></button>
+                    <button className="table-icon-action danger" type="button" aria-label={`Delete ${item.label || 'service item'}`} onClick={() => deleteItem(item)} disabled={actionState?.status === 'running'}><span className="icon" aria-hidden="true">delete</span></button>
+                </div>
+            </article>)}</div>;
+    const configurationView = <NativeServiceConfigurationsView service={specification} actionState={actionState} onSave={onSaveConfiguration} onConfirm={onConfirmConfiguration} fetchConfigurations={fetchServiceSpecificationConfigurations} heading="Specification configuration" allowInitialVersion allowVersionAdd />;
+    const busy = actionState?.status === 'running';
+    return <>
+        <div className="drawer-layer order-modal-layer">
+            <div className="drawer-backdrop" onClick={onClose} aria-hidden="true" />
+            <section className="order-modal item-modal specification-modal" role="dialog" aria-modal="true" aria-labelledby="specification-detail-title">
+                <header className="order-modal-header item-modal-header">
+                    <div className="order-modal-heading">
+                        <p className="eyebrow">Service catalog · Specification</p>
+                        <div className="order-modal-title-row"><h2 id="specification-detail-title">{specification.name || 'Unnamed specification'}</h2></div>
+                    </div>
+                    <div className="order-modal-actions">
+                        <button className="quiet-button" type="button" onClick={onEdit} disabled={busy}>Edit</button>
+                        <button className="danger-button" type="button" onClick={onDelete} disabled={busy}>Delete</button>
+                        <button ref={closeButton} className="icon-button" type="button" aria-label="Close specification details" onClick={onClose}><span className="icon" aria-hidden="true">close</span></button>
+                    </div>
+                    <section className="specification-summary" aria-label="Specification details">
+                        <h3 className="sr-only">Specification details</h3>
+                        <dl className="specification-summary-details">{details.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value || '—'}</dd></div>)}</dl>
+                    </section>
+                </header>
+                <div className="order-modal-body item-modal-body">
+                    <p className="specification-modal-description">{specification.description || 'No description provided.'}</p>
+                    <div className="specification-content-grid">
+                        <section className="service-items-panel specification-items-panel" aria-labelledby="specification-items-title">
+                            <div className="service-items-heading">
+                                <div className="order-items-title"><h3 id="specification-items-title">Service Items</h3>{itemData.status === 'ready' && <span className="count-pill">{itemData.items.length}</span>}</div>
+                                <button className="quiet-button" type="button" onClick={() => setItemEditor({ action: 'Add', item: null })} disabled={busy}>Add item</button>
+                            </div>
+                            {itemData.status === 'error'
+                                ? <div className="list-message error" role="alert"><div><strong>Service items could not be loaded</strong><p>{itemData.error}</p></div><button className="quiet-button" type="button" onClick={itemData.reload}>Retry</button></div>
+                                : itemsContent}
+                        </section>
+                        <section className="item-modal-card item-modal-configuration" aria-label="Specification configuration editor">{configurationView}</section>
+                    </div>
+                </div>
+            </section>
+        </div>
+        {itemEditor && <ServiceItemDialog key={`${itemEditor.action}-${itemEditor.item?.label || 'new'}`} busy={busy} parentId={specification.id} action={itemEditor.action} initialItem={itemEditor.item} context="Specification" onClose={() => setItemEditor(null)} onSubmit={submitItem} />}
+    </>;
+}
+
+function ServiceCategoryDialog({ busy, onClose, onSubmit, initialCategory = null, action = 'Add', existingCategories = [] }) {
+    const [form, setForm] = useState(() => ({
+        name: initialCategory?.name || '',
+        type: initialCategory?.type || 'Channel',
+        icon: initialCategory?.icon || '',
+    }));
+    const logoData = useDataList(fetchDocumentHubLogos);
+    const [failedLogo, setFailedLogo] = useState('');
+    const update = (field, value) => setForm(current => ({ ...current, [field]: value }));
+    const duplicateName = Boolean(form.name.trim()) && existingCategories.some(category => category.id !== initialCategory?.id && String(category.name || '').trim().toLowerCase() === form.name.trim().toLowerCase());
+    const missingName = !form.name.trim();
+    const missingType = !form.type.trim();
+    const submit = async event => {
+        event.preventDefault();
+        if (missingName || missingType || duplicateName) return;
+        await onSubmit({
+            Action: action,
+            domId: initialCategory?.id || '',
+            Payload: JSON.stringify({ Name: form.name.trim(), Type: form.type.trim(), Icon: form.icon.trim() }),
+        });
+    };
+    const logos = logoData.items.some(logo => logo.icon === form.icon) || !form.icon ? logoData.items : [{ id: `current-${form.icon}`, name: 'Current logo', icon: form.icon }, ...logoData.items];
+    const selectedLogo = logos.find(logo => logo.icon === form.icon);
+    return <div className="confirm-layer order-form-layer">
+        <div className="confirm-backdrop" onClick={onClose} aria-hidden="true" />
+        <form className="order-form-dialog category-form-dialog" onSubmit={submit} aria-labelledby="service-category-form-title">
+            <header className="order-form-header">
+                <div><p className="eyebrow">Service design</p><h2 id="service-category-form-title">{action === 'Edit' ? 'Edit service category' : 'New service category'}</h2></div>
+                <button className="icon-button" type="button" aria-label="Close service category form" onClick={onClose}><span className="icon" aria-hidden="true">close</span></button>
+            </header>
+            <div className="order-form-grid">
+                <label>Name<input autoFocus value={form.name} onChange={event => update('name', event.target.value)} placeholder="Category name" aria-invalid={missingName || duplicateName || undefined} />{missingName && <span className="form-field-error">Name is required.</span>}{duplicateName && <span className="form-field-error">Name already exists!</span>}</label>
+                <label>Type<input value={form.type} onChange={event => update('type', event.target.value)} placeholder="Channel" aria-invalid={missingType || undefined} />{missingType && <span className="form-field-error">Type is required.</span>}</label>
+                <label className="wide">Document Hub logo<select aria-label="Document Hub logo" value={form.icon} onChange={event => update('icon', event.target.value)} disabled={logoData.status === 'loading' && logos.length === 0}><option value="">No logo</option>{logoData.status === 'loading' && logos.length === 0 && <option disabled>Loading Document Hub images…</option>}{logos.map(logo => <option key={logo.id} value={logo.icon}>{logo.name}</option>)}</select>{logoData.status === 'error' && <span className="form-field-error">Document Hub images could not be loaded.</span>}</label>
+                <section className="category-preview wide" aria-labelledby="category-preview-title">
+                    <h3 id="category-preview-title">Preview</h3>
+                    <div className="category-preview-card">
+                        <div className="category-preview-image">{form.icon && failedLogo !== form.icon ? <img key={form.icon} src={form.icon} alt="Category logo" onError={() => setFailedLogo(form.icon)} /> : <span>{form.icon ? 'Logo unavailable' : 'No logo'}</span>}</div>
+                        <div className="category-preview-copy"><strong>{form.name.trim() || 'Category name'}</strong><span>{selectedLogo?.name || 'No logo selected'}</span>{form.icon && failedLogo === form.icon && <span className="form-field-error" role="status">The selected logo could not be loaded.</span>}</div>
+                        {form.type.trim() && <span className="category-preview-type">{form.type.trim()}</span>}
+                    </div>
+                </section>
+            </div>
+            <footer className="order-form-actions"><button className="quiet-button" type="button" onClick={onClose} disabled={busy}>Cancel</button><button className="primary-button" type="submit" disabled={busy || missingName || missingType || duplicateName}>{busy ? 'Saving…' : action === 'Edit' ? 'Save' : 'Create'}</button></footer>
+        </form>
+    </div>;
+}
+
+function ServiceCategoryListItem({ category, busy, onEdit, onDelete }) {
+    const [failedLogo, setFailedLogo] = useState('');
+    const name = category.name || 'Unnamed category';
+    const logoUnavailable = category.icon && failedLogo === category.icon;
+    return <li className="category-preview-card category-list-item">
+        <div className="category-preview-image">
+            {category.icon && !logoUnavailable
+                ? <img src={category.icon} alt={`${name} logo`} onError={() => setFailedLogo(category.icon)} />
+                : <span className="icon" aria-hidden="true">category</span>}
+        </div>
+        <div className="category-preview-copy"><strong>{name}</strong>{logoUnavailable && <span>Logo unavailable</span>}</div>
+        <span className="category-preview-type">{category.type || 'No type'}</span>
+        <div className="service-actions">
+            <button className="table-icon-action" type="button" aria-label={`Edit category ${category.name}`} title="Edit category" onClick={onEdit} disabled={busy}><span className="icon" aria-hidden="true">edit</span></button>
+            <button className="table-icon-action danger" type="button" aria-label={`Delete category ${category.name}`} title="Delete category" onClick={onDelete} disabled={busy}><span className="icon" aria-hidden="true">delete</span></button>
+        </div>
+    </li>;
+}
+
+function ServiceCategoriesPage() {
+    const { status, items: categories, error, updatedAt, reload, reloadAndWait } = useDataList(fetchServiceCategories);
+    const { state: actionState, runApi, dismiss: dismissAction } = useAutomationActions();
+    const { confirm, dialog: confirmationDialog } = useConfirmation();
+    const [editor, setEditor] = useState(null);
+    const loading = status === 'loading';
+    const hasData = status === 'ready' || (loading && categories.length > 0);
+    const submit = async values => {
+        const payload = values.Payload ? JSON.parse(values.Payload) : {};
+        const label = `${values.Action === 'Edit' ? 'Saving' : 'Creating'} service category`;
+        const succeeded = await runApi(() => values.Action === 'Edit'
+            ? updateCatalogCategory(values.domId, payload)
+            : createCatalogCategory(payload), label, reloadAndWait);
+        if (succeeded) {
+            setEditor(null);
+        }
+    };
+    const deleteCategory = async category => {
+        if (!await confirm(`Delete "${category.name || 'this service category'}"?`)) return;
+        await runApi(() => deleteCatalogCategory(category.id), 'Deleting service category', reloadAndWait);
+    };
+    let body;
+    if (status === 'error') body = <div className="list-message error" role="alert"><span className="icon" aria-hidden="true">error</span><div className="list-message-text"><strong>Categories could not be loaded</strong><span>{error}</span></div><button className="quiet-button" type="button" onClick={reload}>Retry</button></div>;
+    else if (!hasData) body = <div className="list-message" role="status"><span className="icon spin" aria-hidden="true">refresh</span>Loading categories…</div>;
+    else if (categories.length === 0) body = <div className="list-message" role="status"><span className="icon" aria-hidden="true">inbox</span>No service categories yet.</div>;
+    else body = <ul className="category-list" aria-label="Service categories" aria-busy={loading}>{categories.map(category => <ServiceCategoryListItem key={category.id || category.name} category={category} busy={actionState?.status === 'running'} onEdit={() => setEditor({ action: 'Edit', category })} onDelete={() => deleteCategory(category)} />)}</ul>;
+    return <main className="page-content catalog-page"><section className="services-hero"><div><p className="eyebrow">Service design</p><h1>Service Categories</h1><p className="description">Define the categories, types, and logos used by the service inventory.</p></div><div className="page-header-actions has-primary-action">    <a className="quiet-button" href="#settings">Settings</a><button className="primary-button" type="button" onClick={() => setEditor({ action: 'Add', category: null })} disabled={actionState?.status === 'running'}><span className="icon" aria-hidden="true">add</span>New category</button></div></section><ActionNotice state={actionState} onDismiss={dismissAction} />{confirmationDialog}{editor &&     <ServiceCategoryDialog key={`${editor.action}-${editor.category?.id || 'new'}`} busy={actionState?.status === 'running'} existingCategories={categories} action={editor.action} initialCategory={editor.category} onClose={() => setEditor(null)} onSubmit={submit} />}<section className="category-surface" aria-labelledby="category-table-title"><div className="category-list-heading"><h2 id="category-table-title">Categories</h2>{hasData && <span className="count-pill">{categories.length}</span>}</div>{body}</section></main>;
+}
+
+function CatalogPage({ selectedId }) {
+    if (selectedId === 'categories') return <ServiceCategoriesPage />;
+    return <SpecificationsCatalogPage selectedId={selectedId} />;
+}
+
+function SpecificationsCatalogPage({ selectedId }) {
+    const [search, setSearch] = useState('');
+    const [newSpecificationOpen, setNewSpecificationOpen] = useState(false);
+    const [editSpecificationTarget, setEditSpecificationTarget] = useState(null);
+    const [catalogPageSize, setCatalogPageSize] = useState(10);
+    const debouncedSearch = useDebouncedValue(search.trim(), 300);
+    const { status, items: specifications, error, updatedAt, totalCount, metrics, page: cursorPage, pageInfo, reload, reloadAndWait, nextPage, previousPage } = useCursorList({
+        pageSize: catalogPageSize,
+        fetchPage: fetchServiceSpecificationPage,
+        query: { search: debouncedSearch },
+    });
+    const isFiltered = Boolean(search.trim());
+    const { state: actionState, runApi, dismiss: dismissAction } = useAutomationActions();
+    const { confirm, dialog: confirmationDialog } = useConfirmation();
+    const loading = status === 'loading';
+    const hasData = status === 'ready' || (loading && specifications.length > 0);
+    const displayedTotal = totalCount;
+    const specificationTotal = metrics?.totalCount ?? (isFiltered ? null : totalCount);
+    const displayedItemTotal = metrics?.totalItemCount;
+    const selectedSpecification = selectedId ? specifications.find(specification => specification.id === selectedId) : null;
+    const deleteSpecification = async specification => {
+        if (!await confirm(`Delete "${specification.name || 'this specification'}"?`)) return;
+        if (await runApi(() => deleteCatalogSpecification(specification.id), 'Deleting service specification', reloadAndWait)) {
+            if (selectedId === specification.id) location.hash = 'catalog';
+        }
+    };
+    const createSpecification = () => setNewSpecificationOpen(true);
+    const submitNewSpecification = async values => {
+        if (await runApi(() => createCatalogSpecification(values.Payload ? JSON.parse(values.Payload) : {}), 'Creating service specification', reloadAndWait)) {
+            setNewSpecificationOpen(false);
+        }
+    };
+    const editSpecification = specification => setEditSpecificationTarget(specification);
+    const submitEditedSpecification = async values => {
+        if (await runApi(() => updateCatalogSpecification(values['DOM ID'], values.Payload ? JSON.parse(values.Payload) : {}), 'Saving service specification', reloadAndWait)) {
+            setEditSpecificationTarget(null);
+        }
+    };
+    // The specification itself is the only configuration version: its version name and description are the specification
+    // name and description. An empty value keeps the current one instead of clearing it.
+    const toSpecificationConfigurationBody = payload => {
+        const { VersionName, ...body } = payload ? JSON.parse(payload) : {};
+        if (typeof VersionName === 'string' && VersionName.trim()) body.Name = VersionName.trim();
+        if (typeof body.Description === 'string' && !body.Description.trim()) delete body.Description;
+        return body;
+    };
+    const saveSpecificationConfiguration = (values, refresh) => runApi(
+        () => saveCatalogSpecificationConfiguration(values['DOM ID'], toSpecificationConfigurationBody(values.Payload)),
+        'Saving specification configuration',
+        async () => {
+            if (refresh) await refresh();
+            await reloadAndWait();
+        },
+    );
+    const addSpecificationItem = (values, refresh) => runApi(
+        () => addCatalogSpecificationItem(values['DOM ID'], serviceItemRequest(values)),
+        'Creating specification item',
+        refresh,
+    );
+    const editSpecificationItem = (values, refresh) => runApi(
+        () => updateCatalogSpecificationItem(values['DOM ID'], values['Service Item ID'], serviceItemRequest(values)),
+        'Saving specification item',
+        refresh,
+    );
+    const deleteSpecificationItem = async (specification, item, refresh) => {
+        if (!await confirm(`Delete "${item.label || 'this specification item'}"?`)) return false;
+        return runApi(() => deleteCatalogSpecificationItem(specification.id, item.id), 'Deleting specification item', refresh);
+    };
+    let body;
+    if (status === 'error') body = <div className="list-message error" role="alert"><span className="icon" aria-hidden="true">error</span><div className="list-message-text"><strong>Catalog could not be loaded</strong><span>{error}</span></div><button className="quiet-button" type="button" onClick={reload}>Retry</button></div>;
+    else if (!hasData) body = <div className="list-message" role="status"><span className="icon spin" aria-hidden="true">refresh</span>Loading catalog…</div>;
+    else if (specifications.length === 0 && !isFiltered) body = <div className="list-message" role="status"><span className="icon" aria-hidden="true">inbox</span>No service specifications yet.</div>;
+    else if (specifications.length === 0) body = <div className="services-empty" role="status"><span className="icon" aria-hidden="true">search_off</span><div><strong>No specifications match this search</strong><span>Try a different specification name.</span></div><button className="quiet-button" type="button" onClick={() => setSearch('')}>Clear search</button></div>;
+    else body = <div className="catalog-table-wrap"><table className="catalog-table"><colgroup><col className="catalog-name-column" /><col className="catalog-created-column" /><col className="catalog-modified-column" /><col className="catalog-open-column" /></colgroup><thead><tr><th scope="col">Specification name</th><th scope="col">Created at</th><th scope="col">Last modified</th><th scope="col"><span className="sr-only">Open</span></th></tr></thead><tbody>{specifications.map(specification => <tr className={specification.id === selectedId ? 'catalog-row selected' : 'catalog-row'} key={specification.id || specification.name} onDoubleClick={() => { if (specification.id) location.hash = `catalog/${encodeURIComponent(specification.id)}`; }}><td><strong>{specification.name || 'Unnamed specification'}</strong></td><td>{specification.createdAt || '—'}</td><td>{specification.lastModified || '—'}</td><td><button className="table-row-open" type="button" aria-label={`Open details of ${specification.name || 'unnamed specification'}`} onClick={() => { if (specification.id) location.hash = `catalog/${encodeURIComponent(specification.id)}`; }}><span className="icon" aria-hidden="true">chevron_right</span></button></td></tr>)}</tbody></table></div>;
+    return <main className="page-content catalog-page"><section className="services-hero"><div><p className="eyebrow">{pages.catalog.eyebrow}</p><h1>Catalog</h1><p className="description">See the service specifications that shape the inventory.</p></div><PageHeaderActions updatedAt={updatedAt} loading={loading} onRefresh={reload} primaryAction={<button className="primary-button" type="button" onClick={createSpecification} disabled={actionState?.status === 'running'}><span className="icon" aria-hidden="true">add</span>Add specification</button>} /></section><ActionNotice state={actionState} onDismiss={dismissAction} />{confirmationDialog}{newSpecificationOpen && <NewSpecificationDialog busy={actionState?.status === 'running'} existingSpecificationNames={specifications.map(specification => specification.name)} existingSpecificationCount={specificationTotal} onClose={() => setNewSpecificationOpen(false)} onSubmit={submitNewSpecification} />}{editSpecificationTarget && <NewSpecificationDialog key={editSpecificationTarget.id} busy={actionState?.status === 'running'} existingSpecificationNames={specifications.map(specification => specification.name)} existingSpecificationCount={specificationTotal} action="Edit" initialSpecification={editSpecificationTarget} onClose={() => setEditSpecificationTarget(null)} onSubmit={submitEditedSpecification} /> }<section className="services-metrics" aria-label="Catalog metrics"><div className="service-metric static"><span>Specifications</span><strong>{formatCount(specificationTotal)}</strong><small>Reusable service definitions</small></div><div className="service-metric static"><span>Service items</span><strong>{formatCount(displayedItemTotal)}</strong><small>Defined across specifications</small></div></section><section className="services-surface" aria-labelledby="catalog-table-title"><div className="services-toolbar"><div className="orders-toolbar-title"><div><p className="eyebrow">Service design</p><h2 id="catalog-table-title">{isFiltered ? 'Matching specifications' : 'Specifications'}</h2></div>{hasData && <span className="orders-total-copy">{formatCount(displayedTotal)} {displayedTotal === 1 ? 'specification' : 'specifications'}</span>}</div><div className="orders-toolbar-controls"><label className="orders-search"><span className="icon" aria-hidden="true">search</span><span className="sr-only">Search specifications</span><input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Search specifications" aria-label="Search specifications" />{search && <button type="button" aria-label="Clear search" onClick={() => setSearch('')}><span className="icon" aria-hidden="true">close</span></button>}</label></div></div>{body}</section><CursorTablePagination page={cursorPage} pageSize={catalogPageSize} total={displayedTotal} pageInfo={pageInfo} onPrevious={previousPage} onNext={nextPage} onPageSizeChange={size => { setCatalogPageSize(size); }} />{selectedSpecification && <TabbedSpecificationDetailPanel specification={selectedSpecification} onClose={() => { location.hash = 'catalog'; }} onEdit={() => editSpecification(selectedSpecification)} onDelete={() => deleteSpecification(selectedSpecification)} onAddItem={addSpecificationItem} onEditItem={editSpecificationItem} onDeleteItem={(item, refresh) => deleteSpecificationItem(selectedSpecification, item, refresh)} onSaveConfiguration={saveSpecificationConfiguration} onConfirmConfiguration={confirm} actionState={actionState} />}</main>;
+}
+
+// The UDAPI may serialize metrics with PascalCase keys (e.g. ActiveCount); normalize to camelCase.
+function normalizeMetrics(metrics) {
+    if (!metrics || typeof metrics !== 'object') return null;
+    return Object.fromEntries(Object.entries(metrics).map(([key, value]) => [key.charAt(0).toLowerCase() + key.slice(1), value]));
+}
+
+function useDebouncedValue(value, delay) {
+    const [debounced, setDebounced] = useState(value);
+    useEffect(() => {
+        const timeout = window.setTimeout(() => setDebounced(value), delay);
+        return () => window.clearTimeout(timeout);
+    }, [value, delay]);
+    return debounced;
+}
+
+// Every list read is one server-side cursor page; status, search and sort are applied by the UDAPI, so the full
+// list is never fetched. A query change restarts at the first page in the same render (one request), and the last
+// totals and header metrics stay visible until fresh values arrive, so headers never flash the page size or '—'.
+function useCursorList({ pageSize, fetchPage, query = {} }) {
+    const queryKey = JSON.stringify([pageSize, query.status || '', query.search || '', query.sort || '']);
+    const [state, setState] = useState({ status: 'loading', items: [], error: '', updatedAt: null, pageInfo: null, totalCount: null, metrics: null });
+    const [position, setPosition] = useState({ key: queryKey, after: '', before: '', page: 1 });
+    const cursor = position.key === queryKey ? position : { key: queryKey, after: '', before: '', page: 1 };
+    const request = useRef(0);
+    const totalKeyRef = useRef(null);
+    const metricsRef = useRef(null);
+    const queryRef = useRef(query);
+    queryRef.current = query;
+
+    const load = useCallback(({ rejectOnError = false, refreshTotal = false } = {}) => {
+        const currentRequest = ++request.current;
+        setState(current => ({ ...current, status: 'loading', error: '' }));
+        const includeTotalCount = refreshTotal || totalKeyRef.current !== queryKey;
+        const includeMetrics = refreshTotal || metricsRef.current === null;
+        const { status, search, sort } = queryRef.current;
+        return fetchPage({ limit: pageSize, after: cursor.after, before: cursor.before, includeTotalCount, includeMetrics, status, search, sort }).then(result => {
+            const resultMetrics = normalizeMetrics(result.metrics);
+            if (resultMetrics) metricsRef.current = resultMetrics;
+            if (currentRequest === request.current) {
+                const hasTotal = result.totalCount !== null && result.totalCount !== undefined;
+                if (hasTotal) totalKeyRef.current = queryKey;
+                setState(current => ({
+                    status: 'ready',
+                    items: result.items,
+                    error: '',
+                    updatedAt: new Date(),
+                    pageInfo: result.pageInfo,
+                    totalCount: hasTotal ? result.totalCount : current.totalCount,
+                    metrics: metricsRef.current ?? current.metrics,
+                }));
+            }
+            return result.items;
+        }, error => {
+            if (currentRequest === request.current && !(error instanceof DataMinerAuthError)) {
+                setState(current => ({ ...current, status: 'error', items: [], error: error?.message || 'Unknown error.', updatedAt: null }));
+            }
+            if (rejectOnError) throw error;
+            return [];
+        });
+    }, [cursor.after, cursor.before, fetchPage, pageSize, queryKey]);
+
+    useEffect(() => {
+        load();
+        return () => { request.current++; };
+    }, [load]);
+
+    const nextPage = useCallback(() => {
+        if (state.pageInfo?.hasNextPage && state.pageInfo.nextAfterCursor) {
+            setPosition({ key: queryKey, after: state.pageInfo.nextAfterCursor, before: '', page: cursor.page + 1 });
+        }
+    }, [cursor.page, queryKey, state.pageInfo]);
+    const previousPage = useCallback(() => {
+        if (state.pageInfo?.hasPreviousPage && state.pageInfo.nextBeforeCursor) {
+            setPosition({ key: queryKey, after: '', before: state.pageInfo.nextBeforeCursor, page: Math.max(1, cursor.page - 1) });
+        }
+    }, [cursor.page, queryKey, state.pageInfo]);
+
+    return {
+        ...state,
+        page: cursor.page,
+        nextPage,
+        previousPage,
+        reload: options => load({ ...options, refreshTotal: true }),
+        reloadAndWait: () => load({ rejectOnError: true, refreshTotal: true }),
+    };
+}
+function useAutomationActions() {
+    const [state, setState] = useState(null);
+    useEffect(() => {
+        if (!state || state.status === 'running') return undefined;
+        const timeout = window.setTimeout(() => setState(null), state.status === 'error' ? 8000 : 4000);
+        return () => window.clearTimeout(timeout);
+    }, [state]);
+    const runApi = useCallback(async (operation, label, refresh) => {
+        setState({ status: 'running', message: `${label}…` });
+        try {
+            await operation();
+            if (refresh) await refresh();
+            setState({ status: 'success', message: `${label} completed.` });
+            return true;
+        } catch (error) {
+            setState({ status: 'error', message: error?.message || `${label} failed.` });
+            return false;
+        }
+    }, []);
+    return { state, runApi, fail: message => setState({ status: 'error', message }), notify: (status, message) => setState({ status, message }), dismiss: () => setState(null) };
+}
+
+function ActionNotice({ state, onDismiss }) {
+    if (!state) return null;
+    const icon = state.status === 'error' ? 'error' : state.status === 'success' ? 'check_circle' : 'refresh';
+    return <div className={`action-notice ${state.status}`} role={state.status === 'error' ? 'alert' : 'status'}><span className={state.status === 'running' ? 'icon spin' : 'icon'} aria-hidden="true">{icon}</span><span>{state.message}</span><button className="icon-button" type="button" aria-label="Dismiss notification" onClick={onDismiss}><span className="icon" aria-hidden="true">close</span></button></div>;
+}
+
+function CursorTablePagination({ page, pageSize, total, pageInfo, onPrevious, onNext, onPageSizeChange }) {
+    const hasTotal = Number.isFinite(total);
+    if ((hasTotal && total === 0) || (!hasTotal && page === 1 && !pageInfo?.hasNextPage && !pageInfo?.hasPreviousPage)) return null;
+    const pageCount = hasTotal ? Math.max(1, Math.ceil(total / pageSize)) : null;
+    const summary = hasTotal
+        ? `${Math.min((page - 1) * pageSize + 1, total)}–${Math.min(page * pageSize, total)} of ${total}`
+        : `Page ${page}`;
+    return <nav className="table-pagination" aria-label="Table pagination"><span className="table-pagination-summary">{summary}</span><div className="table-pagination-controls"><label>Rows<select value={pageSize} onChange={event => onPageSizeChange(Number(event.target.value))}><option value="10">10</option><option value="25">25</option><option value="50">50</option><option value="100">100</option></select></label><button className="quiet-button" type="button" onClick={onPrevious} disabled={!pageInfo?.hasPreviousPage}>Previous</button><span>Page {page}{pageCount ? ` of ${pageCount}` : ''}</span><button className="quiet-button" type="button" onClick={onNext} disabled={!pageInfo?.hasNextPage}>Next</button></div></nav>;
+}
+
+function ConfirmDialog({ message, title = 'Confirm deletion', confirmLabel = 'Delete', icon = 'delete', tone = 'danger', onConfirm, onCancel }) {
+    const cancelButton = useRef(null);
+    useEffect(() => {
+        cancelButton.current?.focus();
+        const onKey = event => {
+            if (event.key === 'Escape') onCancel();
+        };
+        document.addEventListener('keydown', onKey);
+        document.body.classList.add('confirm-open');
+        return () => {
+            document.removeEventListener('keydown', onKey);
+            document.body.classList.remove('confirm-open');
+        };
+    }, [onCancel]);
+    return <div className="confirm-layer"><div className="confirm-backdrop" onClick={onCancel} aria-hidden="true" /><section className="confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title"><div className={tone === 'danger' ? 'confirm-icon icon' : 'confirm-icon confirm-icon-neutral icon'} aria-hidden="true">{icon}</div><div className="confirm-copy"><h2 id="confirm-title">{title}</h2><p>{message}</p></div><div className="confirm-actions"><button ref={cancelButton} className="quiet-button" type="button" onClick={onCancel}>Cancel</button><button className={tone === 'danger' ? 'danger-button' : 'primary-button'} type="button" onClick={onConfirm}><span className="icon" aria-hidden="true">{icon}</span>{confirmLabel}</button></div></section></div>;
+}
+
+function useConfirmation() {
+    const [request, setRequest] = useState(null);
+    const confirm = useCallback((message, options = {}) => new Promise(resolve => setRequest({ ...options, message, resolve })), []);
+    const close = useCallback(result => {
+        request?.resolve(result);
+        setRequest(null);
+    }, [request]);
+    return { confirm, dialog: request ? <ConfirmDialog message={request.message} title={request.title} confirmLabel={request.confirmLabel} icon={request.icon} tone={request.tone} onConfirm={() => close(true)} onCancel={() => close(false)} /> : null };
+}
+
+function CancellationReasonDialog({ busy, onClose, onSubmit }) {
+    const [reason, setReason] = useState('');
+    const submit = async event => {
+        event.preventDefault();
+        const trimmedReason = reason.trim();
+        if (trimmedReason) await onSubmit(trimmedReason);
+    };
+    return <div className="confirm-layer order-form-layer"><div className="confirm-backdrop" onClick={onClose} aria-hidden="true" /><form className="order-form-dialog" onSubmit={submit} aria-labelledby="cancellation-reason-title"><header className="order-form-header"><div><p className="eyebrow">Service order</p><h2 id="cancellation-reason-title">Request cancellation</h2></div><button className="icon-button" type="button" aria-label="Close cancellation request" onClick={onClose}><span className="icon" aria-hidden="true">close</span></button></header><div className="order-form-grid"><label className="wide">Cancellation reason<textarea autoFocus required value={reason} onChange={event => setReason(event.target.value)} /></label></div><footer className="order-form-actions"><button className="quiet-button" type="button" onClick={onClose} disabled={busy}>Cancel</button><button className="primary-button" type="submit" disabled={busy || !reason.trim()}>{busy ? 'Submitting…' : 'Request cancellation'}</button></footer></form></div>;
+}
+
+function NewOrderDialog({ busy, onClose, onSubmit, initialOrder = null, action = 'Add', existingOrderNames = [] }) {
+    const [form, setForm] = useState(() => ({ name: initialOrder?.name || '', description: initialOrder?.description || '', externalId: initialOrder?.externalId || '', priority: initialOrder?.priority || 'High', organization: initialOrder?.organization || '', requestedStart: dateTimeInputValue(initialOrder?.start), requestedEnd: dateTimeInputValue(initialOrder?.end), completionEnabled: Boolean(initialOrder?.start || initialOrder?.end) }));
+    const organizationData = useDataList(fetchServiceOrganizations);
+    const [closed, setClosed] = useState(false);
+    const [submitAttempted, setSubmitAttempted] = useState(false);
+    const update = (field, value) => setForm(current => ({ ...current, [field]: value }));
+    const close = () => { setClosed(true); onClose(); };
+    const closeFromClick = event => { event.preventDefault(); event.stopPropagation(); close(); };
+    const placeholder = initialOrder?.externalId || initialOrder?.id?.split('-')[0]?.toUpperCase() || `ORDER-${String(existingOrderNames.length + 1).padStart(6, '0')}`;
+    const duplicateName = Boolean(form.name.trim()) && existingOrderNames.some(name => String(name || '').trim().toLowerCase() === form.name.trim().toLowerCase() && name !== initialOrder?.name);
+    const invalidCompletionDates = form.completionEnabled
+        && form.requestedStart
+        && form.requestedEnd
+        && Date.parse(form.requestedEnd) < Date.parse(form.requestedStart);
+    const organizationOptions = organizationData.items.some(organization => organization.name === form.organization) || !form.organization
+        ? organizationData.items
+        : [{ id: `current-${form.organization}`, name: form.organization }, ...organizationData.items];
+    const submit = async event => {
+        event.preventDefault();
+        setSubmitAttempted(true);
+        if (duplicateName) return;
+        const name = form.name.trim() || placeholder;
+        const requestedStart = form.completionEnabled ? dateTimeLocalToUtc(form.requestedStart) : '';
+        const requestedEnd = form.completionEnabled ? dateTimeLocalToUtc(form.requestedEnd) : '';
+        const organizationId = !form.organization ? null : organizationData.items.find(organization => organization.name === form.organization)?.id;
+        await onSubmit({
+            Action: action,
+            'DOM ID': initialOrder?.id,
+            Payload: JSON.stringify({
+                Name: name,
+                Description: form.description,
+                ExternalId: form.externalId,
+                Priority: form.priority,
+                Organization: form.organization,
+                RequestedStart: requestedStart,
+                RequestedEnd: requestedEnd,
+                CompletionSettingsEnabled: form.completionEnabled,
+            }),
+        }, {
+            name,
+            description: form.description,
+            externalId: form.externalId,
+            priority: form.priority,
+            organizationId: form.organization === (initialOrder?.organization || '') ? undefined : organizationId,
+            completionEnabled: form.completionEnabled,
+            requestedStart,
+            requestedEnd,
+        });
+    };
+    if (closed) return null;
+    return <div className="confirm-layer order-form-layer"><div className="confirm-backdrop" onClick={closeFromClick} aria-hidden="true" /><form className="order-form-dialog" onSubmit={submit} aria-labelledby="new-order-title"><header className="order-form-header"><div><p className="eyebrow">Service operations</p><h2 id="new-order-title">{action === 'Edit' ? 'Edit service order' : 'New service order'}</h2></div><button className="icon-button" type="button" aria-label="Close service order form" onClick={closeFromClick}><span className="icon" aria-hidden="true">close</span></button></header><div className="order-form-grid"><label className="wide">Label<input autoFocus value={form.name} onChange={event => update('name', event.target.value)} placeholder={placeholder} aria-invalid={duplicateName || undefined} />{duplicateName && <span className="form-field-error">Name already exists!</span>}{submitAttempted && !form.name.trim() && !duplicateName && <span className="form-field-hint">Placeholder will be used: {placeholder}</span>}</label><label className="wide">Description<textarea value={form.description} onChange={event => update('description', event.target.value)} placeholder="Describe the service request" /></label><label>External ID<input value={form.externalId} onChange={event => update('externalId', event.target.value)} placeholder="Optional external ID" /></label><label>Priority<select value={form.priority} onChange={event => update('priority', event.target.value)}><option>High</option><option>Medium</option><option>Low</option></select></label><label className="wide">Organization<select aria-label="Organization" value={form.organization} onChange={event => update('organization', event.target.value)} disabled={organizationData.status === 'loading' && organizationOptions.length === 0}><option value="">No organization</option>{organizationData.status === 'loading' && organizationOptions.length === 0 && <option disabled>Loading organizations…</option>}{organizationOptions.map(organization => <option key={organization.id || organization.name} value={organization.name}>{organization.name}</option>)}</select>{organizationData.status === 'error' && <span className="form-field-error">Organizations could not be loaded. You can leave this empty.</span>}</label><button className="completion-toggle wide" type="button" onClick={() => setForm(current => ({ ...current, completionEnabled: !current.completionEnabled }))}>{form.completionEnabled ? 'Hide Completion Details' : 'Show Completion Details'}</button>{form.completionEnabled && <div className="completion-section wide"><label><span>Completion settings enabled</span><input type="checkbox" checked={form.completionEnabled} onChange={event => update('completionEnabled', event.target.checked)} /></label><label>Requested start date<input type="datetime-local" value={form.requestedStart} onChange={event => update('requestedStart', event.target.value)} /></label><label>Requested completed date<input type="datetime-local" value={form.requestedEnd} onChange={event => update('requestedEnd', event.target.value)} />{invalidCompletionDates && <span className="form-field-error">Requested completion cannot be earlier than requested start.</span>}</label></div>}</div><footer className="order-form-actions"><button className="quiet-button" type="button" onClick={closeFromClick} disabled={busy}>Cancel</button><button className="primary-button" type="submit" disabled={busy || duplicateName || invalidCompletionDates}>{busy ? (action === 'Edit' ? 'Saving…' : 'Creating…') : action === 'Edit' ? 'Save' : 'Create order'}</button></footer></form></div>;
+}
+
+function NewSpecificationDialog({ busy, onClose, onSubmit, initialSpecification = null, action = 'Add', existingSpecificationNames = [], existingSpecificationCount = null }) {
+    const [form, setForm] = useState(() => ({ name: initialSpecification?.name || '', description: initialSpecification?.description || '', icon: initialSpecification?.icon || '' }));
+    const [submitAttempted, setSubmitAttempted] = useState(false);
+    const update = (field, value) => setForm(current => ({ ...current, [field]: value }));
+    const specificationCount = Number.isFinite(existingSpecificationCount) ? existingSpecificationCount : existingSpecificationNames.length;
+    const placeholder = initialSpecification?.name || `Specification #${String(specificationCount + 1).padStart(5, '0')}`;
+    const duplicateName = Boolean(form.name.trim()) && existingSpecificationNames.some(name => String(name || '').trim().toLowerCase() === form.name.trim().toLowerCase() && name !== initialSpecification?.name);
+    const submit = async event => {
+        event.preventDefault();
+        setSubmitAttempted(true);
+        if (duplicateName) return;
+        await onSubmit({ Action: action, 'DOM ID': initialSpecification?.id, Payload: JSON.stringify({ Name: form.name.trim() || placeholder, Description: form.description, Icon: form.icon }) });
+    };
+    return <div className="confirm-layer order-form-layer"><div className="confirm-backdrop" onClick={onClose} aria-hidden="true" /><form className="order-form-dialog specification-form-dialog" onSubmit={submit} aria-labelledby="new-specification-title"><header className="order-form-header"><div><p className="eyebrow">Service design</p><h2 id="new-specification-title">{action === 'Edit' ? 'Edit service specification' : 'New service specification'}</h2></div><button className="icon-button" type="button" aria-label="Close service specification form" onClick={onClose}><span className="icon" aria-hidden="true">close</span></button></header><div className="order-form-grid"><label className="wide">Label<input autoFocus value={form.name} onChange={event => update('name', event.target.value)} placeholder={placeholder} aria-invalid={duplicateName || undefined} />{duplicateName && <span className="form-field-error">Name already exists!</span>}{submitAttempted && !form.name.trim() && !duplicateName && <span className="form-field-hint">Placeholder will be used: {placeholder}</span>}</label><label className="wide">Description<textarea value={form.description} onChange={event => update('description', event.target.value)} placeholder="Describe this service specification" /></label><label className="wide">Icon<input value={form.icon} onChange={event => update('icon', event.target.value)} placeholder="Optional icon path or reference" /></label></div><footer className="order-form-actions"><button className="quiet-button" type="button" onClick={onClose} disabled={busy}>Cancel</button><button className="primary-button" type="submit" disabled={busy || duplicateName}>{busy ? 'Saving…' : action === 'Edit' ? 'Save' : 'Create'}</button></footer></form></div>;
+}
+
+function getNextServiceId(services) {
+    const highestId = services
+        .map(service => {
+            const parts = String(service.serviceId || '').trim().split('-');
+            return parts[parts.length - 1];
+        })
+        .map(value => Number.parseInt(value, 10))
+        .filter(Number.isFinite)
+        .reduce((highest, value) => Math.max(highest, value), 0);
+    return `SERVICE-${String(highestId + 1).padStart(5, '0')}`;
+}
+
+function getDefaultServiceTimes() {
+    const start = new Date(Date.now() + 60 * 60 * 1000);
+    const end = new Date(start.getTime() + 60 * 60 * 1000);
+    return { start: dateTimeInputValue(start), end: dateTimeInputValue(end) };
+}
+
+function NewServiceDialog({ busy, onClose, onSubmit, initialService = null, action = 'Add', existingServices = [] }) {
+    const [form, setForm] = useState(() => {
+        const defaults = getDefaultServiceTimes();
+        return {
+            serviceId: initialService?.serviceId || getNextServiceId(existingServices),
+            name: initialService?.name || '',
+            category: initialService?.category || '',
+            specification: initialService?.specification || '',
+            organization: initialService?.organization || '',
+            startTime: dateTimeInputValue(initialService?.start) || defaults.start,
+            endTime: initialService ? dateTimeInputValue(initialService.end) : defaults.end,
+            indefiniteRuntime: initialService ? !initialService.end : false,
+            linkedService: initialService?.linkedService || '',
+            linkService: Boolean(initialService?.linkedService),
+            generateMonitoringService: false,
+        };
+    });
+    const [organizationTouched, setOrganizationTouched] = useState(false);
+    const categoryData = useDataList(fetchServiceCategories);
+    const specificationData = useDataList(fetchServiceSpecifications);
+    const organizationData = useDataList(fetchServiceOrganizations);
+    const linkedServiceData = useDataList(fetchMonitoringServices);
+    const existingServiceFetcher = useCallback(async () => {
+        const id = serviceApiId(initialService);
+        if (!id) return [];
+        const service = await fetchServiceDetails(id);
+        return service ? [service] : [];
+    }, [initialService?.id, initialService?.serviceId]);
+    const existingServiceData = useDataList(existingServiceFetcher);
+    const update = (field, value) => {
+        if (field === 'organization') setOrganizationTouched(true);
+        setForm(current => ({ ...current, [field]: value }));
+    };
+    useEffect(() => {
+        const organization = existingServiceData.items[0]?.organization;
+        if (action === 'Edit' && organization && !organizationTouched) {
+            setForm(current => current.organization ? current : { ...current, organization });
+        }
+    }, [action, existingServiceData.items, organizationTouched]);
+    const serviceId = form.serviceId.trim();
+    const serviceName = form.name.trim();
+    const generatedName = initialService?.serviceId || serviceId || getNextServiceId(existingServices);
+    const currentService = service => service.id === initialService?.id;
+    const duplicateServiceId = action !== 'Edit' && Boolean(serviceId) && existingServices.some(service => !currentService(service) && String(service.serviceId || '').trim().toLowerCase() === serviceId.toLowerCase());
+    const duplicateServiceName = Boolean(serviceName) && existingServices.some(service => !currentService(service) && String(service.name || '').trim().toLowerCase() === serviceName.toLowerCase());
+    const missingServiceId = !serviceId;
+    const missingStartTime = !form.startTime;
+    const startTime = Date.parse(form.startTime);
+    const startInPast = action !== 'Edit' && Number.isFinite(startTime) && startTime < Date.now();
+    const missingEndTime = !form.indefiniteRuntime && !form.endTime;
+    const endBeforeStart = !form.indefiniteRuntime && isEndBeforeStart(form.startTime, form.endTime);
+    const missingLinkedService = form.linkService && !form.linkedService;
+    const invalidServiceIdFormat = action !== 'Edit' && Boolean(serviceId) && !/^SERVICE-\d+$/.test(serviceId);
+    const organizationLookupPending = action === 'Edit' && existingServiceData.status === 'loading';
+    const invalidForm = missingServiceId
+        || invalidServiceIdFormat
+        || duplicateServiceId
+        || duplicateServiceName
+        || missingStartTime
+        || startInPast
+        || missingEndTime
+        || endBeforeStart
+        || missingLinkedService
+        || organizationLookupPending;
+    const submit = async event => {
+        event.preventDefault();
+        if (invalidForm) return;
+        const originalOrganization = existingServiceData.items[0]?.organization ?? initialService?.organization ?? '';
+        const organizationChanged = organizationTouched || form.organization !== originalOrganization;
+        const changed = (field, initial) => action !== 'Edit' || (field === 'organization'
+            ? organizationChanged
+            : form[field] !== (initial || ''));
+        const findId = (items, name) => (name ? items.find(item => item.name === name)?.id : null);
+        await onSubmit({ Action: action, 'DOM ID': initialService?.id, Payload: JSON.stringify({ ServiceID: serviceId, Name: serviceName || generatedName, Category: form.category, Specification: form.specification, Organization: form.organization, StartTime: form.startTime, EndTime: form.endTime, IndefiniteRuntime: form.indefiniteRuntime, LinkedService: form.linkedService, LinkService: form.linkService, GenerateMonitoringService: form.generateMonitoringService }) }, {
+            serviceId,
+            name: serviceName || generatedName,
+            category: form.category ? { name: form.category } : null,
+            serviceSpecificationId: changed('specification', initialService?.specification) ? findId(specificationData.items, form.specification) : undefined,
+            organizationId: changed('organization', initialService?.organization) ? findId(organizationData.items, form.organization) : undefined,
+            startTime: dateTimeLocalToUtc(form.startTime) || null,
+            endTime: form.indefiniteRuntime ? null : dateTimeLocalToUtc(form.endTime) || null,
+            // Same as the 'SLC_SM_Create Service Inventory Item' script: linking a service also sets the generate flag.
+            generateMonitoringService: form.generateMonitoringService || form.linkService,
+            monitoringService: form.linkService ? form.linkedService : '',
+        });
+    };
+    const categories = categoryData.items.some(category => category.name === form.category) || !form.category ? categoryData.items : [{ id: `current-${form.category}`, name: form.category }, ...categoryData.items];
+    const specifications = specificationData.items.some(specification => specification.name === form.specification) || !form.specification ? specificationData.items : [{ id: `current-${form.specification}`, name: form.specification }, ...specificationData.items];
+    const organizations = organizationData.items.some(organization => organization.name === form.organization) || !form.organization ? organizationData.items : [{ id: `current-${form.organization}`, name: form.organization }, ...organizationData.items];
+    const linkedServices = linkedServiceData.items.some(service => service.id === form.linkedService) || !form.linkedService ? linkedServiceData.items : [{ id: form.linkedService, name: form.linkedService }, ...linkedServiceData.items];
+    return <div className="confirm-layer order-form-layer"><div className="confirm-backdrop" onClick={onClose} aria-hidden="true" /><form className="order-form-dialog specification-form-dialog" onSubmit={submit} aria-labelledby="new-service-title"><header className="order-form-header"><div><p className="eyebrow">Service inventory</p><h2 id="new-service-title">{action === 'Edit' ? 'Edit service' : 'New service'}</h2></div><button className="icon-button" type="button" aria-label="Close service form" onClick={onClose}><span className="icon" aria-hidden="true">close</span></button></header><div className="order-form-grid"><label className="wide">Service ID<input autoFocus={action !== 'Edit'} value={form.serviceId} onChange={event => update('serviceId', event.target.value)} placeholder={getNextServiceId(existingServices)} disabled={action === 'Edit'} aria-invalid={missingServiceId || invalidServiceIdFormat || duplicateServiceId || undefined} />{missingServiceId && <span className="form-field-error">Service ID is required.</span>}{invalidServiceIdFormat && <span className="form-field-error">Service ID must look like SERVICE-123.</span>}{duplicateServiceId && <span className="form-field-error">Service ID already exists!</span>}</label><label className="wide">Name<input autoFocus={action === 'Edit'} value={form.name} onChange={event => update('name', event.target.value)} placeholder={generatedName} aria-invalid={duplicateServiceName || undefined} />{duplicateServiceName && <span className="form-field-error">Name already exists!</span>}{!serviceName.trim() && <span className="form-field-hint">Placeholder will be used: {generatedName}</span>}</label><label>Category<select aria-label="Category" value={form.category} onChange={event => update('category', event.target.value)} disabled={categoryData.status === 'loading' && categories.length === 0}><option value="">No category</option>{categoryData.status === 'loading' && categories.length === 0 && <option disabled>Loading categories…</option>}{categories.map(category => <option key={category.id || category.name} value={category.name}>{category.name}</option>)}</select>{categoryData.status === 'error' && <span className="form-field-error">Categories could not be loaded.</span>}</label><label>Service specification<select aria-label="Service specification" value={form.specification} onChange={event => update('specification', event.target.value)} disabled={specificationData.status === 'loading' && specifications.length === 0}><option value="">No specification</option>{specificationData.status === 'loading' && specifications.length === 0 && <option disabled>Loading specifications…</option>}{specifications.map(specification => <option key={specification.id || specification.name} value={specification.name}>{specification.name}</option>)}</select>{specificationData.status === 'error' && <span className="form-field-error">Specifications could not be loaded.</span>}</label><label>Organization<select aria-label="Organization" value={form.organization} onChange={event => update('organization', event.target.value)} disabled={organizationData.status === 'loading' && organizations.length === 0}><option value="">No organization</option>{organizationData.status === 'loading' && organizations.length === 0 && <option disabled>Loading organizations…</option>}{organizations.map(organization => <option key={organization.id || organization.name} value={organization.name}>{organization.name}</option>)}</select>{organizationData.status === 'error' && <span className="form-field-error">Organizations could not be loaded. You can leave this empty.</span>}</label><label>Start date<input type="datetime-local" value={form.startTime} onChange={event => update('startTime', event.target.value)} aria-invalid={missingStartTime || startInPast || undefined} />{missingStartTime && <span className="form-field-error">Start date is required.</span>}{startInPast && <span className="form-field-error">Please make a selection which doesn't lie in the past.</span>}</label><label>End date<input type="datetime-local" value={form.endTime} onChange={event => update('endTime', event.target.value)} disabled={form.indefiniteRuntime} aria-invalid={missingEndTime || endBeforeStart || undefined} />{missingEndTime && <span className="form-field-error">End date is required unless the runtime is indefinite.</span>}{endBeforeStart && <span className="form-field-error">End date must come after the start date.</span>}</label><label className="form-checkbox"><input type="checkbox" checked={form.indefiniteRuntime} onChange={event => update('indefiniteRuntime', event.target.checked)} />Indefinite (no end date)</label><label>Linked service<select aria-label="Linked service" value={form.linkedService} onChange={event => update('linkedService', event.target.value)} disabled={!form.linkService || (linkedServiceData.status === 'loading' && linkedServices.length === 0)} aria-invalid={missingLinkedService || undefined}><option value="">No linked service</option>{linkedServiceData.status === 'loading' && linkedServices.length === 0 && <option disabled>Loading services…</option>}{linkedServices.map(service => <option key={service.id || service.name} value={service.id}>{service.name}</option>)}</select>{missingLinkedService && <span className="form-field-error">Selection is mandatory!</span>}{linkedServiceData.status === 'error' && <span className="form-field-error">Linked services could not be loaded.</span>}</label><label className="form-checkbox"><input type="checkbox" checked={form.linkService} onChange={event => update('linkService', event.target.checked)} />Link service</label><label className="form-checkbox"><input type="checkbox" checked={form.generateMonitoringService} onChange={event => update('generateMonitoringService', event.target.checked)} />Generate DataMiner monitoring service</label></div><footer className="order-form-actions"><button className="quiet-button" type="button" onClick={onClose} disabled={busy}>Cancel</button><button className="primary-button" type="submit" disabled={busy || invalidForm}>{busy ? (action === 'Edit' ? 'Saving…' : 'Creating…') : action === 'Edit' ? 'Save' : 'Create'}</button></footer></form></div>;
+}
+
+function ServiceLogoDialog({ service, busy, onClose, onSubmit }) {
+    const categoryData = useDataList(fetchServiceCategories);
+    const [category, setCategory] = useState(service.category || '');
+    const [failedLogo, setFailedLogo] = useState('');
+    const categories = categoryData.items.some(item => item.name === category) || !category
+        ? categoryData.items
+        : [{ id: `current-${category}`, name: category, icon: service.logo || '' }, ...categoryData.items];
+    const selectedCategory = categories.find(item => item.name === category);
+    const submit = async event => {
+        event.preventDefault();
+        if (categoryData.status !== 'ready') return;
+        await onSubmit(category);
+    };
+    const logo = selectedCategory?.icon || '';
+    return <div className="confirm-layer order-form-layer">
+        <div className="confirm-backdrop" onClick={onClose} aria-hidden="true" />
+        <form className="order-form-dialog category-form-dialog service-logo-dialog" onSubmit={submit} aria-labelledby="service-logo-title">
+            <header className="order-form-header">
+                <div><p className="eyebrow">Service inventory</p><h2 id="service-logo-title">Assign service logo</h2></div>
+                <button className="icon-button" type="button" aria-label="Close service logo form" onClick={onClose}><span className="icon" aria-hidden="true">close</span></button>
+            </header>
+            <div className="order-form-grid">
+                <label className="wide">Category<select aria-label="Logo category" value={category} onChange={event => setCategory(event.target.value)} disabled={busy || categoryData.status !== 'ready'}><option value="">No category</option>{categoryData.status === 'loading' && categories.length === 0 && <option disabled>Loading categories…</option>}{categories.map(item => <option key={item.id || item.name} value={item.name}>{item.name}</option>)}</select><span className="form-field-hint">Assigns this category and copies its current logo to the service.</span></label>
+                {categoryData.status === 'error'
+                    ? <div className="list-message error wide" role="alert"><div className="list-message-text"><strong>Categories could not be loaded</strong><span>{categoryData.error}</span></div><button className="quiet-button" type="button" onClick={categoryData.reload}>Retry</button></div>
+                    : categoryData.status === 'ready' && <section className="category-preview wide" aria-labelledby="service-logo-preview-title">
+                        <h3 id="service-logo-preview-title">Logo preview</h3>
+                        <div className="category-preview-card">
+                            <div className="category-preview-image">{logo && failedLogo !== logo ? <img key={logo} src={logo} alt="Service logo preview" onError={() => setFailedLogo(logo)} /> : <span>{logo ? 'Logo unavailable' : 'No logo'}</span>}</div>
+                            <div className="category-preview-copy"><strong>{service.name || 'Unnamed service'}</strong><span>{selectedCategory?.name || 'No category selected'}</span>{logo && failedLogo === logo && <span className="form-field-error" role="status">The selected logo could not be loaded.</span>}</div>
+                            {selectedCategory?.type && <span className="category-preview-type">{selectedCategory.type}</span>}
+                        </div>
+                    </section>}
+            </div>
+            <footer className="order-form-actions"><button className="quiet-button" type="button" onClick={onClose} disabled={busy}>Cancel</button><button className="primary-button" type="submit" disabled={busy || categoryData.status !== 'ready'}>{busy ? 'Saving…' : 'Apply logo'}</button></footer>
+        </form>
+    </div>;
+}
+
+function dateTimeInputValue(value) {
+    if (!value) return '';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+    const pad = number => String(number).padStart(2, '0');
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function dateTimeLocalToUtc(value) {
+    if (!value) return '';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+    return date.toISOString();
+}
+
+function isEndBeforeStart(startValue, endValue) {
+    const startTime = Date.parse(startValue);
+    const endTime = Date.parse(endValue);
+    return Number.isFinite(startTime) && Number.isFinite(endTime) && endTime < startTime;
+}
+
+function serviceItemRequest(values) {
+    const payload = JSON.parse(values.Payload || '{}');
+    return {
+        label: payload.Label,
+        type: payload.Type,
+        definitionReference: payload.DefinitionReference,
+        implementationReference: payload.ImplementationReference,
+        script: payload.Script,
+    };
+}
+
+function serviceOrderUpdateRequest(fields) {
+    const request = {
+        name: fields.name,
+        description: fields.description,
+        externalId: fields.externalId,
+        priority: fields.priority.toLowerCase(),
+        completionInfo: fields.completionEnabled ? { requestedStartDate: fields.requestedStart || null, requestedCompletedDate: fields.requestedEnd || null } : null,
+    };
+    if (fields.organizationId !== undefined) request.organizationId = fields.organizationId;
+    return request;
+}
+
+function serviceOrderCreateRequest(fields) {
+    return {
+        ...serviceOrderUpdateRequest(fields),
+        orderItems: [],
+    };
+}
+
+function serviceOrderItemRequest(fields, existingItem = null) {
+    const timeApplicable = fields.action === 'Add';
+    const request = {
+        name: fields.name,
+        action: fields.action,
+        description: fields.description,
+        startTime: timeApplicable ? dateTimeLocalToUtc(fields.startTime) || null : null,
+        endTime: timeApplicable && !fields.indefiniteRuntime ? dateTimeLocalToUtc(fields.endTime) || null : null,
+        indefiniteRuntime: timeApplicable ? fields.indefiniteRuntime : true,
+        serviceCategoryId: fields.categoryId || null,
+        serviceId: fields.serviceId || null,
+    };
+    // Sending the specification rebuilds the item configuration, so an edit only sends it when it changed.
+    if (!existingItem || fields.specificationId !== existingItem.specificationId) request.serviceSpecificationId = fields.specificationId || null;
+    return request;
+}
+
+function ServiceOrderItemDialog({ busy, onClose, onSubmit, order, initialItem = null, action = 'Add' }) {
+    const categoryData = useDataList(fetchServiceCategories);
+    const specificationData = useDataList(fetchServiceSpecifications);
+    const serviceData = useDataList(fetchServices);
+    const orderDomId = order?.id;
+    const orderId = order?.orderId;
+    const existingItemsFetcher = useCallback(() => orderDomId ? fetchServiceOrderItems({ id: orderDomId, orderId }) : Promise.resolve([]), [orderDomId, orderId]);
+    const existingItemsData = useDataList(existingItemsFetcher);
+    const [form, setForm] = useState(() => ({
+        name: initialItem?.name || '',
+        description: initialItem?.description || '',
+        itemAction: initialItem?.action || 'Add',
+        categoryId: initialItem?.categoryId || '',
+        specificationId: initialItem?.specificationId || '',
+        serviceId: initialItem?.serviceId || '',
+        startTime: dateTimeInputValue(initialItem?.start),
+        endTime: dateTimeInputValue(initialItem?.end),
+        indefiniteRuntime: !initialItem?.end,
+    }));
+    const [submitAttempted, setSubmitAttempted] = useState(false);
+    const update = (field, value) => setForm(current => ({ ...current, [field]: value }));
+    const existingLabels = existingItemsData.items.map(item => item.name).filter(Boolean);
+    const placeholder = initialItem?.name || `Service Order Item #${String(existingItemsData.items.length + 1).padStart(3, '0')}`;
+    const duplicateLabel = Boolean(form.name.trim()) && existingLabels.some(label => label.trim().toLowerCase() === form.name.trim().toLowerCase() && label !== initialItem?.name);
+    const timeApplicable = form.itemAction === 'Add';
+    const specificationRequired = form.itemAction === 'Add' && !form.specificationId;
+    const serviceRequired = ['Modify', 'Delete'].includes(form.itemAction) && !form.serviceId;
+    const endBeforeStart = timeApplicable && !form.indefiniteRuntime && isEndBeforeStart(form.startTime, form.endTime);
+    const updateAction = value => { setSubmitAttempted(true); update('itemAction', value); };
+    const submit = async event => {
+        event.preventDefault();
+        setSubmitAttempted(true);
+        if (duplicateLabel || specificationRequired || serviceRequired || endBeforeStart) return;
+        const name = form.name.trim() || placeholder;
+        await onSubmit({
+            'DOM ID': orderDomId,
+            'Service Order Item ID': initialItem?.id,
+            Action: action,
+            Payload: JSON.stringify({
+                Name: name,
+                Description: form.description,
+                ItemAction: form.itemAction,
+                StartTime: timeApplicable ? form.startTime : '',
+                EndTime: timeApplicable && !form.indefiniteRuntime ? form.endTime : '',
+                IndefiniteRuntime: timeApplicable ? form.indefiniteRuntime : true,
+                CategoryId: form.categoryId,
+                SpecificationId: form.specificationId,
+                ServiceId: form.serviceId,
+            }),
+        }, { ...form, name, action: form.itemAction });
+    };
+    const optionError = [categoryData, specificationData, serviceData].find(data => data.status === 'error')?.error;
+    return (
+        <div className="confirm-layer order-form-layer">
+            <div className="confirm-backdrop" onClick={onClose} aria-hidden="true" />
+            <form className="order-form-dialog specification-form-dialog" onSubmit={submit} aria-labelledby="service-order-item-form-title">
+                <header className="order-form-header">
+                    <div>
+                        <p className="eyebrow">Service operations</p>
+                        <h2 id="service-order-item-form-title">{action === 'Edit' ? 'Edit service order item' : 'Add service order item'}</h2>
+                    </div>
+                    <button className="icon-button" type="button" aria-label="Close service order item form" onClick={onClose}>
+                        <span className="icon" aria-hidden="true">close</span>
+                    </button>
+                </header>
+                <div className="order-form-grid">
+                    <label className="wide">
+                        Label
+                        <input autoFocus value={form.name} onChange={event => update('name', event.target.value)} placeholder={placeholder} aria-invalid={duplicateLabel || undefined} />
+                        {duplicateLabel && <span className="form-field-error">Label already exists!</span>}
+                        {submitAttempted && !form.name.trim() && !duplicateLabel && <span className="form-field-hint">Placeholder will be used: {placeholder}</span>}
+                    </label>
+                    <label className="wide">
+                        Description
+                        <textarea value={form.description} onChange={event => update('description', event.target.value)} placeholder="Describe the requested item" />
+                    </label>
+                    <label>
+                        Action
+                        <select value={form.itemAction} onChange={event => updateAction(event.target.value)}>
+                            <option value="Add">Add</option>
+                            <option value="Delete">Delete</option>
+                            <option value="Modify">Modify</option>
+                            <option value="NoChange">No Change</option>
+                            {initialItem?.action === 'Undefined' && <option value="Undefined">Undefined</option>}
+                        </select>
+                    </label>
+                    <label>
+                        Category
+                        <select value={form.categoryId} onChange={event => update('categoryId', event.target.value)}>
+                            <option value="">None</option>
+                            {categoryData.items.map(category => <option value={category.id} key={category.id}>{category.name || category.id}</option>)}
+                        </select>
+                    </label>
+                    <label>
+                        Service specification
+                        <select value={form.specificationId} onChange={event => update('specificationId', event.target.value)} disabled={form.itemAction === 'Modify' || form.itemAction === 'Delete'} aria-invalid={submitAttempted && specificationRequired || undefined}>
+                            <option value="">None</option>
+                            {specificationData.items.map(specification => <option value={specification.id} key={specification.id}>{specification.name || specification.id}</option>)}
+                        </select>
+                        {specificationRequired && <span className="form-field-error">Selection is mandatory!</span>}
+                    </label>
+                    <label>
+                        Service reference
+                        <select value={form.serviceId} onChange={event => update('serviceId', event.target.value)} disabled={form.itemAction === 'Add'} aria-invalid={submitAttempted && serviceRequired || undefined}>
+                            <option value="">None</option>
+                            {serviceData.items.map(service => <option value={service.id} key={service.id}>{service.name || service.serviceId || service.id}</option>)}
+                        </select>
+                        {serviceRequired && <span className="form-field-error">Selection is mandatory!</span>}
+                    </label>
+                    {timeApplicable && (
+                        <>
+                            <label>
+                                Start date
+                                <input type="datetime-local" value={form.startTime} onChange={event => update('startTime', event.target.value)} />
+                            </label>
+                            <label>
+                                End date
+                                <input type="datetime-local" value={form.endTime} onChange={event => update('endTime', event.target.value)} disabled={form.indefiniteRuntime} aria-invalid={endBeforeStart || undefined} />
+                                {endBeforeStart && <span className="form-field-error">End date must come after the start date.</span>}
+                            </label>
+                            <label className="form-checkbox">
+                                <input type="checkbox" checked={form.indefiniteRuntime} onChange={event => update('indefiniteRuntime', event.target.checked)} />
+                                Indefinite runtime
+                            </label>
+                        </>
+                    )}
+                    {optionError && <p className="form-error wide">{optionError}</p>}
+                </div>
+                <footer className="order-form-actions">
+                    <button className="quiet-button" type="button" onClick={onClose} disabled={busy}>Cancel</button>
+                    <button className="primary-button" type="submit" disabled={busy || duplicateLabel || specificationRequired || serviceRequired || endBeforeStart}>
+                        {busy ? 'Saving…' : action === 'Edit' ? 'Save' : 'Add item'}
+                    </button>
+                </footer>
+            </form>
+        </div>
+    );
+}
+
+function ServiceItemDialog({ busy, onClose, onSubmit, parentId, parentService = null, initialItem = null, action = 'Add', context = 'Service' }) {
+    const existingItemsFetcher = useCallback(() => !parentId ? Promise.resolve([]) : context === 'Specification' ? fetchSpecificationItems(parentId) : fetchInventoryServiceItems(parentService ?? { id: parentId }), [parentId, parentService, context]);
+    const existingItemsData = useDataList(existingItemsFetcher);
+    const specificationsData = useDataList(fetchServiceSpecifications);
+    const servicesData = useDataList(fetchServices);
+    const itemOptionsFetcher = useCallback(() => fetchServiceItemReferenceOptions().catch(() => ({
+        workflowAvailable: true,
+        srmAvailable: true,
+        workflows: [],
+        bookingManagers: [],
+        bookingScripts: [],
+    })), []);
+    const itemOptionsData = useDataList(itemOptionsFetcher);
+    const options = itemOptionsData.items && !Array.isArray(itemOptionsData.items) ? itemOptionsData.items : {
+        workflowAvailable: true,
+        srmAvailable: true,
+        workflows: [],
+        bookingManagers: [],
+        bookingScripts: [],
+    };
+    const [form, setForm] = useState(() => ({
+        label: initialItem?.label || '',
+        type: (initialItem?.type || 'Service').replace(/\s+/g, ''),
+        definitionReference: initialItem?.definition || '',
+        implementationReference: initialItem?.implementationReference || '',
+        script: initialItem?.script || '',
+    }));
+    const workflows = options.workflows || [];
+    const bookingManagers = options.bookingManagers || [];
+    const bookingScripts = options.bookingScripts || [];
+    useEffect(() => {
+        if (action === 'Edit') return;
+        setForm(current => {
+            if (current.type === 'Workflow' && !current.definitionReference && workflows.length > 0) {
+                const defaultWorkflow = workflows.find(wf => wf.toLowerCase() === 'default') || workflows[0];
+                return { ...current, definitionReference: defaultWorkflow, implementationReference: '', script: '' };
+            }
+            if (current.type === 'SRMBooking' && !current.definitionReference && bookingManagers.length > 0) {
+                const firstManager = bookingManagers[0];
+                return { ...current, definitionReference: firstManager.name, script: firstManager.script || current.script || '' };
+            }
+            return current;
+        });
+    }, [action, workflows, bookingManagers]);
+    const handleTypeChange = nextType => {
+        setForm(current => {
+            if (nextType === 'Workflow') {
+                const defaultWorkflow = workflows.find(wf => wf.toLowerCase() === 'default') || workflows[0] || '';
+                return { ...current, type: nextType, definitionReference: defaultWorkflow, implementationReference: '', script: '' };
+            }
+            if (nextType === 'SRMBooking') {
+                const firstManager = bookingManagers[0];
+                return {
+                    ...current,
+                    type: nextType,
+                    definitionReference: firstManager?.name || '',
+                    implementationReference: '',
+                    script: firstManager?.script || '',
+                };
+            }
+            return { ...current, type: nextType, definitionReference: '', implementationReference: '', script: '' };
+        });
+    };
+    const handleDefinitionChange = nextDefinition => {
+        setForm(current => {
+            if (current.type === 'SRMBooking') {
+                const manager = bookingManagers.find(item => item.name === nextDefinition);
+                return {
+                    ...current,
+                    definitionReference: nextDefinition,
+                    implementationReference: '',
+                    script: manager?.script || '',
+                };
+            }
+            return { ...current, definitionReference: nextDefinition, implementationReference: '' };
+        });
+    };
+    const update = (field, value) => setForm(current => ({ ...current, [field]: value }));
+    const existingLabels = new Set(
+        existingItemsData.items
+            .map(item => item.label?.trim().toLowerCase())
+            .filter(label => label && label !== initialItem?.label?.trim().toLowerCase()),
+    );
+    const placeholder = (() => {
+        if (action === 'Edit' && initialItem?.label) return initialItem.label;
+        if (form.definitionReference) {
+            let candidate = form.definitionReference;
+            while (existingLabels.has(candidate.toLowerCase())) {
+                candidate = `${candidate} (1)`;
+            }
+            return candidate;
+        }
+        return `Service Item #${String(existingItemsData.items.length + 1).padStart(3, '0')}`;
+    })();
+    const duplicateLabel = Boolean(form.label.trim()) && existingLabels.has(form.label.trim().toLowerCase());
+    const specificationNames = Array.from(new Set([
+        ...specificationsData.items.map(spec => spec.name).filter(Boolean).sort((a, b) => a.localeCompare(b)),
+        ...(form.type === 'Service' && form.definitionReference ? [form.definitionReference] : []),
+    ]));
+    const workflowNames = Array.from(new Set([
+        ...workflows,
+        ...(form.type === 'Workflow' && form.definitionReference ? [form.definitionReference] : []),
+    ]));
+    const bookingManagerNames = Array.from(new Set([
+        ...bookingManagers.map(manager => manager.name),
+        ...(form.type === 'SRMBooking' && form.definitionReference ? [form.definitionReference] : []),
+    ]));
+    const matchingServices = servicesData.items
+        .filter(candidate => candidate.id && candidate.id !== parentId && (!form.definitionReference || candidate.specification === form.definitionReference))
+        .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    const selectedManager = bookingManagers.find(manager => manager.name === form.definitionReference);
+    const activeBookings = selectedManager?.bookings || [];
+    const scriptOptions = Array.from(new Set([
+        ...bookingScripts,
+        ...(form.type === 'SRMBooking' && form.script ? [form.script] : []),
+    ]));
+    const submit = async event => {
+        event.preventDefault();
+        if (duplicateLabel) return;
+        await onSubmit({
+            'DOM ID': parentId,
+            'Service Item Label': initialItem?.label,
+            'Service Item ID': initialItem?.id,
+            Action: action,
+            Payload: JSON.stringify({
+                Label: form.label.trim() || placeholder,
+                ExistingLabel: initialItem?.label || '',
+                Type: form.type,
+                DefinitionReference: form.definitionReference,
+                ImplementationReference: form.type === 'Workflow' ? '' : form.implementationReference,
+                Script: form.type === 'SRMBooking' ? form.script : '',
+            }),
+        });
+    };
+    return <div className="confirm-layer order-form-layer"><div className="confirm-backdrop" onClick={onClose} aria-hidden="true" /><form className="order-form-dialog specification-form-dialog" onSubmit={submit} aria-labelledby="service-item-form-title"><header className="order-form-header"><div><p className="eyebrow">{context === 'Specification' ? 'Service design' : 'Service inventory'}</p><h2 id="service-item-form-title">{action === 'Edit' ? 'Edit service item' : 'Add service item'}</h2></div><button className="icon-button" type="button" aria-label="Close service item form" onClick={onClose}><span className="icon" aria-hidden="true">close</span></button></header><div className="order-form-grid"><label className="wide">Label<input autoFocus value={form.label} onChange={event => update('label', event.target.value)} placeholder={placeholder} aria-invalid={duplicateLabel || undefined} />{duplicateLabel && <span className="form-field-error">Label already exists!</span>}{!form.label.trim() && <span className="form-field-hint">Placeholder will be used: {placeholder}</span>}</label><label>Type<select value={form.type} onChange={event => handleTypeChange(event.target.value)}><option value="Service">Service</option>{(options.workflowAvailable !== false || form.type === 'Workflow') && <option value="Workflow">Workflow</option>}{(options.srmAvailable !== false || form.type === 'SRMBooking') && <option value="SRMBooking">SRM booking</option>}</select></label><label>Definition reference<select value={form.definitionReference} onChange={event => handleDefinitionChange(event.target.value)}>{form.type === 'Service' && <><option value="">None</option>{specificationNames.map(name => <option key={name} value={name}>{name}</option>)}</>}{form.type === 'Workflow' && <>{workflowNames.length === 0 && <option value="">None</option>}{workflowNames.map(name => <option key={name} value={name}>{name}</option>)}</>}{form.type === 'SRMBooking' && <>{bookingManagerNames.length === 0 && <option value="">None</option>}{bookingManagerNames.map(name => <option key={name} value={name}>{name}</option>)}</>}</select></label>{form.type !== 'Workflow' && <label>Implementation reference<select value={form.implementationReference} onChange={event => update('implementationReference', event.target.value)}><option value="">None</option>{form.type === 'Service' && matchingServices.map(svc => <option key={svc.id} value={svc.id}>{svc.name}{svc.serviceId ? ` (${svc.serviceId})` : ''}</option>)}{form.type === 'Service' && form.implementationReference && !matchingServices.some(svc => svc.id === form.implementationReference) && <option value={form.implementationReference}>{form.implementationReference}</option>}{form.type === 'SRMBooking' && activeBookings.map(booking => <option key={booking.id} value={booking.id}>{booking.name}</option>)}{form.type === 'SRMBooking' && form.implementationReference && !activeBookings.some(booking => booking.id === form.implementationReference) && <option value={form.implementationReference}>{form.implementationReference}</option>}</select></label>}<label className="wide">Service item script<select value={form.type === 'SRMBooking' ? form.script : ''} onChange={event => update('script', event.target.value)} disabled={form.type !== 'SRMBooking'}><option value="">None</option>{form.type === 'SRMBooking' && scriptOptions.map(scriptName => <option key={scriptName} value={scriptName}>{scriptName}</option>)}</select></label></div><footer className="order-form-actions"><button className="quiet-button" type="button" onClick={onClose} disabled={busy}>Cancel</button><button className="primary-button" type="submit" disabled={busy || duplicateLabel}>{busy ? 'Saving…' : action === 'Edit' ? 'Save' : 'Add item'}</button></footer></form></div>;
+}
+
+function useOrderItems(order, refreshKey = 0) {
+    const [state, setState] = useState({ status: 'loading', items: [], error: '' });
+    const [attempt, setAttempt] = useState(0);
+    const { id, orderId } = order;
+    useEffect(() => {
+        let active = true;
+        setState({ status: 'loading', items: [], error: '' });
+        fetchServiceOrderItems({ id, orderId }).then(items => { if (active) setState({ status: 'ready', items, error: '' }); }, error => { if (active && !(error instanceof DataMinerAuthError)) setState({ status: 'error', items: [], error: error?.message || 'Unknown error.' }); });
+        return () => { active = false; };
+    }, [id, orderId, attempt, refreshKey]);
+    return { ...state, retry: () => setAttempt(value => value + 1) };
+}
+
+const ORDER_LIFECYCLE = ['New', 'Acknowledged', 'In Progress', 'Completed'];
+// Last main lifecycle step reached before an order or item leaves the main path.
+const ORDER_OFF_PATH_ANCHORS = { rejected: 0, held: 2, pending: 2, failed: 2, 'partially failed': 2, 'assess cancellation': 2, 'pending cancellation': 2, cancelled: 2 };
+const DANGER_TRANSITIONS = new Set(['Reject', 'Cancel', 'Confirm Cancellation']);
+function transitionDisplayLabel(label) { return label === 'Partially Failed' ? 'Partial fail' : label === 'Information Missing' ? 'Missing info' : label; }
+function orderShortId(order) { return String(order.id || '').split('-')[0].toUpperCase(); }
+function orderItemSchedule(item) {
+    if (item.start) return `${item.start} → ${item.end || 'no end date'}`;
+    return item.end ? `Until ${item.end}` : '';
+}
+
+function OrderLifecycle({ state, transitions, busy, onTransition, label = 'Order lifecycle', finalMessage = 'No further transitions are available for this order.', compact = false, steps = ORDER_LIFECYCLE }) {
+    const key = String(state || '').trim().toLowerCase();
+    const mainIndex = steps.findIndex(step => step.toLowerCase() === key);
+    const offPath = mainIndex === -1 && Boolean(key);
+    const reachedIndex = offPath ? (steps === ORDER_LIFECYCLE ? ORDER_OFF_PATH_ANCHORS[key] ?? -1 : -1) : mainIndex;
+    const [primary, ...secondary] = transitions;
+    const transitionButton = (transition, extraClass = '') => <button className={`order-transition-action ${DANGER_TRANSITIONS.has(transition.label) ? 'danger' : extraClass || 'secondary'}`} type="button" key={`${transition.label}-${transition.next}`} onClick={() => onTransition(transition)} disabled={busy}><span className="icon" aria-hidden="true">{transitionIcon(transition.label)}</span><span>{transitionDisplayLabel(transition.label)}</span></button>;
+    return <section className={compact ? 'order-lifecycle-card order-lifecycle-compact' : 'order-lifecycle-card'} aria-label={label}>
+        <div className="order-lifecycle-main">
+            <ol className="order-stepper">
+                {steps.map((step, index) => {
+                    const current = index === mainIndex;
+                    const done = index < mainIndex || (offPath && index <= reachedIndex) || (current && key === 'completed');
+                    return <li key={step} className={current ? 'current' : done ? 'done' : ''} aria-current={current ? 'step' : undefined}>{compact ? <span className="order-step-number" aria-hidden="true">{done ? <span className="icon">check</span> : index + 1}</span> : done && <span className="icon" aria-hidden="true">check</span>}{step}</li>;
+                })}
+                {offPath && <li className={`order-stepper-off ${stateTone(state)}`} aria-current="step">{state}</li>}
+            </ol>
+            {compact
+                ? primary && <div className="order-lifecycle-inline-actions">{secondary.map(transition => transitionButton(transition))}{transitionButton(primary, 'primary')}</div>
+                : primary && transitionButton(primary, 'primary')}
+        </div>
+        {!compact && secondary.length > 0 && <div className="order-lifecycle-more"><span>Other actions</span>{secondary.map(transition => transitionButton(transition))}</div>}
+        {!primary && <p className="order-lifecycle-final"><span className="icon" aria-hidden="true">task_alt</span>{finalMessage}</p>}
+    </section>;
+}
+
+function orderItemAction(item) { return String(item?.action || '').trim().toLowerCase(); }
+
+function ServiceLinkButton({ item, busy, initializing, onInitialize, className = '' }) {
+    const action = orderItemAction(item);
+    const serviceLinked = Boolean(item.serviceId);
+    if (action === 'delete' && !serviceLinked) return null;
+    const canInitialize = Boolean(item.id && item.specificationId && !item.serviceId && action !== 'delete');
+    const title = serviceLinked
+        ? 'Open the service linked to this order item.'
+        : !item.specificationId
+            ? 'Assign a service specification before initializing a service.'
+            : undefined;
+    return <button
+        className={`initialize-button${serviceLinked ? ' initialized' : ''}${className ? ` ${className}` : ''}`}
+        type="button"
+        aria-label={serviceLinked ? `Open service ${item.service || 'linked to this order item'}` : `Initialize service for ${item.name || 'order item'}`}
+        title={title}
+        disabled={busy || initializing || (!serviceLinked && !canInitialize)}
+        onClick={() => {
+            if (serviceLinked) location.hash = `services/${encodeURIComponent(item.serviceId)}`;
+            else onInitialize(item);
+        }}
+    >
+        {!serviceLinked && <span className={initializing ? 'icon spin' : 'icon'} aria-hidden="true">{initializing ? 'refresh' : 'add_circle'}</span>}
+        {initializing ? 'Initializing…' : serviceLinked ? <><span className="initialize-button-label">Open service: {item.service || 'linked service'}</span><span className="icon" aria-hidden="true">arrow_forward</span></> : 'Initialize service'}
+    </button>;
+}
+
+function OrderItems({ itemsState, onAdd, onEdit, onDelete, onSelect, onInitialize, initializingItemId, busy }) {
+    const { status, items, error, retry } = itemsState;
+    let body;
+    if (status === 'error') body = <div className="list-message error" role="alert"><span className="icon" aria-hidden="true">error</span><div className="list-message-text"><strong>Order items could not be loaded</strong><span>{error}</span></div><button className="quiet-button" type="button" onClick={retry}>Retry</button></div>;
+    else if (status === 'loading') body = <div className="list-message" role="status"><span className="icon spin" aria-hidden="true">refresh</span>Loading order items…</div>;
+    else if (items.length === 0) body = <div className="list-message" role="status"><span className="icon" aria-hidden="true">inbox</span>This order has no items.</div>;
+    else body = <ol className="item-list">{items.map((item, index) => {
+        const action = orderItemAction(item);
+        const schedule = orderItemSchedule(item);
+        const meta = [
+            item.specification && <span key="specification">Specification: <strong>{item.specification}</strong></span>,
+            item.service && <span key="service">Target service: <strong>{item.service}</strong></span>,
+            item.category && <span key="category">{item.category}</span>,
+        ].filter(Boolean);
+        return <li className={`order-item order-item-card action-${action || 'none'}`} key={`${item.id || item.name || 'item'}-${index}`}>
+            <div className="order-item-head">
+                <div className="order-item-title">
+                    <div className="order-item-name-row">{item.action && <span className={`order-action-chip ${action}`}>{item.action}</span>}<span className="order-item-name">{item.name || 'Unnamed item'}</span></div>
+                    {meta.length > 0 && <p className="order-item-meta">{meta}</p>}
+                    {schedule && <p className="order-item-schedule"><span className="icon" aria-hidden="true">date_range</span>{schedule}</p>}
+                </div>
+                <span className={`state-badge ${stateTone(item.status)}`}>{item.status || 'Unknown'}</span>
+            </div>
+            {item.description && <p className="order-item-description">{item.description}</p>}
+            <div className="order-item-actions">
+                <button className="item-action-button" type="button" onClick={() => onSelect(item)} disabled={!item.id} aria-label={`View ${item.name || 'order item'}`}><span className="icon" aria-hidden="true">visibility</span>View item</button>
+                <button className="item-action-button" type="button" onClick={() => onEdit(item)} disabled={busy}><span className="icon" aria-hidden="true">edit</span>Edit</button>
+                <button className="item-action-button danger" type="button" onClick={() => onDelete(item)} disabled={busy}><span className="icon" aria-hidden="true">delete</span>Delete</button>
+                <ServiceLinkButton item={item} busy={busy} initializing={initializingItemId === item.id} onInitialize={onInitialize} />
+            </div>
+        </li>;
+    })}</ol>;
+    return <section className="order-items-section" aria-labelledby="order-items-title"><div className="order-items-heading"><div className="order-items-title"><h3 id="order-items-title">Order items</h3>{status === 'ready' && <span className="count-pill" data-testid="order-item-count">{items.length}</span>}</div><button className="quiet-button add-item-button" type="button" onClick={onAdd} disabled={busy}><span className="icon" aria-hidden="true">add</span>Add item</button></div>{body}</section>;
+}
+
+function InitializeServiceDialog({ item, busy, onClose, onSubmit }) {
+    const [copyConfiguration, setCopyConfiguration] = useState(true);
+    const form = useRef(null);
+    useEffect(() => {
+        const previous = document.activeElement;
+        form.current?.querySelector('input')?.focus();
+        return () => previous?.focus?.();
+    }, []);
+    return <div className="confirm-layer order-form-layer" onKeyDown={event => {
+        if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); if (!busy) onClose(); }
+    }}>
+        <div className="confirm-backdrop" onClick={() => { if (!busy) onClose(); }} aria-hidden="true" />
+        <form ref={form} className="order-form-dialog initialize-service-dialog" aria-labelledby="initialize-service-title" onSubmit={event => { event.preventDefault(); onSubmit(copyConfiguration); }}>
+            <header className="order-form-header"><div><p className="eyebrow">Service order item</p><h2 id="initialize-service-title">Initialize service</h2></div><button className="icon-button" type="button" aria-label="Close initialization form" onClick={onClose} disabled={busy}><span className="icon" aria-hidden="true">close</span></button></header>
+            <div className="order-form-grid">
+                <p className="wide">Create a service using the details of this order item.</p>
+                <label className="form-checkbox wide"><input type="checkbox" checked={copyConfiguration} onChange={event => setCopyConfiguration(event.target.checked)} disabled={busy} />Copy configuration</label>
+                <p className="form-field-hint wide">Changes to the service will not affect the original configuration.</p>
+            </div>
+            <footer className="order-form-actions"><button className="quiet-button" type="button" onClick={onClose} disabled={busy}>Cancel</button><button className="primary-button" type="submit" disabled={busy}>{busy ? 'Initializing…' : 'Create service'}</button></footer>
+        </form>
+    </div>;
+}
+
+function ServiceOrderItemDetailPanel({ order, item, onClose, onEdit, onTransition, onInitialize, initializing, onSaveConfiguration, onConfirmConfiguration, busy }) {
+    const closeButton = useRef(null);
+    const onCloseRef = useRef(onClose);
+    onCloseRef.current = onClose;
+    const transitions = getOrderItemTransitions(item.status);
+    const action = orderItemAction(item);
+    useEffect(() => {
+        const previous = document.activeElement;
+        closeButton.current?.focus();
+        // Capture phase so the order pop-up underneath does not also close on the same Escape.
+        const onKey = event => { if (event.key === 'Escape' && !event.defaultPrevented && !event.target.closest?.('.initialize-service-dialog')) { event.preventDefault(); onCloseRef.current(); } };
+        document.addEventListener('keydown', onKey, true);
+        return () => { document.removeEventListener('keydown', onKey, true); previous?.focus?.(); };
+    }, []);
+    const details = [
+        ['Service', item.serviceId
+            ? <button className="item-modal-link" type="button" onClick={() => { location.hash = `services/${encodeURIComponent(item.serviceId)}`; }}>{item.service || 'Linked service'}</button>
+            : item.service || <span className="item-modal-muted">Not linked yet</span>],
+        ['Specification', item.specification],
+        ['Category', item.category],
+        ['Start date', item.start],
+        ['End date', item.end || (item.start ? <span className="item-modal-muted">No end date</span> : '')],
+        ['Description', item.description],
+    ];
+    return <div className="drawer-layer order-modal-layer item-modal-layer"><div className="drawer-backdrop" onClick={onClose} aria-hidden="true" /><section className="order-modal item-modal" role="dialog" aria-modal="true" aria-labelledby="item-detail-title">
+        <header className="order-modal-header item-modal-header">
+            <div className="order-modal-heading">
+                <p className="eyebrow">Service order item · <span className="item-modal-order-ref">{order.orderId || order.name || 'Service order'}</span></p>
+                <div className="order-modal-title-row">
+                    {item.action && <span className={`order-action-chip ${action}`}>{item.action}</span>}
+                    <h2 id="item-detail-title">{item.name || 'Unnamed item'}</h2>
+                    <span className={`state-badge ${stateTone(item.status)}`}>{item.status || 'Unknown'}</span>
+                </div>
+            </div>
+            <div className="order-modal-actions">
+                <ServiceLinkButton item={item} busy={busy} initializing={initializing} onInitialize={onInitialize} />
+                <button className="quiet-button" type="button" onClick={onEdit} disabled={busy}><span className="icon" aria-hidden="true">edit</span>Edit</button>
+                <button ref={closeButton} className="icon-button" type="button" aria-label="Close service order item details" onClick={onClose}><span className="icon">close</span></button>
+            </div>
+        </header>
+        <div className="order-modal-body item-modal-body">
+            <OrderLifecycle state={item.status} transitions={transitions} busy={busy} onTransition={transition => onTransition(item, transition)} label="Service order item lifecycle" finalMessage="No further transitions are available for this item." compact />
+            <div className="item-modal-grid">
+                <section className="item-modal-card item-modal-overview" aria-labelledby="item-overview-title">
+                    <p className="eyebrow">Overview</p>
+                    <h3 id="item-overview-title">Service item details</h3>
+                    <dl className="item-modal-details">{details.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value || '—'}</dd></div>)}</dl>
+                </section>
+                <section className="item-modal-card item-modal-configuration">
+                    <NativeServiceConfigurationsView service={item} actionState={{ status: busy ? 'running' : null }} onSave={onSaveConfiguration} onConfirm={onConfirmConfiguration} fetchConfigurations={fetchServiceOrderItemConfigurations} configurationOwnerId={order.orderId} eyebrow="Parameters" heading="Configurations" allowVersionDelete={false} showVersionMetadata={false} supportsProfiles={false} parameterHeading="Configuration parameters" parameterEmptyMessage="No configuration parameters are assigned to this order item." lifecycleMode="OrderItem" parametersExpanded />
+                </section>
+            </div>
+        </div>
+    </section></div>;
+}
+
+function OrderDetailPanel({ order, onClose, onRunApi, onActionFailure, onConfirmDelete, onConfirmAction, onOrdersChanged, onDeleteOrder, onEditOrder, actionState }) {
+    const closeButton = useRef(null);
+    const [itemsRefreshKey, setItemsRefreshKey] = useState(0);
+    const [selectedItemId, setSelectedItemId] = useState(null);
+    const lastSelectedItem = useRef(null);
+    const [itemEditor, setItemEditor] = useState(null);
+    const [initializingItemId, setInitializingItemId] = useState(null);
+    const [initializationTarget, setInitializationTarget] = useState(null);
+    const [pendingCancellationTransition, setPendingCancellationTransition] = useState(null);
+    const busy = actionState?.status === 'running';
+    const transitions = getOrderTransitions(order.state);
+    const itemsState = useOrderItems(order, itemsRefreshKey);
+    // Follow the selected item across reloads so the item pop-up shows fresh state after transitions and edits.
+    const freshSelectedItem = selectedItemId ? itemsState.items.find(item => item.id === selectedItemId) : null;
+    if (freshSelectedItem) lastSelectedItem.current = freshSelectedItem;
+    const selectedItem = selectedItemId ? freshSelectedItem || (itemsState.status === 'ready' ? null : lastSelectedItem.current) : null;
+    const closeSelectedItem = useCallback(() => setSelectedItemId(null), []);
+    const selectItem = useCallback(item => { lastSelectedItem.current = item; setSelectedItemId(item.id); }, []);
+    useEffect(() => {
+        if (selectedItemId && itemsState.status === 'ready' && !freshSelectedItem) setSelectedItemId(null);
+    }, [freshSelectedItem, itemsState.status, selectedItemId]);
+    useEffect(() => {
+        const previous = document.activeElement;
+        closeButton.current?.focus();
+        const onKey = event => { if (event.key === 'Escape' && !event.defaultPrevented) onClose(); };
+        document.addEventListener('keydown', onKey);
+        document.body.classList.add('drawer-open');
+        return () => { document.removeEventListener('keydown', onKey); document.body.classList.remove('drawer-open'); previous?.focus?.(); };
+    }, [onClose]);
+    const runOrderEdit = () => onEditOrder(order);
+    const editItem = item => setItemEditor({ action: 'Edit', item });
+    const deleteItem = async item => {
+        if (!await onConfirmDelete(`Delete "${item.name || 'this order item'}"?`)) return;
+        if (await onRunApi(() => deleteServiceOrderItem(order.orderId, item.id), 'Deleting order item', async () => {
+            const refreshedItems = await fetchServiceOrderItems(order);
+            if (refreshedItems.some(candidate => candidate.id === item.id)) {
+                throw new Error('The order item was deleted, but it is still returned by the Service Management API.');
+            }
+        })) setItemsRefreshKey(value => value + 1);
+    };
+    const addItem = () => setItemEditor({ action: 'Add', item: null });
+    const submitItem = async (values, fields) => {
+        const editing = itemEditor?.action === 'Edit';
+        const label = editing ? 'Saving order item' : 'Creating order item';
+        const saved = await onRunApi(
+            () => editing
+                ? updateServiceOrderItem(order.orderId, itemEditor.item.id, serviceOrderItemRequest(fields, itemEditor.item))
+                : addServiceOrderItem(order.orderId, serviceOrderItemRequest(fields)),
+            label,
+        );
+        if (!saved) return;
+        setItemEditor(null);
+        setItemsRefreshKey(value => value + 1);
+    };
+    const initializeService = item => {
+        if (!item?.id || item.serviceId || String(item.action || '').trim().toLowerCase() === 'delete') return;
+        if (!item.specificationId) {
+            onActionFailure('Assign a service specification before initializing a service.');
+            return;
+        }
+        setInitializationTarget(item);
+    };
+    const submitInitialization = async copyConfiguration => {
+        const item = initializationTarget;
+        if (!item || initializingItemId) return;
+        setInitializingItemId(item.id);
+        try {
+            const initialized = await onRunApi(
+                () => initializeServiceFromOrderItem(order.orderId, item.id, copyConfiguration),
+                `Initializing service for ${item.name || 'order item'}`,
+                async () => {
+                    const refreshedItems = await fetchServiceOrderItems(order);
+                    if (!refreshedItems.some(candidate => candidate.id === item.id && candidate.serviceId)) {
+                        throw new Error('The service was initialized, but the order item is not linked to it.');
+                    }
+                },
+            );
+            if (!initialized) return;
+            setInitializationTarget(null);
+            setItemsRefreshKey(value => value + 1);
+        }
+        catch (error) {
+            onActionFailure(error?.message || 'The service initialization could not be verified.');
+        }
+        finally {
+            setInitializingItemId(null);
+        }
+    };
+    const applyOrderTransition = async (transition, cancellationReason) => {
+        const requiresConfirmation = ['Reject', 'Cancel', 'Confirm Cancellation'].includes(transition.label);
+        if (requiresConfirmation && !await onConfirmAction(`Transition "${order.name || 'this service order'}" to ${transition.label.toLowerCase()}?`)) return false;
+        const transitioned = await onRunApi(
+            () => transitionServiceOrder(order.orderId, transition.next, cancellationReason),
+            `${transition.label} service order`,
+            onOrdersChanged,
+        );
+        // The backend moves the order's items too, so their statuses must be reloaded.
+        if (transitioned) setItemsRefreshKey(value => value + 1);
+        return transitioned;
+    };
+    const transitionOrder = async (_item, transition) => {
+        if (String(transition.next).replace(/\s+/g, '').toLowerCase() === 'assesscancellation') {
+            setPendingCancellationTransition(transition);
+            return;
+        }
+        await applyOrderTransition(transition);
+    };
+    const submitCancellationReason = async reason => {
+        if (!pendingCancellationTransition) return;
+        if (await applyOrderTransition(pendingCancellationTransition, reason)) {
+            setPendingCancellationTransition(null);
+        }
+    };
+    const transitionOrderItem = async (item, transition) => {
+        const requiresConfirmation = ['Reject', 'Cancel', 'Confirm Cancellation'].includes(transition.label);
+        if (requiresConfirmation && !await onConfirmAction(`Transition "${item.name || 'this order item'}" to ${transition.label.toLowerCase()}?`)) return;
+        if (!await onRunApi(
+            () => transitionServiceOrderItem(order.orderId, item.id, transition.next),
+            `${transition.label} order item`,
+        )) return;
+        setItemsRefreshKey(value => value + 1);
+    };
+    const saveItemConfiguration = (item, values, refresh) => onRunApi(
+        () => saveServiceOrderItemConfiguration(order.orderId, item.id, JSON.parse(values.Payload || '{}')),
+        'Saving order-item configuration',
+        refresh,
+    );
+    const shortId = orderShortId(order);
+    const priorityKey = String(order.priority || '').trim().toLowerCase() || 'none';
+    const requestedWindow = order.start || order.end ? <><span className="order-window-part">{order.start || 'Not set'}</span> <span className="order-window-part">→ {order.end || 'Not set'}</span></> : 'Not requested';
+    const itemCount = itemsState.items.length;
+    const completedItems = itemsState.items.filter(item => String(item.status || '').trim().toLowerCase() === 'completed').length;
+    const fulfillment = itemsState.status === 'loading' ? 'Loading items…' : itemsState.status === 'error' ? 'Unavailable' : itemCount === 0 ? 'No items yet' : `${completedItems} of ${itemCount} items completed`;
+    const fulfillmentPercent = itemCount ? Math.round((completedItems / itemCount) * 100) : 0;
+    return <><div className="drawer-layer order-modal-layer"><div className="drawer-backdrop" onClick={onClose} aria-hidden="true" /><section className="order-modal service-order-modal" role="dialog" aria-modal="true" aria-labelledby="order-detail-title">
+        <header className="order-modal-header">
+            <div className="order-modal-heading">
+                <p className="eyebrow">Service order{shortId && <> · ID {shortId}</>}</p>
+                <div className="order-modal-title-row"><h2 id="order-detail-title">{order.name || 'Unnamed order'}</h2>{order.priority && <span className={`priority-chip ${priorityKey}`}><span className="priority-dot" aria-hidden="true" />{order.priority} priority</span>}</div>
+            </div>
+            <div className="order-modal-actions">
+                <button className="quiet-button" type="button" onClick={runOrderEdit} disabled={busy}><span className="icon" aria-hidden="true">edit</span>Edit</button>
+                <button className="danger-button" type="button" onClick={() => onDeleteOrder(order)} disabled={busy}><span className="icon" aria-hidden="true">delete</span>Delete</button>
+                <button ref={closeButton} className="icon-button" type="button" aria-label="Close order details" onClick={onClose}><span className="icon">close</span></button>
+            </div>
+        </header>
+        <div className="order-modal-body">
+            <OrderLifecycle state={order.state} transitions={transitions} busy={busy} onTransition={transition => transitionOrder(order, transition)} compact />
+            <dl className="order-modal-facts">
+                <div><dt>Organization</dt><dd>{order.organization || '—'}</dd></div>
+                <div><dt>External ID</dt><dd>{order.externalId || '—'}</dd></div>
+                <div><dt>Requested window</dt><dd>{requestedWindow}</dd></div>
+                <div><dt>Fulfillment</dt><dd>{fulfillment}{itemsState.status === 'ready' && itemCount > 0 && <span className="order-fulfillment-bar" role="progressbar" aria-label="Completed order items" aria-valuemin={0} aria-valuemax={100} aria-valuenow={fulfillmentPercent}><span style={{ width: `${fulfillmentPercent}%` }} /></span>}</dd></div>
+                {order.description && <div className="order-modal-description"><dt>Description</dt><dd>{order.description}</dd></div>}
+            </dl>
+            <OrderItems itemsState={itemsState} onAdd={addItem} onEdit={editItem} onDelete={deleteItem}             onSelect={selectItem} onInitialize={initializeService} initializingItemId={initializingItemId} busy={busy} />
+            {initializationTarget && <InitializeServiceDialog item={initializationTarget} busy={busy || initializingItemId !== null} onClose={() => setInitializationTarget(null)} onSubmit={submitInitialization} />}
+        </div>
+                </section>{selectedItem && <ServiceOrderItemDetailPanel order={order} item={selectedItem} onClose={closeSelectedItem} onEdit={() => editItem(selectedItem)} onTransition={transitionOrderItem} onInitialize={initializeService} initializing={initializingItemId === selectedItem.id} onSaveConfiguration={(values, refresh) => saveItemConfiguration(selectedItem, values, refresh)} onConfirmConfiguration={onConfirmAction} busy={busy} />}</div>{itemEditor && <ServiceOrderItemDialog key={`${itemEditor.action}-${itemEditor.item?.id || 'new'}`} busy={actionState?.status === 'running'} order={order} action={itemEditor.action} initialItem={itemEditor.item} onClose={() => setItemEditor(null)} onSubmit={submitItem} />}{pendingCancellationTransition && <CancellationReasonDialog busy={busy} onClose={() => setPendingCancellationTransition(null)} onSubmit={submitCancellationReason} />}</>;
+}
+
+function OrdersPage({ selectedId }) {
+    const [search, setSearch] = useState('');
+    const [statusFilter, setStatusFilter] = useState('all');
+    const [sort, setSort] = useState({ key: 'default', direction: 'asc' });
+    const [newOrderOpen, setNewOrderOpen] = useState(false);
+    const [ordersPageSize, setOrdersPageSize] = useState(10);
+    const [editOrderTarget, setEditOrderTarget] = useState(null);
+    const debouncedSearch = useDebouncedValue(search.trim(), 300);
+    const { status, items: orders, error, updatedAt, totalCount, metrics, page: cursorPage, pageInfo, reload, reloadAndWait, nextPage, previousPage } = useCursorList({
+        pageSize: ordersPageSize,
+        fetchPage: fetchServiceOrderPage,
+        query: { status: ORDER_STATUS_QUERY[statusFilter], search: debouncedSearch, sort: toSortQuery(sort) },
+    });
+    const isFiltered = Boolean(search.trim()) || statusFilter !== 'all';
+    const { state: actionState, runApi, fail: failAction, dismiss: dismissAction } = useAutomationActions();
+    const { confirm, dialog: confirmationDialog } = useConfirmation();
+    const loading = status === 'loading';
+    const hasData = status === 'ready' || (loading && orders.length > 0);
+    const formatOrderCount = value => (value === null || value === undefined ? '–' : value);
+    const openCount = metrics?.openCount;
+    const attentionCount = metrics?.attentionCount;
+    const completedCount = metrics?.completedCount;
+    const selectedOrder = selectedId ? orders.find(order => order.id === selectedId) : null;
+    const isPreviewData = import.meta.env.MODE === 'mock' || import.meta.env.VITE_USE_MOCK === 'true';
+    const closeDetails = useCallback(() => { location.hash = 'orders'; }, []);
+    const createOrder = () => setNewOrderOpen(true);
+    const submitNewOrder = async (_values, fields) => {
+        if (await runApi(() => createServiceOrder(serviceOrderCreateRequest(fields)), 'Creating service order', reloadAndWait)) {
+            setNewOrderOpen(false);
+        }
+    };
+    const editOrder = order => setEditOrderTarget(order);
+    const submitEditedOrder = async (_values, fields) => {
+        const target = editOrderTarget;
+        if (!target?.orderId) {
+            failAction('The selected service order does not have a UDAPI order ID.');
+            return;
+        }
+        const saved = await runApi(() => updateServiceOrder(target.orderId, serviceOrderUpdateRequest(fields)), 'Saving service order', reloadAndWait);
+        if (saved) setEditOrderTarget(null);
+    };
+    const deleteOrder = async order => {
+        if (!await confirm(`Delete "${order.name || 'this service order'}"?`)) return;
+        if (await runApi(() => deleteServiceOrder(order.orderId), 'Deleting service order', async () => {
+            const refreshedOrders = await reloadAndWait();
+            if (refreshedOrders.some(candidate => candidate.id === order.id)) {
+                throw new Error('The service order was deleted, but it is still returned by the Service Management API.');
+            }
+        })) {
+            closeDetails();
+        }
+    };
+    const orderTableCount = totalCount;
+    const toggleSort = key => setSort(current => current.key === key ? { key, direction: current.direction === 'asc' ? 'desc' : 'asc' } : { key, direction: 'asc' });
+    const clearFilters = () => { setSearch(''); setStatusFilter('all'); };
+    const sortIndicator = key => <span className={`table-sort-icon ${sort.key === key ? sort.direction : 'muted'}`} aria-hidden="true" />;
+    const sortButton = (key, label) => <button className="table-sort" type="button" onClick={() => toggleSort(key)}>{label}{sortIndicator(key)}</button>;
+    const openOrder = order => { if (order.id) location.hash = `orders/${encodeURIComponent(order.id)}`; };
+    const onOrderKeyDown = (event, order) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openOrder(order); } };
+    let body;
+    if (status === 'error') body = <div className="list-message error" role="alert"><span className="icon" aria-hidden="true">error</span><div className="list-message-text"><strong>Service orders could not be loaded</strong><span>{error}</span></div><button className="quiet-button" type="button" onClick={reload}><span className="icon" aria-hidden="true">refresh</span>Retry</button></div>;
+    else if (!hasData) body = <div className="list-message" role="status"><span className="icon spin" aria-hidden="true">refresh</span>Loading service orders…</div>;
+    else if (orders.length === 0 && !isFiltered) body = <div className="list-message" role="status"><span className="icon" aria-hidden="true">inbox</span>No service orders yet.</div>;
+    else if (orders.length === 0) body = <div className="orders-empty" role="status"><span className="icon" aria-hidden="true">search_off</span><div><strong>No orders match these filters</strong><span>Try a different search or status.</span></div><button className="quiet-button" type="button" onClick={clearFilters}>Clear filters</button></div>;
+    else body = <div className="orders-table-wrap" aria-busy={loading}><table className="orders-table"><colgroup><col className="order-column" /><col className="organization-column" /><col className="priority-column" /><col className="state-column" /><col className="description-column" /><col className="action-column" /></colgroup><thead><tr><th scope="col">{sortButton('name', 'Order')}</th><th scope="col">Organization</th><th scope="col">Priority</th><th scope="col">State</th><th scope="col">Description</th><th scope="col"><span className="sr-only">Open</span></th></tr></thead><tbody>{orders.map((order, index) => <tr className={order.id && order.id === selectedId ? 'order-row selected' : 'order-row'} key={`${order.id || order.name || 'order'}-${index}`} onDoubleClick={() => openOrder(order)}><td><div className="table-order-cell"><span className="order-icon"><span className="icon" aria-hidden="true">assignment</span></span><span className="table-cell-main"><strong>{order.name || 'Unnamed order'}</strong><span>{orderReference(order) || 'No external ID'}</span></span></div></td><td><span className="table-primary">{order.organization || '—'}</span></td><td><span className={`priority-chip ${order.priority.trim().toLowerCase() || 'none'}`}><span className="priority-dot" aria-hidden="true" />{order.priority ? `${order.priority} priority` : 'No priority'}</span></td><td><span className={`state-badge ${stateTone(order.state)}`}>{order.state || 'Unknown'}</span></td><td><span className="table-description" title={order.description || undefined}>{order.description || 'No description'}</span></td><td className="table-action"><button className="table-row-open" type="button" aria-label={`Open details of ${order.name || 'unnamed order'}`} onClick={() => openOrder(order)}><span className="icon" aria-hidden="true">chevron_right</span></button></td></tr>)}</tbody></table></div>;
+    return <main className="page-content orders-page">
+        <section className="orders-hero">
+            <div className="orders-heading"><div className="orders-eyebrow"><p className="eyebrow">{pages.orders.eyebrow}</p><span className={isPreviewData ? 'live-indicator preview' : 'live-indicator'}><span aria-hidden="true" />{isPreviewData ? 'Preview data' : 'DataMiner data'}</span></div><h1>Orders</h1><p className="description">A clear view of every service order, from request to completion.</p></div>
+            <PageHeaderActions
+                updatedAt={updatedAt}
+                loading={loading}
+                onRefresh={reload}
+                primaryAction={<button className="primary-button orders-new" type="button" onClick={createOrder} disabled={actionState?.status === 'running'}><span className="icon" aria-hidden="true">add</span>New order</button>}
+            />
+        </section>
+        <ActionNotice state={actionState} onDismiss={dismissAction} />
+        {confirmationDialog}
+        {newOrderOpen && <NewOrderDialog busy={actionState?.status === 'running'} existingOrderNames={orders.map(order => order.name)} onClose={() => setNewOrderOpen(false)} onSubmit={submitNewOrder} />}
+        {editOrderTarget && <NewOrderDialog key={`edit-order-${editOrderTarget.id}`} busy={actionState?.status === 'running'} action="Edit" existingOrderNames={orders.map(order => order.name)} initialOrder={editOrderTarget} onClose={() => setEditOrderTarget(null)} onSubmit={submitEditedOrder} />}
+        <section className="order-stats" aria-label="Orders overview"><button className={statusFilter === 'all' ? 'order-stat selected' : 'order-stat'} type="button" aria-pressed={statusFilter === 'all'} onClick={() => setStatusFilter('all')}><span className="overview-metric-top"><span className="overview-metric-icon icon" aria-hidden="true">assignment</span><span className="order-stat-label">All orders</span></span><strong>{formatOrderCount(metrics?.totalCount ?? (isFiltered ? null : totalCount))}</strong><span className="order-stat-note">Total in workspace</span></button><button className={statusFilter === 'open' ? 'order-stat selected' : 'order-stat'} type="button" aria-pressed={statusFilter === 'open'} onClick={() => setStatusFilter('open')}><span className="overview-metric-top"><span className="overview-metric-icon icon" aria-hidden="true">play_circle</span><span className="order-stat-label">Open orders</span></span><strong data-testid="open-orders">{formatOrderCount(openCount)}</strong><span className="order-stat-note">{openCount === null || openCount === undefined ? 'Waiting for data' : 'Still in progress'}</span></button><button className={statusFilter === 'attention' ? 'order-stat selected' : 'order-stat'} type="button" aria-pressed={statusFilter === 'attention'} onClick={() => setStatusFilter('attention')}><span className="overview-metric-top"><span className="overview-metric-icon icon" aria-hidden="true">error</span><span className="order-stat-label">Orders needing attention</span></span><strong>{formatOrderCount(attentionCount)}</strong><span className="order-stat-note">Held, failed, rejected, or cancelling</span></button><button className={statusFilter === 'completed' ? 'order-stat selected' : 'order-stat'} type="button" aria-pressed={statusFilter === 'completed'} onClick={() => setStatusFilter('completed')}><span className="overview-metric-top"><span className="overview-metric-icon icon" aria-hidden="true">check_circle</span><span className="order-stat-label">Completed</span></span><strong>{formatOrderCount(completedCount)}</strong><span className="order-stat-note">Successfully delivered</span></button></section>
+        <section className="orders-surface" aria-labelledby="orders-table-title"><div className="orders-toolbar"><div className="orders-toolbar-title"><div><p className="eyebrow">Service orders</p><h2 id="orders-table-title">{ORDER_FILTER_TITLES[statusFilter] || 'All orders'}</h2></div>{hasData && <span className="orders-total-copy">{formatCount(orderTableCount)} {orderTableCount === 1 ? 'order' : 'orders'}{isFiltered ? ' found' : ' in total'}</span>}</div><div className="orders-toolbar-controls"><label className="orders-search"><span className="icon" aria-hidden="true">search</span><span className="sr-only">Search orders</span><input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Search orders" aria-label="Search orders" />{search && <button type="button" aria-label="Clear search" onClick={() => setSearch('')}><span className="icon" aria-hidden="true">close</span></button>}</label><label className="orders-filter"><span className="sr-only">Filter orders by status</span><select value={statusFilter} onChange={event => setStatusFilter(event.target.value)} aria-label="Filter orders by status"><option value="all">All statuses</option><option value="open">Open</option><option value="attention">Needs attention</option><option value="completed">Completed</option></select><span className="icon" aria-hidden="true">expand_more</span></label></div></div>{body}</section>
+        <CursorTablePagination page={cursorPage} pageSize={ordersPageSize} total={totalCount} pageInfo={pageInfo} onPrevious={previousPage} onNext={nextPage} onPageSizeChange={size => { setOrdersPageSize(size); }} />
+        {selectedOrder && <OrderDetailPanel key={selectedOrder.id} order={selectedOrder} onClose={closeDetails} onRunApi={runApi} onActionFailure={failAction} onConfirmDelete={confirm} onConfirmAction={confirm} onOrdersChanged={reloadAndWait} onDeleteOrder={deleteOrder} onEditOrder={editOrder} actionState={actionState} />}
+    </main>;
+}
+
+function SettingsPage({ theme, setTheme, resolvedTheme }) {
+    const [section, setSection] = useState('appearance');
+    const appearance = useRef(null);
+    const connection = useRef(null);
+    const navigateTo = (name, ref) => {
+        setSection(name);
+        ref.current?.scrollIntoView({ block: 'nearest' });
+        ref.current?.focus({ preventScroll: true });
+    };
+    return <main className="page-content settings-page">
+        <div className="page-heading"><div><p className="eyebrow">Workspace</p><h1>Settings</h1><p className="description">Tune the workspace to fit the way you work.</p></div></div>
+        <div className="settings-layout">
+            <nav className="settings-navigation" aria-label="Settings sections">
+                <p className="eyebrow">Workspace</p>
+                <button className={section === 'appearance' ? 'active' : ''} type="button" aria-current={section === 'appearance' ? 'location' : undefined} onClick={() => navigateTo('appearance', appearance)}>General &amp; Appearance</button>
+                <a href="#catalog/categories">Category management<span className="settings-page-link"><span className="icon" aria-hidden="true">arrow_forward</span></span></a>
+                <p className="eyebrow settings-account-label">Account</p>
+                <button className={section === 'connection' ? 'active' : ''} type="button" aria-current={section === 'connection' ? 'location' : undefined} onClick={() => navigateTo('connection', connection)}>DataMiner connection</button>
+            </nav>
+            <div className="settings-cards">
+                <section className="settings-card settings-appearance" ref={appearance} tabIndex={-1} aria-labelledby="settings-theme-title">
+                    <div className="settings-card-content">
+                        <p className="eyebrow">Appearance</p><h2 id="settings-theme-title">Theme</h2>
+                        <p className="setting-description">System mode follows your operating system preference automatically.</p>
+                        <div className="settings-theme-options" role="group" aria-label="Theme">
+                            {['system', 'light', 'dark'].map(mode => <button key={mode} className={`settings-theme-option ${theme === mode ? 'active' : ''}`} type="button" aria-pressed={theme === mode} onClick={() => setTheme(mode)}>
+                                <span className={`settings-theme-preview ${mode}`} aria-hidden="true"><span /><span /></span>
+                                <span className="settings-theme-label">{mode.charAt(0).toUpperCase() + mode.slice(1)}<span className="settings-theme-radio" aria-hidden="true" /></span>
+                            </button>)}
+                        </div>
+                    </div>
+                    <footer className="settings-theme-footer"><span>{theme === 'system' ? 'Active theme resolves automatically from OS settings' : 'Your appearance preference is saved for this browser'}</span><span role="status">Currently using <strong>{resolvedTheme}</strong> appearance</span></footer>
+                </section>
+                <section className="settings-card settings-card-row" aria-labelledby="settings-category-title">
+                    <div><p className="eyebrow">Service catalog</p><h2 id="settings-category-title">Category management</h2><p className="setting-description">Define the categories and logos used by the Service Inventory.</p></div>
+                    <a className="quiet-button" href="#catalog/categories">Manage categories<span className="icon" aria-hidden="true">arrow_forward</span></a>
+                </section>
+                <section className="settings-card settings-card-row" ref={connection} tabIndex={-1} aria-labelledby="settings-connection-title">
+                    <div><p className="eyebrow">Session</p><div className="settings-connection-heading"><h2 id="settings-connection-title">DataMiner connection</h2><span className="settings-session-status">Authenticated</span></div><p className="setting-description">Your session is managed by DataMiner authentication.</p></div>
+                    <button className="danger-button" type="button" onClick={() => location.replace(`/auth/logout?url=${encodeURIComponent(location.pathname + location.search)}`)}>Sign out<span className="icon" aria-hidden="true">logout</span></button>
+                </section>
+            </div>
+        </div>
+    </main>;
+}
+
+function parseRoute() { const [page, ...rest] = location.hash.slice(1).split('/'); const key = pages[page] ? page : 'overview'; return { page: key, param: key === page ? decodeURIComponent(rest.join('/')) : '' }; }
+
+function App() {
+    const [route, setRoute] = useState(parseRoute);
+    const { theme, setTheme, resolvedTheme } = useTheme();
+    useEffect(() => { const onHash = () => setRoute(parseRoute()); window.addEventListener('hashchange', onHash); return () => window.removeEventListener('hashchange', onHash); }, []);
+    const page = route.page;
+    const activePage = page === 'catalog' && route.param === 'categories' ? 'settings' : page;
+    return <div className="app-shell"><header className="app-header"><a className="brand" href="#overview" aria-label="Service Management home"><img src="./references/dataminer-logo.png" alt="DataMiner" /><span className="brand-divider" /><strong>Service Management</strong></a><nav className="main-nav" aria-label="Primary navigation">{Object.entries(pages).filter(([key]) => key !== 'overview').map(([key, value]) => <a className={activePage === key ? 'nav-link active' : 'nav-link'} href={`#${key}`} key={key}><span className="icon">{value.icon}</span>{value.label}</a>)}</nav><div className="header-actions"><ThemeMenu theme={theme} setTheme={setTheme} /><button className="avatar" type="button" aria-label="Account">SM</button></div></header><PageContent page={page} param={route.param} theme={theme} setTheme={setTheme} resolvedTheme={resolvedTheme} /></div>;
+}
+
+async function start() {
+    const isMockMode = import.meta.env.MODE === 'mock' || import.meta.env.VITE_USE_MOCK === 'true';
+    const isUnconfiguredLocalLive = import.meta.env.DEV && !isMockMode && !import.meta.env.VITE_DATAMINER_ORIGIN;
+    const hasCookie = Boolean(getConnectionFromCookie());
+    // Reuse the root when the dev server hot-reloads this module.
+    const container = document.getElementById('root');
+    container.reactRoot ??= createRoot(container);
+    if (isUnconfiguredLocalLive) {
+        container.reactRoot.render(<StrictMode><LocalConnectionNotice /></StrictMode>);
+        return;
+    }
+    if (!hasCookie || !(await verifySession())) { redirectToAuth(); return; }
+    container.reactRoot.render(<StrictMode><App /></StrictMode>);
+}
+start().catch(() => redirectToAuth());
