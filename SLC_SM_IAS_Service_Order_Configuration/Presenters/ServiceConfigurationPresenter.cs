@@ -379,7 +379,7 @@
 				IsEnabled = false,
 			};
 			var isFixed = new CheckBox { IsChecked = record.ConfigurationParamValue.ValueFixed, IsEnabled = false };
-			var link = new CheckBox { IsChecked = record.ConfigurationParamValue.LinkedConfigurationReference != null, IsEnabled = !isFixed.IsChecked };
+			var link = new CheckBox { IsChecked = record.ConfigurationParamValue.IsLinked, IsEnabled = !isFixed.IsChecked };
 			var unit = new DropDown<ConfigurationUnit>(
 				new[] { new Option<ConfigurationUnit>("-", null) })
 			{ IsEnabled = false, MaxWidth = 80 };
@@ -404,11 +404,17 @@
 			};
 			link.Changed += (sender, args) =>
 			{
-				record.ConfigurationParamValue.LinkedConfigurationReference = args.IsChecked ? "Dummy Link" : null;
+				record.ConfigurationParamValue.IsLinked = args.IsChecked;
+				if (!args.IsChecked)
+				{
+					record.ConfigurationParamValue.LinkedScript = null;
+					record.ConfigurationParamValue.LinkedConsumers = null;
+				}
+
 				BuildUI(!view.BtnShowValueDetails.IsCollapsed, !view.BtnShowLifeCycleDetails.IsCollapsed);
 			};
 
-			if (record.ConfigurationParamValue.LinkedConfigurationReference != null)
+			if (record.ConfigurationParamValue.IsLinked)
 			{
 				view.AddWidget(new DropDown(), row, 3);
 			}

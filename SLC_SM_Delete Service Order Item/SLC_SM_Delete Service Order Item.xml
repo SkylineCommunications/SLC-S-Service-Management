@@ -20,6 +20,9 @@
 		<ScriptParameter id="11" type="string" values="">
 			<Description>Service Order Item ID</Description>
 		</ScriptParameter>
+		<ScriptParameter id="99" type="string" values="">
+			<Description>Skip Confirmation</Description>
+		</ScriptParameter>
 	</Parameters>
 
 	<Script>

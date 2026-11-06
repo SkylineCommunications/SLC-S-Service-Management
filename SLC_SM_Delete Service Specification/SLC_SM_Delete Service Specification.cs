@@ -8,6 +8,7 @@ Revision History:
 DATE        VERSION        AUTHOR            COMMENTS
 
 dd/mm/2025    1.0.0.1        XXX, Skyline    Initial version
+09/10/2026    1.0.0.2        SKA, Skyline    DataMinerApp support
 ****************************************************************************
 */
 namespace SLC_SM_Delete_Service_Specification
@@ -50,23 +51,27 @@ namespace SLC_SM_Delete_Service_Specification
 			catch (ScriptAbortException)
 			{
 				// Catch normal abort exceptions (engine.ExitFail or engine.ExitSuccess)
+				throw;
 			}
 			catch (ScriptForceAbortException)
 			{
 				// Catch forced abort exceptions, caused via external maintenance messages.
+				throw;
 			}
 			catch (ScriptTimeoutException)
 			{
 				// Catch timeout exceptions for when a script has been running for too long.
+				throw;
 			}
 			catch (InteractiveUserDetachedException)
 			{
 				// Catch a user detaching from the interactive script by closing the window.
 				// Only applicable for interactive scripts, can be removed for non-interactive scripts.
+				throw;
 			}
 			catch (Exception e)
 			{
-				engine.ShowErrorDialog(e);
+				engine.HandleUnexpectedException(e);
 			}
 		}
 
@@ -74,8 +79,8 @@ namespace SLC_SM_Delete_Service_Specification
 		{
 			Guid domId = _engine.ReadScriptParamFromApp<Guid>("DOM ID");
 
-			// confirmation if the user wants to delete the services
-			if (!_engine.ShowConfirmDialog($"Are you sure to you want to delete the selected service specification(s)?"))
+			bool skipConfirmation = _engine.ReadBooleanScriptParam("Skip Confirmation");
+			if (!skipConfirmation && !_engine.ShowConfirmDialog($"Are you sure to you want to delete the selected service specification(s)?"))
 			{
 				return;
 			}
@@ -84,7 +89,7 @@ namespace SLC_SM_Delete_Service_Specification
 			var specification = helper.ServiceCatalog.ServiceSpecifications.Read(ServiceSpecificationExposers.Identifier.Equal(domId.ToString())).FirstOrDefault();
 			if (specification == null)
 			{
-				return;
+				throw new InvalidOperationException($"No service specification with ID '{domId}' was found.");
 			}
 
 			helper.ServiceCatalog.ServiceSpecifications.Delete(specification);

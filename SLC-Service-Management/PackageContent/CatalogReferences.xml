@@ -7,15 +7,8 @@
 		</Selection>
 	</CatalogReference>
 
-	<CatalogReference id="c9666f3a-be26-42fd-83f2-6ee7fab4f11e">
-		<Name>2.Categories</Name>
-		<Selection>
-			<Range>1</Range>
-		</Selection>
-	</CatalogReference>
-
 	<CatalogReference id="8ce7d7af-62f6-4cfd-8687-663e24f3c5be">
-		<Name>3.DOM ImportExport</Name>
+		<Name>2.DOM ImportExport</Name>
 		<Selection>
 			<Range>1.0.0</Range>
 		</Selection>

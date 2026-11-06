@@ -8,6 +8,7 @@ Revision History:
 DATE		VERSION		AUTHOR			COMMENTS
 
 07/07/2026	1.0.0.1		SKA, Skyline	Initial version
+09/10/2026	1.0.0.2		SKA, Skyline	DataMinerApp support
 ****************************************************************************
 */
 
@@ -17,6 +18,7 @@ namespace SLCSMIASManageServiceScripts
 
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.IAS;
+	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
 
 	using SLC_SM_IAS_Manage_Service_Scripts.Model;
 	using SLC_SM_IAS_Manage_Service_Scripts.Presenters;
@@ -60,7 +62,15 @@ namespace SLCSMIASManageServiceScripts
 			}
 			catch (Exception e)
 			{
-				engine.ShowErrorDialog(e);
+				if (engine.IsInteractive)
+				{
+					engine.ShowErrorDialog(e);
+				}
+				else
+				{
+					engine.Log("Run|Unexpected exception: " + e);
+					engine.ExitFail("Runtime operation failed.");
+				}
 			}
 		}
 
@@ -70,7 +80,14 @@ namespace SLCSMIASManageServiceScripts
 			data.ValidateInputParameters();
 
 			var presenter = new UiPresenter(engine, data);
-			presenter.Handle();
+			if (!String.IsNullOrWhiteSpace(engine.ReadScriptParamFromApp("Payload")))
+			{
+				presenter.HandleApi();
+			}
+			else
+			{
+				presenter.Handle();
+			}
 		}
 	}
 }

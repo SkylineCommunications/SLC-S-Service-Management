@@ -27,6 +27,12 @@
 		<ScriptParameter id="5" type="string" values="">
 			<Description>Script Description</Description>
 		</ScriptParameter>
+		<ScriptParameter id="6" type="string" values="">
+			<Description>Original Script Description</Description>
+		</ScriptParameter>
+		<ScriptParameter id="20" type="string" values="">
+			<Description>Payload</Description>
+		</ScriptParameter>
 	</Parameters>
 
 	<Script>

@@ -1,4 +1,4 @@
-﻿namespace ServiceOrderItemStateTranstitions
+namespace ServiceOrderItemStateTranstitions
 {
 	using System;
 	using System.Linq;
@@ -46,29 +46,33 @@
 			catch (ScriptAbortException)
 			{
 				// Catch normal abort exceptions (engine.ExitFail or engine.ExitSuccess)
+				throw;
 			}
 			catch (ScriptForceAbortException)
 			{
 				// Catch forced abort exceptions, caused via external maintenance messages.
+				throw;
 			}
 			catch (ScriptTimeoutException)
 			{
 				// Catch timeout exceptions for when a script has been running for too long.
+				throw;
 			}
 			catch (InteractiveUserDetachedException)
 			{
 				// Catch a user detaching from the interactive script by closing the window.
 				// Only applicable for interactive scripts, can be removed for non-interactive scripts.
+				throw;
 			}
 			catch (Exception e)
 			{
-				engine.ShowErrorDialog(e);
+				engine.HandleUnexpectedException(e);
 			}
 		}
 
-		private static void TransitionOrderToRejected(IEngine engine, Models.ServiceOrderItem orderItem)
+		private static void TransitionOrderToRejected(IEngine engine, Models.ServiceOrderItem orderItem, bool skipConfirmation)
 		{
-			if (!engine.ShowConfirmDialog("Do you wish to reject the current order item?"))
+			if (!skipConfirmation && !engine.ShowConfirmDialog("Do you wish to reject the current order item?"))
 			{
 				return;
 			}
@@ -79,8 +83,14 @@
 		private void RunSafe()
 		{
 			Guid domInstanceId = engine.ReadScriptParamFromApp<Guid>("Id");
-			string previousState = engine.ReadScriptParamFromApp("PreviousState").ToLower();
-			string nextState = engine.ReadScriptParamFromApp("NextState").ToLower();
+			string previousState = engine.ReadScriptParamFromApp("PreviousState")?.Trim().ToLowerInvariant();
+			string nextState = engine.ReadScriptParamFromApp("NextState")?.Trim().ToLowerInvariant();
+			if (String.IsNullOrWhiteSpace(previousState) || String.IsNullOrWhiteSpace(nextState))
+			{
+				throw new InvalidOperationException("Both PreviousState and NextState are required.");
+			}
+
+			bool skipConfirmation = engine.ReadBooleanScriptParam("Skip Confirmation");
 
 			TransitionsEnum transition = Enum.GetValues(typeof(TransitionsEnum))
 				.Cast<TransitionsEnum?>()
@@ -111,7 +121,7 @@
 				case TransitionsEnum.New_To_Rejected:
 				case TransitionsEnum.Acknowledged_To_Rejected:
 					// Transition linked service items to rejected as well
-					TransitionOrderToRejected(engine, orderItem);
+					TransitionOrderToRejected(engine, orderItem, skipConfirmation);
 					break;
 
 				default:
