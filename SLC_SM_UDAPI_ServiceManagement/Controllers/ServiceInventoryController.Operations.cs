@@ -168,9 +168,8 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 					return NotFound(CreateError("Not found", $"Service '{id?.Trim()}' does not exist.", 404));
 				}
 
-				var services = PagedRead.All<Service>(serviceManagementApiHelper.ServiceInventory.Services);
-				var duplicate = new ServiceDuplicator(serviceManagementApiHelper)
-					.Duplicate(source, services.Select(service => service.ServiceID));
+				var services = serviceManagementApiHelper.ServiceInventory.Services;
+				var duplicate = new ServiceDuplicator(serviceManagementApiHelper).Duplicate(source, ServiceIdGenerator.NextFree(services));
 				return Created(duplicate);
 			}
 			catch (Exception ex)

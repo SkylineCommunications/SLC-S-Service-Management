@@ -49,6 +49,9 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Specification
 				throw new ArgumentNullException(nameof(request));
 			}
 
+			// Every supplied ID must belong to this specification before anything is written.
+			ValidateRequest(request, ReadOwnership(specification));
+
 			UpdateMetadata(specification, request);
 			var parameters = ReadAll<ConfigurationParameter>(_api.ServiceCatalog.ConfigurationParameters.Read(new TRUEFilterElement<ConfigurationParameter>()), p => p.Identifier);
 			DeleteConfigurationValues(request);
@@ -118,6 +121,154 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Specification
 			}
 
 			return result;
+		}
+
+		private Ownership ReadOwnership(ServiceSpecification specification)
+		{
+			var ownership = new Ownership();
+			foreach (var reference in specification.ConfigurationParameters ?? new List<SdmObjectReference<ServiceSpecificationConfigurationValue>>())
+			{
+				if (String.IsNullOrWhiteSpace(reference.Identifier))
+				{
+					continue;
+				}
+
+				ownership.ConfigurationIds.Add(reference.Identifier);
+				var configuration = _api.ServiceCatalog.ServiceSpecificationConfigurationValues
+					.Read(ServiceSpecificationConfigurationValueExposers.Identifier.Equal(reference.Identifier))
+					.FirstOrDefault();
+				if (!String.IsNullOrWhiteSpace(configuration?.ConfigurationParameterId.Identifier))
+				{
+					ownership.ParameterValueIds.Add(configuration.ConfigurationParameterId.Identifier);
+				}
+			}
+
+			var profiles = ReadAll(_api.ServiceCatalog.Profiles.Read(new TRUEFilterElement<Profile>()), profile => profile?.Identifier);
+			ownership.ReusableProfileIds.UnionWith(profiles.Values.Where(profile => profile.IsReusable).Select(profile => profile.Identifier));
+			foreach (var reference in specification.ConfigurationProfiles ?? new List<SdmObjectReference<ServiceSpecificationProfile>>())
+			{
+				if (String.IsNullOrWhiteSpace(reference.Identifier))
+				{
+					continue;
+				}
+
+				ownership.SpecificationProfileIds.Add(reference.Identifier);
+				var specificationProfile = _api.ServiceCatalog.ServiceSpecificationProfiles
+					.Read(ServiceSpecificationProfileExposers.Identifier.Equal(reference.Identifier))
+					.FirstOrDefault();
+				ReadProfileOwnership(specificationProfile?.ProfileId.Identifier, profiles, ownership, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+			}
+
+			return ownership;
+		}
+
+		private static void ReadProfileOwnership(string profileId, IReadOnlyDictionary<string, Profile> profiles, Ownership ownership, HashSet<string> visited)
+		{
+			if (String.IsNullOrWhiteSpace(profileId) || !visited.Add(profileId) || !profiles.TryGetValue(profileId, out var profile))
+			{
+				return;
+			}
+
+			if (!profile.IsReusable)
+			{
+				ownership.ProfileIds.Add(profileId);
+			}
+
+			foreach (var reference in profile.ConfigurationParameterValues ?? new List<SdmObjectReference<ConfigurationParameterValue>>())
+			{
+				if (String.IsNullOrWhiteSpace(reference.Identifier))
+				{
+					continue;
+				}
+
+				ownership.ParameterValueIds.Add(reference.Identifier);
+				if (!profile.IsReusable)
+				{
+					ownership.ProfileParameterValueIds.Add(reference.Identifier);
+				}
+			}
+
+			foreach (var child in profile.Profiles ?? new List<SdmObjectReference<Profile>>())
+			{
+				ReadProfileOwnership(child.Identifier, profiles, ownership, visited);
+			}
+		}
+
+		private static void ValidateRequest(SpecificationConfigurationRequest request, Ownership ownership)
+		{
+			ValidateOwnedIds(request.DeleteConfigurationIds, ownership.ConfigurationIds, "configuration");
+			ValidateOwnedIds(request.DeletedProfileIds, ownership.SpecificationProfileIds, "specification profile");
+			ValidateOwnedIds(request.DeletedProfileParameterIds, ownership.ProfileParameterValueIds, "profile parameter value");
+
+			foreach (var parameter in request.Parameters ?? new List<SpecificationConfigurationParameter>())
+			{
+				ValidateParameter(parameter, ownership);
+				ValidateOwnedId(parameter?.ConfigurationId, ownership.ConfigurationIds, "configuration");
+			}
+
+			foreach (var profile in request.Profiles ?? new List<SpecificationConfigurationProfile>())
+			{
+				// A newly linked reusable profile is sent with its catalog profile ID.
+				if (profile != null && !(profile.Reusable && ownership.ReusableProfileIds.Contains(profile.Id ?? String.Empty)))
+				{
+					ValidateOwnedId(profile.Id, ownership.SpecificationProfileIds, "specification profile");
+				}
+
+				ValidateProfile(profile, ownership);
+			}
+		}
+
+		private static void ValidateProfile(SpecificationConfigurationProfile profile, Ownership ownership)
+		{
+			if (profile == null)
+			{
+				return;
+			}
+
+			foreach (var parameter in profile.Parameters ?? new List<SpecificationConfigurationParameter>())
+			{
+				ValidateParameter(parameter, ownership);
+			}
+
+			foreach (var nestedId in profile.NestedProfileIds ?? new List<string>())
+			{
+				if (!String.IsNullOrWhiteSpace(nestedId) && !ownership.ProfileIds.Contains(nestedId) && !ownership.ReusableProfileIds.Contains(nestedId))
+				{
+					throw new InvalidConfigurationException($"Nested profile '{nestedId}' does not belong to the service specification.");
+				}
+			}
+
+			foreach (var nested in profile.NestedProfiles ?? new List<SpecificationConfigurationProfile>())
+			{
+				if (nested != null)
+				{
+					// A reusable nested profile is only linked, never written; any other existing one must be owned.
+					ValidateOwnedId(nested.Id, nested.Reusable ? ownership.ReusableProfileIds : ownership.ProfileIds, nested.Reusable ? "reusable profile" : "profile");
+				}
+
+				ValidateProfile(nested, ownership);
+			}
+		}
+
+		private static void ValidateParameter(SpecificationConfigurationParameter parameter, Ownership ownership)
+		{
+			ValidateOwnedId(parameter?.ParameterValueId, ownership.ParameterValueIds, "configuration parameter value");
+		}
+
+		private static void ValidateOwnedIds(IEnumerable<string> ids, ISet<string> ownedIds, string kind)
+		{
+			foreach (var id in ids ?? Enumerable.Empty<string>())
+			{
+				ValidateOwnedId(id, ownedIds, kind);
+			}
+		}
+
+		private static void ValidateOwnedId(string id, ISet<string> ownedIds, string kind)
+		{
+			if (!String.IsNullOrWhiteSpace(id) && !ownedIds.Contains(id))
+			{
+				throw new InvalidConfigurationException($"The requested {kind} '{id}' does not belong to the service specification.");
+			}
 		}
 
 		private static void UpdateMetadata(ServiceSpecification specification, SpecificationConfigurationRequest request)
@@ -304,7 +455,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Specification
 				: _api.ServiceCatalog.ConfigurationParameterValues
 					.Read(ConfigurationParameterValueExposers.Identifier.Equal(parameter.ParameterValueId))
 					.FirstOrDefault() ?? throw new InvalidConfigurationException($"Configuration parameter value '{parameter.ParameterValueId}' was not found.");
-			string existingNumberOptionsId = value.NumberOptionsId.Identifier;
+			string existingNumberOptionsId = value.IsValueOf(definition) ? value.NumberOptionsId.Identifier : null;
 			var numberOptions = String.Equals(definition.Type.ToString(), "Number", StringComparison.OrdinalIgnoreCase)
 				? PrepareNumberOptions(definition, existingNumberOptionsId)
 				: null;
@@ -384,6 +535,25 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Specification
 			}
 
 			return references;
+		}
+
+		/// <summary>The IDs reachable from the specification; a request may only update or delete these.</summary>
+		private sealed class Ownership
+		{
+			public HashSet<string> ConfigurationIds { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+			public HashSet<string> SpecificationProfileIds { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+			/// <summary>Non-reusable profiles in the specification's profile trees.</summary>
+			public HashSet<string> ProfileIds { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+			/// <summary>All reusable catalog profiles; they can be linked from any specification.</summary>
+			public HashSet<string> ReusableProfileIds { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+			public HashSet<string> ParameterValueIds { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+			/// <summary>Parameter values of non-reusable profiles; only these can be deleted.</summary>
+			public HashSet<string> ProfileParameterValueIds { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 		}
 	}
 }

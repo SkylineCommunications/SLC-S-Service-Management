@@ -258,6 +258,20 @@
 			Assert.AreEqual(500, StatusCode(Controller.CreateService(new CreateServiceRequest { Name = "x" })));
 		}
 
+		[TestMethod]
+		public void CreateService_NextIdCreatedAfterFetch_SkipsToFreeId()
+		{
+			AddService("Existing", number: 7);
+			var fetched = StoredServices.ToList();
+			Services.Setup(r => r.ReadPaged(It.IsAny<IQuery<Service>>(), It.IsAny<int>())).Returns<IQuery<Service>, int>((q, size) => OnePage(fetched, q));
+			AddService("Created meanwhile", number: 8);
+
+			var result = Controller.CreateService(new CreateServiceRequest { Name = "New" });
+
+			Assert.AreEqual(201, StatusCode(result));
+			Assert.AreEqual("SERVICE-00009", StoredServices.Single(s => s.Name == "New").ServiceID);
+		}
+
 		// ---- PATCH /service/{id} ----
 		[TestMethod]
 		public void UpdateService_ByServiceIdTrimmed_UpdatesOnlyProvidedFields()

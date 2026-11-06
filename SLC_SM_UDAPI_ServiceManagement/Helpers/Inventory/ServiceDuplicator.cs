@@ -164,14 +164,18 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 			validated.Add(id);
 		}
 
-		public Service Duplicate(Service source, IEnumerable<string> existingServiceIds)
+		/// <summary>
+		/// Duplicates a service with the given service ID (see <see cref="ServiceIdGenerator.NextFree(IServiceRepository)"/>).
+		/// </summary>
+		/// <param name="source">The service to copy.</param>
+		/// <param name="newServiceId">The service ID of the copy.</param>
+		public Service Duplicate(Service source, string newServiceId)
 		{
 			if (source == null)
 			{
 				throw new ArgumentNullException(nameof(source));
 			}
 
-			string newServiceId = ServiceIdGenerator.Next(existingServiceIds);
 			var versionMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 			var versionIds = DuplicateConfigurationVersions(source, newServiceId, versionMap);
 

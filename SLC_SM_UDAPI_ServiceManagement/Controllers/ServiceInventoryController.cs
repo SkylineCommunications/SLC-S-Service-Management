@@ -210,8 +210,7 @@
 		{
 			/* TODO:
 			 * 1.Status isn't set explicitly. I assumed DOM starts new services as new; this needs checking on a live system.
-			 * 2.Same ID race as Service Order.Two requests at the same moment could get the same service ID.
-			 * 3.400 for a missing mandatory configuration parameter isn't covered. Configuration versions start empty.
+			 * 2.400 for a missing mandatory configuration parameter isn't covered. Configuration versions start empty.
 			*/
 
 			_logger.LogInformation("CreateService called with name={Name}", request?.Name);
@@ -241,15 +240,6 @@
 					return Conflict(CreateError("Conflict", $"A service with name '{name}' already exists.", 409));
 				}
 
-				var existingServiceIds = PagedRead.All<Service>(services).Select(s => s.ServiceID).ToList();
-				string serviceId = String.IsNullOrWhiteSpace(request.ServiceId)
-					? ServiceIdGenerator.Next(existingServiceIds)
-					: request.ServiceId.Trim();
-				if (existingServiceIds.Any(id => String.Equals(id, serviceId, StringComparison.OrdinalIgnoreCase)))
-				{
-					return Conflict(CreateError("Conflict", $"A service with ID '{serviceId}' already exists.", 409));
-				}
-
 				bool generateMonitoringService = request.GenerateMonitoringService ?? false;
 				if (generateMonitoringService && monitoringServices.Exists(name))
 				{
@@ -258,8 +248,6 @@
 
 				var service = new Service
 				{
-					Identifier = Guid.NewGuid().ToString(),
-					ServiceID = serviceId,
 					Name = name,
 					Description = request.Description ?? specification?.Description ?? String.Empty,
 					Icon = !String.IsNullOrWhiteSpace(request.Icon) ? request.Icon.Trim() : category?.Icon ?? String.Empty,
@@ -278,6 +266,13 @@
 					ConfigurationVersions = new List<SdmObjectReference<ServiceConfigurationVersion>>(),
 				};
 
+				if (!String.IsNullOrWhiteSpace(request.ServiceId) && ServiceIdGenerator.IsTaken(services, request.ServiceId.Trim()))
+				{
+					return Conflict(CreateError("Conflict", $"A service with ID '{request.ServiceId.Trim()}' already exists.", 409));
+				}
+
+				service.Identifier = Guid.NewGuid().ToString();
+				service.ServiceID = String.IsNullOrWhiteSpace(request.ServiceId) ? ServiceIdGenerator.NextFree(services) : request.ServiceId.Trim();
 				services.Create(service);
 
 				// Resolve the monitoring service before the organization association.
@@ -288,7 +283,7 @@
 					return InternalServerError(CreateError("Internal server error", error, 500));
 				}
 
-				var created = services.Read(ServiceExposers.ServiceID.Equal(service.ServiceID)).FirstOrDefault() ?? service;
+				var created = services.Read(ServiceExposers.Identifier.Equal(service.Identifier)).FirstOrDefault() ?? service;
 				return Created(created);
 			}
 			catch (InvalidQueryException ex)

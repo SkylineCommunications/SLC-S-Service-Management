@@ -7,7 +7,8 @@
   <PropertyGroup>
     <DataMinerType>Package</DataMinerType>
     <GenerateDataMinerPackage>True</GenerateDataMinerPackage>
-    <Version>1.0.140</Version>
+	<MinimumRequiredDmVersion>10.6.8</MinimumRequiredDmVersion>
+    <Version>2.0.0-preview.01</Version>
     <VersionComment>Initial Version</VersionComment>
     <!-- Do NOT fill in the Organization Token here. This points to either an Environment Variable skyline__sdk__catalogpublishtoken holding the organization token or a Visual Studio User Secret holding the token. -->
     <!--<CatalogPublishKeyName>skyline:sdk:dataminertoken</CatalogPublishKeyName>-->

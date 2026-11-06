@@ -1,4 +1,4 @@
-﻿namespace SLC_SM_UDAPI_ServiceManagement.Tests.Controllers
+namespace SLC_SM_UDAPI_ServiceManagement.Tests.Controllers
 {
 	using System.Collections.Generic;
 	using Moq;
@@ -129,6 +129,67 @@
 		}
 
 		[TestMethod]
+		public void SaveServiceOrderItemConfiguration_EditValue_KeepsValueOptionsAndNewValueUsesTemplate()
+		{
+			var definition = new Cfg.ConfigurationParameter
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				Name = "Transport",
+				Type = DomHelpers.SlcConfigurations.SlcConfigurationsIds.Enums.Type.Text,
+				TextOptionsId = new SdmObjectReference<Cfg.TextParameterOptions>("template-text"),
+				DiscreteOptionsId = new SdmObjectReference<Cfg.DiscreteParameterOptions>("template-discrete"),
+				NumberOptionsId = new SdmObjectReference<Cfg.NumberParameterOptions>("template-number"),
+			};
+			var existing = new Cfg.ConfigurationParameterValue
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				ConfigurationParameterId = new SdmObjectReference<Cfg.ConfigurationParameter>(definition.Identifier),
+				StringValue = "SRT",
+				TextOptionsId = new SdmObjectReference<Cfg.TextParameterOptions>("custom-text"),
+				DiscreteOptionsId = new SdmObjectReference<Cfg.DiscreteParameterOptions>("custom-discrete"),
+				NumberOptionsId = new SdmObjectReference<Cfg.NumberParameterOptions>("custom-number"),
+			};
+			var configuration = new ServiceOrderItemConfigurationValue
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				ConfigurationParameterValueId = new SdmObjectReference<Cfg.ConfigurationParameterValue>(existing.Identifier),
+			};
+			var values = new List<Cfg.ConfigurationParameterValue> { existing };
+			var item = AddItem();
+			item.ServiceInfo.Configurations = new List<SdmObjectReference<ServiceOrderItemConfigurationValue>> { new SdmObjectReference<ServiceOrderItemConfigurationValue>(configuration.Identifier) };
+			AddOrder("New", item);
+			var catalog = Mock.Get(Helper.ServiceCatalog);
+			catalog.SetupGet(api => api.ConfigurationParameters).Returns(InitializationRepository(new List<Cfg.ConfigurationParameter> { definition }).Object);
+			catalog.SetupGet(api => api.ConfigurationParameterValues).Returns(InitializationRepository(values).Object);
+			catalog.SetupGet(api => api.ProfileDefinitions).Returns(InitializationRepository(new List<Cfg.ProfileDefinition>()).Object);
+			catalog.SetupGet(api => api.Profiles).Returns(InitializationRepository(new List<Cfg.Profile>()).Object);
+			catalog.SetupGet(api => api.DiscreteParameterOptions).Returns(InitializationRepository(new List<Cfg.DiscreteParameterOptions>()).Object);
+			catalog.SetupGet(api => api.DiscreteValues).Returns(InitializationRepository(new List<Cfg.DiscreteValue>()).Object);
+			catalog.SetupGet(api => api.NumberParameterOptions).Returns(InitializationRepository(new List<Cfg.NumberParameterOptions>()).Object);
+			catalog.SetupGet(api => api.ConfigurationUnits).Returns(InitializationRepository(new List<Cfg.ConfigurationUnit>()).Object);
+			Mock.Get(Helper.ServiceOrder).SetupGet(api => api.ServiceOrderItemConfigurationValues)
+				.Returns(InitializationRepository(new List<ServiceOrderItemConfigurationValue> { configuration }).Object);
+			var body = new JObject
+			{
+				["Parameters"] = new JArray(
+					new JObject { ["ParameterId"] = definition.Identifier, ["ConfigurationId"] = configuration.Identifier, ["ParameterValueId"] = existing.Identifier, ["Value"] = "RTP" },
+					new JObject { ["ParameterId"] = definition.Identifier, ["Value"] = "UDP" }),
+			};
+
+			Assert.AreEqual(200, StatusCode(Controller.SaveServiceOrderItemConfiguration(OrderId, item.Identifier, body)));
+
+			var edited = values.Single(value => value.Identifier == existing.Identifier);
+			Assert.AreEqual("RTP", edited.StringValue);
+			Assert.AreEqual("custom-text", edited.TextOptionsId.Identifier);
+			Assert.AreEqual("custom-discrete", edited.DiscreteOptionsId.Identifier);
+			Assert.AreEqual("custom-number", edited.NumberOptionsId.Identifier);
+			var added = values.Single(value => value.Identifier != existing.Identifier);
+			Assert.AreEqual("template-text", added.TextOptionsId.Identifier);
+			Assert.AreEqual("template-discrete", added.DiscreteOptionsId.Identifier);
+			Assert.AreEqual("template-number", added.NumberOptionsId.Identifier);
+		}
+
+		[TestMethod]
 		public void InitializeServiceFromOrderItem_WithoutSpecification_Returns400()
 		{
 			var item = AddItem();
@@ -203,6 +264,7 @@
 			Assert.AreEqual(201, StatusCode(result));
 			Assert.AreEqual("SERVICE-3000000001", Value<Service>(result).ServiceID);
 		}
+
 
 		#endregion Item configuration and initialization
 

@@ -215,12 +215,8 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 					.FirstOrDefault();
 
 			var services = _serviceManagementApiHelper.ServiceInventory.Services;
-			var existingServices = PagedRead.All<Service>(services);
 			var service = new Service
 			{
-				Identifier = Guid.NewGuid().ToString(),
-				ServiceID = ServiceIdGenerator.Next(existingServices.Select(candidate => candidate.ServiceID)),
-				Name = GenerateUniqueServiceName(item.Name, existingServices.Select(candidate => candidate.Name)),
 				Description = item.Description,
 				StartTime = item.StartTime,
 				EndTime = item.EndTime,
@@ -235,6 +231,10 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 			var previousServiceReference = item.ServiceInfo.ServiceId;
 			try
 			{
+				var latestServices = PagedRead.All<Service>(services);
+				service.Identifier = Guid.NewGuid().ToString();
+				service.ServiceID = ServiceIdGenerator.NextFree(services, latestServices.Select(candidate => candidate.ServiceID));
+				service.Name = GenerateUniqueServiceName(item.Name, latestServices.Select(candidate => candidate.Name));
 				if (copyConfiguration)
 				{
 					new ServiceDuplicator(_serviceManagementApiHelper).CopyOrderItemConfiguration(item, specification, service, cleanup);
@@ -242,6 +242,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 
 				cleanup.Push(() => services.Delete(service));
 				services.Create(service);
+
 				item.ServiceInfo = item.ServiceInfo ?? new ServiceOrderItemServiceInfo();
 				item.ServiceInfo.ServiceId = new SdmObjectReference<Service>(service.Identifier);
 				_serviceManagementApiHelper.ServiceOrder.ServiceOrderItems.Update(item);

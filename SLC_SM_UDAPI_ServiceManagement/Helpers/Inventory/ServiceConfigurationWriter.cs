@@ -360,7 +360,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 				: _api.ServiceCatalog.ConfigurationParameterValues
 					.Read(ConfigurationParameterValueExposers.Identifier.Equal(parameter.ParameterValueId))
 					.FirstOrDefault() ?? throw new InvalidConfigurationException($"Configuration parameter value '{parameter.ParameterValueId}' was not found.");
-			string existingNumberOptionsId = value.NumberOptionsId.Identifier;
+			string existingNumberOptionsId = value.IsValueOf(definition) ? value.NumberOptionsId.Identifier : null;
 			var numberOptions = String.Equals(definition.Type.ToString(), "Number", StringComparison.OrdinalIgnoreCase)
 				? PrepareNumberOptions(definition, existingNumberOptionsId)
 				: null;

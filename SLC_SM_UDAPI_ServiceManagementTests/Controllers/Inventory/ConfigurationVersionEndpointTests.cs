@@ -304,6 +304,26 @@
 			Assert.AreEqual(1, StoredVersions.Count, "A failed multi-write save may leave earlier records persisted.");
 		}
 
+		[DataTestMethod]
+		[DataRow(false)]
+		[DataRow(true)]
+		public void SaveServiceConfiguration_VersionOfAnotherService_Returns400AndLeavesItUntouched(bool deleteVersion)
+		{
+			var otherService = AddService("Other", number: 2);
+			var foreignVersion = AddVersion(otherService, "Theirs");
+
+			var result = Controller.SaveServiceConfiguration(
+				service.ServiceID,
+				JObject.FromObject(new ServiceConfigurationRequest { VersionId = foreignVersion.Identifier, VersionName = "Hijacked", DeleteVersion = deleteVersion }));
+
+			Assert.AreEqual(400, StatusCode(result));
+			Assert.AreEqual("Theirs", foreignVersion.VersionName);
+			var versions = Mock.Get(ApiHelper.Object.ServiceInventory.ServiceConfigurationVersions);
+			versions.Verify(repository => repository.Delete(It.IsAny<ServiceConfigurationVersion>()), Times.Never);
+			versions.Verify(repository => repository.CreateOrUpdate(It.IsAny<IEnumerable<ServiceConfigurationVersion>>()), Times.Never);
+			Services.Verify(repository => repository.Update(It.IsAny<Service>()), Times.Never);
+		}
+
 		// ---- POST /service/{id}/configurationVersion/{versionId}/duplicate ----
 		[TestMethod]
 		public void DuplicateConfigurationVersion_CopiesValuesAndOwnedProfilesAsInactiveVersion()
