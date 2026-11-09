@@ -152,8 +152,10 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 		/// <summary>
 		/// Creates a service from an order item's specification and links the service back to the order item.
 		/// </summary>
-		/// <remarks>Copies the item's description, dates and category. Configuration values are copied independently by default;
-		/// set <c>copyConfiguration</c> to false to omit them. An already-linked service is returned without modification.</remarks>
+		/// <remarks>Copies the item's description, dates and category. The item's standalone configuration parameters are copied
+		/// independently by default; the specification's profiles are not copied. Set <c>copyConfiguration</c> to false to omit the
+		/// parameters. When copying, every mandatory configuration parameter of the item must have a value. An already-linked service
+		/// is returned without modification.</remarks>
 		[HttpPost("{id}/item/{itemId}/initializeService")]
 		public IApiResult InitializeServiceFromOrderItem(string id, string itemId, [FromBody] InitializeServiceRequest request = null)
 		{
@@ -205,6 +207,15 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 			if (specification == null)
 			{
 				throw new InvalidConfigurationException("The service specification assigned to this order item could not be found.");
+			}
+
+			if (copyConfiguration)
+			{
+				var missing = FindMissingMandatoryValues(item);
+				if (missing.Count > 0)
+				{
+					throw new InvalidConfigurationException($"Mandatory configuration parameter(s) without a value: {String.Join(", ", missing)}. Fill them in before initializing the service.");
+				}
 			}
 
 			var categoryReference = item.ServiceInfo.ServiceCategoryId;
@@ -326,7 +337,8 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 		/// <para>When <c>priority</c> is omitted, the item's position in the order is used.</para>
 		/// <para>
 		/// The item gets its configuration as in <see cref="CreateServiceOrder"/>: the specification values are copied, values in
-		/// <c>configurationValues</c> replace them, and parameters that are mandatory at service order must have a value.
+		/// <c>configurationValues</c> replace them. Parameters that are mandatory at service order and have no value are created
+		/// empty (flagged mandatory) so they can be filled in afterwards through <c>PUT {id}/item/{itemId}/configuration</c>.
 		/// If the request fails before the order is saved, the item and configuration objects created so far are deleted.
 		/// </para>
 		/// </remarks>
@@ -377,8 +389,8 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 
 				var index = order.OrderItems.Count(e => e != null);
 
-				// Resolve and check the specification configuration before anything is created.
-				var plan = BuildConfigurationPlans(new List<CreateServiceOrderItemRequest> { request })[0];
+				// Resolve and check the specification configuration before anything is created. Mandatory values can be filled in afterwards.
+				var plan = BuildConfigurationPlans(new List<CreateServiceOrderItemRequest> { request }, enforceMandatory: false)[0];
 
 				var item = BuildOrderItem(request, index);
 				item.ServiceInfo.Configurations = CreateItemConfigurations(plan, createdConfigurations, createdParameterValues);
@@ -1155,7 +1167,8 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 		/// <para>
 		/// The order's items follow the order: <c>acknowledged</c> acknowledges new items; <c>rejected</c> rejects every item and
 		/// retires terminated linked services; <c>inProgress</c> (from <c>acknowledged</c>) starts acknowledged and pending items
-		/// and initializes a service for each. <c>completed</c> requires all items to be completed or cancelled, and
+		/// and initializes a service for each; those items need a specification and a value for every mandatory configuration parameter.
+		/// <c>completed</c> requires all items to be completed or cancelled, and
 		/// <c>cancelled</c> requires all items to be cancelled. Items are checked before anything changes and moved before the order.
 		/// </para>
 		/// </remarks>
@@ -1521,7 +1534,8 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 		/// <para>
 		/// The configuration is rebuilt only when <c>serviceSpecificationId</c> or <c>configurationValues</c> is present. With a
 		/// new specification, it is built from that specification plus the supplied values. With the same specification,
-		/// parameters not in the request keep the item's current values. Mandatory parameters are checked in both cases.
+		/// parameters not in the request keep the item's current values. Mandatory parameters without a value are created empty
+		/// (flagged mandatory) so they can be filled in through the item configuration.
 		/// The previous configuration is deleted after the item is saved; if saving fails, the new configuration is deleted.
 		/// </para>
 		/// <para><c>priority</c> is saved on the order after the item; if that fails, the item changes are kept.</para>
@@ -1667,7 +1681,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 					ServiceId = ToGuid(item.ServiceInfo.ServiceId.Identifier),
 				});
 
-				// Rebuild the configuration when the specification or the values change; mandatory parameters are checked here.
+				// Rebuild the configuration when the specification or the values change; mandatory values can be filled in afterwards.
 				var oldConfigurationIds = new List<string>();
 				if (Has(patch, "serviceSpecificationId") || Has(patch, "configurationValues"))
 				{
@@ -1687,7 +1701,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 					var plan = BuildConfigurationPlans(new List<CreateServiceOrderItemRequest>
 					{
 						new CreateServiceOrderItemRequest { ServiceSpecificationId = mergedSpecificationId, ConfigurationValues = suppliedValues },
-					})[0];
+					}, enforceMandatory: false)[0];
 
 					item.ServiceInfo.Configurations = CreateItemConfigurations(plan, createdConfigurations, createdParameterValues);
 				}
@@ -1844,6 +1858,56 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 		private static bool HasValue(ConfigurationModels.ConfigurationParameterValue value)
 		{
 			return value != null && (!String.IsNullOrWhiteSpace(value.StringValue) || value.DoubleValue != null);
+		}
+
+		/// <summary>Gets a readable name for a configuration parameter: the value's label, else the parameter's name, else the parameter ID.</summary>
+		private string GetParameterDisplayName(string parameterId, ConfigurationModels.ConfigurationParameterValue value)
+		{
+			if (!String.IsNullOrWhiteSpace(value?.Label))
+			{
+				return value.Label;
+			}
+
+			string name = String.IsNullOrWhiteSpace(parameterId)
+				? null
+				: _serviceManagementApiHelper.ServiceCatalog.ConfigurationParameters
+					.Read(ConfigurationModels.ConfigurationParameterExposers.Identifier.Equal(parameterId))
+					.FirstOrDefault()?.Name;
+			return String.IsNullOrWhiteSpace(name) ? parameterId : name;
+		}
+
+		/// <summary>Gets the names of the item's mandatory configuration parameters that have no value.</summary>
+		private List<string> FindMissingMandatoryValues(ServiceOrderItem item)
+		{
+			var missing = new List<string>();
+			foreach (var reference in item?.ServiceInfo?.Configurations ?? new List<SdmObjectReference<ServiceOrderItemConfigurationValue>>())
+			{
+				if (String.IsNullOrWhiteSpace(reference.Identifier))
+				{
+					continue;
+				}
+
+				var configuration = _serviceManagementApiHelper.ServiceOrder.ServiceOrderItemConfigurationValues
+					.Read(ServiceOrderItemConfigurationValueExposers.Identifier.Equal(reference.Identifier))
+					.FirstOrDefault();
+				if (configuration?.Mandatory != true)
+				{
+					continue;
+				}
+
+				string valueId = configuration.ConfigurationParameterValueId.Identifier;
+				var value = String.IsNullOrWhiteSpace(valueId)
+					? null
+					: _serviceManagementApiHelper.ServiceCatalog.ConfigurationParameterValues
+						.Read(ConfigurationModels.ConfigurationParameterValueExposers.Identifier.Equal(valueId))
+						.FirstOrDefault();
+				if (!HasValue(value))
+				{
+					missing.Add(GetParameterDisplayName(value?.ConfigurationParameterId.Identifier, value) ?? configuration.Identifier);
+				}
+			}
+
+			return missing;
 		}
 
 		/// <summary>Indexes the configuration values supplied for one order item by configuration parameter ID.</summary>
@@ -2123,7 +2187,18 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 
 				case OrderTransition.Acknowledged_To_Inprogress:
 					blocking = items.Where(item => IsStartableItem(item) && FindLinkedService(item) == null && !HasExistingSpecification(item)).ToList();
-					return blocking.Count == 0 ? null : $"A service specification must be assigned to every order item before the order can be started. Missing for: {ItemNames(blocking)}.";
+					if (blocking.Count > 0)
+					{
+						return $"A service specification must be assigned to every order item before the order can be started. Missing for: {ItemNames(blocking)}.";
+					}
+
+					var incomplete = items
+						.Where(item => IsStartableItem(item) && FindLinkedService(item) == null)
+						.Select(item => new { Item = item, Missing = FindMissingMandatoryValues(item) })
+						.Where(entry => entry.Missing.Count > 0)
+						.Select(entry => $"{ItemNames(new[] { entry.Item })} ({String.Join(", ", entry.Missing)})")
+						.ToList();
+					return incomplete.Count == 0 ? null : $"Mandatory configuration parameters must have a value before the order can be started. Missing for: {String.Join("; ", incomplete)}.";
 
 				case OrderTransition.Inprogress_To_Completed:
 					blocking = items.Where(item => item.Status != ItemStatus.Completed && item.Status != ItemStatus.Cancelled).ToList();
@@ -2305,12 +2380,16 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 		/// </summary>
 		/// <remarks>Only the referenced specifications and values are read, each once per call.</remarks>
 		/// <param name="itemRequests">The order items in the request.</param>
+		/// <param name="enforceMandatory">
+		/// When <see langword="true"/>, a parameter that is mandatory at service order must have a value. When <see langword="false"/>,
+		/// such a parameter is planned without a value (still flagged mandatory) so it can be filled in on the created item.
+		/// </param>
 		/// <returns>One list of configuration entries per order item, in request order.</returns>
 		/// <exception cref="InvalidQueryException">
 		/// A specification does not exist; values are supplied without a specification; a supplied value is invalid, duplicated or
-		/// not part of the specification; or a parameter that is mandatory at service order has no value.
+		/// not part of the specification; or, with <paramref name="enforceMandatory"/>, a parameter that is mandatory at service order has no value.
 		/// </exception>
-		private List<List<ConfigurationPlanEntry>> BuildConfigurationPlans(IList<CreateServiceOrderItemRequest> itemRequests)
+		private List<List<ConfigurationPlanEntry>> BuildConfigurationPlans(IList<CreateServiceOrderItemRequest> itemRequests, bool enforceMandatory = true)
 		{
 			var plans = new List<List<ConfigurationPlanEntry>>();
 			if (itemRequests.All(r => r.ServiceSpecificationId == null && (r.ConfigurationValues == null || r.ConfigurationValues.Count == 0)))
@@ -2325,6 +2404,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 			var specificationCache = new Dictionary<Guid, ServiceSpecification>();
 			var specificationConfigurationCache = new Dictionary<string, ServiceSpecificationConfigurationValue>(StringComparer.OrdinalIgnoreCase);
 			var parameterValueCache = new Dictionary<string, ConfigurationModels.ConfigurationParameterValue>(StringComparer.OrdinalIgnoreCase);
+			var parameterValueByIdCache = new Dictionary<string, ConfigurationModels.ConfigurationParameterValue>(StringComparer.OrdinalIgnoreCase);
 
 			ServiceSpecification GetSpecification(Guid id)
 			{
@@ -2362,6 +2442,19 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 							v => String.Equals(v.ConfigurationParameterId.Identifier, parameterId, StringComparison.OrdinalIgnoreCase)))
 						.FirstOrDefault();
 					parameterValueCache[parameterId] = value;
+				}
+
+				return value;
+			}
+
+			ConfigurationModels.ConfigurationParameterValue GetParameterValueById(string valueId)
+			{
+				if (!parameterValueByIdCache.TryGetValue(valueId, out var value))
+				{
+					value = catalog.ConfigurationParameterValues
+						.Read(ConfigurationModels.ConfigurationParameterValueExposers.Identifier.Equal(valueId))
+						.FirstOrDefault();
+					parameterValueByIdCache[valueId] = value;
 				}
 
 				return value;
@@ -2407,8 +2500,15 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 						continue;
 					}
 
-					string parameterId = specificationConfiguration.ConfigurationParameterId.Identifier;
-					var sourceValue = GetParameterValue(parameterId);
+					// The reference holds either the specification's parameter value ID or a configuration parameter ID.
+					string referenceId = specificationConfiguration.ConfigurationParameterId.Identifier;
+					var sourceValue = GetParameterValueById(referenceId);
+					string parameterId = sourceValue?.ConfigurationParameterId.Identifier;
+					if (String.IsNullOrEmpty(parameterId))
+					{
+						parameterId = referenceId;
+						sourceValue = GetParameterValue(parameterId);
+					}
 
 					supplied.TryGetValue(parameterId, out var suppliedValue);
 					if (suppliedValue != null)
@@ -2419,13 +2519,13 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 					bool hasValue = suppliedValue != null
 						? !String.IsNullOrWhiteSpace(suppliedValue.StringValue) || suppliedValue.DoubleValue != null
 						: HasValue(sourceValue);
-					if (specificationConfiguration.MandatoryAtServiceOrder && !hasValue)
+					if (enforceMandatory && specificationConfiguration.MandatoryAtServiceOrder && !hasValue)
 					{
-						missing.Add(sourceValue?.Label ?? parameterId);
+						missing.Add(GetParameterDisplayName(parameterId, sourceValue));
 						continue;
 					}
 
-					if (sourceValue != null || suppliedValue != null)
+					if (sourceValue != null || suppliedValue != null || specificationConfiguration.MandatoryAtServiceOrder)
 					{
 						plan.Add(new ConfigurationPlanEntry
 						{

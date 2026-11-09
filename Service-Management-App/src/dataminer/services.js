@@ -480,21 +480,36 @@ export function mapServiceConfigurationRows(rows) {
         }
     });
     const reusableProfileIds = new Set(availableNestedProfiles.filter(profile => profile.reusable).map(profile => profile.id));
-    const visitedProfiles = new Set();
-    const markReusableProfiles = profile => {
-        if (!profile || visitedProfiles.has(profile.id)) return;
-        visitedProfiles.add(profile.id);
+    // Every profile, nested or not, is in its version's map, so one flat pass covers the whole tree.
+    versions.forEach(version => version.profiles.forEach(profile => {
         if (reusableProfileIds.has(profile.id)) profile.reusable = true;
-        (profile.nestedProfiles || []).forEach(markReusableProfiles);
-    };
-    versions.forEach(version => version.profiles.forEach(markReusableProfiles));
+        profile.parameters.sort(compareConfigurationParameters);
+        profile.nestedProfiles.sort(compareConfigurationProfiles);
+    }));
+    const mappedVersions = [...versions.values()].map(({ profiles, nestedProfileIds, ...version }) => ({
+        ...version,
+        parameters: version.parameters.sort(compareConfigurationParameters),
+        profiles: [...profiles.values()].filter(profile => !nestedProfileIds.has(profile.id)).sort(compareConfigurationProfiles),
+    }));
     return {
-        versions: [...versions.values()].map(({ profiles, nestedProfileIds, ...version }) => ({ ...version, profiles: [...profiles.values()].filter(profile => !nestedProfileIds.has(profile.id)) })),
-        availableParameters,
-        availableProfiles,
-        availableNestedProfiles,
+        versions: mappedVersions.filter(version => version.id !== SPECIFICATION_TEMPLATE_VERSION_ID),
+        specificationTemplate: mappedVersions.find(version => version.id === SPECIFICATION_TEMPLATE_VERSION_ID) ?? null,
+        availableParameters: availableParameters.sort(compareByName),
+        availableProfiles: availableProfiles.sort(compareByName),
+        availableNestedProfiles: availableNestedProfiles.sort(compareByName),
     };
 }
+
+const compareText = (left, right) => String(left || '').localeCompare(String(right || ''), undefined, { sensitivity: 'base', numeric: true });
+const compareByName = (left, right) => compareText(left.name || left.id, right.name || right.id);
+const compareConfigurationParameters = (left, right) => compareByName(left, right) || compareText(left.label, right.label);
+const compareConfigurationProfiles = (left, right) => compareByName(left, right) || compareText(left.definitionName, right.definitionName);
+
+export const sortConfigurationParameters = parameters => [...parameters].sort(compareConfigurationParameters);
+export const sortConfigurationProfiles = profiles => [...profiles].sort(compareConfigurationProfiles);
+
+// Unsaved rows with the service specification's configuration, used to prefill a new configuration version.
+export const SPECIFICATION_TEMPLATE_VERSION_ID = 'SpecificationTemplate';
 
 export function configurationParameterKey(parameter) {
     return parameter.configurationId || parameter.valueId || parameter.clientId || parameter.id;

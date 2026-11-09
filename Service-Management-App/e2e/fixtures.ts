@@ -527,11 +527,7 @@ export async function mockDataMinerApi(page: Page, mode: GqiMode = 'ok'): Promis
                     };
                     services.push(created);
                     serviceItemsByDomId.set(created['DOM ID'], []);
-                    const sourceRows = [
-                        ...(orderItemConfigurationOverrides.get(`${id}:${subId}`) ?? []),
-                        ...(item['Service Specification ID'] === SAMPLE_SPECIFICATION['Specification ID']
-                            ? SAMPLE_SPECIFICATION_CONFIGURATIONS.filter(row => ['Profile', 'ProfileParameter', 'NestedProfile', 'NestedProfileParameter'].includes(row['Record Type'])) : []),
-                    ];
+                    const sourceRows = orderItemConfigurationOverrides.get(`${id}:${subId}`) ?? [];
                     const copiedRows = requestBody.copyConfiguration === false ? [] : sourceRows.filter(row => !row['Record Type'].startsWith('Available')).map(row => ({
                         ...row,
                         'Version ID': `${created['DOM ID']}-version`,

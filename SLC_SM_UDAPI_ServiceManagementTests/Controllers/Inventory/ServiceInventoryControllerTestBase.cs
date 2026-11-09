@@ -30,6 +30,10 @@
 
 		protected List<ServiceSpecification> StoredSpecifications { get; private set; }
 
+		protected List<ServiceSpecificationConfigurationValue> StoredSpecificationConfigurations { get; private set; }
+
+		protected List<ServiceSpecificationProfile> StoredSpecificationProfiles { get; private set; }
+
 		protected List<ServiceConfigurationVersion> StoredVersions { get; private set; }
 
 		protected List<ServiceConfigurationValue> StoredConfigurationValues { get; private set; }
@@ -78,6 +82,8 @@
 			StoredServices = new List<Service>();
 			StoredCategories = new List<ServiceCategory>();
 			StoredSpecifications = new List<ServiceSpecification>();
+			StoredSpecificationConfigurations = new List<ServiceSpecificationConfigurationValue>();
+			StoredSpecificationProfiles = new List<ServiceSpecificationProfile>();
 			StoredVersions = new List<ServiceConfigurationVersion>();
 			StoredConfigurationValues = new List<ServiceConfigurationValue>();
 			StoredServiceProfiles = new List<ServiceProfile>();
@@ -110,6 +116,8 @@
 			var catalog = Catalog = new Mock<IServiceCatalogApi>();
 			catalog.SetupGet(a => a.ServiceCategories).Returns(Repository(StoredCategories));
 			catalog.SetupGet(a => a.ServiceSpecifications).Returns(Repository(StoredSpecifications));
+			catalog.SetupGet(a => a.ServiceSpecificationConfigurationValues).Returns(Repository(StoredSpecificationConfigurations));
+			catalog.SetupGet(a => a.ServiceSpecificationProfiles).Returns(Repository(StoredSpecificationProfiles));
 			catalog.SetupGet(a => a.ConfigurationParameters).Returns(Repository(StoredParameters));
 			catalog.SetupGet(a => a.ConfigurationParameterValues).Returns(Repository(StoredParameterValues));
 			catalog.SetupGet(a => a.Profiles).Returns(Repository(StoredProfiles));

@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { DataMinerAuthError } from './dataminer/transport.js';
 import { addCatalogSpecificationItem, createCatalogCategory, createCatalogSpecification, deleteCatalogCategory, deleteCatalogSpecification, deleteCatalogSpecificationItem, fetchDocumentHubLogos, fetchServiceCategories, fetchServiceSpecificationOverview, fetchServiceSpecificationPage, fetchServiceSpecifications, fetchServiceSpecificationConfigurations, fetchSpecificationItems, saveCatalogSpecificationConfiguration, updateCatalogCategory, updateCatalogSpecification, updateCatalogSpecificationItem } from './dataminer/catalog.js';
 import { addServiceOrderItem, createServiceOrder, deleteServiceOrder, deleteServiceOrderItem, fetchRelatedServiceOrders, fetchServiceOrderItemConfigurations, fetchServiceOrderItems, fetchServiceOrderOverviewData, fetchServiceOrderPage, fetchServiceOrganizations, getOrderItemTransitions, getOrderTransitions, transitionServiceOrder, transitionServiceOrderItem, updateServiceOrder, updateServiceOrderItem, saveServiceOrderItemConfiguration, initializeServiceFromOrderItem } from './dataminer/serviceOrders.js';
-import { addInventoryServiceItem, addServiceScript, configurationParameterKey, createInventoryService, deleteInventoryService, deleteInventoryServiceItem, deleteServiceScript, duplicateInventoryService, duplicateServiceConfigurationVersion, fetchInventoryServiceItems, fetchMonitoringServices, fetchServiceConfigurations, fetchServiceDetails, fetchServiceForDisplay, fetchServiceItemReferenceOptions, fetchServiceOverviewData, fetchServicePage, fetchServiceScripts, fetchServices, saveServiceConfiguration as saveInventoryServiceConfiguration, serviceApiId, SERVICE_INVENTORY_SCRIPTS, SERVICE_TRANSITIONS, SRM_BOOKING_ACTIONS, transitionInventoryService, updateInventoryService, updateInventoryServiceItem, updateServiceScript } from './dataminer/services.js';
+import { addInventoryServiceItem, addServiceScript, configurationParameterKey, sortConfigurationParameters, sortConfigurationProfiles, createInventoryService, deleteInventoryService, deleteInventoryServiceItem, deleteServiceScript, duplicateInventoryService, duplicateServiceConfigurationVersion, fetchInventoryServiceItems, fetchMonitoringServices, fetchServiceConfigurations, fetchServiceDetails, fetchServiceForDisplay, fetchServiceItemReferenceOptions, fetchServiceOverviewData, fetchServicePage, fetchServiceScripts, fetchServices, saveServiceConfiguration as saveInventoryServiceConfiguration, serviceApiId, SERVICE_INVENTORY_SCRIPTS, SERVICE_TRANSITIONS, SRM_BOOKING_ACTIONS, transitionInventoryService, updateInventoryService, updateInventoryServiceItem, updateServiceScript } from './dataminer/services.js';
 import { getConnectionFromCookie, redirectToAuth } from './dataminer/session.js';
 import { IasDialog } from './IasDialog.jsx';
 import './styles.css';
@@ -175,7 +175,22 @@ function useServiceScripts(serviceId) {
     return useDataList(fetcher);
 }
 
-const EMPTY_SERVICE_CONFIGURATION_DATA = { versions: [], availableParameters: [], availableProfiles: [] };
+const EMPTY_SERVICE_CONFIGURATION_DATA = { versions: [], specificationTemplate: null, availableParameters: [], availableProfiles: [] };
+
+// Copies the specification's parameters and profiles into a new draft; reusable profiles stay referenced, the rest is created on save.
+function configurationContentFromTemplate(template) {
+    const copyParameter = parameter => ({ ...parameter, clientId: crypto.randomUUID(), configurationId: '', valueId: '' });
+    const copyProfile = profile => ({
+        ...profile,
+        ...(profile.reusable ? { clientId: '' } : { id: '', clientId: `new-${crypto.randomUUID()}` }),
+        parameters: (profile.parameters || []).map(copyParameter),
+        nestedProfiles: (profile.nestedProfiles || []).map(copyProfile),
+    });
+    return {
+        parameters: (template?.parameters || []).map(copyParameter),
+        profiles: (template?.profiles || []).map(copyProfile),
+    };
+}
 
 function findConfigurationProfilePath(profiles, id, parentPath = []) {
     for (const profile of profiles || []) {
@@ -330,7 +345,7 @@ function NativeConfigurationProfileView({ profile, profilePath, profilesAtLevel,
                 <p className="eyebrow">Profile configuration</p>
                 {reusable
                     ? <h2>{profile.name || 'Unnamed profile'}</h2>
-                    : <input className="configuration-profile-name-input" value={profile.name || ''} onChange={event => onUpdateProfileName(profile.id || profile.clientId, event.target.value)} aria-label={`Profile name for ${profile.name || 'profile'}`} />}
+                    : <input className="configuration-profile-name-input" value={profile.name || ''} title={profile.name || ''} style={{ '--name-length': (profile.name || '').length + 1 }} onChange={event => onUpdateProfileName(profile.id || profile.clientId, event.target.value)} aria-label={`Profile name for ${profile.name || 'profile'}`} />}
                 <nav className="configuration-profile-breadcrumbs" aria-label="Profile nesting path">
                     <span>Configuration</span>
                     {profilePath.map((pathProfile, index) => <span className="configuration-profile-breadcrumb" key={pathProfile.id || pathProfile.clientId || index}>
@@ -447,7 +462,7 @@ function ConfigurationProfileNodeV2({ profile, depth, availableProfiles, availab
                 <div>
                     {reusable
                         ? <strong>{profile.name || 'Unnamed profile'}</strong>
-                        : <input className="configuration-profile-name-input" value={profile.name || ''} onChange={event => onUpdateProfileName(profile.id || profile.clientId, event.target.value)} aria-label={`Profile name for ${profile.name || 'profile'}`} />}
+                        : <input className="configuration-profile-name-input" value={profile.name || ''} title={profile.name || ''} style={{ '--name-length': (profile.name || '').length + 1 }} onChange={event => onUpdateProfileName(profile.id || profile.clientId, event.target.value)} aria-label={`Profile name for ${profile.name || 'profile'}`} />}
                     {showDefinitionLabel && <span className="configuration-profile-detail">{definitionLabel}</span>}
                 </div>
             </div>
@@ -702,7 +717,7 @@ function NativeServiceConfigurationsView({ service, actionState, onSave, onDupli
     };
     const addInitialVersion = () => {
         setVersionId('');
-        setDraft({ id: '', name: 'Initial version', description: '', start: '', end: '', active: true, parameters: [], profiles: [] });
+        setDraft({ id: '', name: 'Initial version', description: '', start: '', end: '', active: true, ...configurationContentFromTemplate(configurationData.specificationTemplate) });
         setParameterToAdd('');
         setProfileToAdd('');
         setDeletedConfigurationIds([]);
@@ -713,7 +728,7 @@ function NativeServiceConfigurationsView({ service, actionState, onSave, onDupli
     };
     const addNewVersion = () => {
         setVersionId('__new__');
-        setDraft({ id: '', name: 'New version', description: '', start: '', end: '', active: false, parameters: [], profiles: [] });
+        setDraft({ id: '', name: 'New version', description: '', start: '', end: '', active: false, ...configurationContentFromTemplate(configurationData.specificationTemplate) });
         setParameterToAdd('');
         setProfileToAdd('');
         setDeletedConfigurationIds([]);
@@ -749,7 +764,7 @@ function NativeServiceConfigurationsView({ service, actionState, onSave, onDupli
         const parameter = availableParameters.find(item => item.id === parameterToAdd);
         if (!parameter || !draft) return;
         const instance = createConfigurationParameter(parameter, draft.parameters);
-        setDraft(current => ({ ...current, parameters: [...current.parameters, instance] }));
+        setDraft(current => ({ ...current, parameters: sortConfigurationParameters([...current.parameters, instance]) }));
         setParameterToAdd('');
     };
     const removeParameter = id => {
@@ -775,7 +790,7 @@ function NativeServiceConfigurationsView({ service, actionState, onSave, onDupli
         const definition = availableProfiles.find(item => item.id === (profileIdOverride || profileToAdd));
         if (!definition || !draft) return;
         const newProfile = createProfile(definition, draft.profiles);
-        setDraft(current => ({ ...current, profiles: [...current.profiles, newProfile] }));
+        setDraft(current => ({ ...current, profiles: sortConfigurationProfiles([...current.profiles, newProfile]) }));
         setProfileToAdd('');
         return newProfile.clientId;
     };
@@ -793,7 +808,7 @@ function NativeServiceConfigurationsView({ service, actionState, onSave, onDupli
             parameters: [],
             nestedProfiles: [],
         };
-        setDraft(current => ({ ...current, profiles: [...current.profiles, newProfile] }));
+        setDraft(current => ({ ...current, profiles: sortConfigurationProfiles([...current.profiles, newProfile]) }));
         return newProfile.id;
     };
     const mapProfileTree = (profiles, updater) => profiles.map(profile => {
@@ -809,8 +824,8 @@ function NativeServiceConfigurationsView({ service, actionState, onSave, onDupli
         const siblings = parent ? parent.nestedProfiles || [] : draft.profiles;
         const newProfile = createProfile(definition, siblings);
         setDraft(current => parent
-            ? { ...current, profiles: mapProfileTree(current.profiles, profile => (profile.id === parentId || profile.clientId === parentId) ? { ...profile, nestedProfiles: [...(profile.nestedProfiles || []), newProfile] } : profile) }
-            : { ...current, profiles: [...current.profiles, newProfile] });
+            ? { ...current, profiles: mapProfileTree(current.profiles, profile => (profile.id === parentId || profile.clientId === parentId) ? { ...profile, nestedProfiles: sortConfigurationProfiles([...(profile.nestedProfiles || []), newProfile]) } : profile) }
+            : { ...current, profiles: sortConfigurationProfiles([...current.profiles, newProfile]) });
         setOpenProfileId(newProfile.clientId);
     };
     const addNestedProfileDefinition = (parentId, definitionId) => {
@@ -820,19 +835,19 @@ function NativeServiceConfigurationsView({ service, actionState, onSave, onDupli
         const parent = parentPath ? parentPath[parentPath.length - 1] : null;
         if (!parent || parent.reusable || parentPath.length >= 3) return;
         const newProfile = createProfile(definition, parent.nestedProfiles || []);
-        setDraft(current => ({ ...current, profiles: mapProfileTree(current.profiles, profile => (profile.id === parentId || profile.clientId === parentId) ? { ...profile, nestedProfiles: [...(profile.nestedProfiles || []), newProfile] } : profile) }));
+        setDraft(current => ({ ...current, profiles: mapProfileTree(current.profiles, profile => (profile.id === parentId || profile.clientId === parentId) ? { ...profile, nestedProfiles: sortConfigurationProfiles([...(profile.nestedProfiles || []), newProfile]) } : profile) }));
         setOpenProfileId(newProfile.clientId);
     };
     const addNestedProfile = (parentId, nestedId) => {
         const nested = availableNestedProfiles.find(profile => profile.id === nestedId);
         if (!nested || !draft || !nestedId) return;
-        setDraft(current => ({ ...current, profiles: mapProfileTree(current.profiles, profile => (profile.id === parentId || profile.clientId === parentId) ? { ...profile, nestedProfiles: profile.nestedProfiles.some(item => item.id === nestedId) ? profile.nestedProfiles : [...profile.nestedProfiles, { ...nested, parameters: [], nestedProfiles: [] }] } : profile) }));
+        setDraft(current => ({ ...current, profiles: mapProfileTree(current.profiles, profile => (profile.id === parentId || profile.clientId === parentId) ? { ...profile, nestedProfiles: profile.nestedProfiles.some(item => item.id === nestedId) ? profile.nestedProfiles : sortConfigurationProfiles([...profile.nestedProfiles, { ...nested, parameters: [], nestedProfiles: [] }]) } : profile) }));
     };
     const removeNestedProfile = (parentId, nestedId) => setDraft(current => ({ ...current, profiles: mapProfileTree(current.profiles, profile => (profile.id === parentId || profile.clientId === parentId) ? { ...profile, nestedProfiles: profile.nestedProfiles.filter(item => (item.id || item.clientId) !== nestedId) } : profile) }));
     const addProfileParameter = (profileId, parameterId) => {
         const parameter = availableParameters.find(item => item.id === parameterId);
         if (!parameter || !draft || !parameterId) return;
-        setDraft(current => ({ ...current, profiles: mapProfileTree(current.profiles, profile => (profile.id === profileId || profile.clientId === profileId) ? { ...profile, parameters: [...profile.parameters, createConfigurationParameter(parameter, profile.parameters)] } : profile) }));
+        setDraft(current => ({ ...current, profiles: mapProfileTree(current.profiles, profile => (profile.id === profileId || profile.clientId === profileId) ? { ...profile, parameters: sortConfigurationParameters([...profile.parameters, createConfigurationParameter(parameter, profile.parameters)]) } : profile) }));
     };
     const updateProfileParameter = (profileId, parameterId, value, field = 'value') => setDraft(current => ({ ...current, profiles: mapProfileTree(current.profiles, profile => (profile.id === profileId || profile.clientId === profileId) ? { ...profile, parameters: profile.parameters.map(parameter => configurationParameterKey(parameter) === parameterId ? withDetail(parameter, field, value) : parameter) } : profile) }));
     const updateProfileName = (profileId, name) => setDraft(current => ({ ...current, profiles: mapProfileTree(current.profiles, profile => (profile.id === profileId || profile.clientId === profileId) ? { ...profile, name } : profile) }));

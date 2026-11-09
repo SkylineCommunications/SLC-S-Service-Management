@@ -18,6 +18,7 @@
 	using SLDataGateway.API.Types.Querying;
 
 	using IEngine = Skyline.DataMiner.Automation.IEngine;
+	using Cfg = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.Configurations;
 	using OrderTransition = DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Serviceorder_Behavior.TransitionsEnum;
 	using ItemTransition = DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Serviceorderitem_Behavior.TransitionsEnum;
 	using ServiceStatus = DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Service_Behavior.StatusesEnum;
@@ -220,6 +221,25 @@
 		{
 			var request = new CreateServiceOrderRequest { Name = "x", Priority = "urgent", OrderItems = new List<CreateServiceOrderItemRequest> { new CreateServiceOrderItemRequest() } };
 			Assert.AreEqual(400, StatusCode(Controller.CreateServiceOrder(request)));
+		}
+
+		[TestMethod]
+		public void CreateServiceOrder_MandatoryParameterWithoutValue_ErrorShowsParameterName()
+		{
+			var parameter = new Cfg.ConfigurationParameter { Identifier = Guid.NewGuid().ToString(), Name = "Bitrate" };
+			SetupMandatorySpecificationRepositories(new List<Cfg.ConfigurationParameterValue>(), parameter.Identifier, out var specificationId);
+			Mock.Get(Helper.ServiceCatalog).SetupGet(api => api.ConfigurationParameters)
+				.Returns(InitializationRepository(new List<Cfg.ConfigurationParameter> { parameter }).Object);
+			var request = new CreateServiceOrderRequest
+			{
+				Name = "x",
+				OrderItems = new List<CreateServiceOrderItemRequest> { new CreateServiceOrderItemRequest { Action = "add", ServiceSpecificationId = specificationId } },
+			};
+
+			var result = Controller.CreateServiceOrder(request);
+
+			Assert.AreEqual(400, StatusCode(result));
+			StringAssert.EndsWith(ErrorDetail(result), "without a value: Bitrate.");
 		}
 
 		// ---- PATCH /serviceOrder/{id} ----
@@ -441,6 +461,22 @@
 			Assert.AreEqual(1, StoredServices.Count);
 			Assert.AreEqual(StoredServices[0].Identifier, item.ServiceInfo.ServiceId.Identifier);
 			Orders.Verify(r => r.TransitionStatus(It.IsAny<ServiceOrder>(), OrderTransition.Acknowledged_To_Inprogress), Times.Once);
+		}
+
+		[TestMethod]
+		public void TransitionServiceOrder_StartWithEmptyMandatoryValue_Returns409NamingItemAndParameter()
+		{
+			var item = AddItem("Acknowledged");
+			item.ServiceInfo.SpecificationId = new Skyline.DataMiner.SDM.SdmObjectReference<ServiceSpecification>(AddSpecification().ToString());
+			AddOrder("Acknowledged", item);
+			AddEmptyMandatoryItemConfiguration(item, "Bitrate");
+
+			var result = Controller.TransitionServiceOrder(OrderId, new TransitionServiceOrderRequest { TargetStatus = "inProgress" });
+
+			Assert.AreEqual(409, StatusCode(result));
+			StringAssert.Contains(ErrorDetail(result), "(Bitrate)");
+			Items.Verify(r => r.TransitionStatus(It.IsAny<ServiceOrderItem>(), It.IsAny<ItemTransition>()), Times.Never);
+			Assert.AreEqual(0, StoredServices.Count);
 		}
 
 		[DataTestMethod]

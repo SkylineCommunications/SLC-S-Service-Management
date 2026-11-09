@@ -9,8 +9,30 @@ test('preserves repeated parameter definitions and deduplicates only repeated in
     const profileMain = { ...base, 'Profile ID': 'profile', 'Parameter Value ID': 'profile-main', 'Parameter Label': 'Main' };
     const profileBackup = { ...profileMain, 'Parameter Value ID': 'profile-backup', 'Parameter Label': 'Backup' };
     const result = mapServiceConfigurationRows([main, main, backup, profileMain, profileMain, profileBackup]);
-    expect(result.versions[0].parameters.map(parameter => parameter.label)).toEqual(['Main', 'Backup']);
-    expect(result.versions[0].profiles[0].parameters.map(parameter => parameter.label)).toEqual(['Main', 'Backup']);
+    expect(result.versions[0].parameters.map(parameter => parameter.label)).toEqual(['Backup', 'Main']);
+    expect(result.versions[0].profiles[0].parameters.map(parameter => parameter.label)).toEqual(['Backup', 'Main']);
+});
+
+test('sorts configuration parameters, profiles and profile parameters alphabetically', () => {
+    const version = { 'Version ID': 'version' };
+    const parameter = (id: string, name: string, extra = {}) => ({ ...version, 'Parameter ID': id, 'Parameter Name': name, 'Configuration ID': `${id}-config`, 'Parameter Value ID': `${id}-value`, ...extra });
+    const profile = (id: string, name: string) => ({ ...version, 'Profile ID': id, 'Profile Name': name });
+    const result = mapServiceConfigurationRows([
+        parameter('zeta', 'zeta'), parameter('alpha', 'Alpha'), parameter('port10', 'Port 10'), parameter('port2', 'Port 2'),
+        { ...profile('video', 'Video'), 'Parameter ID': 'res', 'Parameter Name': 'Resolution', 'Parameter Value ID': 'res-value' },
+        { ...profile('video', 'Video'), 'Parameter ID': 'bit', 'Parameter Name': 'Bitrate', 'Parameter Value ID': 'bit-value' },
+        { ...profile('video', 'Video'), 'Nested Profile ID': 'second', 'Nested Profile Name': 'Second' },
+        { ...profile('video', 'Video'), 'Nested Profile ID': 'first', 'Nested Profile Name': 'First' },
+        { ...profile('audio', 'audio'), 'Parameter ID': 'gain', 'Parameter Name': 'Gain', 'Parameter Value ID': 'gain-value' },
+        { 'Record Type': 'AvailableParameter', 'Parameter ID': 'z', 'Parameter Name': 'Zoom' },
+        { 'Record Type': 'AvailableParameter', 'Parameter ID': 'a', 'Parameter Name': 'Aspect' },
+    ]);
+    const [mapped] = result.versions;
+    expect(mapped.parameters.map(item => item.name)).toEqual(['Alpha', 'Port 2', 'Port 10', 'zeta']);
+    expect(mapped.profiles.map(item => item.name)).toEqual(['audio', 'Video']);
+    expect(mapped.profiles[1].parameters.map(item => item.name)).toEqual(['Bitrate', 'Resolution']);
+    expect(mapped.profiles[1].nestedProfiles.map(item => item.name)).toEqual(['First', 'Second']);
+    expect(result.availableParameters.map(item => item.name)).toEqual(['Aspect', 'Zoom']);
 });
 
 test('reuses profile parameters with distinct labels and independent values', async ({ page, context }) => {
@@ -57,6 +79,52 @@ test('reuses profile parameters with distinct labels and independent values', as
     await expect.poll(() => saves().length).toBe(1);
     expect(JSON.parse(saves()[0].Body).Profiles[0].Parameters).toEqual([
         expect.objectContaining({ ParameterId: 'parameter-number', Label: 'Backup', Value: '50', ParameterValueId: '' }),
+    ]);
+});
+
+test('prefills a new service configuration version from the specification template', async ({ page, context }) => {
+    await setSessionCookie(context);
+    await mockDataMinerApi(page);
+    const template = { versionId: 'SpecificationTemplate', versionName: 'Managed switching', isActive: 'false' };
+    const profile = { ...template, profileDefinitionId: 'transport', profileDefinitionName: 'Transport' };
+    const records = [
+        { recordType: 'AvailableParameter', parameterId: 'port', parameterName: 'Port', parameterType: 'Number' },
+        { recordType: 'AvailableProfile', profileDefinitionId: 'transport', profileDefinitionName: 'Transport' },
+        { recordType: 'AvailableNestedProfile', nestedProfileId: 'shared-profile', nestedProfileName: 'Shared', nestedProfileDefinitionId: 'transport', profileReusable: true },
+        {
+            ...template, recordType: 'Parameter', configurationId: 'spec-configuration', parameterValueId: 'spec-value',
+            parameterId: 'port', parameterName: 'Port', parameterType: 'Number', parameterValue: '5000', mandatory: true,
+        },
+        { ...profile, recordType: 'ProfileParameter', profileId: 'own-profile', profileName: 'Own', parameterId: 'port', parameterValueId: 'own-value', parameterName: 'Port', parameterType: 'Number', parameterValue: '1' },
+        { ...profile, recordType: 'Profile', profileId: 'shared-profile', profileName: 'Shared', profileReusable: true },
+    ];
+    let saved: { Parameters: Record<string, unknown>[]; Profiles: Record<string, unknown>[] } | undefined;
+    await page.route('**/API/v1/Json.asmx/ExecuteAutomationScriptWithOutput', async route => {
+        const body = route.request().postDataJSON();
+        if (body.script?.Name !== 'SLC_SM_UDAPI_ServiceManagement') return route.fallback();
+        const request = JSON.parse(body.script.Parameters.find((parameter: { Name: string }) => parameter.Name === 'Request').Value);
+        if (request.Route !== 'service-management/v1/service/service-1/configuration') return route.fallback();
+        if (request.RequestMethod === 2) saved = JSON.parse(request.Body);
+        await route.fulfill({ json: { d: { ErrorCode: 0, Output: [
+            { Name: 'StatusCode', Value: '200' }, { Name: 'Response', Value: JSON.stringify(records) },
+        ] } } });
+    });
+    await page.goto(APP_URL);
+    await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: /Services/ }).click();
+    await page.getByRole('button', { name: 'Open details of Test service', exact: true }).click();
+    await page.getByRole('button', { name: 'Configurations', exact: true }).click();
+    await page.getByRole('button', { name: 'Add initial version', exact: true }).click();
+    const section = page.locator('.native-configuration-parameters');
+    await section.getByRole('button', { name: 'Expand standalone parameters' }).click();
+    await expect(section.getByLabel('Value for Port', { exact: true })).toHaveValue('5000');
+    await page.getByRole('button', { name: 'Save configuration', exact: true }).click();
+    await expect.poll(() => saved).toBeTruthy();
+    expect(saved!.Parameters).toEqual([
+        expect.objectContaining({ ConfigurationId: '', ParameterValueId: '', ParameterId: 'port', Value: '5000', Mandatory: true }),
+    ]);
+    expect(saved!.Profiles).toEqual([
+        expect.objectContaining({ id: '', name: 'Own', definitionId: 'transport', Parameters: [expect.objectContaining({ ParameterValueId: '', Value: '1' })] }),
+        expect.objectContaining({ id: 'shared-profile', reusable: true }),
     ]);
 });
 
@@ -111,8 +179,9 @@ for (const owner of ['service', 'specification']) {
         await section.getByRole('button', { name: 'Expand standalone parameters' }).click();
         const rows = section.locator('tbody tr');
         await expect(rows).toHaveCount(2);
-        await rows.nth(1).getByLabel('Value for Port', { exact: true }).fill('6001');
-        await expect(rows.first().getByLabel('Value for Port', { exact: true })).toHaveValue('5000');
+        await expect(rows.first().getByLabel('Label for Port', { exact: true })).toHaveValue('Backup');
+        await rows.first().getByLabel('Value for Port', { exact: true }).fill('6001');
+        await expect(rows.nth(1).getByLabel('Value for Port', { exact: true })).toHaveValue('5000');
         for (const [label, value] of [['Extra A', '7000'], ['Extra B', '7001']]) {
             await section.getByLabel('Select parameter to add').selectOption('port');
             await section.getByRole('button', { name: 'Add', exact: true }).click();
@@ -121,7 +190,8 @@ for (const owner of ['service', 'specification']) {
             await rows.last().getByLabel('Value for Port', { exact: true }).fill(value);
         }
         await expect(rows).toHaveCount(4);
-        await rows.nth(2).getByRole('button', { name: 'Delete Port', exact: true }).click();
+        await expect(rows.nth(1).getByLabel('Label for Port', { exact: true })).toHaveValue('Extra A');
+        await rows.nth(1).getByRole('button', { name: 'Delete Port', exact: true }).click();
         await expect(rows).toHaveCount(3);
         await rows.last().getByLabel('Label for Port', { exact: true }).fill(' main ');
         await page.getByRole('button', { name: 'Save configuration', exact: true }).click();
@@ -134,11 +204,12 @@ for (const owner of ['service', 'specification']) {
         await rows.last().getByLabel('Label for Port', { exact: true }).fill('Extra B');
         await page.getByRole('button', { name: 'Save configuration', exact: true }).click();
         await expect.poll(() => parameters.map(parameter => [parameter.Label, parameter.Value])).toEqual([
-            ['Main', '5000'], ['Backup', '6001'], ['Extra B', '7001'],
+            ['Backup', '6001'], ['Main', '5000'], ['Extra B', '7001'],
         ]);
         await section.getByRole('button', { name: 'Expand standalone parameters' }).click();
         await expect(rows).toHaveCount(3);
-        await rows.first().getByRole('button', { name: 'Delete Port', exact: true }).click();
+        await expect(rows.last().getByLabel('Label for Port', { exact: true })).toHaveValue('Main');
+        await rows.last().getByRole('button', { name: 'Delete Port', exact: true }).click();
         await page.getByRole('button', { name: 'Save configuration', exact: true }).click();
         await expect.poll(() => saved?.DeleteConfigurationIds).toEqual(['main']);
         await section.getByRole('button', { name: 'Expand standalone parameters' }).click();

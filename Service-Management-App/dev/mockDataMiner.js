@@ -339,10 +339,7 @@ function initializeServiceFromOrderItem(orderItemId, copyConfiguration = true) {
             'Alarm Level': '0',
         };
         SERVICES.push(service);
-        const sourceRows = copyConfiguration ? [
-            ...serviceConfigurationsFor(orderItemId, { includeProfiles: false }),
-            ...serviceConfigurationsFor(item['Service Specification ID']).filter(row => ['Profile', 'ProfileParameter', 'NestedProfile', 'NestedProfileParameter'].includes(row['Record Type'])),
-        ] : [];
+        const sourceRows = copyConfiguration ? serviceConfigurationsFor(orderItemId, { includeProfiles: false }) : [];
         const copiedIds = new Map();
         const copyId = id => {
             if (!id) return '';
