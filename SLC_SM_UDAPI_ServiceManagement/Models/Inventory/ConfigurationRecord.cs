@@ -43,6 +43,8 @@ namespace SLC_SM_UDAPI_ServiceManagement.Models.Inventory
 
 		public string ProfileId { get; set; }
 
+		public string ProfileReferenceId { get; set; }
+
 		public string ProfileName { get; set; }
 
 		public string ProfileDefinitionId { get; set; }

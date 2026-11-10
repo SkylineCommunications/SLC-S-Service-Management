@@ -216,6 +216,7 @@
 						}
 					}
 				});
+			repository.Setup(r => r.Delete(It.IsAny<T>())).Callback<T>(item => store.Remove(item));
 			return repository.Object;
 		}
 

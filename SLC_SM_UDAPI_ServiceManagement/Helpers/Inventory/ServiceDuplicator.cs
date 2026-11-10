@@ -3,6 +3,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 	using System;
 	using System.Collections.Generic;
 	using System.Linq;
+	using Microsoft.Extensions.Logging;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.Configurations;
@@ -16,10 +17,12 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 	internal sealed class ServiceDuplicator
 	{
 		private readonly IServiceManagementApiHelper _api;
+		private readonly ILogger _logger;
 
-		public ServiceDuplicator(IServiceManagementApiHelper api)
+		public ServiceDuplicator(IServiceManagementApiHelper api, ILogger logger = null)
 		{
 			_api = api ?? throw new ArgumentNullException(nameof(api));
+			_logger = logger;
 		}
 
 		/// <summary>
@@ -51,21 +54,30 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 				if (!configurations.TryGetValue(id, out var configuration)
 					|| !values.ContainsKey(configuration.ConfigurationParameterValueId.Identifier ?? String.Empty))
 				{
-					throw new InvalidConfigurationException($"Order item configuration '{id}' or its parameter value could not be found.");
+					throw new InvalidConfigurationException(
+						"A configuration value of the order item or its parameter value could not be found.",
+						$"Order item '{item.Identifier}', configuration '{id}'.");
 				}
 			}
 
-			// Order item values only carry the order-stage flag, so the service-stage flag comes from the specification.
-			var mandatoryAtService = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
-			foreach (var configuration in specificationParameters)
-			{
-				string reference = configuration.ConfigurationParameterId.Identifier;
-				string parameterId = values.TryGetValue(reference, out var value) ? value.ConfigurationParameterId.Identifier : reference;
-				if (!String.IsNullOrWhiteSpace(parameterId))
+			// Order item values only carry the order-stage flag, so the service-stage flag comes from the matching
+			// specification instance. Values created for an order item have new identifiers, so matching also uses the
+			// parameter label and finally the specification order for references without a default value.
+			var specificationInstances = specificationParameters
+				.Select(configuration =>
 				{
-					mandatoryAtService[parameterId] = configuration.MandatoryAtService;
-				}
-			}
+					string reference = configuration.ConfigurationParameterId.Identifier ?? String.Empty;
+					values.TryGetValue(reference, out var specificationValue);
+					return new SpecificationParameterInstance
+					{
+						ReferenceId = reference,
+						ParameterId = specificationValue?.ConfigurationParameterId.Identifier ?? reference,
+						Label = specificationValue?.Label ?? String.Empty,
+						Mandatory = configuration.MandatoryAtService,
+					};
+				})
+				.Where(instance => !String.IsNullOrWhiteSpace(instance.ReferenceId))
+				.ToList();
 
 			var sources = sourceIds
 				.Select(id =>
@@ -73,15 +85,90 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 					var configuration = configurations[id];
 					var value = values[configuration.ConfigurationParameterValueId.Identifier];
 					string parameterId = value.ConfigurationParameterId.Identifier ?? String.Empty;
+					var specificationInstance = FindSpecificationParameterInstance(value, specificationInstances);
+					if (specificationInstance != null)
+					{
+						specificationInstances.Remove(specificationInstance);
+					}
+
 					return new ParameterSource
 					{
 						ValueId = value.Identifier,
-						Mandatory = mandatoryAtService.TryGetValue(parameterId, out bool mandatory) ? mandatory : configuration.Mandatory,
+						Mandatory = specificationInstance?.Mandatory ?? configuration.Mandatory,
 					};
 				})
 				.ToList();
 
+			// A mandatory-at-service parameter that is not on the order item gets its specification default, so the service is complete.
+			var copiedParameterIds = new HashSet<string>(
+				sources.Select(source => values[source.ValueId].ConfigurationParameterId.Identifier ?? String.Empty),
+				StringComparer.OrdinalIgnoreCase);
+			foreach (var instance in specificationInstances)
+			{
+				if (instance.Mandatory
+					&& values.TryGetValue(instance.ReferenceId, out var specificationValue)
+					&& HasValue(specificationValue)
+					&& copiedParameterIds.Add(instance.ParameterId))
+				{
+					sources.Add(new ParameterSource { ValueId = instance.ReferenceId, Mandatory = true });
+				}
+			}
+
 			CreateActiveVersion(service, "Order item configuration", item.Description, item.StartTime, item.EndTime, sources, specificationData, cleanup);
+		}
+
+		private SpecificationParameterInstance FindSpecificationParameterInstance(
+			ConfigurationParameterValue value,
+			IList<SpecificationParameterInstance> instances)
+		{
+			if (value == null)
+			{
+				return null;
+			}
+
+			string valueId = value.Identifier ?? String.Empty;
+			var instance = instances.FirstOrDefault(candidate => String.Equals(candidate.ReferenceId, valueId, StringComparison.OrdinalIgnoreCase));
+			if (instance != null)
+			{
+				return instance;
+			}
+
+			string parameterId = value.ConfigurationParameterId.Identifier ?? String.Empty;
+			string label = value.Label ?? String.Empty;
+			instance = instances.FirstOrDefault(candidate =>
+				String.Equals(candidate.ParameterId, parameterId, StringComparison.OrdinalIgnoreCase)
+				&& HasSameLabel(candidate.Label, label));
+			if (instance != null)
+			{
+				return instance;
+			}
+
+			// Order item values for parameters without a specification default have new IDs and no label, so prefer such candidates.
+			var candidates = instances
+				.Where(candidate => String.Equals(candidate.ParameterId, parameterId, StringComparison.OrdinalIgnoreCase))
+				.ToList();
+			if (candidates.Count > 1)
+			{
+				_logger?.LogWarning(
+					"Order item value {ValueId} matches {Count} specification instances of parameter {ParameterId}; the mandatory flag is taken from the first unlabeled one.",
+					valueId,
+					candidates.Count,
+					parameterId);
+			}
+
+			return candidates.FirstOrDefault(candidate => String.IsNullOrWhiteSpace(candidate.Label)) ?? candidates.FirstOrDefault();
+		}
+
+		private static bool HasValue(ConfigurationParameterValue value)
+		{
+			return value != null && (!String.IsNullOrWhiteSpace(value.StringValue) || value.DoubleValue != null);
+		}
+
+		private static bool HasSameLabel(string left, string right)
+		{
+			return !String.IsNullOrWhiteSpace(left)
+				&& !String.IsNullOrWhiteSpace(right)
+				&& String.Equals(left.Trim(), right.Trim(), StringComparison.OrdinalIgnoreCase);
 		}
 
 		/// <summary>
@@ -165,7 +252,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 			{
 				if (!specificationProfiles.ContainsKey(id))
 				{
-					throw new InvalidConfigurationException($"Specification profile '{id}' could not be found.");
+					throw new InvalidConfigurationException("A profile of the service specification could not be found.", $"Specification profile '{id}'.");
 				}
 			}
 
@@ -288,7 +375,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 		{
 			if (String.IsNullOrWhiteSpace(id) || !profiles.TryGetValue(id, out var profile))
 			{
-				throw new InvalidConfigurationException($"Profile '{id}' could not be found.");
+				throw new InvalidConfigurationException("A referenced profile could not be found.", $"Profile '{id}'.");
 			}
 
 			if (validated.Contains(id))
@@ -298,14 +385,14 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 
 			if (!path.Add(id))
 			{
-				throw new InvalidConfigurationException($"Profile '{id}' contains a circular nested profile reference.");
+				throw new InvalidConfigurationException("A profile contains a circular nested profile reference.", $"Profile '{id}'.");
 			}
 
 			foreach (string valueId in ReferenceIds(profile.ConfigurationParameterValues))
 			{
 				if (!values.ContainsKey(valueId))
 				{
-					throw new InvalidConfigurationException($"Profile parameter value '{valueId}' could not be found.");
+					throw new InvalidConfigurationException("A profile parameter value could not be found.", $"Profile parameter value '{valueId}'.");
 				}
 			}
 
@@ -777,7 +864,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 
 			var source = this._api.ServiceCatalog.NumberParameterOptions
 				.Read(NumberParameterOptionsExposers.Identifier.Equal(optionsId))
-				.FirstOrDefault() ?? throw new InvalidConfigurationException($"Number options '{optionsId}' were not found.");
+				.FirstOrDefault() ?? throw new InvalidConfigurationException("The number options of a parameter were not found.", $"Number options '{optionsId}'.");
 			var duplicate = new NumberParameterOptions
 			{
 				Identifier = Guid.NewGuid().ToString(),
@@ -868,6 +955,17 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 			public string ValueId { get; set; }
 
 			public string ParameterId { get; set; }
+
+			public bool Mandatory { get; set; }
+		}
+
+		private sealed class SpecificationParameterInstance
+		{
+			public string ReferenceId { get; set; }
+
+			public string ParameterId { get; set; }
+
+			public string Label { get; set; }
 
 			public bool Mandatory { get; set; }
 		}

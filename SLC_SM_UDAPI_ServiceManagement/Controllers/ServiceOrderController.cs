@@ -139,7 +139,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 			}
 			catch (InvalidConfigurationException ex)
 			{
-				_logger.LogWarning(ex, "Invalid SaveServiceOrderItemConfiguration request: {Message}", ex.Message);
+				_logger.LogWarning(ex, "Invalid SaveServiceOrderItemConfiguration request: {Message} {Details}", ex.Message, ex.TechnicalDetails);
 				return BadRequest(CreateError("Invalid request", ex.Message, 400));
 			}
 			catch (Exception ex)
@@ -172,7 +172,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 			}
 			catch (InvalidConfigurationException ex)
 			{
-				_logger.LogWarning(ex, "Invalid configuration while initializing service for order {OrderId}, item {ItemId}.", id, itemId);
+				_logger.LogWarning(ex, "Invalid configuration while initializing service for order {OrderId}, item {ItemId}: {Message} {Details}", id, itemId, ex.Message, ex.TechnicalDetails);
 				return BadRequest(CreateError("Invalid request", ex.Message, 400));
 			}
 			catch (Exception ex)
@@ -198,7 +198,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 				: item.ServiceInfo.SpecificationId;
 			if (!specificationReference.HasValue || String.IsNullOrWhiteSpace(specificationReference.Value.Identifier))
 			{
-				throw new InvalidConfigurationException("A service specification must be assigned before initializing a service.");
+				throw new InvalidConfigurationException("A service specification must be assigned before initializing a service.", $"Order item '{item.Identifier}'.");
 			}
 
 			var specification = _serviceManagementApiHelper.ServiceCatalog.ServiceSpecifications
@@ -206,12 +206,12 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 				.FirstOrDefault();
 			if (specification == null)
 			{
-				throw new InvalidConfigurationException("The service specification assigned to this order item could not be found.");
+				throw new InvalidConfigurationException("The service specification assigned to this order item could not be found.", $"Order item '{item.Identifier}', specification '{specificationReference.Value.Identifier}'.");
 			}
 
 			if (copyConfiguration)
 			{
-				var missing = FindMissingMandatoryValues(item);
+				var missing = FindMissingMandatoryValues(item, specification);
 				if (missing.Count > 0)
 				{
 					throw new InvalidConfigurationException($"Mandatory configuration parameter(s) without a value: {String.Join(", ", missing)}. Fill them in before initializing the service.");
@@ -248,7 +248,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 				service.Name = GenerateUniqueServiceName(item.Name, latestServices.Select(candidate => candidate.Name));
 				if (copyConfiguration)
 				{
-					new ServiceDuplicator(_serviceManagementApiHelper).CopyOrderItemConfiguration(item, specification, service, cleanup);
+					new ServiceDuplicator(_serviceManagementApiHelper, _logger).CopyOrderItemConfiguration(item, specification, service, cleanup);
 				}
 
 				cleanup.Push(() => services.Delete(service));
@@ -1876,40 +1876,118 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 			return String.IsNullOrWhiteSpace(name) ? parameterId : name;
 		}
 
-		/// <summary>Gets the names of the item's mandatory configuration parameters that have no value.</summary>
-		private List<string> FindMissingMandatoryValues(ServiceOrderItem item)
+		/// <summary>Gets the names of the item's order- or service-stage mandatory configuration parameters that have no value.</summary>
+		/// <param name="item">The order item.</param>
+		/// <param name="specification">The item's service specification, or <see langword="null"/>.</param>
+		/// <param name="cache">Optional cache of mandatory specification parameters per specification ID, shared across items.</param>
+		private List<string> FindMissingMandatoryValues(
+			ServiceOrderItem item,
+			ServiceSpecification specification,
+			IDictionary<string, MandatoryServiceParameters> cache = null)
 		{
 			var missing = new List<string>();
-			foreach (var reference in item?.ServiceInfo?.Configurations ?? new List<SdmObjectReference<ServiceOrderItemConfigurationValue>>())
+			var mandatoryServiceParameters = GetMandatoryServiceParameters(specification, cache);
+
+			var configurations = FullServiceBuilder.ReadById(
+				(item?.ServiceInfo?.Configurations ?? new List<SdmObjectReference<ServiceOrderItemConfigurationValue>>()).Select(reference => reference.Identifier),
+				id => ServiceOrderItemConfigurationValueExposers.Identifier.Equal(id),
+				filter => _serviceManagementApiHelper.ServiceOrder.ServiceOrderItemConfigurationValues.Read(filter),
+				configuration => configuration.Identifier);
+			var values = ReadParameterValues(configurations.Values.Select(configuration => configuration.ConfigurationParameterValueId.Identifier));
+
+			var configuredParameterIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+			foreach (var configuration in configurations.Values)
 			{
-				if (String.IsNullOrWhiteSpace(reference.Identifier))
-				{
-					continue;
-				}
-
-				var configuration = _serviceManagementApiHelper.ServiceOrder.ServiceOrderItemConfigurationValues
-					.Read(ServiceOrderItemConfigurationValueExposers.Identifier.Equal(reference.Identifier))
-					.FirstOrDefault();
-				if (configuration?.Mandatory != true)
-				{
-					continue;
-				}
-
 				string valueId = configuration.ConfigurationParameterValueId.Identifier;
-				var value = String.IsNullOrWhiteSpace(valueId)
-					? null
-					: _serviceManagementApiHelper.ServiceCatalog.ConfigurationParameterValues
-						.Read(ConfigurationModels.ConfigurationParameterValueExposers.Identifier.Equal(valueId))
-						.FirstOrDefault();
-				if (!HasValue(value))
+				var value = String.IsNullOrWhiteSpace(valueId) ? null : values.TryGetValue(valueId, out var found) ? found : null;
+				string parameterId = value?.ConfigurationParameterId.Identifier;
+				if (!String.IsNullOrWhiteSpace(parameterId))
 				{
-					missing.Add(GetParameterDisplayName(value?.ConfigurationParameterId.Identifier, value) ?? configuration.Identifier);
+					configuredParameterIds.Add(parameterId);
+				}
+
+				bool mandatory = configuration.Mandatory
+					|| (!String.IsNullOrWhiteSpace(parameterId) && mandatoryServiceParameters.Values.ContainsKey(parameterId));
+				if (mandatory && !HasValue(value))
+				{
+					missing.Add(GetParameterDisplayName(parameterId, value) ?? configuration.Identifier);
 				}
 			}
 
-			return missing;
+			foreach (var mandatoryServiceParameter in mandatoryServiceParameters.Values)
+			{
+				// A parameter that is not on the item but has a specification default is copied with that default when the service is initialized.
+				if (!configuredParameterIds.Contains(mandatoryServiceParameter.Key) && !HasValue(mandatoryServiceParameter.Value))
+				{
+					missing.Add(GetParameterDisplayName(mandatoryServiceParameter.Key, mandatoryServiceParameter.Value));
+				}
+			}
+
+			return missing.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 		}
 
+		private MandatoryServiceParameters GetMandatoryServiceParameters(ServiceSpecification specification, IDictionary<string, MandatoryServiceParameters> cache)
+		{
+			string key = specification?.Identifier;
+			if (cache != null && !String.IsNullOrWhiteSpace(key) && cache.TryGetValue(key, out var cached))
+			{
+				return cached;
+			}
+
+			var result = ReadMandatoryServiceParameters(specification);
+			if (cache != null && !String.IsNullOrWhiteSpace(key))
+			{
+				cache[key] = result;
+			}
+
+			return result;
+		}
+
+		/// <summary>Reads the specification's mandatory-at-service parameters, keyed by configuration parameter ID, with their specification value if any.</summary>
+		private MandatoryServiceParameters ReadMandatoryServiceParameters(ServiceSpecification specification)
+		{
+			var result = new MandatoryServiceParameters();
+			var configurations = FullServiceBuilder.ReadById(
+				(specification?.ConfigurationParameters ?? new List<SdmObjectReference<ServiceSpecificationConfigurationValue>>()).Select(reference => reference.Identifier),
+				id => ServiceSpecificationConfigurationValueExposers.Identifier.Equal(id),
+				filter => _serviceManagementApiHelper.ServiceCatalog.ServiceSpecificationConfigurationValues.Read(filter),
+				configuration => configuration.Identifier)
+				.Values
+				.Where(configuration => configuration.MandatoryAtService && !String.IsNullOrWhiteSpace(configuration.ConfigurationParameterId.Identifier))
+				.ToList();
+
+			// The reference holds a parameter value ID, or the parameter ID itself when the specification has no default.
+			var values = ReadParameterValues(configurations.Select(configuration => configuration.ConfigurationParameterId.Identifier));
+			foreach (var configuration in configurations)
+			{
+				string configurationReference = configuration.ConfigurationParameterId.Identifier;
+				values.TryGetValue(configurationReference, out var value);
+				string parameterId = value?.ConfigurationParameterId.Identifier ?? configurationReference;
+				if (!String.IsNullOrWhiteSpace(parameterId))
+				{
+					result.Values[parameterId] = value;
+				}
+			}
+
+			return result;
+		}
+
+		private Dictionary<string, ConfigurationModels.ConfigurationParameterValue> ReadParameterValues(IEnumerable<string> ids)
+		{
+			return FullServiceBuilder.ReadById(
+				ids,
+				id => ConfigurationModels.ConfigurationParameterValueExposers.Identifier.Equal(id),
+				filter => _serviceManagementApiHelper.ServiceCatalog.ConfigurationParameterValues.Read(filter),
+				value => value.Identifier);
+		}
+
+		/// <summary>The mandatory-at-service parameters of one service specification.</summary>
+		private sealed class MandatoryServiceParameters
+		{
+			/// <summary>Gets the specification value per configuration parameter ID; <see langword="null"/> when the specification has no value record.</summary>
+			public Dictionary<string, ConfigurationModels.ConfigurationParameterValue> Values { get; } =
+				new Dictionary<string, ConfigurationModels.ConfigurationParameterValue>(StringComparer.OrdinalIgnoreCase);
+		}
 		/// <summary>Indexes the configuration values supplied for one order item by configuration parameter ID.</summary>
 		/// <param name="values">The supplied values, or <see langword="null"/>.</param>
 		/// <param name="itemIndex">Index of the item in the request, used in error messages.</param>
@@ -2186,15 +2264,21 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 					return blocking.Count == 0 ? null : $"The order can only be rejected while all order items are new or acknowledged and their linked services, if any, are terminated or retired. Blocking items: {ItemNames(blocking)}.";
 
 				case OrderTransition.Acknowledged_To_Inprogress:
-					blocking = items.Where(item => IsStartableItem(item) && FindLinkedService(item) == null && !HasExistingSpecification(item)).ToList();
+					var unlinked = items.Where(item => IsStartableItem(item) && FindLinkedService(item) == null).ToList();
+					var specifications = FullServiceBuilder.ReadById(
+						unlinked.Select(SpecificationIdOf),
+						id => ServiceSpecificationExposers.Identifier.Equal(id),
+						filter => _serviceManagementApiHelper.ServiceCatalog.ServiceSpecifications.Read(filter),
+						specification => specification.Identifier);
+					blocking = unlinked.Where(item => !specifications.ContainsKey(SpecificationIdOf(item) ?? String.Empty)).ToList();
 					if (blocking.Count > 0)
 					{
 						return $"A service specification must be assigned to every order item before the order can be started. Missing for: {ItemNames(blocking)}.";
 					}
 
-					var incomplete = items
-						.Where(item => IsStartableItem(item) && FindLinkedService(item) == null)
-						.Select(item => new { Item = item, Missing = FindMissingMandatoryValues(item) })
+					var mandatoryCache = new Dictionary<string, MandatoryServiceParameters>(StringComparer.OrdinalIgnoreCase);
+					var incomplete = unlinked
+						.Select(item => new { Item = item, Missing = FindMissingMandatoryValues(item, specifications[SpecificationIdOf(item)], mandatoryCache) })
 						.Where(entry => entry.Missing.Count > 0)
 						.Select(entry => $"{ItemNames(new[] { entry.Item })} ({String.Join(", ", entry.Missing)})")
 						.ToList();
@@ -2264,13 +2348,9 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 				|| linkedService.Status == ServiceStatus.Retired;
 		}
 
-		private bool HasExistingSpecification(ServiceOrderItem item)
+		private static string SpecificationIdOf(ServiceOrderItem item)
 		{
-			string specificationId = item.ServiceInfo == null ? null : item.ServiceInfo.SpecificationId.Identifier;
-			return !String.IsNullOrWhiteSpace(specificationId)
-				&& _serviceManagementApiHelper.ServiceCatalog.ServiceSpecifications
-					.Read(ServiceSpecificationExposers.Identifier.Equal(specificationId))
-					.Any();
+			return item?.ServiceInfo == null ? null : item.ServiceInfo.SpecificationId.Identifier;
 		}
 
 		private static bool IsStartableItem(ServiceOrderItem item)

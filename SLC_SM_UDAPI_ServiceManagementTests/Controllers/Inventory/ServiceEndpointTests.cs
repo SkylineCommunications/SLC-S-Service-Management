@@ -646,6 +646,34 @@
 		}
 
 		[TestMethod]
+		public void CreateConfigurationVersion_PrefillWithMandatoryParameterWithoutDefault_ActivateReturns400AndCleansUp()
+		{
+			var specification = AddSpecificationWithConfiguration(out _, out var parameterWithoutDefault, out _);
+			StoredSpecificationConfigurations
+				.Single(configuration => configuration.ConfigurationParameterId.Identifier == parameterWithoutDefault.Identifier)
+				.MandatoryAtService = true;
+			var service = AddConfigurableService(specification);
+			string activeVersionId = service.ServiceConfigurationId.Identifier;
+			int parameterValueCount = StoredParameterValues.Count;
+			int profileCount = StoredProfiles.Count;
+
+			var result = Controller.CreateConfigurationVersion(
+				service.ServiceID,
+				new CreateConfigurationVersionRequest { VersionName = "invalid active version" },
+				activate: true);
+
+			Assert.AreEqual(400, StatusCode(result));
+			StringAssert.Contains(ErrorDetail(result), "Bitrate");
+			Assert.AreEqual(parameterValueCount, StoredParameterValues.Count);
+			Assert.AreEqual(profileCount, StoredProfiles.Count);
+			Assert.AreEqual(0, StoredConfigurationValues.Count);
+			Assert.AreEqual(0, StoredServiceProfiles.Count);
+			Assert.AreEqual(0, StoredVersions.Count);
+			Assert.AreEqual(0, service.ConfigurationVersions.Count);
+			Assert.AreEqual(activeVersionId, service.ServiceConfigurationId.Identifier);
+		}
+
+		[TestMethod]
 		public void CreateConfigurationVersion_ReusableSpecificationProfile_IsReferencedNotCopied()
 		{
 			var specification = AddSpecificationWithConfiguration(out _, out _, out var profile);
@@ -696,7 +724,8 @@
 			Assert.AreEqual(String.Empty, parameters[1].ParameterValueId);
 			Assert.IsFalse(parameters[1].Mandatory);
 			var profileRow = template.Single(row => row.RecordType == "ProfileParameter");
-			Assert.AreEqual(profile.Identifier, profileRow.ProfileId);
+			Assert.AreEqual(StoredSpecificationProfiles.Single().Identifier, profileRow.ProfileId);
+			Assert.AreEqual(profile.Identifier, profileRow.ProfileReferenceId);
 			Assert.IsTrue(profileRow.ProfileMandatory);
 			Assert.IsFalse(template.Any(row => row.IsActive));
 
@@ -705,6 +734,69 @@
 			Assert.AreEqual(0, StoredServiceProfiles.Count);
 			Assert.AreEqual(valueCount, StoredParameterValues.Count);
 			Assert.AreEqual(profileCount, StoredProfiles.Count);
+		}
+
+		[TestMethod]
+		public void GetServiceConfiguration_WithReusableProfileAtTopLevelAndNested_PreservesBothAssignments()
+		{
+			var definition = new Cfg.ProfileDefinition { Identifier = Guid.NewGuid().ToString(), Name = "Transport" };
+			StoredProfileDefinitions.Add(definition);
+
+			var reusable = new Cfg.Profile
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				Name = "Shared",
+				IsReusable = true,
+				ProfileDefinitionId = new SdmObjectReference<Cfg.ProfileDefinition>(definition.Identifier),
+				Profiles = new List<SdmObjectReference<Cfg.Profile>>(),
+			};
+			var parent = new Cfg.Profile
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				Name = "Parent",
+				ProfileDefinitionId = new SdmObjectReference<Cfg.ProfileDefinition>(definition.Identifier),
+				Profiles = new List<SdmObjectReference<Cfg.Profile>> { new SdmObjectReference<Cfg.Profile>(reusable.Identifier) },
+			};
+			StoredProfiles.Add(parent);
+			StoredProfiles.Add(reusable);
+
+			var nestedAssignment = new ServiceSpecificationProfile
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				ProfileId = new SdmObjectReference<Cfg.Profile>(parent.Identifier),
+			};
+			var topLevelAssignment = new ServiceSpecificationProfile
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				ProfileId = new SdmObjectReference<Cfg.Profile>(reusable.Identifier),
+			};
+			StoredSpecificationProfiles.Add(nestedAssignment);
+			StoredSpecificationProfiles.Add(topLevelAssignment);
+			var specification = new ServiceSpecification
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				Name = "Reusable collision spec",
+				ConfigurationProfiles = new List<SdmObjectReference<ServiceSpecificationProfile>>
+				{
+					new SdmObjectReference<ServiceSpecificationProfile>(nestedAssignment.Identifier),
+					new SdmObjectReference<ServiceSpecificationProfile>(topLevelAssignment.Identifier),
+				},
+			};
+			StoredSpecifications.Add(specification);
+			var service = AddConfigurableService(specification);
+
+			var result = Controller.GetServiceConfiguration(service.ServiceID);
+
+			Assert.AreEqual(200, StatusCode(result));
+			var template = Value<List<ConfigurationRecord>>(result)
+				.Where(row => row.VersionId == ConfigurationRecord.SpecificationTemplateVersionId)
+				.ToList();
+			Assert.IsTrue(template.Any(row => row.RecordType == "Profile"
+				&& row.ProfileId == topLevelAssignment.Identifier
+				&& row.ProfileReferenceId == reusable.Identifier));
+			Assert.IsTrue(template.Any(row => row.RecordType == "NestedProfile"
+				&& row.ProfileId == nestedAssignment.Identifier
+				&& row.NestedProfileId == reusable.Identifier));
 		}
 
 		[TestMethod]
@@ -735,6 +827,31 @@
 			Assert.IsTrue(serviceProfile.Mandatory);
 			Assert.AreSame(profile, StoredProfiles.Single());
 			Assert.AreEqual("Transport", profile.Name);
+		}
+
+		[TestMethod]
+		public void SaveServiceConfiguration_ProfileOwnershipError_UsesProfileNameWithoutGuid()
+		{
+			var service = AddConfigurableService(AddSpecificationWithConfiguration(out _, out _, out _));
+			string invalidProfileId = Guid.NewGuid().ToString();
+			var request = new ServiceConfigurationRequest
+			{
+				Profiles = new List<ServiceConfigurationProfileRequest>
+				{
+					new ServiceConfigurationProfileRequest
+					{
+						Id = invalidProfileId,
+						Name = "Shared transport",
+						DefinitionId = Guid.NewGuid().ToString(),
+					},
+				},
+			};
+
+			var result = Controller.SaveServiceConfiguration(service.ServiceID, JObject.FromObject(request));
+
+			Assert.AreEqual(400, StatusCode(result));
+			StringAssert.Contains(ErrorDetail(result), "Shared transport");
+			Assert.IsFalse(ErrorDetail(result).Contains(invalidProfileId));
 		}
 
 		private Service AddConfigurableService(ServiceSpecification specification)

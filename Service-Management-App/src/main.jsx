@@ -1,4 +1,4 @@
-import { StrictMode, useCallback, useEffect, useRef, useState } from 'react';
+import { StrictMode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { DataMinerAuthError } from './dataminer/transport.js';
 import { addCatalogSpecificationItem, createCatalogCategory, createCatalogSpecification, deleteCatalogCategory, deleteCatalogSpecification, deleteCatalogSpecificationItem, fetchDocumentHubLogos, fetchServiceCategories, fetchServiceSpecificationOverview, fetchServiceSpecificationPage, fetchServiceSpecifications, fetchServiceSpecificationConfigurations, fetchSpecificationItems, saveCatalogSpecificationConfiguration, updateCatalogCategory, updateCatalogSpecification, updateCatalogSpecificationItem } from './dataminer/catalog.js';
@@ -6,6 +6,7 @@ import { addServiceOrderItem, createServiceOrder, deleteServiceOrder, deleteServ
 import { addInventoryServiceItem, addServiceScript, configurationParameterKey, sortConfigurationParameters, sortConfigurationProfiles, createInventoryService, deleteInventoryService, deleteInventoryServiceItem, deleteServiceScript, duplicateInventoryService, duplicateServiceConfigurationVersion, fetchInventoryServiceItems, fetchMonitoringServices, fetchServiceConfigurations, fetchServiceDetails, fetchServiceForDisplay, fetchServiceItemReferenceOptions, fetchServiceOverviewData, fetchServicePage, fetchServiceScripts, fetchServices, saveServiceConfiguration as saveInventoryServiceConfiguration, serviceApiId, SERVICE_INVENTORY_SCRIPTS, SERVICE_TRANSITIONS, SRM_BOOKING_ACTIONS, transitionInventoryService, updateInventoryService, updateInventoryServiceItem, updateServiceScript } from './dataminer/services.js';
 import { getConnectionFromCookie, redirectToAuth } from './dataminer/session.js';
 import { IasDialog } from './IasDialog.jsx';
+import { userFacingErrorMessage } from './userFacingErrors.js';
 import './styles.css';
 
 const pages = {
@@ -86,7 +87,7 @@ function useDataList(fetcher) {
     const load = useCallback(({ rejectOnError = false } = {}) => {
         const request = ++latestRequest.current;
         setState(current => ({ ...current, status: 'loading', error: '' }));
-        return fetcher().then(items => { if (request === latestRequest.current) setState({ status: 'ready', items, error: '', updatedAt: new Date() }); return items; }, error => { if (request === latestRequest.current && !(error instanceof DataMinerAuthError)) setState({ status: 'error', items: [], error: error?.message || 'Unknown error.', updatedAt: null }); if (rejectOnError) throw error; return []; });
+        return fetcher().then(items => { if (request === latestRequest.current) setState({ status: 'ready', items, error: '', updatedAt: new Date() }); return items; }, error => { if (request === latestRequest.current && !(error instanceof DataMinerAuthError)) setState({ status: 'error', items: [], error: userFacingErrorMessage(error, 'Unknown error.'), updatedAt: null }); if (rejectOnError) throw error; return []; });
     }, [fetcher]);
     const reloadAndWait = useCallback(() => load({ rejectOnError: true }), [load]);
     useEffect(() => { load(); return () => { latestRequest.current++; }; }, [load]);
@@ -175,20 +176,38 @@ function useServiceScripts(serviceId) {
     return useDataList(fetcher);
 }
 
-const EMPTY_SERVICE_CONFIGURATION_DATA = { versions: [], specificationTemplate: null, availableParameters: [], availableProfiles: [] };
+const EMPTY_SERVICE_CONFIGURATION_DATA = { versions: [], specificationTemplate: null, availableParameters: [], availableProfiles: [], warnings: [] };
+
+function getReusableProfileReference(profile) {
+    return profile?.reusable ? profile.reusableProfileId || profile.referenceId || profile.id || '' : '';
+}
+
+function hasReusableProfile(profiles, reusableProfileId) {
+    const target = String(reusableProfileId || '').trim().toLowerCase();
+    return Boolean(target) && (profiles || []).some(profile => String(getReusableProfileReference(profile)).trim().toLowerCase() === target);
+}
 
 // Copies the specification's parameters and profiles into a new draft; reusable profiles stay referenced, the rest is created on save.
+// A top-level template profile ID is the specification assignment, so a reusable one becomes a new service assignment of its catalog profile.
+// A nested reusable profile ID is the catalog profile itself and is kept.
 function configurationContentFromTemplate(template) {
     const copyParameter = parameter => ({ ...parameter, clientId: crypto.randomUUID(), configurationId: '', valueId: '' });
-    const copyProfile = profile => ({
-        ...profile,
-        ...(profile.reusable ? { clientId: '' } : { id: '', clientId: `new-${crypto.randomUUID()}` }),
-        parameters: (profile.parameters || []).map(copyParameter),
-        nestedProfiles: (profile.nestedProfiles || []).map(copyProfile),
-    });
+    const copyProfile = (profile, isNested) => {
+        const { referenceId, ...profileContent } = profile;
+        const reusableProfileId = profile.reusable ? referenceId || profile.id : '';
+        const identity = profile.reusable && isNested
+            ? { clientId: '', ...(reusableProfileId ? { reusableProfileId } : {}) }
+            : { id: '', clientId: `new-${crypto.randomUUID()}`, ...(reusableProfileId ? { reusableProfileId } : {}) };
+        return {
+            ...profileContent,
+            ...identity,
+            parameters: (profile.parameters || []).map(copyParameter),
+            nestedProfiles: (profile.nestedProfiles || []).map(nested => copyProfile(nested, true)),
+        };
+    };
     return {
         parameters: (template?.parameters || []).map(copyParameter),
-        profiles: (template?.profiles || []).map(copyProfile),
+        profiles: (template?.profiles || []).map(profile => copyProfile(profile, false)),
     };
 }
 
@@ -316,7 +335,7 @@ function NativeConfigurationProfileView({ profile, profilePath, profilesAtLevel,
     const levelProfiles = profilesAtLevel || [];
     const canAddProfileAtLevel = !parentProfile?.reusable;
     const profileOptions = availableProfiles;
-    const nestedProfileOptions = availableNestedProfiles.filter(nested => nested.definitionId === nestedDefinitionChoice && !profilePath.some(pathProfile => (pathProfile.id || pathProfile.clientId) === nested.id) && !nestedProfiles.some(current => current.id === nested.id));
+    const nestedProfileOptions = availableNestedProfiles.filter(nested => nested.definitionId === nestedDefinitionChoice && !profilePath.some(pathProfile => (pathProfile.id || pathProfile.clientId) === nested.id) && !hasReusableProfile(nestedProfiles, nested.id));
     const addProfile = () => {
         if (!profileChoice) return;
         onAddProfileAtLevel(parentProfile?.id || parentProfile?.clientId || null, profileChoice);
@@ -445,7 +464,7 @@ function ConfigurationProfileNodeV2({ profile, depth, availableProfiles, availab
     const showDefinitionLabel = definitionLabel && definitionLabel.trim().toLowerCase() !== String(profile.name || '').trim().toLowerCase();
     const nested = profile.nestedProfiles || [];
     const parameters = profile.parameters || [];
-    const reusableNestedOptions = availableNestedProfiles.filter(nestedItem => nestedItem.definitionId === nestedDefinitionChoice && nestedItem.id !== parentId && !nested.some(current => current.id === nestedItem.id));
+    const reusableNestedOptions = availableNestedProfiles.filter(nestedItem => nestedItem.definitionId === nestedDefinitionChoice && nestedItem.id !== parentId && !hasReusableProfile(nested, nestedItem.id));
     const addNested = () => { if (nestedChoice) { onAddNested(parentId, nestedChoice); onOpenNested(nestedChoice); setNestedChoice(''); } };
     const addNestedDefinition = () => {
         if (!nestedDefinitionChoice) return;
@@ -528,7 +547,7 @@ function ConfigurationProfilesSectionV2({ profiles, availableProfiles, available
     const [expandedProfileId, setExpandedProfileId] = useState('');
     const [profileChoice, setProfileChoice] = useState('');
     const [reusableChoice, setReusableChoice] = useState('');
-    const reusableOptions = profileChoice ? availableNestedProfiles.filter(profile => profile.definitionId === profileChoice && !profiles.some(current => current.id === profile.id)) : [];
+    const reusableOptions = profileChoice ? availableNestedProfiles.filter(profile => profile.definitionId === profileChoice && !hasReusableProfile(profiles, profile.id)) : [];
     const addProfile = () => {
         if (!profileChoice) return;
         setExpandedProfileId(onAdd(profileChoice) || '');
@@ -701,6 +720,12 @@ function NativeServiceConfigurationsView({ service, actionState, onSave, onDupli
     const availableParameters = configurationData.availableParameters;
     const availableProfiles = configurationData.availableProfiles;
     const availableNestedProfiles = configurationData.availableNestedProfiles || [];
+    const configurationWarnings = configurationData.warnings || [];
+    const savedProfileIds = useMemo(() => new Set(
+        (configurations.find(version => version.id === versionId)?.profiles || [])
+            .map(profile => profile.id)
+            .filter(Boolean),
+    ), [configurations, versionId]);
     const selectedProfilePath = openProfileId && draft ? findConfigurationProfilePath(draft.profiles, openProfileId) : null;
     const selectedProfile = selectedProfilePath ? selectedProfilePath[selectedProfilePath.length - 1] : null;
     const profilesAtLevel = selectedProfilePath && selectedProfilePath.length > 1
@@ -796,20 +821,21 @@ function NativeServiceConfigurationsView({ service, actionState, onSave, onDupli
     };
     const addReusableProfile = profileId => {
         const reusable = availableNestedProfiles.find(item => item.id === profileId);
-        if (!reusable || !draft || draft.profiles.some(profile => profile.id === reusable.id)) return;
+        if (!reusable || !draft || hasReusableProfile(draft.profiles, reusable.id)) return;
         const newProfile = {
-            id: reusable.id,
-            clientId: '',
+            id: '',
+            clientId: `new-${crypto.randomUUID()}`,
             name: reusable.name,
             definitionId: reusable.definitionId,
             definitionName: reusable.definitionName,
             reusable: true,
+            reusableProfileId: reusable.id,
             mandatory: false,
             parameters: [],
             nestedProfiles: [],
         };
         setDraft(current => ({ ...current, profiles: sortConfigurationProfiles([...current.profiles, newProfile]) }));
-        return newProfile.id;
+        return newProfile.clientId;
     };
     const mapProfileTree = (profiles, updater) => profiles.map(profile => {
         const updated = updater(profile);
@@ -841,7 +867,17 @@ function NativeServiceConfigurationsView({ service, actionState, onSave, onDupli
     const addNestedProfile = (parentId, nestedId) => {
         const nested = availableNestedProfiles.find(profile => profile.id === nestedId);
         if (!nested || !draft || !nestedId) return;
-        setDraft(current => ({ ...current, profiles: mapProfileTree(current.profiles, profile => (profile.id === parentId || profile.clientId === parentId) ? { ...profile, nestedProfiles: profile.nestedProfiles.some(item => item.id === nestedId) ? profile.nestedProfiles : sortConfigurationProfiles([...profile.nestedProfiles, { ...nested, parameters: [], nestedProfiles: [] }]) } : profile) }));
+        setDraft(current => ({ ...current, profiles: mapProfileTree(current.profiles, profile => {
+            if (profile.id !== parentId && profile.clientId !== parentId) return profile;
+            if (hasReusableProfile(profile.nestedProfiles, nestedId)) return profile;
+            return {
+                ...profile,
+                nestedProfiles: sortConfigurationProfiles([
+                    ...profile.nestedProfiles,
+                    { ...nested, ...(nested.reusable ? { reusableProfileId: nested.id } : {}), parameters: [], nestedProfiles: [] },
+                ]),
+            };
+        }) }));
     };
     const removeNestedProfile = (parentId, nestedId) => setDraft(current => ({ ...current, profiles: mapProfileTree(current.profiles, profile => (profile.id === parentId || profile.clientId === parentId) ? { ...profile, nestedProfiles: profile.nestedProfiles.filter(item => (item.id || item.clientId) !== nestedId) } : profile) }));
     const addProfileParameter = (profileId, parameterId) => {
@@ -857,9 +893,11 @@ function NativeServiceConfigurationsView({ service, actionState, onSave, onDupli
         setDraft(current => ({ ...current, profiles: mapProfileTree(current.profiles, profile => (profile.id === profileId || profile.clientId === profileId) ? { ...profile, parameters: profile.parameters.filter(item => configurationParameterKey(item) !== configurationParameterKey(parameter)) } : profile) }));
     };
     const serializeProfile = profile => {
-        const { clientId, parameters, nestedProfiles, ...payload } = profile;
+        const { clientId, referenceId, reusableProfileId, parameters, nestedProfiles, ...payload } = profile;
+        const reusableReferenceId = profile.reusable ? reusableProfileId || referenceId || profile.id : '';
         return {
             ...payload,
+            ...(reusableReferenceId ? { reusableProfileId: reusableReferenceId } : {}),
             MandatoryAtService: profile.mandatoryAtService ?? profile.mandatory ?? false,
             MandatoryAtServiceOrder: profile.mandatoryAtOrder ?? profile.mandatoryAtServiceOrder ?? false,
             ExposeAtServiceOrder: profile.exposeAtOrder ?? profile.exposeAtServiceOrder ?? false,
@@ -885,7 +923,10 @@ function NativeServiceConfigurationsView({ service, actionState, onSave, onDupli
         };
     };
     const removeProfile = (id, definitionId, clientId) => {
-        if (id) setDeletedProfileIds(current => [...new Set([...current, id])]);
+        const profile = draft?.profiles.find(item => clientId
+            ? item.clientId === clientId
+            : item.id === id && item.definitionId === definitionId);
+        if (profile?.id && savedProfileIds.has(profile.id)) setDeletedProfileIds(current => [...new Set([...current, profile.id])]);
         setDraft(current => ({ ...current, profiles: current.profiles.filter(profile => clientId ? profile.clientId !== clientId : profile.id !== id || profile.definitionId !== definitionId) }));
     };
     const deleteVersion = async () => {
@@ -970,6 +1011,7 @@ function NativeServiceConfigurationsView({ service, actionState, onSave, onDupli
             </div>
         </div>
         {validationError && <div className="configuration-validation-error" role="alert"><span className="icon" aria-hidden="true">error</span>{validationError}</div>}
+        {configurationWarnings.map(warning => <div className="configuration-warning" role="status" key={warning}><span className="icon" aria-hidden="true">warning</span>{warning}</div>)}
         {data.status === 'loading' ? <div className="configuration-empty"><span className="icon spin" aria-hidden="true">refresh</span>{showVersionMetadata ? 'Loading configuration versions…' : 'Loading configuration parameters…'}</div>
             : data.status === 'error' ? <div className="configuration-empty error"><span className="icon" aria-hidden="true">error</span>{data.error}<button className="quiet-button" type="button" onClick={data.reload}>Retry</button></div>
                 : configurations.length === 0 && !draft ? <div className={allowInitialVersion ? 'configuration-empty initial-version-empty' : 'configuration-empty'}><span className="icon" aria-hidden="true">tune</span><span>{showVersionMetadata ? 'No configuration versions are defined for this service yet.' : 'No configuration parameters are available for this order item.'}</span>{allowInitialVersion && <button className="primary-button" type="button" onClick={addInitialVersion} disabled={busy}>Add initial version</button>}</div>
@@ -1718,7 +1760,7 @@ function useCursorList({ pageSize, fetchPage, query = {} }) {
             return result.items;
         }, error => {
             if (currentRequest === request.current && !(error instanceof DataMinerAuthError)) {
-                setState(current => ({ ...current, status: 'error', items: [], error: error?.message || 'Unknown error.', updatedAt: null }));
+                setState(current => ({ ...current, status: 'error', items: [], error: userFacingErrorMessage(error, 'Unknown error.'), updatedAt: null }));
             }
             if (rejectOnError) throw error;
             return [];
@@ -1765,11 +1807,11 @@ function useAutomationActions() {
             setState({ status: 'success', message: `${label} completed.` });
             return true;
         } catch (error) {
-            setState({ status: 'error', message: error?.message || `${label} failed.` });
+            setState({ status: 'error', message: userFacingErrorMessage(error, `${label} failed.`) });
             return false;
         }
     }, []);
-    return { state, runApi, fail: message => setState({ status: 'error', message }), notify: (status, message) => setState({ status, message }), dismiss: () => setState(null) };
+    return { state, runApi, fail: message => setState({ status: 'error', message: userFacingErrorMessage(message, 'The action failed.') }), notify: (status, message) => setState({ status, message }), dismiss: () => setState(null) };
 }
 
 function ActionNotice({ state, onDismiss }) {
@@ -2395,7 +2437,7 @@ function useOrderItems(order, refreshKey = 0) {
     useEffect(() => {
         let active = true;
         setState({ status: 'loading', items: [], error: '' });
-        fetchServiceOrderItems({ id, orderId }).then(items => { if (active) setState({ status: 'ready', items, error: '' }); }, error => { if (active && !(error instanceof DataMinerAuthError)) setState({ status: 'error', items: [], error: error?.message || 'Unknown error.' }); });
+        fetchServiceOrderItems({ id, orderId }).then(items => { if (active) setState({ status: 'ready', items, error: '' }); }, error => { if (active && !(error instanceof DataMinerAuthError)) setState({ status: 'error', items: [], error: userFacingErrorMessage(error, 'Unknown error.') }); });
         return () => { active = false; };
     }, [id, orderId, attempt, refreshKey]);
     return { ...state, retry: () => setAttempt(value => value + 1) };

@@ -97,6 +97,7 @@
 			}
 			catch (InvalidConfigurationException ex)
 			{
+				_logger.LogWarning(ex, "Invalid SaveServiceSpecificationConfiguration request: {Message} {Details}", ex.Message, ex.TechnicalDetails);
 				return BadRequest(CreateError("Invalid request", ex.Message, 400));
 			}
 			catch (Exception ex)

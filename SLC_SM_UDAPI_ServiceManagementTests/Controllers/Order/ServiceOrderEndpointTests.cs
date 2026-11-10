@@ -479,6 +479,111 @@
 			Assert.AreEqual(0, StoredServices.Count);
 		}
 
+		[TestMethod]
+		public void TransitionServiceOrder_StartWithServiceMandatoryEmptyValue_Returns409NamingItemAndParameter()
+		{
+			var item = AddItem("Acknowledged");
+			var specification = AddSpecification();
+			item.ServiceInfo.SpecificationId = new Skyline.DataMiner.SDM.SdmObjectReference<ServiceSpecification>(specification.ToString());
+			AddOrder("Acknowledged", item);
+
+			var parameter = new Cfg.ConfigurationParameter { Identifier = Guid.NewGuid().ToString(), Name = "Bitrate" };
+			var value = new Cfg.ConfigurationParameterValue
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				ConfigurationParameterId = new Skyline.DataMiner.SDM.SdmObjectReference<Cfg.ConfigurationParameter>(parameter.Identifier),
+			};
+			var specificationConfiguration = new ServiceSpecificationConfigurationValue
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				ConfigurationParameterId = new Skyline.DataMiner.SDM.SdmObjectReference<Cfg.ConfigurationParameter>(parameter.Identifier),
+				MandatoryAtService = true,
+			};
+			var itemConfiguration = new ServiceOrderItemConfigurationValue
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				ConfigurationParameterValueId = new Skyline.DataMiner.SDM.SdmObjectReference<Cfg.ConfigurationParameterValue>(value.Identifier),
+				Mandatory = false,
+			};
+			StoredSpecifications.Single(candidate => candidate.Identifier == specification.ToString()).ConfigurationParameters =
+				new List<Skyline.DataMiner.SDM.SdmObjectReference<ServiceSpecificationConfigurationValue>>
+				{
+					new Skyline.DataMiner.SDM.SdmObjectReference<ServiceSpecificationConfigurationValue>(specificationConfiguration.Identifier),
+				};
+			item.ServiceInfo.Configurations = new List<Skyline.DataMiner.SDM.SdmObjectReference<ServiceOrderItemConfigurationValue>>
+			{
+				new Skyline.DataMiner.SDM.SdmObjectReference<ServiceOrderItemConfigurationValue>(itemConfiguration.Identifier),
+			};
+
+			Mock.Get(Helper.ServiceCatalog).SetupGet(api => api.ServiceSpecificationConfigurationValues)
+				.Returns(InitializationRepository(new List<ServiceSpecificationConfigurationValue> { specificationConfiguration }).Object);
+			Mock.Get(Helper.ServiceCatalog).SetupGet(api => api.ConfigurationParameters)
+				.Returns(InitializationRepository(new List<Cfg.ConfigurationParameter> { parameter }).Object);
+			Mock.Get(Helper.ServiceCatalog).SetupGet(api => api.ConfigurationParameterValues)
+				.Returns(InitializationRepository(new List<Cfg.ConfigurationParameterValue> { value }).Object);
+			Mock.Get(Helper.ServiceOrder).SetupGet(api => api.ServiceOrderItemConfigurationValues)
+				.Returns(InitializationRepository(new List<ServiceOrderItemConfigurationValue> { itemConfiguration }).Object);
+
+			var result = Controller.TransitionServiceOrder(OrderId, new TransitionServiceOrderRequest { TargetStatus = "inProgress" });
+
+			Assert.AreEqual(409, StatusCode(result));
+			StringAssert.Contains(ErrorDetail(result), "(Bitrate)");
+			Items.Verify(r => r.TransitionStatus(It.IsAny<ServiceOrderItem>(), It.IsAny<ItemTransition>()), Times.Never);
+			Assert.AreEqual(0, StoredServices.Count);
+		}
+
+		[TestMethod]
+		public void TransitionServiceOrder_StartWithServiceMandatoryDefaultNotOnItem_StartsAndCopiesDefault()
+		{
+			var item = AddItem("Acknowledged");
+			var specification = AddSpecification();
+			item.ServiceInfo.SpecificationId = new Skyline.DataMiner.SDM.SdmObjectReference<ServiceSpecification>(specification.ToString());
+			AddOrder("Acknowledged", item);
+
+			var parameter = new Cfg.ConfigurationParameter { Identifier = Guid.NewGuid().ToString(), Name = "Protocol" };
+			var defaultValue = new Cfg.ConfigurationParameterValue
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				ConfigurationParameterId = new Skyline.DataMiner.SDM.SdmObjectReference<Cfg.ConfigurationParameter>(parameter.Identifier),
+				StringValue = "SRT",
+			};
+			var specificationConfiguration = new ServiceSpecificationConfigurationValue
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				ConfigurationParameterId = new Skyline.DataMiner.SDM.SdmObjectReference<Cfg.ConfigurationParameter>(defaultValue.Identifier),
+				MandatoryAtService = true,
+			};
+			StoredSpecifications.Single(candidate => candidate.Identifier == specification.ToString()).ConfigurationParameters =
+				new List<Skyline.DataMiner.SDM.SdmObjectReference<ServiceSpecificationConfigurationValue>>
+				{
+					new Skyline.DataMiner.SDM.SdmObjectReference<ServiceSpecificationConfigurationValue>(specificationConfiguration.Identifier),
+				};
+
+			var parameterValues = new List<Cfg.ConfigurationParameterValue> { defaultValue };
+			var configurations = new List<ServiceConfigurationValue>();
+			Mock.Get(Helper.ServiceCatalog).SetupGet(api => api.ServiceSpecificationConfigurationValues)
+				.Returns(InitializationRepository(new List<ServiceSpecificationConfigurationValue> { specificationConfiguration }).Object);
+			Mock.Get(Helper.ServiceCatalog).SetupGet(api => api.ConfigurationParameters)
+				.Returns(InitializationRepository(new List<Cfg.ConfigurationParameter> { parameter }).Object);
+			Mock.Get(Helper.ServiceCatalog).SetupGet(api => api.ConfigurationParameterValues)
+				.Returns(InitializationRepository(parameterValues).Object);
+			Mock.Get(Helper.ServiceOrder).SetupGet(api => api.ServiceOrderItemConfigurationValues)
+				.Returns(InitializationRepository(new List<ServiceOrderItemConfigurationValue>()).Object);
+			Mock.Get(Helper.ServiceInventory).SetupGet(api => api.ServiceConfigurationValues).Returns(InitializationRepository(configurations).Object);
+			Mock.Get(Helper.ServiceInventory).SetupGet(api => api.ServiceConfigurationVersions)
+				.Returns(InitializationRepository(new List<ServiceConfigurationVersion>()).Object);
+
+			var result = Controller.TransitionServiceOrder(OrderId, new TransitionServiceOrderRequest { TargetStatus = "inProgress" });
+
+			Assert.AreEqual(200, StatusCode(result));
+			Assert.AreEqual(1, StoredServices.Count);
+			var copied = configurations.Single();
+			Assert.IsTrue(copied.Mandatory);
+			var copiedValue = parameterValues.Single(value => value.Identifier == copied.ConfigurationParameterId.Identifier);
+			Assert.AreNotEqual(defaultValue.Identifier, copiedValue.Identifier);
+			Assert.AreEqual("SRT", copiedValue.StringValue);
+		}
+
 		[DataTestMethod]
 		[DataRow("New", "Rejected", "acknowledged", "")]
 		[DataRow("Acknowledged", "Acknowledged", "rejected", "Active")]

@@ -253,6 +253,8 @@ const CONFIGURATION_COLUMNS = {
     parameterValue: 'Parameter Value',
     mandatory: 'Mandatory',
     profileId: 'Profile ID',
+    profileReferenceId: 'Profile Reference ID',
+    warning: 'Warning',
     profileName: 'Profile Name',
     profileDefinitionId: 'Profile Definition ID',
     profileDefinitionName: 'Profile Definition Name',
@@ -297,6 +299,7 @@ export function mapServiceConfigurationRows(rows) {
     const availableParameters = [];
     const availableProfiles = [];
     const availableNestedProfiles = [];
+    const warnings = [];
     const parameterDetails = row => ({
         label: row['Parameter Label'] ?? '',
         isLinked: String(row['Parameter Is Linked'] ?? '').toLowerCase() === 'true',
@@ -345,6 +348,7 @@ export function mapServiceConfigurationRows(rows) {
         if (!profile) {
             profile = {
                 id,
+                referenceId: fields.referenceId ?? '',
                 name: fields.name ?? '',
                 definitionId: fields.definitionId ?? '',
                 definitionName: fields.definitionName ?? '',
@@ -360,6 +364,7 @@ export function mapServiceConfigurationRows(rows) {
         }
         else {
             profile.name ||= fields.name ?? '';
+            profile.referenceId ||= fields.referenceId ?? '';
             profile.definitionId ||= fields.definitionId ?? '';
             profile.definitionName ||= fields.definitionName ?? '';
             profile.reusable ||= fields.reusable ?? false;
@@ -388,6 +393,11 @@ export function mapServiceConfigurationRows(rows) {
     };
     rows.forEach(row => {
         const recordType = row['Record Type'] ?? '';
+        if (recordType === 'Warning') {
+            const warning = String(row.Warning ?? '').trim();
+            if (warning && !warnings.includes(warning)) warnings.push(warning);
+            return;
+        }
         if (recordType === 'AvailableParameter') {
             addUnique(availableParameters, { id: row['Parameter ID'] ?? '', name: row['Parameter Name'] ?? '', type: row['Parameter Type'] ?? '', options: parseDiscreteOptions(row['Parameter Options'], row['Parameter Name']), ...parameterDetails(row) });
             return;
@@ -429,6 +439,7 @@ export function mapServiceConfigurationRows(rows) {
                 name: row['Profile Name'] ?? '',
                 definitionId: row['Profile Definition ID'] ?? '',
                 definitionName: row['Profile Definition Name'] ?? '',
+                referenceId: row['Profile Reference ID'] ?? '',
                 reusable: String(row['Profile Reusable']).toLowerCase() === 'true',
                 mandatory: String(row['Profile Mandatory']).toLowerCase() === 'true',
                 exposeAtOrder: String(row['Expose At Order']).toLowerCase() === 'true',
@@ -439,6 +450,7 @@ export function mapServiceConfigurationRows(rows) {
                 name: row['Nested Profile Name'] ?? '',
                 definitionId: row['Nested Profile Definition ID'] ?? '',
                 definitionName: row['Nested Profile Definition Name'] ?? '',
+                referenceId: '',
                 reusable: availableNestedProfiles.some(item => item.id === nestedProfileId && item.reusable),
                 mandatory: String(row['Profile Mandatory']).toLowerCase() === 'true',
                 exposeAtOrder: String(row['Expose At Order']).toLowerCase() === 'true',
@@ -457,6 +469,7 @@ export function mapServiceConfigurationRows(rows) {
                 name: row['Profile Name'] ?? '',
                 definitionId: row['Profile Definition ID'] ?? '',
                 definitionName: row['Profile Definition Name'] ?? '',
+                referenceId: row['Profile Reference ID'] ?? '',
                 reusable: String(row['Profile Reusable']).toLowerCase() === 'true',
                 mandatory: String(row['Profile Mandatory']).toLowerCase() === 'true',
             });
@@ -497,6 +510,7 @@ export function mapServiceConfigurationRows(rows) {
         availableParameters: availableParameters.sort(compareByName),
         availableProfiles: availableProfiles.sort(compareByName),
         availableNestedProfiles: availableNestedProfiles.sort(compareByName),
+        warnings,
     };
 }
 

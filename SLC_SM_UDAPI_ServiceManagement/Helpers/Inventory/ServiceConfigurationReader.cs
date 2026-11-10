@@ -154,7 +154,8 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 
 		/// <summary>
 		/// Builds an unsaved version with the parameters and profiles of the service's specification, which the editor uses to
-		/// prefill a new configuration version. Profiles keep their catalog profile ID, so reusable ones can be referenced.
+		/// prefill a new configuration version. Top-level profiles use their specification assignment ID and keep their catalog
+		/// profile ID separately, so reusable profiles can be referenced without colliding with nested assignments.
 		/// </summary>
 		private FullServiceConfigurationVersion BuildSpecificationTemplate(
 			Service service,
@@ -236,7 +237,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 				definitions.TryGetValue(specificationProfile.ProfileDefinitionId.Identifier ?? String.Empty, out var definition);
 				template.Profiles.Add(new FullServiceProfile
 				{
-					Identifier = profile.Identifier,
+					Identifier = specificationProfile.Identifier,
 					Mandatory = specificationProfile.MandatoryAtService,
 					ProfileDefinition = definition,
 					Profile = profile,
@@ -426,7 +427,8 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 					mandatory,
 					mandatory,
 					parameter,
-					value));
+					value,
+					profile.Identifier));
 			}
 
 			foreach (var nested in profile.Profiles ?? new List<FullProfile>())
@@ -512,7 +514,9 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 			ProfileDefinition definition,
 			bool mandatory)
 		{
-			return NewRecord(version, isActive, "Profile", serviceProfileId, profile.Name, definition?.Identifier, definition?.Name, profile.IsReusable ?? false, mandatory);
+			var row = NewRecord(version, isActive, "Profile", serviceProfileId, profile.Name, definition?.Identifier, definition?.Name, profile.IsReusable ?? false, mandatory);
+			row.ProfileReferenceId = profile.Identifier ?? String.Empty;
+			return row;
 		}
 
 		private static ConfigurationRecord BuildNestedProfileRecord(
@@ -524,7 +528,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 			FullProfile nested,
 			ProfileDefinition nestedDefinition)
 		{
-			return NewRecord(
+			var row = NewRecord(
 				version,
 				isActive,
 				"NestedProfile",
@@ -538,6 +542,8 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 				nested.Name,
 				nestedDefinition?.Identifier,
 				nestedDefinition?.Name);
+			row.ProfileReferenceId = parent.Identifier ?? String.Empty;
+			return row;
 		}
 
 		private ConfigurationRecord BuildNestedProfileParameterRecord(
@@ -571,9 +577,11 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 			bool profileMandatory,
 			bool mandatory,
 			ConfigurationParameter parameter,
-			ConfigurationParameterValue value)
+			ConfigurationParameterValue value,
+			string profileReferenceId = null)
 		{
 			var row = NewRecord(version, isActive, recordType, profileId, profileName, profileDefinition?.Identifier, profileDefinition?.Name, profileReusable, profileMandatory);
+			row.ProfileReferenceId = profileReferenceId ?? String.Empty;
 			row.ConfigurationId = configurationId ?? String.Empty;
 			row.Mandatory = mandatory;
 			ApplyParameter(row, parameter, value, mandatory);
@@ -605,6 +613,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 				IsActive = isActive,
 				RecordType = recordType,
 				ProfileId = profileId ?? String.Empty,
+				ProfileReferenceId = String.Empty,
 				ProfileName = profileName ?? String.Empty,
 				ProfileDefinitionId = profileDefinitionId ?? String.Empty,
 				ProfileDefinitionName = profileDefinitionName ?? String.Empty,

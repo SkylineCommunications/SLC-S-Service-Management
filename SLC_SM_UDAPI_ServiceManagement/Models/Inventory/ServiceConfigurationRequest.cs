@@ -107,6 +107,9 @@ namespace SLC_SM_UDAPI_ServiceManagement.Models.Inventory
 		[JsonProperty("Reusable")]
 		public bool Reusable { get; set; }
 
+		[JsonProperty("ReusableProfileId")]
+		public string ReusableProfileId { get; set; }
+
 		[JsonProperty("Mandatory")]
 		public bool Mandatory { get; set; }
 

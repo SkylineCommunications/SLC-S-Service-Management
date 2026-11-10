@@ -224,6 +224,20 @@
 		}
 
 		[TestMethod]
+		public void CreateConfigurationVersion_ServiceUpdateFails_RemovesExplicitRecords()
+		{
+			var parameter = AddParameter("Bitrate", ParameterType.Number);
+			var request = ParameterRequest(new ConfigurationParameterValueRequest { ConfigurationParameterId = Guid.Parse(parameter.Identifier), DoubleValue = 10 });
+			Services.Setup(r => r.Update(It.IsAny<Service>())).Throws(new InvalidOperationException("update failed"));
+
+			Assert.AreEqual(500, StatusCode(Controller.CreateConfigurationVersion(service.ServiceID, request, activate: true)));
+
+			Assert.AreEqual(0, StoredParameterValues.Count);
+			Assert.AreEqual(0, StoredConfigurationValues.Count);
+			Assert.AreEqual(0, StoredVersions.Count);
+		}
+
+		[TestMethod]
 		public void CreateConfigurationVersion_InvalidType_Returns400()
 		{
 			var parameter = AddParameter("Name", ParameterType.Text);
@@ -285,6 +299,80 @@
 			Assert.AreEqual(parameter.Identifier, record.ParameterId);
 			Assert.AreEqual(String.IsNullOrWhiteSpace(value), Boolean.Parse(record.ParameterNotApplicable));
 			Assert.AreEqual(String.IsNullOrWhiteSpace(value) ? String.Empty : value, record.ParameterValue);
+		}
+
+		[TestMethod]
+		public void SaveServiceConfiguration_TopLevelReusableProfile_LinksExistingProfileWithoutCopy()
+		{
+			var version = AddVersion(service, "v1");
+			var definition = new Cfg.ProfileDefinition { Identifier = Guid.NewGuid().ToString(), Name = "Transport" };
+			var reusable = new Cfg.Profile
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				Name = "Shared",
+				IsReusable = true,
+				ProfileDefinitionId = new SdmObjectReference<Cfg.ProfileDefinition>(definition.Identifier),
+			};
+			StoredProfileDefinitions.Add(definition);
+			StoredProfiles.Add(reusable);
+			var request = new ServiceConfigurationRequest
+			{
+				VersionId = version.Identifier,
+				VersionName = version.VersionName,
+				Profiles =
+				{
+					new ServiceConfigurationProfileRequest
+					{
+						Name = reusable.Name,
+						DefinitionId = definition.Identifier,
+						Reusable = true,
+						ReusableProfileId = reusable.Identifier,
+					},
+				},
+			};
+
+			var result = Controller.SaveServiceConfiguration(service.ServiceID, JObject.FromObject(request));
+
+			int statusCode = StatusCode(result);
+			Assert.AreEqual(200, statusCode, statusCode == 200 ? String.Empty : ErrorDetail(result));
+			Assert.AreEqual(1, StoredProfiles.Count);
+			Assert.AreEqual(1, StoredServiceProfiles.Count);
+			Assert.AreEqual(reusable.Identifier, StoredServiceProfiles[0].ProfileId.Identifier);
+			Assert.AreEqual(StoredServiceProfiles[0].Identifier, version.Profiles.Single().Identifier);
+		}
+
+		[TestMethod]
+		public void SaveServiceConfiguration_DuplicateTopLevelReusableProfiles_Returns400AndDoesNotCreateAssignments()
+		{
+			var version = AddVersion(service, "v1");
+			var definition = new Cfg.ProfileDefinition { Identifier = Guid.NewGuid().ToString(), Name = "Transport" };
+			var reusable = new Cfg.Profile
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				Name = "Shared",
+				IsReusable = true,
+				ProfileDefinitionId = new SdmObjectReference<Cfg.ProfileDefinition>(definition.Identifier),
+			};
+			StoredProfileDefinitions.Add(definition);
+			StoredProfiles.Add(reusable);
+			var request = new ServiceConfigurationRequest
+			{
+				VersionId = version.Identifier,
+				VersionName = version.VersionName,
+				Profiles =
+				{
+					new ServiceConfigurationProfileRequest { Name = "Shared 1", DefinitionId = definition.Identifier, Reusable = true, ReusableProfileId = reusable.Identifier },
+					new ServiceConfigurationProfileRequest { Name = "Shared 2", DefinitionId = definition.Identifier, Reusable = true, ReusableProfileId = reusable.Identifier },
+				},
+			};
+
+			var result = Controller.SaveServiceConfiguration(service.ServiceID, JObject.FromObject(request));
+
+			Assert.AreEqual(400, StatusCode(result));
+			StringAssert.Contains(ErrorDetail(result), "already assigned");
+			Assert.AreEqual(1, StoredProfiles.Count);
+			Assert.AreEqual(0, StoredServiceProfiles.Count);
+			Assert.AreEqual(0, version.Profiles.Count);
 		}
 
 		[TestMethod]
