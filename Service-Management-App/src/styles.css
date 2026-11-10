@@ -33,11 +33,6 @@ body.drawer-open { overflow:hidden; } .drawer-layer { position:fixed; inset:0; z
 .orders-page { max-width:1280px; padding-top:42px; }
 .orders-hero { display:flex; align-items:flex-end; justify-content:space-between; gap:32px; margin-bottom:28px; }
 .orders-heading { min-width:0; }
-.orders-eyebrow { display:flex; align-items:center; gap:12px; }
-.orders-eyebrow .eyebrow { margin-bottom:0; }
-.live-indicator { display:inline-flex; align-items:center; gap:6px; color:var(--color10); font-size:12px; }
-.live-indicator > span { width:7px; height:7px; border-radius:50%; background:var(--success); box-shadow:0 0 0 3px color-mix(in srgb, var(--success) 14%, transparent); }
-.live-indicator.preview > span { background:var(--palette-color3); box-shadow:0 0 0 3px color-mix(in srgb, var(--palette-color3) 14%, transparent); }
 .orders-heading h1 { margin-top:12px; margin-bottom:8px; }
 .orders-heading .description { max-width:600px; }
 .page-header-actions { display:flex; align-items:center; gap:12px; flex-shrink:0; }
@@ -152,7 +147,6 @@ input[type="search"]::-ms-clear, input[type="search"]::-ms-reveal { display:none
 }
 @media (max-width:560px) {
     .orders-page { padding-left:16px; padding-right:16px; }
-    .orders-eyebrow { align-items:flex-start; flex-direction:column; gap:7px; }
     .orders-heading h1 { margin-top:10px; }
     .page-header-actions { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
     .page-header-update { grid-column:1 / -1; }
@@ -621,10 +615,6 @@ button.configuration-nested-chip { width:100%; min-height:36px; justify-content:
 @media (prefers-reduced-motion:reduce) {
     .catalog-page .service-metric, .catalog-page .catalog-row { animation:none; transition:none; }
 }
-.overview-heading-meta { display:flex; align-items:center; gap:12px; }
-.overview-heading-meta .eyebrow { margin-bottom:0; }
-.overview-status { display:inline-flex; align-items:center; gap:7px; color:var(--color10); font-size:11px; }
-.overview-status > span { width:7px; height:7px; border-radius:50%; background:var(--success); box-shadow:0 0 0 3px color-mix(in srgb, var(--success) 14%, transparent); }
 .overview-metric { animation:overview-rise .42s ease both; }
 .overview-metric:nth-child(2) { animation-delay:.06s; }
 .overview-metric:nth-child(3) { animation-delay:.12s; }

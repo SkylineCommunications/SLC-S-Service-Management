@@ -140,7 +140,7 @@ function OverviewPage() {
         ? new Date(Math.min(orderData.updatedAt.getTime(), serviceData.updatedAt.getTime(), catalogData.updatedAt.getTime()))
         : null;
     return <main className="page-content overview-page">
-        <section className="overview-hero"><div><div className="overview-heading-meta"><p className="eyebrow">Workspace overview</p><span className="overview-status"><span aria-hidden="true" />Operational view</span></div><h1>Service Management</h1><p className="description">Monitor service orders, inventory, and the catalog from one operational view.</p></div><PageHeaderActions updatedAt={overviewUpdatedAt} loading={overviewLoading} onRefresh={reloadAll} /></section>
+        <section className="overview-hero"><div><p className="eyebrow">Workspace overview</p><h1>Service Management</h1><p className="description">Monitor service orders, inventory, and the catalog from one operational view.</p></div><PageHeaderActions updatedAt={overviewUpdatedAt} loading={overviewLoading} onRefresh={reloadAll} /></section>
         <section className="overview-metrics" aria-label="Workspace metrics">
             <OverviewMetric href="#orders" label="Open orders" value={ordersReady ? openOrders : '—'} note={ordersReady ? `${orderOverview.totalCount} total orders` : 'Waiting for DataMiner'} accent="--palette-color4" icon="assignment" />
             <OverviewMetric href="#orders" label="Orders needing attention" value={ordersReady ? attentionOrders : '—'} note="Held, partially failed, rejected, or cancelling" accent="--palette-color3" icon="error" />
@@ -2765,7 +2765,6 @@ function OrdersPage({ selectedId }) {
     const attentionCount = metrics?.attentionCount;
     const completedCount = metrics?.completedCount;
     const selectedOrder = selectedId ? orders.find(order => order.id === selectedId) : null;
-    const isPreviewData = import.meta.env.MODE === 'mock' || import.meta.env.VITE_USE_MOCK === 'true';
     const closeDetails = useCallback(() => { location.hash = 'orders'; }, []);
     const createOrder = () => setNewOrderOpen(true);
     const submitNewOrder = async (_values, fields) => {
@@ -2809,7 +2808,7 @@ function OrdersPage({ selectedId }) {
     else body = <div className="orders-table-wrap" aria-busy={loading}><table className="orders-table"><colgroup><col className="order-column" /><col className="organization-column" /><col className="priority-column" /><col className="state-column" /><col className="description-column" /><col className="action-column" /></colgroup><thead><tr><th scope="col">{sortButton('name', 'Order')}</th><th scope="col">Organization</th><th scope="col">Priority</th><th scope="col">State</th><th scope="col">Description</th><th scope="col"><span className="sr-only">Open</span></th></tr></thead><tbody>{orders.map((order, index) => <tr className={order.id && order.id === selectedId ? 'order-row selected' : 'order-row'} key={`${order.id || order.name || 'order'}-${index}`} onDoubleClick={() => openOrder(order)}><td><div className="table-order-cell"><span className="order-icon"><span className="icon" aria-hidden="true">assignment</span></span><span className="table-cell-main"><strong>{order.name || 'Unnamed order'}</strong><span>{orderReference(order) || 'No external ID'}</span></span></div></td><td><span className="table-primary">{order.organization || '—'}</span></td><td><span className={`priority-chip ${order.priority.trim().toLowerCase() || 'none'}`}><span className="priority-dot" aria-hidden="true" />{order.priority ? `${order.priority} priority` : 'No priority'}</span></td><td><span className={`state-badge ${stateTone(order.state)}`}>{order.state || 'Unknown'}</span></td><td><span className="table-description" title={order.description || undefined}>{order.description || 'No description'}</span></td><td className="table-action"><button className="table-row-open" type="button" aria-label={`Open details of ${order.name || 'unnamed order'}`} onClick={() => openOrder(order)}><span className="icon" aria-hidden="true">chevron_right</span></button></td></tr>)}</tbody></table></div>;
     return <main className="page-content orders-page">
         <section className="orders-hero">
-            <div className="orders-heading"><div className="orders-eyebrow"><p className="eyebrow">{pages.orders.eyebrow}</p><span className={isPreviewData ? 'live-indicator preview' : 'live-indicator'}><span aria-hidden="true" />{isPreviewData ? 'Preview data' : 'DataMiner data'}</span></div><h1>Orders</h1><p className="description">A clear view of every service order, from request to completion.</p></div>
+            <div className="orders-heading"><p className="eyebrow">{pages.orders.eyebrow}</p><h1>Orders</h1><p className="description">A clear view of every service order, from request to completion.</p></div>
             <PageHeaderActions
                 updatedAt={updatedAt}
                 loading={loading}
