@@ -256,17 +256,17 @@ namespace SLC_ServiceManagement.SolutionInstallerHelper
 		}
 
 		/// <summary>
-		/// Registers the solution, with the version of the package being installed, in the SDM registry.
+		/// Registers the solution in the SDM registry with <see cref="Constants.SolutionVersion"/>, not the converted .dmapp version.
 		/// </summary>
 		/// <exception cref="InvalidOperationException">The registration subscript reported an error.</exception>
 		public void RegisterSolution()
 		{
-			_installer.Log($"Registering Solution {Constants.SolutionDisplayName} [{Constants.SolutionCatalogId}] with version {_context.AppInfo.Version} in SDM...");
+			_installer.Log($"Registering Solution {Constants.SolutionDisplayName} [{Constants.SolutionCatalogId}] with version {Constants.SolutionVersion} in SDM...");
 
 			var subscript = _engine.PrepareSubScript(Constants.SolutionRegisterScriptName);
 			subscript.SelectScriptParam("Id", Constants.SolutionCatalogId);
 			subscript.SelectScriptParam("DisplayName", Constants.SolutionDisplayName);
-			subscript.SelectScriptParam("Version", _context.AppInfo.Version);
+			subscript.SelectScriptParam("Version", Constants.SolutionVersion);
 
 			subscript.Synchronous = true;
 			subscript.ExtendedErrorInfo = true;
