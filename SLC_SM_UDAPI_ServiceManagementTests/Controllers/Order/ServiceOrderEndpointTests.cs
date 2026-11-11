@@ -584,6 +584,43 @@
 			Assert.AreEqual("SRT", copiedValue.StringValue);
 		}
 
+		[TestMethod]
+		public void TransitionServiceOrder_StartWithEmptyOptionalRepeatedInstance_Starts()
+		{
+			var scenario = SetupRepeatedSpecificationScenario(
+				"Acknowledged",
+				"Acknowledged",
+				mainSpecificationHasDefault: true,
+				mainItemPresent: true,
+				mainItemHasValue: true,
+				backupItemHasValue: false);
+
+			var result = Controller.TransitionServiceOrder(OrderId, new TransitionServiceOrderRequest { TargetStatus = "inProgress" });
+
+			Assert.AreEqual(200, StatusCode(result));
+			Assert.AreEqual(1, StoredServices.Count);
+			Assert.AreEqual(1, scenario.Versions.Count);
+		}
+
+		[TestMethod]
+		public void TransitionServiceOrder_StartWithMissingMandatoryRepeatedInstanceIsNotMaskedByOptionalSibling()
+		{
+			var scenario = SetupRepeatedSpecificationScenario(
+				"Acknowledged",
+				"Acknowledged",
+				mainSpecificationHasDefault: false,
+				mainItemPresent: false,
+				mainItemHasValue: false,
+				backupItemHasValue: true);
+
+			var result = Controller.TransitionServiceOrder(OrderId, new TransitionServiceOrderRequest { TargetStatus = "inProgress" });
+
+			Assert.AreEqual(409, StatusCode(result));
+			StringAssert.Contains(ErrorDetail(result), "(Transport)");
+			Items.Verify(r => r.TransitionStatus(It.IsAny<ServiceOrderItem>(), It.IsAny<ItemTransition>()), Times.Never);
+			Assert.AreEqual(0, StoredServices.Count);
+		}
+
 		[DataTestMethod]
 		[DataRow("New", "Rejected", "acknowledged", "")]
 		[DataRow("Acknowledged", "Acknowledged", "rejected", "Active")]

@@ -42,6 +42,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 				filter => _api.ServiceOrder.ServiceOrderItemConfigurationValues.Read(filter),
 				value => value.Identifier);
 			var specificationParameters = ReadSpecificationParameters(specification);
+
 			// Order items only hold standalone parameters, so the specification's profiles are not copied to the service.
 			var specificationData = LoadSpecificationData(
 				specification,
@@ -63,112 +64,34 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 			// Order item values only carry the order-stage flag, so the service-stage flag comes from the matching
 			// specification instance. Values created for an order item have new identifiers, so matching also uses the
 			// parameter label and finally the specification order for references without a default value.
-			var specificationInstances = specificationParameters
-				.Select(configuration =>
-				{
-					string reference = configuration.ConfigurationParameterId.Identifier ?? String.Empty;
-					values.TryGetValue(reference, out var specificationValue);
-					return new SpecificationParameterInstance
-					{
-						ReferenceId = reference,
-						ParameterId = specificationValue?.ConfigurationParameterId.Identifier ?? reference,
-						Label = specificationValue?.Label ?? String.Empty,
-						Mandatory = configuration.MandatoryAtService,
-					};
-				})
-				.Where(instance => !String.IsNullOrWhiteSpace(instance.ReferenceId))
+			var specificationInstances = SpecificationParameterInstance.Create(specificationParameters, values);
+			var itemValues = sourceIds
+				.Select(id => values[configurations[id].ConfigurationParameterValueId.Identifier])
 				.ToList();
+			var matches = SpecificationParameterInstanceMatcher.MatchAll(
+				itemValues,
+				specificationInstances,
+				(value, candidates) => _logger?.LogWarning(
+					"Order item {ItemId}: value {ValueId} of parameter {ParameterId} matches {Count} specification instances; the first unlabelled or first instance is used.",
+					item.Identifier,
+					value.Identifier,
+					value.ConfigurationParameterId.Identifier,
+					candidates));
 
 			var sources = sourceIds
-				.Select(id =>
+				.Select((id, index) => new ParameterSource
 				{
-					var configuration = configurations[id];
-					var value = values[configuration.ConfigurationParameterValueId.Identifier];
-					string parameterId = value.ConfigurationParameterId.Identifier ?? String.Empty;
-					var specificationInstance = FindSpecificationParameterInstance(value, specificationInstances);
-					if (specificationInstance != null)
-					{
-						specificationInstances.Remove(specificationInstance);
-					}
-
-					return new ParameterSource
-					{
-						ValueId = value.Identifier,
-						Mandatory = specificationInstance?.Mandatory ?? configuration.Mandatory,
-					};
+					ValueId = itemValues[index].Identifier,
+					Mandatory = matches[index]?.MandatoryAtService ?? configurations[id].Mandatory,
 				})
 				.ToList();
 
 			// A mandatory-at-service parameter that is not on the order item gets its specification default, so the service is complete.
-			var copiedParameterIds = new HashSet<string>(
-				sources.Select(source => values[source.ValueId].ConfigurationParameterId.Identifier ?? String.Empty),
-				StringComparer.OrdinalIgnoreCase);
-			foreach (var instance in specificationInstances)
-			{
-				if (instance.Mandatory
-					&& values.TryGetValue(instance.ReferenceId, out var specificationValue)
-					&& HasValue(specificationValue)
-					&& copiedParameterIds.Add(instance.ParameterId))
-				{
-					sources.Add(new ParameterSource { ValueId = instance.ReferenceId, Mandatory = true });
-				}
-			}
+			sources.AddRange(specificationInstances
+				.Where(instance => instance.MandatoryAtService && instance.HasDefault)
+				.Select(instance => new ParameterSource { ValueId = instance.ReferenceId, Mandatory = true }));
 
 			CreateActiveVersion(service, "Order item configuration", item.Description, item.StartTime, item.EndTime, sources, specificationData, cleanup);
-		}
-
-		private SpecificationParameterInstance FindSpecificationParameterInstance(
-			ConfigurationParameterValue value,
-			IList<SpecificationParameterInstance> instances)
-		{
-			if (value == null)
-			{
-				return null;
-			}
-
-			string valueId = value.Identifier ?? String.Empty;
-			var instance = instances.FirstOrDefault(candidate => String.Equals(candidate.ReferenceId, valueId, StringComparison.OrdinalIgnoreCase));
-			if (instance != null)
-			{
-				return instance;
-			}
-
-			string parameterId = value.ConfigurationParameterId.Identifier ?? String.Empty;
-			string label = value.Label ?? String.Empty;
-			instance = instances.FirstOrDefault(candidate =>
-				String.Equals(candidate.ParameterId, parameterId, StringComparison.OrdinalIgnoreCase)
-				&& HasSameLabel(candidate.Label, label));
-			if (instance != null)
-			{
-				return instance;
-			}
-
-			// Order item values for parameters without a specification default have new IDs and no label, so prefer such candidates.
-			var candidates = instances
-				.Where(candidate => String.Equals(candidate.ParameterId, parameterId, StringComparison.OrdinalIgnoreCase))
-				.ToList();
-			if (candidates.Count > 1)
-			{
-				_logger?.LogWarning(
-					"Order item value {ValueId} matches {Count} specification instances of parameter {ParameterId}; the mandatory flag is taken from the first unlabeled one.",
-					valueId,
-					candidates.Count,
-					parameterId);
-			}
-
-			return candidates.FirstOrDefault(candidate => String.IsNullOrWhiteSpace(candidate.Label)) ?? candidates.FirstOrDefault();
-		}
-
-		private static bool HasValue(ConfigurationParameterValue value)
-		{
-			return value != null && (!String.IsNullOrWhiteSpace(value.StringValue) || value.DoubleValue != null);
-		}
-
-		private static bool HasSameLabel(string left, string right)
-		{
-			return !String.IsNullOrWhiteSpace(left)
-				&& !String.IsNullOrWhiteSpace(right)
-				&& String.Equals(left.Trim(), right.Trim(), StringComparison.OrdinalIgnoreCase);
 		}
 
 		/// <summary>
@@ -955,17 +878,6 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 			public string ValueId { get; set; }
 
 			public string ParameterId { get; set; }
-
-			public bool Mandatory { get; set; }
-		}
-
-		private sealed class SpecificationParameterInstance
-		{
-			public string ReferenceId { get; set; }
-
-			public string ParameterId { get; set; }
-
-			public string Label { get; set; }
 
 			public bool Mandatory { get; set; }
 		}

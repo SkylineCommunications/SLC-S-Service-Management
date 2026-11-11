@@ -413,111 +413,61 @@
 		[TestMethod]
 		public void InitializeService_RepeatedSpecificationParametersKeepMandatoryFlagPerInstance()
 		{
-			var item = AddItem();
-			Guid specificationId = AddSpecification();
-			item.ServiceInfo.SpecificationId = new SdmObjectReference<ServiceSpecification>(specificationId.ToString());
-			AddOrder("New", item);
+			var scenario = SetupRepeatedSpecificationScenario(
+				"New",
+				"New",
+				mainSpecificationHasDefault: true,
+				mainItemPresent: true,
+				mainItemHasValue: true,
+				backupItemHasValue: false);
 
-			var parameter = new Cfg.ConfigurationParameter { Identifier = Guid.NewGuid().ToString(), Name = "Transport" };
-			var mainSpecificationValue = new Cfg.ConfigurationParameterValue
-			{
-				Identifier = Guid.NewGuid().ToString(),
-				Label = "Main",
-				ConfigurationParameterId = new SdmObjectReference<Cfg.ConfigurationParameter>(parameter.Identifier),
-				StringValue = "SRT",
-			};
-			var backupSpecificationValue = new Cfg.ConfigurationParameterValue
-			{
-				Identifier = Guid.NewGuid().ToString(),
-				Label = "Backup",
-				ConfigurationParameterId = new SdmObjectReference<Cfg.ConfigurationParameter>(parameter.Identifier),
-				StringValue = "RTP",
-			};
-			var mainSpecificationConfiguration = new ServiceSpecificationConfigurationValue
-			{
-				Identifier = Guid.NewGuid().ToString(),
-				ConfigurationParameterId = new SdmObjectReference<Cfg.ConfigurationParameter>(mainSpecificationValue.Identifier),
-				MandatoryAtService = true,
-			};
-			var backupSpecificationConfiguration = new ServiceSpecificationConfigurationValue
-			{
-				Identifier = Guid.NewGuid().ToString(),
-				ConfigurationParameterId = new SdmObjectReference<Cfg.ConfigurationParameter>(backupSpecificationValue.Identifier),
-				MandatoryAtService = false,
-			};
-			StoredSpecifications.Single(specification => specification.Identifier == specificationId.ToString()).ConfigurationParameters =
-				new List<SdmObjectReference<ServiceSpecificationConfigurationValue>>
-				{
-					new SdmObjectReference<ServiceSpecificationConfigurationValue>(mainSpecificationConfiguration.Identifier),
-					new SdmObjectReference<ServiceSpecificationConfigurationValue>(backupSpecificationConfiguration.Identifier),
-				};
+			Assert.AreEqual(201, StatusCode(Controller.InitializeServiceFromOrderItem(OrderId, scenario.Item.Identifier)));
 
-			var mainOrderValue = new Cfg.ConfigurationParameterValue
-			{
-				Identifier = Guid.NewGuid().ToString(),
-				Label = "Main",
-				ConfigurationParameterId = new SdmObjectReference<Cfg.ConfigurationParameter>(parameter.Identifier),
-				StringValue = "SRT",
-			};
-			var backupOrderValue = new Cfg.ConfigurationParameterValue
-			{
-				Identifier = Guid.NewGuid().ToString(),
-				Label = "Backup",
-				ConfigurationParameterId = new SdmObjectReference<Cfg.ConfigurationParameter>(parameter.Identifier),
-				StringValue = "RTP",
-			};
-			var mainItemConfiguration = new ServiceOrderItemConfigurationValue
-			{
-				Identifier = Guid.NewGuid().ToString(),
-				ConfigurationParameterValueId = new SdmObjectReference<Cfg.ConfigurationParameterValue>(mainOrderValue.Identifier),
-				Mandatory = false,
-			};
-			var backupItemConfiguration = new ServiceOrderItemConfigurationValue
-			{
-				Identifier = Guid.NewGuid().ToString(),
-				ConfigurationParameterValueId = new SdmObjectReference<Cfg.ConfigurationParameterValue>(backupOrderValue.Identifier),
-				Mandatory = false,
-			};
-			item.ServiceInfo.Configurations = new List<SdmObjectReference<ServiceOrderItemConfigurationValue>>
-			{
-				new SdmObjectReference<ServiceOrderItemConfigurationValue>(mainItemConfiguration.Identifier),
-				new SdmObjectReference<ServiceOrderItemConfigurationValue>(backupItemConfiguration.Identifier),
-			};
-
-			var specificationConfigurations = new List<ServiceSpecificationConfigurationValue>
-			{
-				mainSpecificationConfiguration,
-				backupSpecificationConfiguration,
-			};
-			var parameterValues = new List<Cfg.ConfigurationParameterValue>
-			{
-				mainSpecificationValue,
-				backupSpecificationValue,
-				mainOrderValue,
-				backupOrderValue,
-			};
-			var itemConfigurations = new List<ServiceOrderItemConfigurationValue> { mainItemConfiguration, backupItemConfiguration };
-			var configurations = new List<ServiceConfigurationValue>();
-			var versions = new List<ServiceConfigurationVersion>();
-			Mock.Get(Helper.ServiceCatalog).SetupGet(api => api.ConfigurationParameters)
-				.Returns(InitializationRepository(new List<Cfg.ConfigurationParameter> { parameter }).Object);
-			Mock.Get(Helper.ServiceCatalog).SetupGet(api => api.ServiceSpecificationConfigurationValues)
-				.Returns(InitializationRepository(specificationConfigurations).Object);
-			Mock.Get(Helper.ServiceCatalog).SetupGet(api => api.ConfigurationParameterValues)
-				.Returns(InitializationRepository(parameterValues).Object);
-			Mock.Get(Helper.ServiceOrder).SetupGet(api => api.ServiceOrderItemConfigurationValues)
-				.Returns(InitializationRepository(itemConfigurations).Object);
-			Mock.Get(Helper.ServiceInventory).SetupGet(api => api.ServiceConfigurationValues)
-				.Returns(InitializationRepository(configurations).Object);
-			Mock.Get(Helper.ServiceInventory).SetupGet(api => api.ServiceConfigurationVersions)
-				.Returns(InitializationRepository(versions).Object);
-
-			Assert.AreEqual(201, StatusCode(Controller.InitializeServiceFromOrderItem(OrderId, item.Identifier)));
-
-			var fullVersion = new FullServiceBuilder(Helper).BuildVersion(versions.Single());
+			var fullVersion = new FullServiceBuilder(Helper).BuildVersion(scenario.Versions.Single());
 			var main = fullVersion.Parameters.Single(value => value.ConfigurationParameter.Label == "Main");
 			var backup = fullVersion.Parameters.Single(value => value.ConfigurationParameter.Label == "Backup");
 			Assert.IsTrue(main.Mandatory);
+			Assert.IsFalse(backup.Mandatory);
+			Assert.IsTrue(String.IsNullOrWhiteSpace(backup.ConfigurationParameter.StringValue));
+		}
+
+		[TestMethod]
+		public void InitializeService_MissingMandatoryRepeatedInstanceIsNotMaskedByOptionalSibling()
+		{
+			var scenario = SetupRepeatedSpecificationScenario(
+				"New",
+				"New",
+				mainSpecificationHasDefault: false,
+				mainItemPresent: false,
+				mainItemHasValue: false,
+				backupItemHasValue: true);
+
+			var result = Controller.InitializeServiceFromOrderItem(OrderId, scenario.Item.Identifier);
+
+			Assert.AreEqual(400, StatusCode(result));
+			StringAssert.Contains(ErrorDetail(result), "without a value: Transport");
+			Services.Verify(repository => repository.Create(It.IsAny<Service>()), Times.Never);
+		}
+
+		[TestMethod]
+		public void InitializeService_MissingMandatoryRepeatedInstanceCopiesItsDefault()
+		{
+			var scenario = SetupRepeatedSpecificationScenario(
+				"New",
+				"New",
+				mainSpecificationHasDefault: true,
+				mainItemPresent: false,
+				mainItemHasValue: false,
+				backupItemHasValue: true);
+
+			Assert.AreEqual(201, StatusCode(Controller.InitializeServiceFromOrderItem(OrderId, scenario.Item.Identifier)));
+
+			var fullVersion = new FullServiceBuilder(Helper).BuildVersion(scenario.Versions.Single());
+			var main = fullVersion.Parameters.Single(value => value.ConfigurationParameter.Label == "Main");
+			var backup = fullVersion.Parameters.Single(value => value.ConfigurationParameter.Label == "Backup");
+			Assert.AreEqual("SRT", main.ConfigurationParameter.StringValue);
+			Assert.IsTrue(main.Mandatory);
+			Assert.AreEqual("RTP", backup.ConfigurationParameter.StringValue);
 			Assert.IsFalse(backup.Mandatory);
 		}
 

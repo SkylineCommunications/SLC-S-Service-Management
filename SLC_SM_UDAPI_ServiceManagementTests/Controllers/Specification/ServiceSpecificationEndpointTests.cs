@@ -658,6 +658,41 @@
 		}
 
 		[TestMethod]
+		public void SaveConfiguration_TopLevelReusableProfileUsesLinkedProfileDefinition()
+		{
+			var spec = AddSpec("A");
+			var reusableDefinition = AddWithId(ProfileDefinitions, new ProfileDefinition { Name = "Reusable definition" });
+			var requestDefinition = AddWithId(ProfileDefinitions, new ProfileDefinition { Name = "Requested definition" });
+			var reusable = AddWithId(Profiles, new Profile
+			{
+				Name = "Shared",
+				IsReusable = true,
+				ProfileDefinitionId = new SdmObjectReference<ProfileDefinition>(reusableDefinition.Identifier),
+			});
+			var request = new SpecificationConfigurationRequest
+			{
+				Profiles =
+				{
+					new SpecificationConfigurationProfile
+					{
+						Name = reusable.Name,
+						DefinitionId = requestDefinition.Identifier,
+						Reusable = true,
+						ReusableProfileId = reusable.Identifier,
+					},
+				},
+			};
+
+			var result = controller.SaveServiceSpecificationConfiguration(spec.Identifier, JObject.FromObject(request));
+
+			int statusCode = StatusCode(result);
+			Assert.AreEqual(200, statusCode, statusCode == 200 ? String.Empty : ErrorDetail(result));
+			Assert.AreEqual(reusableDefinition.Identifier, SpecProfiles.Single().ProfileDefinitionId.Identifier);
+			Assert.AreEqual(reusableDefinition.Identifier, Value<List<SpecificationConfigurationRecord>>(result)
+				.Single(record => record.RecordType == "Profile").ProfileDefinitionId);
+		}
+
+		[TestMethod]
 		public void SaveConfiguration_DuplicateTopLevelReusableProfiles_Returns400AndDoesNotCreateAssignments()
 		{
 			var spec = AddSpec("A");

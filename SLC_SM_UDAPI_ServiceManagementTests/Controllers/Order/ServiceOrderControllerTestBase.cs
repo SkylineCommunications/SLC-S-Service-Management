@@ -224,6 +224,143 @@
 			return itemConfigurations;
 		}
 
+		protected RepeatedParameterScenario SetupRepeatedSpecificationScenario(
+			string orderStatus,
+			string itemStatus,
+			bool mainSpecificationHasDefault,
+			bool mainItemPresent,
+			bool mainItemHasValue,
+			bool backupItemHasValue)
+		{
+			var item = AddItem(itemStatus);
+			Guid specificationId = AddSpecification();
+			item.ServiceInfo.SpecificationId = new SdmObjectReference<ServiceSpecification>(specificationId.ToString());
+			AddOrder(orderStatus, item);
+
+			var parameter = new Cfg.ConfigurationParameter
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				Name = "Transport",
+			};
+			var mainSpecificationValue = mainSpecificationHasDefault
+				? new Cfg.ConfigurationParameterValue
+				{
+					Identifier = Guid.NewGuid().ToString(),
+					Label = "Main",
+					ConfigurationParameterId = new SdmObjectReference<Cfg.ConfigurationParameter>(parameter.Identifier),
+					StringValue = "SRT",
+				}
+				: null;
+			var backupSpecificationValue = new Cfg.ConfigurationParameterValue
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				Label = "Backup",
+				ConfigurationParameterId = new SdmObjectReference<Cfg.ConfigurationParameter>(parameter.Identifier),
+				StringValue = "RTP",
+			};
+			var mainSpecificationConfiguration = new ServiceSpecificationConfigurationValue
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				ConfigurationParameterId = new SdmObjectReference<Cfg.ConfigurationParameter>(
+					mainSpecificationValue?.Identifier ?? parameter.Identifier),
+				MandatoryAtService = true,
+			};
+			var backupSpecificationConfiguration = new ServiceSpecificationConfigurationValue
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				ConfigurationParameterId = new SdmObjectReference<Cfg.ConfigurationParameter>(backupSpecificationValue.Identifier),
+				MandatoryAtService = false,
+			};
+			StoredSpecifications.Single(specification => specification.Identifier == specificationId.ToString()).ConfigurationParameters =
+				new List<SdmObjectReference<ServiceSpecificationConfigurationValue>>
+				{
+					new SdmObjectReference<ServiceSpecificationConfigurationValue>(mainSpecificationConfiguration.Identifier),
+					new SdmObjectReference<ServiceSpecificationConfigurationValue>(backupSpecificationConfiguration.Identifier),
+				};
+
+			var mainOrderValue = mainItemPresent
+				? new Cfg.ConfigurationParameterValue
+				{
+					Identifier = Guid.NewGuid().ToString(),
+					Label = "Main",
+					ConfigurationParameterId = new SdmObjectReference<Cfg.ConfigurationParameter>(parameter.Identifier),
+					StringValue = mainItemHasValue ? "SRT" : null,
+				}
+				: null;
+			var backupOrderValue = new Cfg.ConfigurationParameterValue
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				Label = "Backup",
+				ConfigurationParameterId = new SdmObjectReference<Cfg.ConfigurationParameter>(parameter.Identifier),
+				StringValue = backupItemHasValue ? "RTP" : null,
+			};
+			var mainItemConfiguration = mainOrderValue == null
+				? null
+				: new ServiceOrderItemConfigurationValue
+				{
+					Identifier = Guid.NewGuid().ToString(),
+					ConfigurationParameterValueId = new SdmObjectReference<Cfg.ConfigurationParameterValue>(mainOrderValue.Identifier),
+					Mandatory = false,
+				};
+			var backupItemConfiguration = new ServiceOrderItemConfigurationValue
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				ConfigurationParameterValueId = new SdmObjectReference<Cfg.ConfigurationParameterValue>(backupOrderValue.Identifier),
+				Mandatory = false,
+			};
+			var itemConfigurations = new List<ServiceOrderItemConfigurationValue>();
+			var configurationReferences = new List<SdmObjectReference<ServiceOrderItemConfigurationValue>>();
+			if (mainItemConfiguration != null)
+			{
+				itemConfigurations.Add(mainItemConfiguration);
+				configurationReferences.Add(new SdmObjectReference<ServiceOrderItemConfigurationValue>(mainItemConfiguration.Identifier));
+			}
+
+			itemConfigurations.Add(backupItemConfiguration);
+			configurationReferences.Add(new SdmObjectReference<ServiceOrderItemConfigurationValue>(backupItemConfiguration.Identifier));
+			item.ServiceInfo.Configurations = configurationReferences;
+
+			var specificationConfigurations = new List<ServiceSpecificationConfigurationValue>
+			{
+				mainSpecificationConfiguration,
+				backupSpecificationConfiguration,
+			};
+			var parameterValues = new List<Cfg.ConfigurationParameterValue>();
+			if (mainSpecificationValue != null)
+			{
+				parameterValues.Add(mainSpecificationValue);
+			}
+
+			parameterValues.Add(backupSpecificationValue);
+			if (mainOrderValue != null)
+			{
+				parameterValues.Add(mainOrderValue);
+			}
+
+			parameterValues.Add(backupOrderValue);
+			var configurations = new List<ServiceConfigurationValue>();
+			var versions = new List<ServiceConfigurationVersion>();
+			Mock.Get(Helper.ServiceCatalog).SetupGet(api => api.ConfigurationParameters)
+				.Returns(InitializationRepository(new List<Cfg.ConfigurationParameter> { parameter }).Object);
+			Mock.Get(Helper.ServiceCatalog).SetupGet(api => api.ServiceSpecificationConfigurationValues)
+				.Returns(InitializationRepository(specificationConfigurations).Object);
+			Mock.Get(Helper.ServiceCatalog).SetupGet(api => api.ConfigurationParameterValues)
+				.Returns(InitializationRepository(parameterValues).Object);
+			Mock.Get(Helper.ServiceOrder).SetupGet(api => api.ServiceOrderItemConfigurationValues)
+				.Returns(InitializationRepository(itemConfigurations).Object);
+			Mock.Get(Helper.ServiceInventory).SetupGet(api => api.ServiceConfigurationValues)
+				.Returns(InitializationRepository(configurations).Object);
+			Mock.Get(Helper.ServiceInventory).SetupGet(api => api.ServiceConfigurationVersions)
+				.Returns(InitializationRepository(versions).Object);
+
+			return new RepeatedParameterScenario
+			{
+				Item = item,
+				Configurations = configurations,
+				Versions = versions,
+			};
+		}
+
 		protected ServiceOrder AddOrder(string status = "New", params ServiceOrderItem[] items)
 		{
 			var order = new ServiceOrder
@@ -254,6 +391,15 @@
 			SetStatus(item, ItemStatusFromName(status));
 			StoredItems.Add(item);
 			return item;
+		}
+
+		protected sealed class RepeatedParameterScenario
+		{
+			public ServiceOrderItem Item { get; set; }
+
+			public List<ServiceConfigurationValue> Configurations { get; set; }
+
+			public List<ServiceConfigurationVersion> Versions { get; set; }
 		}
 	}
 }

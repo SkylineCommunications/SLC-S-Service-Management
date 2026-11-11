@@ -577,7 +577,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Specification
 					request.Name);
 				var reusableConfiguration = existingConfiguration ?? new ServiceSpecificationProfile { Identifier = Guid.NewGuid().ToString() };
 				reusableConfiguration.ProfileId = new SdmObjectReference<Profile>(reusableProfile.Identifier);
-				reusableConfiguration.ProfileDefinitionId = new SdmObjectReference<ProfileDefinition>(definition.Identifier);
+				reusableConfiguration.ProfileDefinitionId = new SdmObjectReference<ProfileDefinition>(reusableProfile.ProfileDefinitionId.Identifier);
 				reusableConfiguration.MandatoryAtService = request.MandatoryAtService;
 				reusableConfiguration.MandatoryAtServiceOrder = request.MandatoryAtServiceOrder;
 				reusableConfiguration.ExposeAtServiceOrder = request.ExposeAtServiceOrder;
