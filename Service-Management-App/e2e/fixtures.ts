@@ -472,6 +472,13 @@ export async function mockDataMinerApi(page: Page, mode: GqiMode = 'ok'): Promis
                         completedCount: orderRows.filter(order => order.StatusName === 'completed').length,
                     }));
                 }
+                if (!id && request.RequestMethod === 3) {
+                    const highest = Math.max(0, ...orders.map(row => Number(String(row.OrderId || '').split('-').pop()) || 0));
+                    const orderId = `ORDER-${String(highest + 1).padStart(6, '0')}`;
+                    const created = { 'Order ID': `order-${highest + 1}`, OrderId: orderId, Name: String(requestBody.name || '').trim() || orderId, Description: requestBody.description || '', Priority: ['High', 'Medium', 'Low'].find(priority => priority.toLowerCase() === String(requestBody.priority || '').toLowerCase()) || 'High', 'External ID': requestBody.externalId || '', 'Related Organization': '', State: 'New' };
+                    orders.unshift(created);
+                    return respond(201, toUdapiOrder(created));
+                }
                 const order = orders.find(row => row.OrderId === id);
                 if (!order) return notFound();
                 if (!subResource && request.RequestMethod === 4) {

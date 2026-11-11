@@ -3,6 +3,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 	using System;
 	using System.Collections.Generic;
 	using System.Linq;
+	using Library.Dom;
 	using Microsoft.Extensions.Logging;
 	using Newtonsoft.Json;
 	using Newtonsoft.Json.Linq;
@@ -48,7 +49,9 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 				}
 
 				string label = RequireLabel(request.Label);
-				var items = service.ServiceItems ?? new List<ServiceItem>();
+				var items = (service.ServiceItems ?? new List<ServiceItem>())
+					.Where(candidate => !ServiceSpecificationExtensions.IsServiceItemPlaceholder(candidate))
+					.ToList();
 				if (IsLabelInUse(items, label, null))
 				{
 					return Conflict(CreateError("Conflict", $"A service item with label '{label}' already exists.", 409));
@@ -183,7 +186,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 				}
 
 				var items = (service.ServiceItems ?? new List<ServiceItem>())
-					.Where(item => item != null)
+					.Where(item => !ServiceSpecificationExtensions.IsServiceItemPlaceholder(item))
 					.OrderBy(item => item.ServiceItemID)
 					.ToList();
 				var serviceNames = ReadLinkedServiceNames(items);

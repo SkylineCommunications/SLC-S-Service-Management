@@ -572,9 +572,10 @@
 				Description = "From spec",
 				ServiceItems = new List<ServiceItem>
 				{
+					new ServiceItem(),
 					new ServiceItem { ServiceItemID = 1, Label = "Item", Type = Enum.GetValues(typeof(DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Enums.ServiceItemTypesEnum)).Cast<DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Enums.ServiceItemTypesEnum>().First() },
 				},
-				ServiceItemsRelationships = new List<ServiceItemRelationship>(),
+				ServiceItemsRelationships = new List<ServiceItemRelationship> { new ServiceItemRelationship() },
 			};
 			StoredSpecifications.Add(specification);
 
@@ -583,8 +584,9 @@
 
 			var created = StoredServices.Single(s => s.Name == "New");
 			Assert.AreEqual("From spec", created.Description);
-			Assert.AreEqual("Item", created.ServiceItems.Single().Label);
+			Assert.AreEqual("Item", created.ServiceItems.Single().Label, "The specification's empty placeholder item is not copied.");
 			Assert.IsNull(created.ServiceItems.Single().Type);
+			Assert.AreEqual(0, created.ServiceItemsRelationships.Count, "The specification's empty placeholder relationship is not copied.");
 			Assert.AreEqual(0, StoredVersions.Count, "A specification without configuration gives no configuration version.");
 		}
 

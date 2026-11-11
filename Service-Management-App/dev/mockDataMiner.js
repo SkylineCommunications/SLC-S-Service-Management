@@ -675,6 +675,15 @@ function handleUdapiRequest(request) {
                 }) }
                 : { status: 200, response: rows };
         }
+        if (!id && request.RequestMethod === 3) {
+            const highest = Math.max(0, ...ORDERS.map(row => Number(orderIdFor(row['Order ID']).split('-').pop()) || 0));
+            const domId = guid(5600 + highest);
+            const orderId = `ORDER-${String(highest + 1).padStart(6, '0')}`;
+            ORDER_NUMBERS.set(domId, orderId);
+            const created = { 'Order ID': domId, Name: String(body.name || '').trim() || orderId, Description: body.description || '', Priority: PRIORITIES.find(priority => priority.toLowerCase() === String(body.priority || '').toLowerCase()) || 'High', 'External ID': body.externalId || '', 'Related Organization': ORGANIZATION_ROWS.find(row => row['Organization ID'] === body.organizationId)?.['Organization Name'] || '', State: 'New' };
+            ORDERS.unshift(created);
+            return { status: 201, response: toUdapiOrder(created) };
+        }
         const order = id ? ORDERS.find(row => orderIdFor(row['Order ID']) === id) : null;
         if (id && !order) return error(404, 'Not found', `Service order '${id}' does not exist.`);
         if (order && !subResource && request.RequestMethod === 4) {

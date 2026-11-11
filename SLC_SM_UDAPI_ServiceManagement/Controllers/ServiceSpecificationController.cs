@@ -626,16 +626,6 @@
 			return parsed;
 		}
 
-		private static bool IsServiceItemPlaceholder(ServiceItem item)
-		{
-			return !item.ServiceItemID.HasValue
-				&& String.IsNullOrWhiteSpace(item.Label)
-				&& String.IsNullOrWhiteSpace(item.DefinitionReference)
-				&& String.IsNullOrWhiteSpace(item.ImplementationReference)
-				&& String.IsNullOrWhiteSpace(item.Script)
-				&& String.IsNullOrWhiteSpace(item.Icon);
-		}
-
 		/// <summary>Compares two identifiers as UUIDs when both parse; otherwise as case-insensitive strings.</summary>
 		/// <param name="a">First identifier.</param>
 		/// <param name="b">Second identifier.</param>

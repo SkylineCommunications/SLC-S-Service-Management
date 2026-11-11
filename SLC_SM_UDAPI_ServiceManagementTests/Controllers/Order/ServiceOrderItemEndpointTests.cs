@@ -220,6 +220,25 @@
 		}
 
 		[TestMethod]
+		public void InitializeServiceFromOrderItem_DoesNotCopySpecificationPlaceholders()
+		{
+			var specificationId = AddSpecification();
+			var specification = StoredSpecifications.Single(candidate => candidate.Identifier == specificationId.ToString());
+			specification.ServiceItems = new List<ServiceItem> { new ServiceItem() };
+			specification.ServiceItemsRelationships = new List<ServiceItemRelationship> { new ServiceItemRelationship() };
+			var item = AddItem();
+			item.ServiceInfo.SpecificationId = new Skyline.DataMiner.SDM.SdmObjectReference<ServiceSpecification>(specificationId.ToString());
+			AddOrder("New", item);
+
+			var result = Controller.InitializeServiceFromOrderItem(OrderId, item.Identifier);
+
+			Assert.AreEqual(201, StatusCode(result));
+			var service = Value<Service>(result);
+			Assert.AreEqual(0, service.ServiceItems.Count);
+			Assert.AreEqual(0, service.ServiceItemsRelationships.Count);
+		}
+
+		[TestMethod]
 		public void InitializeServiceFromOrderItem_WhenItemNameAlreadyExists_AddsUniqueSuffix()
 		{
 			var specificationId = AddSpecification();

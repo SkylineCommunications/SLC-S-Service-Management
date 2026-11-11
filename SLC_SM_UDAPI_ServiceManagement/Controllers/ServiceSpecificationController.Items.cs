@@ -43,9 +43,7 @@
 				}
 
 				string label = RequireServiceItemLabel(request.Label);
-				var items = (specification.ServiceItems ?? new List<ServiceItem>())
-					.Where(candidate => candidate != null && !IsServiceItemPlaceholder(candidate))
-					.ToList();
+				var items = specification.GetRealServiceItems();
 				long nextId = items.Where(candidate => candidate.ServiceItemID.HasValue)
 					.Select(candidate => candidate.ServiceItemID.Value)
 					.DefaultIfEmpty(-1)

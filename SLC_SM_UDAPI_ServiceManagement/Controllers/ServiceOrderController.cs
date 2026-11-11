@@ -2,8 +2,10 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 {
 	using System;
 	using System.Collections.Generic;
+	using System.Globalization;
 	using System.Linq;
 	using DomHelpers.SlcServicemanagement;
+	using Library.Dom;
 	using Microsoft.Extensions.Logging;
 	using Newtonsoft.Json.Linq;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
@@ -234,8 +236,8 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 				ServiceSpecificationId = specificationReference.Value,
 				CategoryId = categoryReference,
 				Icon = category?.Icon ?? String.Empty,
-				ServiceItems = specification.ServiceItems?.ToList() ?? new List<ServiceItem>(),
-				ServiceItemsRelationships = specification.ServiceItemsRelationships?.ToList() ?? new List<ServiceItemRelationship>(),
+				ServiceItems = specification.GetRealServiceItems(),
+				ServiceItemsRelationships = specification.GetRealServiceItemRelationships(),
 			};
 
 			var cleanup = new Stack<Action>();
@@ -441,7 +443,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 		/// </para>
 		/// <para>If the request fails before the order is created, the items and configuration objects created so far are deleted.</para>
 		/// </remarks>
-		/// <param name="request">The order to create. <c>name</c> is required; items can be added after creating an empty order.</param>
+		/// <param name="request">The order to create. When <c>name</c> is empty, the generated order ID is used as name; items can be added after creating an empty order.</param>
 		/// <returns>
 		/// 201 with the created order; 400 when the request is invalid, a specification does not exist, a supplied parameter is
 		/// not part of its specification, or a parameter that is mandatory at service order has no value; 500 on an unexpected error.
@@ -498,11 +500,12 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 					entries.Add(new ServiceOrderEntry { ServiceOrderItemId = item, Priority = itemRequest.Priority ?? i });
 				}
 
+				string orderId = GenerateOrderId(existingOrderIds);
 				var order = new ServiceOrder
 				{
 					Identifier = Guid.NewGuid().ToString(),
-					OrderId = GenerateOrderId(existingOrderIds),
-					Name = request.Name.Trim(),
+					OrderId = orderId,
+					Name = String.IsNullOrWhiteSpace(request.Name) ? orderId : request.Name.Trim(),
 					ExternalID = request.ExternalId,
 					Priority = ParsePriority(request.Priority),
 					Description = request.Description,
@@ -1807,18 +1810,28 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 			return response;
 		}
 
-		/// <summary>Generates the next order ID as <c>ORDER-nnnnnn</c>, one above the highest existing number.</summary>
+		/// <summary>Generates the next order ID as <c>ORDER-nnnnnn</c>, one above the highest number after <c>ORDER-</c> in the existing order IDs.</summary>
 		/// <param name="existingOrderIds">The existing order IDs.</param>
 		/// <returns>The new order ID. Not safe against concurrent requests.</returns>
 		private static string GenerateOrderId(IEnumerable<string> existingOrderIds)
 		{
 			int max = existingOrderIds
-				.Where(id => !String.IsNullOrEmpty(id))
-				.Select(id => Int32.TryParse(id.Split('-').Last(), out int number) ? number : 0)
+				.Select(ParseOrderNumber)
 				.DefaultIfEmpty(0)
 				.Max();
 
 			return $"ORDER-{max + 1:000000}";
+		}
+
+		private static int ParseOrderNumber(string value)
+		{
+			const string Prefix = "ORDER-";
+			string text = value?.Trim();
+			return text != null
+				&& text.StartsWith(Prefix, StringComparison.OrdinalIgnoreCase)
+				&& Int32.TryParse(text.Substring(Prefix.Length), NumberStyles.None, CultureInfo.InvariantCulture, out int number)
+				? number
+				: 0;
 		}
 
 		private static string GenerateUniqueServiceName(string requestedName, IEnumerable<string> existingServiceNames)
@@ -2404,11 +2417,6 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 			if (request == null)
 			{
 				throw new InvalidQueryException("A request body is required.");
-			}
-
-			if (String.IsNullOrWhiteSpace(request.Name))
-			{
-				throw new InvalidQueryException("'name' is required.");
 			}
 
 			request.OrderItems = request.OrderItems ?? new List<CreateServiceOrderItemRequest>();

@@ -200,11 +200,13 @@
 		}
 
 		[TestMethod]
-		public void CreateServiceOrder_MissingName_Returns400()
+		public void CreateServiceOrder_MissingName_UsesGeneratedOrderIdAsName()
 		{
-			var request = new CreateServiceOrderRequest { OrderItems = new List<CreateServiceOrderItemRequest> { new CreateServiceOrderItemRequest() } };
-			Assert.AreEqual(400, StatusCode(Controller.CreateServiceOrder(request)));
-			Orders.Verify(r => r.Create(It.IsAny<IEnumerable<ServiceOrder>>()), Times.Never);
+			AddOrder().OrderId = "ORDER-000041";
+			var request = new CreateServiceOrderRequest { Name = " ", OrderItems = new List<CreateServiceOrderItemRequest>() };
+
+			Assert.AreEqual(201, StatusCode(Controller.CreateServiceOrder(request)));
+			Orders.Verify(r => r.Create(It.Is<IEnumerable<ServiceOrder>>(o => o.Single().OrderId == "ORDER-000042" && o.Single().Name == "ORDER-000042")), Times.Once);
 		}
 
 		[TestMethod]

@@ -297,7 +297,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 						: CopySpecificationItems(specification),
 					ServiceItemsRelationships = request.ServiceItemRelationships != null
 						? request.ServiceItemRelationships.Select(ToRelationship).ToList()
-						: specification?.ServiceItemsRelationships?.ToList() ?? new List<ServiceItemRelationship>(),
+						: specification.GetRealServiceItemRelationships(),
 					ConfigurationVersions = new List<SdmObjectReference<ServiceConfigurationVersion>>(),
 				};
 
@@ -1140,8 +1140,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 		{
 			// The optional item type is left empty,
 			// because setting it can fail with DomInstanceSectionInvalidFieldValueTypes on some systems.
-			return specification?.ServiceItems?
-				.Where(item => item != null)
+			return specification.GetRealServiceItems()
 				.Select(item => new ServiceItem
 				{
 					ServiceItemID = item.ServiceItemID,
@@ -1152,8 +1151,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 					Type = null,
 					Icon = item.Icon,
 				})
-				.ToList()
-				?? new List<ServiceItem>();
+				.ToList();
 		}
 
 		private static bool Has(JObject patch, string property)
