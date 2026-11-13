@@ -12,6 +12,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
 	using SLC_SM_UDAPI_ServiceManagement.Exceptions;
 	using SLC_SM_UDAPI_ServiceManagement.Models.Inventory;
+	using static SLC_SM_UDAPI_ServiceManagement.Helpers.ConfigurationRequestHelper;
 
 	/// <summary>
 	/// Saves service configuration versions using the service configuration editor contract.
@@ -89,13 +90,15 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 				|| String.Equals(service.ServiceConfigurationId.Identifier, versionId, StringComparison.OrdinalIgnoreCase);
 			if (!isOwned)
 			{
-				throw new InvalidConfigurationException($"Configuration version '{versionId}' does not belong to service '{service.ServiceID}'.");
+				throw new InvalidConfigurationException(
+					$"Configuration version does not belong to service {FormatName(service.Name, "the selected service")}.",
+					$"Version '{versionId}', service '{service.ServiceID}'.");
 			}
 
 			return _api.ServiceInventory.ServiceConfigurationVersions
 				.Read(ServiceConfigurationVersionExposers.Identifier.Equal(versionId))
 				.FirstOrDefault()
-				?? throw new InvalidConfigurationException($"Configuration version '{versionId}' was not found.");
+				?? throw new InvalidConfigurationException("The selected configuration version was not found.", $"Version '{versionId}'.");
 		}
 
 		private void DeleteVersion(Service service, ServiceConfigurationVersion version)
@@ -132,15 +135,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 				}
 			}
 
-			var profiles = _api.ServiceCatalog.Profiles
-				.Read(new TRUEFilterElement<Profile>())
-				.Where(profile => !String.IsNullOrWhiteSpace(profile?.Identifier))
-				.ToDictionary(profile => profile.Identifier, StringComparer.OrdinalIgnoreCase);
-			foreach (var profile in profiles.Values.Where(profile => profile.IsReusable))
-			{
-				ownership.ReusableProfileIds.Add(profile.Identifier);
-			}
-
+			var assignedProfileIds = new List<string>();
 			foreach (var reference in version.Profiles ?? new List<SdmObjectReference<ServiceProfile>>())
 			{
 				if (String.IsNullOrWhiteSpace(reference.Identifier))
@@ -153,11 +148,25 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 					.Read(ServiceProfileExposers.Identifier.Equal(reference.Identifier))
 					.FirstOrDefault();
 				string profileId = serviceProfile?.ProfileId.Identifier;
-				if (String.IsNullOrWhiteSpace(profileId))
+				if (!String.IsNullOrWhiteSpace(profileId))
 				{
-					continue;
+					assignedProfileIds.Add(profileId);
 				}
+			}
 
+			// Only read the profiles this version uses (plus the reusable ones): an unfiltered read of all profiles is truncated on large systems.
+			var profiles = FullServiceBuilder.ReadProfileTree(_api, assignedProfileIds);
+			foreach (var profile in _api.ServiceCatalog.Profiles.Read(ProfileExposers.IsReusable.Equal(true)))
+			{
+				if (!String.IsNullOrWhiteSpace(profile?.Identifier))
+				{
+					profiles[profile.Identifier] = profile;
+					ownership.ReusableProfileIds.Add(profile.Identifier);
+				}
+			}
+
+			foreach (var profileId in assignedProfileIds)
+			{
 				ReadProfileOwnership(profileId, profiles, ownership, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
 			}
 
@@ -207,6 +216,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 			ValidateOwnedIds(request.DeleteConfigurationIds, ownership.ConfigurationIds, "configuration");
 			ValidateOwnedIds(request.DeletedProfileIds, ownership.ServiceProfileIds, "service profile");
 			ValidateOwnedIds(request.DeletedProfileParameterIds, ownership.ProfileParameterValueIds, "profile parameter value");
+			ValidateUniqueReusableProfiles(request.Profiles, ownership);
 
 			foreach (var parameter in request.Parameters ?? new List<ServiceConfigurationParameterRequest>())
 			{
@@ -239,10 +249,23 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 
 			if (!String.IsNullOrWhiteSpace(profile.Id))
 			{
-				var allowedIds = isServiceProfile
-					? ownership.ServiceProfileIds
-					: profile.Reusable ? ownership.ReusableProfileIds : ownership.ProfileIds;
-				ValidateOptionalOwnedId(profile.Id, allowedIds, isServiceProfile ? "service profile" : profile.Reusable ? "reusable profile" : "profile");
+				bool isOwned = profile.Reusable
+					? ownership.ServiceProfileIds.Contains(profile.Id)
+						|| ownership.ReusableProfileIds.Contains(profile.Id)
+						|| ownership.ReusableProfileAssignments.ContainsKey(profile.Id)
+					: (isServiceProfile ? ownership.ServiceProfileIds : ownership.ProfileIds).Contains(profile.Id);
+				if (!isOwned)
+				{
+					string kind = isServiceProfile ? "service profile" : profile.Reusable ? "reusable profile" : "profile";
+					throw new InvalidConfigurationException(
+						$"The requested {kind} {FormatName(profile.Name, $"the selected {kind}")} does not belong to the service configuration.",
+						$"{kind} '{profile.Id}'.");
+				}
+			}
+
+			if (profile.Reusable)
+			{
+				ValidateOwnedId(GetReusableProfileId(profile, ownership), ownership.ReusableProfileIds, "reusable profile", profile.Name);
 			}
 
 			foreach (var parameter in profile.Parameters ?? new List<ServiceConfigurationParameterRequest>())
@@ -264,14 +287,34 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 
 				if (!ownership.ProfileIds.Contains(nestedId) && !ownership.ReusableProfileIds.Contains(nestedId))
 				{
-					throw new InvalidConfigurationException($"Nested profile '{nestedId}' does not belong to the service configuration.");
+					string nestedName = (profile.NestedProfiles ?? new List<ServiceConfigurationProfileRequest>())
+						.FirstOrDefault(nested => String.Equals(nested?.Id, nestedId, StringComparison.OrdinalIgnoreCase))
+						?.Name;
+					throw new InvalidConfigurationException(
+						$"Nested profile {FormatName(nestedName, "the selected nested profile")} does not belong to the service configuration.",
+						$"Nested profile '{nestedId}'.");
 				}
 			}
+
+			ValidateUniqueReusableProfiles(profile.NestedProfiles, ownership);
+			EnsureUniqueReusableIds(profile.NestedProfileIds, ownership.ReusableProfileIds);
 
 			foreach (var nested in profile.NestedProfiles ?? new List<ServiceConfigurationProfileRequest>())
 			{
 				ValidateProfileRequest(nested, ownership, depth + 1, isServiceProfile: false);
 			}
+		}
+
+		private static void ValidateUniqueReusableProfiles(
+			IEnumerable<ServiceConfigurationProfileRequest> profiles,
+			Ownership ownership)
+		{
+			EnsureUniqueReusableProfiles(profiles, profile => profile.Reusable, profile => GetReusableProfileId(profile, ownership), profile => profile.Name);
+		}
+
+		private static string GetReusableProfileId(ServiceConfigurationProfileRequest profile, Ownership ownership)
+		{
+			return ResolveReusableProfileId(profile?.ReusableProfileId, profile?.Id, ownership.ReusableProfileAssignments);
 		}
 
 		private static void ValidateOwnedIds(IEnumerable<string> ids, ISet<string> ownedIds, string kind)
@@ -282,11 +325,21 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 			}
 		}
 
+		private static void ValidateOwnedId(string id, ISet<string> ownedIds, string kind, string displayName = null)
+		{
+			if (!String.IsNullOrWhiteSpace(id) && !ownedIds.Contains(id))
+			{
+				throw new InvalidConfigurationException(
+					$"The requested {kind} {FormatName(displayName, "the selected item")} does not belong to the service configuration.",
+					$"{kind} '{id}'.");
+			}
+		}
+
 		private static void ValidateOptionalOwnedId(string id, ISet<string> ownedIds, string kind)
 		{
 			if (!String.IsNullOrWhiteSpace(id) && !ownedIds.Contains(id))
 			{
-				throw new InvalidConfigurationException($"The requested {kind} '{id}' does not belong to the service configuration.");
+				throw new InvalidConfigurationException($"The requested {kind} does not belong to the service configuration.", $"{kind} '{id}'.");
 			}
 		}
 
@@ -333,15 +386,20 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 			{
 				if (String.IsNullOrWhiteSpace(parameter.ParameterId) || !parameters.TryGetValue(parameter.ParameterId, out var definition))
 				{
-					throw new InvalidConfigurationException($"Configuration parameter '{parameter.ParameterId}' was not found.");
+					throw new InvalidConfigurationException(
+						$"The selected configuration parameter {FormatName(parameter.Label, "the selected parameter")} was not found.",
+						$"Configuration parameter '{parameter.ParameterId}'.");
 				}
 
+				string parameterName = ParameterName(parameter, definition);
 				var value = SaveParameterValue(parameter, definition);
 				var configuration = String.IsNullOrWhiteSpace(parameter.ConfigurationId)
 					? new ServiceConfigurationValue { Identifier = Guid.NewGuid().ToString() }
 					: _api.ServiceInventory.ServiceConfigurationValues
 						.Read(ServiceConfigurationValueExposers.Identifier.Equal(parameter.ConfigurationId))
-						.FirstOrDefault() ?? throw new InvalidConfigurationException($"Configuration '{parameter.ConfigurationId}' was not found.");
+						.FirstOrDefault() ?? throw new InvalidConfigurationException(
+							$"Configuration for parameter {FormatName(parameterName, "the selected parameter")} was not found.",
+							$"Configuration '{parameter.ConfigurationId}'.");
 				configuration.ConfigurationParameterId = new SdmObjectReference<ConfigurationParameterValue>(value.Identifier);
 				configuration.Mandatory = parameter.Mandatory;
 				_api.ServiceInventory.ServiceConfigurationValues.CreateOrUpdate(new[] { configuration });
@@ -355,14 +413,17 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 
 		private ConfigurationParameterValue SaveParameterValue(ServiceConfigurationParameterRequest parameter, ConfigurationParameter definition)
 		{
+			string parameterName = ParameterName(parameter, definition);
 			var value = String.IsNullOrWhiteSpace(parameter.ParameterValueId)
 				? new ConfigurationParameterValue { Identifier = Guid.NewGuid().ToString() }
 				: _api.ServiceCatalog.ConfigurationParameterValues
 					.Read(ConfigurationParameterValueExposers.Identifier.Equal(parameter.ParameterValueId))
-					.FirstOrDefault() ?? throw new InvalidConfigurationException($"Configuration parameter value '{parameter.ParameterValueId}' was not found.");
+					.FirstOrDefault() ?? throw new InvalidConfigurationException(
+						$"The value for configuration parameter {FormatName(parameterName, "the selected parameter")} was not found.",
+						$"Configuration parameter value '{parameter.ParameterValueId}'.");
 			string existingNumberOptionsId = value.IsValueOf(definition) ? value.NumberOptionsId.Identifier : null;
 			var numberOptions = String.Equals(definition.Type.ToString(), "Number", StringComparison.OrdinalIgnoreCase)
-				? PrepareNumberOptions(definition, existingNumberOptionsId)
+				? PrepareNumberOptions(definition, existingNumberOptionsId, parameterName)
 				: null;
 			try
 			{
@@ -387,7 +448,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 			return value;
 		}
 
-		private NumberParameterOptions PrepareNumberOptions(ConfigurationParameter definition, string existingOptionsId)
+		private NumberParameterOptions PrepareNumberOptions(ConfigurationParameter definition, string existingOptionsId, string parameterName)
 		{
 			string definitionOptionsId = definition.NumberOptionsId.Identifier;
 			if (!String.IsNullOrWhiteSpace(existingOptionsId)
@@ -395,7 +456,9 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 			{
 				return _api.ServiceCatalog.NumberParameterOptions
 					.Read(NumberParameterOptionsExposers.Identifier.Equal(existingOptionsId))
-					.FirstOrDefault() ?? throw new InvalidConfigurationException($"Number options '{existingOptionsId}' were not found.");
+					.FirstOrDefault() ?? throw new InvalidConfigurationException(
+						$"Number options for configuration parameter {FormatName(parameterName, "the selected parameter")} were not found.",
+						$"Number options '{existingOptionsId}'.");
 			}
 
 			var source = String.IsNullOrWhiteSpace(definitionOptionsId)
@@ -493,32 +556,45 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 		{
 			if (String.IsNullOrWhiteSpace(request?.DefinitionId) || !definitions.TryGetValue(request.DefinitionId, out var definition))
 			{
-				throw new InvalidConfigurationException($"Profile definition '{request?.DefinitionId}' was not found.");
+				throw new InvalidConfigurationException(
+					$"Profile definition for {FormatName(request?.Name, "the selected profile")} was not found.",
+					$"Profile definition '{request?.DefinitionId}'.");
 			}
 
-			var serviceProfile = String.IsNullOrWhiteSpace(request.Id)
+			var serviceProfile = String.IsNullOrWhiteSpace(request.Id) || !ownership.ServiceProfileIds.Contains(request.Id)
 				? new ServiceProfile { Identifier = Guid.NewGuid().ToString() }
 				: _api.ServiceInventory.ServiceProfiles
 					.Read(ServiceProfileExposers.Identifier.Equal(request.Id))
-					.FirstOrDefault() ?? throw new InvalidConfigurationException($"Service profile '{request.Id}' was not found.");
+					.FirstOrDefault() ?? throw new InvalidConfigurationException(
+						$"Service profile {FormatName(request.Name, "the selected profile")} was not found.",
+						$"Service profile '{request.Id}'.");
+			if (request.Reusable)
+			{
+				// Reusable profiles are shared, so they are referenced and never created or modified here.
+				var reusable = ReadReusableProfile(
+					_api,
+					FirstNonEmpty(request.ReusableProfileId, serviceProfile.ProfileId.Identifier ?? request.Id),
+					"Reusable profile",
+					request.Name);
+				return SaveServiceProfileReference(serviceProfile, reusable, request.Mandatory, ownership);
+			}
+
 			var profile = serviceProfile.ProfileId.Identifier == null
 				? new Profile { Identifier = Guid.NewGuid().ToString() }
 				: _api.ServiceCatalog.Profiles
 					.Read(ProfileExposers.Identifier.Equal(serviceProfile.ProfileId.Identifier))
-					.FirstOrDefault() ?? throw new InvalidConfigurationException($"Profile '{serviceProfile.ProfileId.Identifier}' was not found.");
+					.FirstOrDefault() ?? throw new InvalidConfigurationException(
+						$"Profile {FormatName(request.Name, "the selected profile")} was not found.",
+						$"Profile '{serviceProfile.ProfileId.Identifier}'.");
+			SaveOwnedProfile(profile, request, definition, definitions, parameters, ownership, depth);
+			return SaveServiceProfileReference(serviceProfile, profile, request.Mandatory, ownership);
+		}
 
-			profile.Name = String.IsNullOrWhiteSpace(request.Name) ? definition.Name : request.Name.Trim();
-			profile.ProfileDefinitionId = new SdmObjectReference<ProfileDefinition>(definition.Identifier);
-			profile.IsReusable = request.Reusable;
-			profile.Profiles = SaveNestedProfiles(request, definitions, parameters, ownership, depth)
-				.Select(id => new SdmObjectReference<Profile>(id))
-				.ToList();
-			profile.ConfigurationParameterValues = SaveProfileParameterValues(request.Parameters, parameters, ownership);
-			_api.ServiceCatalog.Profiles.CreateOrUpdate(new[] { profile });
-
+		private ServiceProfile SaveServiceProfileReference(ServiceProfile serviceProfile, Profile profile, bool mandatory, Ownership ownership)
+		{
 			serviceProfile.ProfileId = new SdmObjectReference<Profile>(profile.Identifier);
-			serviceProfile.ProfileDefinitionId = new SdmObjectReference<ProfileDefinition>(definition.Identifier);
-			serviceProfile.Mandatory = request.Mandatory;
+			serviceProfile.ProfileDefinitionId = new SdmObjectReference<ProfileDefinition>(profile.ProfileDefinitionId.Identifier);
+			serviceProfile.Mandatory = mandatory;
 			_api.ServiceInventory.ServiceProfiles.CreateOrUpdate(new[] { serviceProfile });
 			ownership.ServiceProfileIds.Add(serviceProfile.Identifier);
 			ownership.ProfileIds.Add(profile.Identifier);
@@ -556,7 +632,9 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 		{
 			if (request == null || String.IsNullOrWhiteSpace(request.DefinitionId) || !definitions.TryGetValue(request.DefinitionId, out var definition))
 			{
-				throw new InvalidConfigurationException($"Nested profile definition '{request?.DefinitionId}' was not found.");
+				throw new InvalidConfigurationException(
+					$"Nested profile definition for {FormatName(request?.Name, "the selected nested profile")} was not found.",
+					$"Profile definition '{request?.DefinitionId}'.");
 			}
 
 			if (depth > MaxNestedProfileDepth)
@@ -566,27 +644,34 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 
 			if (request.Reusable)
 			{
-				if (String.IsNullOrWhiteSpace(request.Id))
-				{
-					throw new InvalidConfigurationException("A reusable nested profile is missing its identifier.");
-				}
-
-				var reusable = _api.ServiceCatalog.Profiles
-					.Read(ProfileExposers.Identifier.Equal(request.Id))
-					.FirstOrDefault();
-				if (reusable == null || !reusable.IsReusable)
-				{
-					throw new InvalidConfigurationException($"Reusable nested profile '{request.Id}' was not found.");
-				}
-
-				return reusable.Identifier;
+				return ReadReusableProfile(
+					_api,
+					FirstNonEmpty(request.ReusableProfileId, request.Id),
+					"Reusable nested profile",
+					request.Name).Identifier;
 			}
 
 			var profile = String.IsNullOrWhiteSpace(request.Id)
 				? new Profile { Identifier = Guid.NewGuid().ToString() }
 				: _api.ServiceCatalog.Profiles
 					.Read(ProfileExposers.Identifier.Equal(request.Id))
-					.FirstOrDefault() ?? throw new InvalidConfigurationException($"Nested profile '{request.Id}' was not found.");
+					.FirstOrDefault() ?? throw new InvalidConfigurationException(
+						$"Nested profile {FormatName(request.Name, "the selected nested profile")} was not found.",
+						$"Profile '{request.Id}'.");
+			SaveOwnedProfile(profile, request, definition, definitions, parameters, ownership, depth);
+			ownership.ProfileIds.Add(profile.Identifier);
+			return profile.Identifier;
+		}
+
+		private void SaveOwnedProfile(
+			Profile profile,
+			ServiceConfigurationProfileRequest request,
+			ProfileDefinition definition,
+			IReadOnlyDictionary<string, ProfileDefinition> definitions,
+			IReadOnlyDictionary<string, ConfigurationParameter> parameters,
+			Ownership ownership,
+			int depth)
+		{
 			profile.Name = String.IsNullOrWhiteSpace(request.Name) ? definition.Name : request.Name.Trim();
 			profile.ProfileDefinitionId = new SdmObjectReference<ProfileDefinition>(definition.Identifier);
 			profile.IsReusable = false;
@@ -595,8 +680,6 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 				.ToList();
 			profile.ConfigurationParameterValues = SaveProfileParameterValues(request.Parameters, parameters, ownership);
 			_api.ServiceCatalog.Profiles.CreateOrUpdate(new[] { profile });
-			ownership.ProfileIds.Add(profile.Identifier);
-			return profile.Identifier;
 		}
 
 		private List<SdmObjectReference<ConfigurationParameterValue>> SaveProfileParameterValues(
@@ -609,7 +692,9 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 			{
 				if (parameter == null || !parameters.TryGetValue(parameter?.ParameterId ?? String.Empty, out var definition))
 				{
-					throw new InvalidConfigurationException($"Profile configuration parameter '{parameter?.ParameterId}' was not found.");
+					throw new InvalidConfigurationException(
+						$"Profile configuration parameter {FormatName(parameter?.Label, "the selected parameter")} was not found.",
+						$"Configuration parameter '{parameter?.ParameterId}'.");
 				}
 
 				var value = SaveParameterValue(parameter, definition);
@@ -646,6 +731,11 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 			return parsed.ToUniversalTime();
 		}
 
+		private static string ParameterName(ServiceConfigurationParameterRequest parameter, ConfigurationParameter definition)
+		{
+			return ConfigurationRequestHelper.ParameterName(parameter?.Label, definition);
+		}
+
 		private static Dictionary<string, T> ReadAll<T>(IEnumerable<T> items, Func<T, string> key)
 		{
 			var result = new Dictionary<string, T>(StringComparer.OrdinalIgnoreCase);
@@ -672,6 +762,8 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 			public HashSet<string> ProfileIds { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
 			public HashSet<string> ReusableProfileIds { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+			public Dictionary<string, string> ReusableProfileAssignments { get; } = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
 			public HashSet<string> ServiceProfileIds { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 		}

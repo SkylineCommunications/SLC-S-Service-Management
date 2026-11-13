@@ -44,6 +44,57 @@ namespace Library.Dom
 			return Save(api, specification, s => api.ServiceCatalog.ServiceSpecifications.CreateOrUpdate(new[] { s })?.FirstOrDefault() ?? s);
 		}
 
+		/// <summary>
+		/// Determines whether a service item is the empty placeholder that is stored because the specification DOM definition requires one.
+		/// </summary>
+		/// <param name="item">Service item to check.</param>
+		/// <returns><see langword="true"/> when the item is <see langword="null"/> or the placeholder.</returns>
+		public static bool IsServiceItemPlaceholder(Models.ServiceItem item)
+		{
+			return item == null
+				|| (!item.ServiceItemID.HasValue
+					&& String.IsNullOrWhiteSpace(item.Label)
+					&& String.IsNullOrWhiteSpace(item.DefinitionReference)
+					&& String.IsNullOrWhiteSpace(item.ImplementationReference)
+					&& String.IsNullOrWhiteSpace(item.Script)
+					&& String.IsNullOrWhiteSpace(item.Icon));
+		}
+
+		/// <summary>
+		/// Determines whether a relationship is the empty placeholder that is stored because the specification DOM definition requires one.
+		/// </summary>
+		/// <param name="relationship">Relationship to check.</param>
+		/// <returns><see langword="true"/> when the relationship is <see langword="null"/> or links no service items.</returns>
+		public static bool IsRelationshipPlaceholder(Models.ServiceItemRelationship relationship)
+		{
+			return relationship == null
+				|| (String.IsNullOrWhiteSpace(relationship.ParentServiceItem) && String.IsNullOrWhiteSpace(relationship.ChildServiceItem));
+		}
+
+		/// <summary>
+		/// Returns the specification's service items without the DOM placeholder, for copying into a service.
+		/// </summary>
+		/// <param name="specification">Specification to read; may be <see langword="null"/>.</param>
+		/// <returns>The real service items.</returns>
+		public static List<Models.ServiceItem> GetRealServiceItems(this Models.ServiceSpecification specification)
+		{
+			return (specification?.ServiceItems ?? Enumerable.Empty<Models.ServiceItem>())
+				.Where(item => !IsServiceItemPlaceholder(item))
+				.ToList();
+		}
+
+		/// <summary>
+		/// Returns the specification's service item relationships without the DOM placeholder, for copying into a service.
+		/// </summary>
+		/// <param name="specification">Specification to read; may be <see langword="null"/>.</param>
+		/// <returns>The real relationships.</returns>
+		public static List<Models.ServiceItemRelationship> GetRealServiceItemRelationships(this Models.ServiceSpecification specification)
+		{
+			return (specification?.ServiceItemsRelationships ?? Enumerable.Empty<Models.ServiceItemRelationship>())
+				.Where(relationship => !IsRelationshipPlaceholder(relationship))
+				.ToList();
+		}
+
 		private static Models.ServiceSpecification Save(
 			IServiceManagementApiHelper api,
 			Models.ServiceSpecification specification,

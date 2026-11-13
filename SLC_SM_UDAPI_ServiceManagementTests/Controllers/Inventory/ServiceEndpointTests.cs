@@ -12,6 +12,7 @@
 	using SLC_SM_UDAPI_ServiceManagement.Models;
 	using SLC_SM_UDAPI_ServiceManagement.Models.Inventory;
 
+	using Cfg = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.Configurations;
 	using ServiceStatus = DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Service_Behavior.StatusesEnum;
 	using ServiceTransition = DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Service_Behavior.TransitionsEnum;
 
@@ -571,9 +572,10 @@
 				Description = "From spec",
 				ServiceItems = new List<ServiceItem>
 				{
+					new ServiceItem(),
 					new ServiceItem { ServiceItemID = 1, Label = "Item", Type = Enum.GetValues(typeof(DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Enums.ServiceItemTypesEnum)).Cast<DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Enums.ServiceItemTypesEnum>().First() },
 				},
-				ServiceItemsRelationships = new List<ServiceItemRelationship>(),
+				ServiceItemsRelationships = new List<ServiceItemRelationship> { new ServiceItemRelationship() },
 			};
 			StoredSpecifications.Add(specification);
 
@@ -582,8 +584,354 @@
 
 			var created = StoredServices.Single(s => s.Name == "New");
 			Assert.AreEqual("From spec", created.Description);
-			Assert.AreEqual("Item", created.ServiceItems.Single().Label);
+			Assert.AreEqual("Item", created.ServiceItems.Single().Label, "The specification's empty placeholder item is not copied.");
 			Assert.IsNull(created.ServiceItems.Single().Type);
+			Assert.AreEqual(0, created.ServiceItemsRelationships.Count, "The specification's empty placeholder relationship is not copied.");
+			Assert.AreEqual(0, StoredVersions.Count, "A specification without configuration gives no configuration version.");
+		}
+
+		[TestMethod]
+		public void CreateService_FromSpecificationWithConfiguration_CreatesNoConfigurationVersion()
+		{
+			var specification = AddSpecificationWithConfiguration(out _, out _, out _);
+
+			var request = new CreateServiceRequest { Name = "New", ServiceSpecificationId = Guid.Parse(specification.Identifier) };
+			Assert.AreEqual(201, StatusCode(Controller.CreateService(request)));
+
+			var created = StoredServices.Single(s => s.Name == "New");
+			Assert.AreEqual(0, StoredVersions.Count);
+			Assert.AreEqual(0, created.ConfigurationVersions.Count);
+			Assert.IsTrue(String.IsNullOrEmpty(created.ServiceConfigurationId.Identifier));
+		}
+
+		[TestMethod]
+		public void UpdateService_NewSpecification_CreatesNoConfigurationVersion()
+		{
+			var service = AddService();
+			var specification = AddSpecificationWithConfiguration(out _, out _, out _);
+
+			var patch = new JObject { ["serviceSpecificationId"] = specification.Identifier };
+			Assert.AreEqual(200, StatusCode(Controller.UpdateService(service.ServiceID, patch)));
+
+			Assert.AreEqual(specification.Identifier, service.ServiceSpecificationId.Identifier);
+			Assert.AreEqual(0, StoredVersions.Count);
+		}
+
+		[TestMethod]
+		public void CreateConfigurationVersion_WithoutContent_PrefillsFromSpecification()
+		{
+			var specification = AddSpecificationWithConfiguration(out var defaultValue, out var parameterWithoutDefault, out var profile);
+			var service = AddConfigurableService(specification);
+
+			Assert.AreEqual(201, StatusCode(Controller.CreateConfigurationVersion(service.ServiceID, new CreateConfigurationVersionRequest { VersionName = "v2" })));
+
+			var version = StoredVersions.Single();
+			Assert.AreEqual("v2", version.VersionName);
+			Assert.AreEqual(version.Identifier, service.ConfigurationVersions.Single().Identifier);
+
+			var configurations = version.Parameters.Select(reference => StoredConfigurationValues.Single(value => value.Identifier == reference.Identifier)).ToList();
+			Assert.AreEqual(2, configurations.Count);
+			var copiedDefault = StoredParameterValues.Single(value => value.Identifier == configurations[0].ConfigurationParameterId.Identifier);
+			Assert.AreNotEqual(defaultValue.Identifier, copiedDefault.Identifier);
+			Assert.AreEqual("SRT", copiedDefault.StringValue);
+			Assert.IsTrue(configurations[0].Mandatory);
+			var emptyValue = StoredParameterValues.Single(value => value.Identifier == configurations[1].ConfigurationParameterId.Identifier);
+			Assert.AreEqual(parameterWithoutDefault.Identifier, emptyValue.ConfigurationParameterId.Identifier);
+			Assert.IsNull(emptyValue.StringValue);
+			Assert.IsFalse(configurations[1].Mandatory);
+
+			var serviceProfile = StoredServiceProfiles.Single(p => p.Identifier == version.Profiles.Single().Identifier);
+			Assert.IsTrue(serviceProfile.Mandatory);
+			var copiedProfile = StoredProfiles.Single(p => p.Identifier == serviceProfile.ProfileId.Identifier);
+			Assert.AreNotEqual(profile.Identifier, copiedProfile.Identifier);
+			Assert.AreEqual("Main", StoredParameterValues.Single(value => value.Identifier == copiedProfile.ConfigurationParameterValues.Single().Identifier).StringValue);
+		}
+
+		[TestMethod]
+		public void CreateConfigurationVersion_PrefillWithMandatoryParameterWithoutDefault_ActivateReturns400AndCleansUp()
+		{
+			var specification = AddSpecificationWithConfiguration(out _, out var parameterWithoutDefault, out _);
+			StoredSpecificationConfigurations
+				.Single(configuration => configuration.ConfigurationParameterId.Identifier == parameterWithoutDefault.Identifier)
+				.MandatoryAtService = true;
+			var service = AddConfigurableService(specification);
+			string activeVersionId = service.ServiceConfigurationId.Identifier;
+			int parameterValueCount = StoredParameterValues.Count;
+			int profileCount = StoredProfiles.Count;
+
+			var result = Controller.CreateConfigurationVersion(
+				service.ServiceID,
+				new CreateConfigurationVersionRequest { VersionName = "invalid active version" },
+				activate: true);
+
+			Assert.AreEqual(400, StatusCode(result));
+			StringAssert.Contains(ErrorDetail(result), "Bitrate");
+			Assert.AreEqual(parameterValueCount, StoredParameterValues.Count);
+			Assert.AreEqual(profileCount, StoredProfiles.Count);
+			Assert.AreEqual(0, StoredConfigurationValues.Count);
+			Assert.AreEqual(0, StoredServiceProfiles.Count);
+			Assert.AreEqual(0, StoredVersions.Count);
+			Assert.AreEqual(0, service.ConfigurationVersions.Count);
+			Assert.AreEqual(activeVersionId, service.ServiceConfigurationId.Identifier);
+		}
+
+		[TestMethod]
+		public void CreateConfigurationVersion_ReusableSpecificationProfile_IsReferencedNotCopied()
+		{
+			var specification = AddSpecificationWithConfiguration(out _, out _, out var profile);
+			profile.IsReusable = true;
+			var service = AddConfigurableService(specification);
+
+			Assert.AreEqual(201, StatusCode(Controller.CreateConfigurationVersion(service.ServiceID, new CreateConfigurationVersionRequest())));
+
+			var serviceProfile = StoredServiceProfiles.Single(p => p.Identifier == StoredVersions.Single().Profiles.Single().Identifier);
+			Assert.AreEqual(profile.Identifier, serviceProfile.ProfileId.Identifier);
+			Assert.AreSame(profile, StoredProfiles.Single());
+		}
+
+		[TestMethod]
+		public void CreateConfigurationVersion_WithEmptyContent_DoesNotPrefill()
+		{
+			var service = AddConfigurableService(AddSpecificationWithConfiguration(out _, out _, out _));
+			var request = new CreateConfigurationVersionRequest
+			{
+				Parameters = new List<ServiceConfigurationValueRequest>(),
+				Profiles = new List<ServiceProfileRequest>(),
+			};
+
+			Assert.AreEqual(201, StatusCode(Controller.CreateConfigurationVersion(service.ServiceID, request)));
+
+			Assert.AreEqual(0, StoredVersions.Single().Parameters.Count);
+			Assert.AreEqual(0, StoredVersions.Single().Profiles.Count);
+		}
+
+		[TestMethod]
+		public void GetServiceConfiguration_WithSpecification_ReturnsTemplateWithoutSaving()
+		{
+			var specification = AddSpecificationWithConfiguration(out var defaultValue, out var parameterWithoutDefault, out var profile);
+			var service = AddConfigurableService(specification);
+			int valueCount = StoredParameterValues.Count;
+			int profileCount = StoredProfiles.Count;
+
+			var result = Controller.GetServiceConfiguration(service.ServiceID);
+
+			Assert.AreEqual(200, StatusCode(result));
+			var template = Value<List<ConfigurationRecord>>(result).Where(row => row.VersionId == ConfigurationRecord.SpecificationTemplateVersionId).ToList();
+			var parameters = template.Where(row => row.RecordType == "Parameter").ToList();
+			Assert.AreEqual(2, parameters.Count);
+			Assert.AreEqual(defaultValue.Identifier, parameters[0].ParameterValueId);
+			Assert.AreEqual("SRT", parameters[0].ParameterValue);
+			Assert.IsTrue(parameters[0].Mandatory);
+			Assert.AreEqual(parameterWithoutDefault.Identifier, parameters[1].ParameterId);
+			Assert.AreEqual(String.Empty, parameters[1].ParameterValueId);
+			Assert.IsFalse(parameters[1].Mandatory);
+			var profileRow = template.Single(row => row.RecordType == "ProfileParameter");
+			Assert.AreEqual(StoredSpecificationProfiles.Single().Identifier, profileRow.ProfileId);
+			Assert.AreEqual(profile.Identifier, profileRow.ProfileReferenceId);
+			Assert.IsTrue(profileRow.ProfileMandatory);
+			Assert.IsFalse(template.Any(row => row.IsActive));
+
+			Assert.AreEqual(0, StoredVersions.Count);
+			Assert.AreEqual(0, StoredConfigurationValues.Count);
+			Assert.AreEqual(0, StoredServiceProfiles.Count);
+			Assert.AreEqual(valueCount, StoredParameterValues.Count);
+			Assert.AreEqual(profileCount, StoredProfiles.Count);
+		}
+
+		[TestMethod]
+		public void GetServiceConfiguration_WithReusableProfileAtTopLevelAndNested_PreservesBothAssignments()
+		{
+			var definition = new Cfg.ProfileDefinition { Identifier = Guid.NewGuid().ToString(), Name = "Transport" };
+			StoredProfileDefinitions.Add(definition);
+
+			var reusable = new Cfg.Profile
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				Name = "Shared",
+				IsReusable = true,
+				ProfileDefinitionId = new SdmObjectReference<Cfg.ProfileDefinition>(definition.Identifier),
+				Profiles = new List<SdmObjectReference<Cfg.Profile>>(),
+			};
+			var parent = new Cfg.Profile
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				Name = "Parent",
+				ProfileDefinitionId = new SdmObjectReference<Cfg.ProfileDefinition>(definition.Identifier),
+				Profiles = new List<SdmObjectReference<Cfg.Profile>> { new SdmObjectReference<Cfg.Profile>(reusable.Identifier) },
+			};
+			StoredProfiles.Add(parent);
+			StoredProfiles.Add(reusable);
+
+			var nestedAssignment = new ServiceSpecificationProfile
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				ProfileId = new SdmObjectReference<Cfg.Profile>(parent.Identifier),
+			};
+			var topLevelAssignment = new ServiceSpecificationProfile
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				ProfileId = new SdmObjectReference<Cfg.Profile>(reusable.Identifier),
+			};
+			StoredSpecificationProfiles.Add(nestedAssignment);
+			StoredSpecificationProfiles.Add(topLevelAssignment);
+			var specification = new ServiceSpecification
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				Name = "Reusable collision spec",
+				ConfigurationProfiles = new List<SdmObjectReference<ServiceSpecificationProfile>>
+				{
+					new SdmObjectReference<ServiceSpecificationProfile>(nestedAssignment.Identifier),
+					new SdmObjectReference<ServiceSpecificationProfile>(topLevelAssignment.Identifier),
+				},
+			};
+			StoredSpecifications.Add(specification);
+			var service = AddConfigurableService(specification);
+
+			var result = Controller.GetServiceConfiguration(service.ServiceID);
+
+			Assert.AreEqual(200, StatusCode(result));
+			var template = Value<List<ConfigurationRecord>>(result)
+				.Where(row => row.VersionId == ConfigurationRecord.SpecificationTemplateVersionId)
+				.ToList();
+			Assert.IsTrue(template.Any(row => row.RecordType == "Profile"
+				&& row.ProfileId == topLevelAssignment.Identifier
+				&& row.ProfileReferenceId == reusable.Identifier));
+			Assert.IsTrue(template.Any(row => row.RecordType == "NestedProfile"
+				&& row.ProfileId == nestedAssignment.Identifier
+				&& row.NestedProfileId == reusable.Identifier));
+		}
+
+		[TestMethod]
+		public void SaveServiceConfiguration_NewReusableProfile_IsReferencedNotModified()
+		{
+			var service = AddConfigurableService(AddSpecificationWithConfiguration(out _, out _, out var profile));
+			var definition = new Cfg.ProfileDefinition { Identifier = Guid.NewGuid().ToString(), Name = "Transport" };
+			StoredProfileDefinitions.Add(definition);
+			profile.IsReusable = true;
+			profile.ProfileDefinitionId = new SdmObjectReference<Cfg.ProfileDefinition>(definition.Identifier);
+			var request = new ServiceConfigurationRequest
+			{
+				VersionName = "Initial version",
+				ActivateVersion = true,
+				Profiles = new List<ServiceConfigurationProfileRequest>
+				{
+					new ServiceConfigurationProfileRequest { Id = profile.Identifier, Name = "Renamed", DefinitionId = definition.Identifier, Reusable = true, Mandatory = true },
+				},
+			};
+
+			var result = Controller.SaveServiceConfiguration(service.ServiceID, JObject.FromObject(request));
+
+			int statusCode = StatusCode(result);
+			Assert.AreEqual(200, statusCode, statusCode == 200 ? String.Empty : ErrorDetail(result));
+			var serviceProfile = StoredServiceProfiles.Single();
+			Assert.AreEqual(serviceProfile.Identifier, StoredVersions.Single().Profiles.Single().Identifier);
+			Assert.AreEqual(profile.Identifier, serviceProfile.ProfileId.Identifier);
+			Assert.IsTrue(serviceProfile.Mandatory);
+			Assert.AreSame(profile, StoredProfiles.Single());
+			Assert.AreEqual("Transport", profile.Name);
+		}
+
+		[TestMethod]
+		public void SaveServiceConfiguration_ProfileOwnershipError_UsesProfileNameWithoutGuid()
+		{
+			var service = AddConfigurableService(AddSpecificationWithConfiguration(out _, out _, out _));
+			string invalidProfileId = Guid.NewGuid().ToString();
+			var request = new ServiceConfigurationRequest
+			{
+				Profiles = new List<ServiceConfigurationProfileRequest>
+				{
+					new ServiceConfigurationProfileRequest
+					{
+						Id = invalidProfileId,
+						Name = "Shared transport",
+						DefinitionId = Guid.NewGuid().ToString(),
+					},
+				},
+			};
+
+			var result = Controller.SaveServiceConfiguration(service.ServiceID, JObject.FromObject(request));
+
+			Assert.AreEqual(400, StatusCode(result));
+			StringAssert.Contains(ErrorDetail(result), "Shared transport");
+			Assert.IsFalse(ErrorDetail(result).Contains(invalidProfileId));
+		}
+
+		private Service AddConfigurableService(ServiceSpecification specification)
+		{
+			var service = AddService();
+
+			// FullServiceBuilder dereferences these references, so give them identifiers.
+			service.CategoryId = new SdmObjectReference<ServiceCategory>(Guid.NewGuid().ToString());
+			service.ServiceSpecificationId = new SdmObjectReference<ServiceSpecification>(specification.Identifier);
+			service.ServiceConfigurationId = new SdmObjectReference<ServiceConfigurationVersion>(Guid.NewGuid().ToString());
+			return service;
+		}
+
+		/// <summary>
+		/// Adds a specification with a "Protocol" parameter (default "SRT", mandatory at service), a "Bitrate" parameter without
+		/// a default and a profile holding the value "Main" (mandatory at service).
+		/// </summary>
+		private ServiceSpecification AddSpecificationWithConfiguration(out Cfg.ConfigurationParameterValue defaultValue, out Cfg.ConfigurationParameter parameterWithoutDefault, out Cfg.Profile profile)
+		{
+			var protocol = new Cfg.ConfigurationParameter { Identifier = Guid.NewGuid().ToString(), Name = "Protocol" };
+			parameterWithoutDefault = new Cfg.ConfigurationParameter { Identifier = Guid.NewGuid().ToString(), Name = "Bitrate" };
+			StoredParameters.Add(protocol);
+			StoredParameters.Add(parameterWithoutDefault);
+			defaultValue = new Cfg.ConfigurationParameterValue
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				ConfigurationParameterId = new SdmObjectReference<Cfg.ConfigurationParameter>(protocol.Identifier),
+				StringValue = "SRT",
+			};
+			var profileValue = new Cfg.ConfigurationParameterValue { Identifier = Guid.NewGuid().ToString(), StringValue = "Main" };
+			StoredParameterValues.Add(defaultValue);
+			StoredParameterValues.Add(profileValue);
+			profile = new Cfg.Profile
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				Name = "Transport",
+				Profiles = new List<SdmObjectReference<Cfg.Profile>>(),
+				ConfigurationParameterValues = new List<SdmObjectReference<Cfg.ConfigurationParameterValue>> { new SdmObjectReference<Cfg.ConfigurationParameterValue>(profileValue.Identifier) },
+			};
+			StoredProfiles.Add(profile);
+
+			var withDefault = new ServiceSpecificationConfigurationValue
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				ConfigurationParameterId = new SdmObjectReference<Cfg.ConfigurationParameter>(defaultValue.Identifier),
+				MandatoryAtService = true,
+			};
+			var withoutDefault = new ServiceSpecificationConfigurationValue
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				ConfigurationParameterId = new SdmObjectReference<Cfg.ConfigurationParameter>(parameterWithoutDefault.Identifier),
+			};
+			var specificationProfile = new ServiceSpecificationProfile
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				ProfileId = new SdmObjectReference<Cfg.Profile>(profile.Identifier),
+				MandatoryAtService = true,
+			};
+			StoredSpecificationConfigurations.Add(withDefault);
+			StoredSpecificationConfigurations.Add(withoutDefault);
+			StoredSpecificationProfiles.Add(specificationProfile);
+
+			var specification = new ServiceSpecification
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				Name = "Configured spec",
+				ConfigurationParameters = new List<SdmObjectReference<ServiceSpecificationConfigurationValue>>
+				{
+					new SdmObjectReference<ServiceSpecificationConfigurationValue>(withDefault.Identifier),
+					new SdmObjectReference<ServiceSpecificationConfigurationValue>(withoutDefault.Identifier),
+				},
+				ConfigurationProfiles = new List<SdmObjectReference<ServiceSpecificationProfile>>
+				{
+					new SdmObjectReference<ServiceSpecificationProfile>(specificationProfile.Identifier),
+				},
+			};
+			StoredSpecifications.Add(specification);
+			return specification;
 		}
 
 		// ---- PATCH /service/{id}: script parity ----

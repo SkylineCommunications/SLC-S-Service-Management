@@ -85,6 +85,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Specification
 			}
 
 			var records = new List<SpecificationConfigurationRecord>();
+			var warnings = new List<string>();
 			records.AddRange(parameters.Values.Select(parameter => CreateRecord("AvailableParameter", null, parameter, null, null)));
 			records.AddRange(profileDefinitions.Values.Select(definition =>
 			{
@@ -126,6 +127,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Specification
 					|| configuration.ProfileId == null
 					|| !profiles.TryGetValue(configuration.ProfileId.Identifier ?? String.Empty, out var profile))
 				{
+					AddMissingProfileWarning(warnings);
 					continue;
 				}
 
@@ -160,10 +162,21 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Specification
 					parameters,
 					parameterValues,
 					availableNestedProfileIds,
-					new HashSet<string>(StringComparer.OrdinalIgnoreCase) { profile.Identifier });
+					new HashSet<string>(StringComparer.OrdinalIgnoreCase) { profile.Identifier },
+					warnings);
 			}
 
+			records.AddRange(warnings.Select(message => CreateWarningRecord(specification, message)));
 			return records;
+		}
+
+		private static void AddMissingProfileWarning(ICollection<string> warnings)
+		{
+			const string message = "A profile referenced by this specification is no longer available. Restore the profile or save the configuration to remove the stale reference.";
+			if (!warnings.Contains(message))
+			{
+				warnings.Add(message);
+			}
 		}
 
 		private static void ApplyLifecycle(SpecificationConfigurationRecord record, bool exposeAtOrder, bool mandatoryAtOrder, bool mandatoryAtService)
@@ -176,6 +189,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Specification
 		private static void ApplyProfile(SpecificationConfigurationRecord record, ServiceSpecificationProfile configuration, Profile profile, ProfileDefinition definition)
 		{
 			record.ProfileId = configuration.Identifier ?? String.Empty;
+			record.ProfileReferenceId = profile.Identifier ?? String.Empty;
 			record.ProfileName = profile.Name ?? String.Empty;
 			record.ProfileDefinitionId = definition?.Identifier ?? String.Empty;
 			record.ProfileDefinitionName = definition?.Name ?? String.Empty;
@@ -253,20 +267,28 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Specification
 			IReadOnlyDictionary<string, ConfigurationParameter> parameters,
 			IReadOnlyDictionary<string, ConfigurationParameterValue> parameterValues,
 			HashSet<string> availableNestedProfileIds,
-			HashSet<string> ancestors)
+			HashSet<string> ancestors,
+			ICollection<string> warnings)
 		{
 			foreach (var nestedReference in parentProfile.Profiles ?? new List<SdmObjectReference<Profile>>())
 			{
 				if (String.IsNullOrWhiteSpace(nestedReference.Identifier))
 				{
-					throw new InvalidOperationException($"Profile '{parentProfile.Identifier}' contains a nested profile reference without an identifier.");
+					AddMissingProfileWarning(warnings);
+					continue;
 				}
 
 				if (!profiles.TryGetValue(nestedReference.Identifier, out var nestedProfile))
 				{
 					nestedProfile = _api.ServiceCatalog.Profiles
 						.Read(ProfileExposers.Identifier.Equal(nestedReference.Identifier))
-						.FirstOrDefault() ?? throw new InvalidOperationException($"Nested profile '{nestedReference.Identifier}' referenced by profile '{parentProfile.Identifier}' was not found.");
+						.FirstOrDefault();
+					if (nestedProfile == null)
+					{
+						AddMissingProfileWarning(warnings);
+						continue;
+					}
+
 					profiles[nestedProfile.Identifier] = nestedProfile;
 				}
 
@@ -310,9 +332,21 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Specification
 					parameters,
 					parameterValues,
 					availableNestedProfileIds,
-					ancestors);
+					ancestors,
+					warnings);
 				ancestors.Remove(nestedProfile.Identifier);
 			}
+		}
+
+		private static SpecificationConfigurationRecord CreateWarningRecord(ServiceSpecification specification, string message)
+		{
+			return new SpecificationConfigurationRecord
+			{
+				VersionId = specification?.Identifier ?? String.Empty,
+				VersionName = specification?.Name ?? String.Empty,
+				RecordType = "Warning",
+				Warning = message,
+			};
 		}
 
 		private SpecificationConfigurationRecord CreateAvailableNestedProfileRecord(Profile profile, IReadOnlyDictionary<string, ProfileDefinition> definitions)

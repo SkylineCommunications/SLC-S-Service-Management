@@ -450,6 +450,43 @@
 		}
 
 		[TestMethod]
+		public void GetConfiguration_MissingNestedProfile_ReturnsConfigurationWithWarning()
+		{
+			Catalog.SetupGet(c => c.DiscreteParameterOptions).Returns(Repository(new List<DiscreteParameterOptions>()).Object);
+			Catalog.SetupGet(c => c.DiscreteValues).Returns(Repository(new List<DiscreteValue>()).Object);
+			Catalog.SetupGet(c => c.NumberParameterOptions).Returns(Repository(new List<NumberParameterOptions>()).Object);
+			Catalog.SetupGet(c => c.ConfigurationUnits).Returns(Repository(new List<ConfigurationUnit>()).Object);
+			Catalog.SetupGet(c => c.ConfigurationParameterValues).Returns(Repository(new List<ConfigurationParameterValue>()).Object);
+
+			var definition = AddWithId(ProfileDefinitions, new ProfileDefinition { Name = "Transport" });
+			var parent = AddWithId(Profiles, new Profile
+			{
+				Name = "Parent",
+				ProfileDefinitionId = new SdmObjectReference<ProfileDefinition>(definition.Identifier),
+				Profiles = new List<SdmObjectReference<Profile>> { new SdmObjectReference<Profile>(Guid.NewGuid().ToString()) },
+			});
+			var assignment = AddWithId(SpecProfiles, new ServiceSpecificationProfile
+			{
+				ProfileId = new SdmObjectReference<Profile>(parent.Identifier),
+				ProfileDefinitionId = new SdmObjectReference<ProfileDefinition>(definition.Identifier),
+			});
+			var spec = AddSpec("A");
+			spec.ConfigurationProfiles = new List<SdmObjectReference<ServiceSpecificationProfile>>
+			{
+				new SdmObjectReference<ServiceSpecificationProfile>(assignment.Identifier),
+			};
+
+			var result = controller.GetServiceSpecificationConfiguration(spec.Identifier);
+
+			Assert.AreEqual(200, StatusCode(result));
+			var records = Value<List<SpecificationConfigurationRecord>>(result);
+			Assert.IsTrue(records.Any(record => record.RecordType == "Profile" && record.ProfileName == "Parent"));
+			var warning = records.Single(record => record.RecordType == "Warning");
+			StringAssert.Contains(warning.Warning, "no longer available");
+			Assert.IsFalse(warning.Warning.Contains(parent.Identifier));
+		}
+
+		[TestMethod]
 		public void SaveConfiguration_DuplicateVersionName_Returns409()
 		{
 			AddSpec("Other");
@@ -582,6 +619,106 @@
 			Assert.AreEqual("200", own.Value.StringValue);
 			Assert.AreEqual("300", own.ProfileValue.StringValue);
 			Assert.AreEqual("Mine", own.Profile.Name);
+		}
+
+		[TestMethod]
+		public void SaveConfiguration_TopLevelReusableProfile_LinksExistingProfileWithoutCopy()
+		{
+			var spec = AddSpec("A");
+			var definition = AddWithId(ProfileDefinitions, new ProfileDefinition { Name = "Transport" });
+			var reusable = AddWithId(Profiles, new Profile
+			{
+				Name = "Shared",
+				IsReusable = true,
+				ProfileDefinitionId = new SdmObjectReference<ProfileDefinition>(definition.Identifier),
+			});
+			var request = new SpecificationConfigurationRequest
+			{
+				Profiles =
+				{
+					new SpecificationConfigurationProfile
+					{
+						Name = reusable.Name,
+						DefinitionId = definition.Identifier,
+						Reusable = true,
+						ReusableProfileId = reusable.Identifier,
+					},
+				},
+			};
+
+			var result = controller.SaveServiceSpecificationConfiguration(spec.Identifier, JObject.FromObject(request));
+
+			int statusCode = StatusCode(result);
+			Assert.AreEqual(200, statusCode, statusCode == 200 ? String.Empty : ErrorDetail(result));
+			Assert.AreEqual(1, Profiles.Count);
+			Assert.AreEqual(1, SpecProfiles.Count);
+			Assert.AreEqual(reusable.Identifier, SpecProfiles[0].ProfileId.Identifier);
+			Assert.AreEqual(reusable.Identifier, Value<List<SpecificationConfigurationRecord>>(result)
+				.Single(record => record.RecordType == "Profile").ProfileReferenceId);
+		}
+
+		[TestMethod]
+		public void SaveConfiguration_TopLevelReusableProfileUsesLinkedProfileDefinition()
+		{
+			var spec = AddSpec("A");
+			var reusableDefinition = AddWithId(ProfileDefinitions, new ProfileDefinition { Name = "Reusable definition" });
+			var requestDefinition = AddWithId(ProfileDefinitions, new ProfileDefinition { Name = "Requested definition" });
+			var reusable = AddWithId(Profiles, new Profile
+			{
+				Name = "Shared",
+				IsReusable = true,
+				ProfileDefinitionId = new SdmObjectReference<ProfileDefinition>(reusableDefinition.Identifier),
+			});
+			var request = new SpecificationConfigurationRequest
+			{
+				Profiles =
+				{
+					new SpecificationConfigurationProfile
+					{
+						Name = reusable.Name,
+						DefinitionId = requestDefinition.Identifier,
+						Reusable = true,
+						ReusableProfileId = reusable.Identifier,
+					},
+				},
+			};
+
+			var result = controller.SaveServiceSpecificationConfiguration(spec.Identifier, JObject.FromObject(request));
+
+			int statusCode = StatusCode(result);
+			Assert.AreEqual(200, statusCode, statusCode == 200 ? String.Empty : ErrorDetail(result));
+			Assert.AreEqual(reusableDefinition.Identifier, SpecProfiles.Single().ProfileDefinitionId.Identifier);
+			Assert.AreEqual(reusableDefinition.Identifier, Value<List<SpecificationConfigurationRecord>>(result)
+				.Single(record => record.RecordType == "Profile").ProfileDefinitionId);
+		}
+
+		[TestMethod]
+		public void SaveConfiguration_DuplicateTopLevelReusableProfiles_Returns400AndDoesNotCreateAssignments()
+		{
+			var spec = AddSpec("A");
+			var definition = AddWithId(ProfileDefinitions, new ProfileDefinition { Name = "Transport" });
+			var reusable = AddWithId(Profiles, new Profile
+			{
+				Name = "Shared",
+				IsReusable = true,
+				ProfileDefinitionId = new SdmObjectReference<ProfileDefinition>(definition.Identifier),
+			});
+			var request = new SpecificationConfigurationRequest
+			{
+				Profiles =
+				{
+					new SpecificationConfigurationProfile { Name = "Shared 1", DefinitionId = definition.Identifier, Reusable = true, ReusableProfileId = reusable.Identifier },
+					new SpecificationConfigurationProfile { Name = "Shared 2", DefinitionId = definition.Identifier, Reusable = true, ReusableProfileId = reusable.Identifier },
+				},
+			};
+
+			var result = controller.SaveServiceSpecificationConfiguration(spec.Identifier, JObject.FromObject(request));
+
+			Assert.AreEqual(400, StatusCode(result));
+			StringAssert.Contains(ErrorDetail(result), "already assigned");
+			Assert.AreEqual(1, Profiles.Count);
+			Assert.AreEqual(0, SpecProfiles.Count);
+			Assert.AreEqual(0, spec.ConfigurationProfiles.Count);
 		}
 
 		private OwnedConfiguration AddOwnedConfiguration(ServiceSpecification spec)

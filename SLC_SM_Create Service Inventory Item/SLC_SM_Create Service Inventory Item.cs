@@ -23,6 +23,7 @@ namespace SLC_SM_Create_Service_Inventory_Item
 	using System.Linq;
 	using System.Threading;
 	using Library;
+	using Library.Dom;
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Core.DataMinerSystem.Automation;
 	using Skyline.DataMiner.Core.DataMinerSystem.Common;
@@ -170,12 +171,8 @@ namespace SLC_SM_Create_Service_Inventory_Item
 				if (spec != null)
 				{
 					instance.Description = spec.Description;
-					instance.ServiceItems = spec.ServiceItems != null
-						? spec.ServiceItems.ToList()
-						: new List<SdmModels.ServiceItem>();
-					instance.ServiceItemsRelationships = spec.ServiceItemsRelationships != null
-						? spec.ServiceItemsRelationships.ToList()
-						: new List<SdmModels.ServiceItemRelationship>();
+					instance.ServiceItems = spec.GetRealServiceItems();
+					instance.ServiceItemsRelationships = spec.GetRealServiceItemRelationships();
 					instance.ServiceItems = SanitizeServiceItemsForCreate(instance.ServiceItems);
 				}
 			}
@@ -936,8 +933,8 @@ namespace SLC_SM_Create_Service_Inventory_Item
 				ServiceSpecificationId = specReference,
 				CategoryId = categoryReference,
 				Icon = category?.Icon ?? String.Empty,
-				ServiceItems = spec?.ServiceItems != null ? spec.ServiceItems.ToList() : new List<SdmModels.ServiceItem>(),
-				ServiceItemsRelationships = spec?.ServiceItemsRelationships != null ? spec.ServiceItemsRelationships.ToList() : new List<SdmModels.ServiceItemRelationship>(),
+				ServiceItems = spec.GetRealServiceItems(),
+				ServiceItemsRelationships = spec.GetRealServiceItemRelationships(),
 			};
 
 			sdmHelper.ServiceInventory.Services.Create(newService);

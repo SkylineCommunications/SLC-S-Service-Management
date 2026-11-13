@@ -46,6 +46,16 @@ test.describe('Service Management workspace', () => {
         await orderRow.getByRole('button', { name: 'Open details of Network refresh' }).click();
         await expect(page.getByRole('dialog').getByRole('button', { name: 'Launch test IAS', exact: true })).toHaveCount(0);
     });
+    test('creates an order without label using the generated order ID as name', { tag: '@W1' }, async ({ page }) => {
+        await page.getByRole('button', { name: 'New order', exact: true }).click();
+        const form = page.getByRole('form', { name: 'New service order' });
+        await expect(form.getByRole('textbox', { name: 'Label' })).toHaveAttribute('placeholder', 'Order ID generated incrementally on create');
+        await form.getByRole('button', { name: 'Create order', exact: true }).click();
+        await expect(form).toHaveCount(0);
+        const create = udapiRequests(mock).find(request => request.Route === ORDERS_ROUTE && request.RequestMethod === 3);
+        expect(JSON.parse(create.Body).name).toBe('');
+        await expect(page.locator('.order-row').filter({ hasText: 'ORDER-000004' })).toHaveCount(1);
+    });
     test('loads organizations into the service order form dropdown', { tag: '@W10' }, async ({ page }) => {
         await page.getByRole('button', { name: 'New order', exact: true }).click();
         const form = page.getByRole('form', { name: 'New service order' });

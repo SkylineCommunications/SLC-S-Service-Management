@@ -1,5 +1,6 @@
 import { DataMinerApiError, DataMinerAuthError, launchInteractiveAutomationScript, detachAutomationScript } from './automation.js';
 import { getConnectionFromCookie, redirectToAuth } from './session.js';
+import { userFacingErrorMessage } from '../userFacingErrors.js';
 
 // Headless Interactive Automation Script (IAS) client.
 //
@@ -290,7 +291,7 @@ export class IasSession {
     fail(error) {
         if (this.finished) return;
         const shouldDetach = this.scriptId !== null;
-        this.finish({ phase: 'failed', error });
+        this.finish({ phase: 'failed', error: userFacingErrorMessage(error, 'The interactive script failed.') });
         if (shouldDetach) this.detach();
     }
 

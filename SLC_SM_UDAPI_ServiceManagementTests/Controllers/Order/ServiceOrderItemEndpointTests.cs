@@ -1,4 +1,4 @@
-namespace SLC_SM_UDAPI_ServiceManagement.Tests.Controllers
+﻿namespace SLC_SM_UDAPI_ServiceManagement.Tests.Controllers
 {
 	using System.Collections.Generic;
 	using Moq;
@@ -220,6 +220,25 @@ namespace SLC_SM_UDAPI_ServiceManagement.Tests.Controllers
 		}
 
 		[TestMethod]
+		public void InitializeServiceFromOrderItem_DoesNotCopySpecificationPlaceholders()
+		{
+			var specificationId = AddSpecification();
+			var specification = StoredSpecifications.Single(candidate => candidate.Identifier == specificationId.ToString());
+			specification.ServiceItems = new List<ServiceItem> { new ServiceItem() };
+			specification.ServiceItemsRelationships = new List<ServiceItemRelationship> { new ServiceItemRelationship() };
+			var item = AddItem();
+			item.ServiceInfo.SpecificationId = new Skyline.DataMiner.SDM.SdmObjectReference<ServiceSpecification>(specificationId.ToString());
+			AddOrder("New", item);
+
+			var result = Controller.InitializeServiceFromOrderItem(OrderId, item.Identifier);
+
+			Assert.AreEqual(201, StatusCode(result));
+			var service = Value<Service>(result);
+			Assert.AreEqual(0, service.ServiceItems.Count);
+			Assert.AreEqual(0, service.ServiceItemsRelationships.Count);
+		}
+
+		[TestMethod]
 		public void InitializeServiceFromOrderItem_WhenItemNameAlreadyExists_AddsUniqueSuffix()
 		{
 			var specificationId = AddSpecification();
@@ -369,6 +388,177 @@ namespace SLC_SM_UDAPI_ServiceManagement.Tests.Controllers
 		}
 
 		[TestMethod]
+		public void InitializeService_MandatoryFlagComesFromSpecificationMandatoryAtService()
+		{
+			var item = AddItem();
+			var parameterId = Guid.NewGuid().ToString();
+			var specificationConfiguration = new ServiceSpecificationConfigurationValue
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				ConfigurationParameterId = new SdmObjectReference<Cfg.ConfigurationParameter>(parameterId),
+				MandatoryAtService = true,
+			};
+			item.ServiceInfo.SpecificationId = new SdmObjectReference<ServiceSpecification>(AddSpecification().ToString());
+			StoredSpecifications.Last().ConfigurationParameters = new List<SdmObjectReference<ServiceSpecificationConfigurationValue>>
+			{
+				new SdmObjectReference<ServiceSpecificationConfigurationValue>(specificationConfiguration.Identifier),
+			};
+			AddOrder("New", item);
+			var value = new Cfg.ConfigurationParameterValue
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				ConfigurationParameterId = new SdmObjectReference<Cfg.ConfigurationParameter>(parameterId),
+				StringValue = "SRT",
+			};
+			var itemConfiguration = new ServiceOrderItemConfigurationValue
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				ConfigurationParameterValueId = new SdmObjectReference<Cfg.ConfigurationParameterValue>(value.Identifier),
+				Mandatory = false,
+			};
+			item.ServiceInfo.Configurations = new List<SdmObjectReference<ServiceOrderItemConfigurationValue>> { itemConfiguration };
+			var configurations = new List<ServiceConfigurationValue>();
+			Mock.Get(Helper.ServiceCatalog).SetupGet(api => api.ServiceSpecificationConfigurationValues)
+				.Returns(InitializationRepository(new List<ServiceSpecificationConfigurationValue> { specificationConfiguration }).Object);
+			Mock.Get(Helper.ServiceOrder).SetupGet(api => api.ServiceOrderItemConfigurationValues).Returns(InitializationRepository(new List<ServiceOrderItemConfigurationValue> { itemConfiguration }).Object);
+			Mock.Get(Helper.ServiceCatalog).SetupGet(api => api.ConfigurationParameterValues).Returns(InitializationRepository(new List<Cfg.ConfigurationParameterValue> { value }).Object);
+			Mock.Get(Helper.ServiceInventory).SetupGet(api => api.ServiceConfigurationValues).Returns(InitializationRepository(configurations).Object);
+			Mock.Get(Helper.ServiceInventory).SetupGet(api => api.ServiceConfigurationVersions).Returns(InitializationRepository(new List<ServiceConfigurationVersion>()).Object);
+
+			Assert.AreEqual(201, StatusCode(Controller.InitializeServiceFromOrderItem(OrderId, item.Identifier)));
+			Assert.IsTrue(configurations.Single().Mandatory);
+		}
+
+		[TestMethod]
+		public void InitializeService_RepeatedSpecificationParametersKeepMandatoryFlagPerInstance()
+		{
+			var scenario = SetupRepeatedSpecificationScenario(
+				"New",
+				"New",
+				mainSpecificationHasDefault: true,
+				mainItemPresent: true,
+				mainItemHasValue: true,
+				backupItemHasValue: false);
+
+			Assert.AreEqual(201, StatusCode(Controller.InitializeServiceFromOrderItem(OrderId, scenario.Item.Identifier)));
+
+			var fullVersion = new FullServiceBuilder(Helper).BuildVersion(scenario.Versions.Single());
+			var main = fullVersion.Parameters.Single(value => value.ConfigurationParameter.Label == "Main");
+			var backup = fullVersion.Parameters.Single(value => value.ConfigurationParameter.Label == "Backup");
+			Assert.IsTrue(main.Mandatory);
+			Assert.IsFalse(backup.Mandatory);
+			Assert.IsTrue(String.IsNullOrWhiteSpace(backup.ConfigurationParameter.StringValue));
+		}
+
+		[TestMethod]
+		public void InitializeService_MissingMandatoryRepeatedInstanceIsNotMaskedByOptionalSibling()
+		{
+			var scenario = SetupRepeatedSpecificationScenario(
+				"New",
+				"New",
+				mainSpecificationHasDefault: false,
+				mainItemPresent: false,
+				mainItemHasValue: false,
+				backupItemHasValue: true);
+
+			var result = Controller.InitializeServiceFromOrderItem(OrderId, scenario.Item.Identifier);
+
+			Assert.AreEqual(400, StatusCode(result));
+			StringAssert.Contains(ErrorDetail(result), "without a value: Transport");
+			Services.Verify(repository => repository.Create(It.IsAny<Service>()), Times.Never);
+		}
+
+		[TestMethod]
+		public void InitializeService_MissingMandatoryRepeatedInstanceCopiesItsDefault()
+		{
+			var scenario = SetupRepeatedSpecificationScenario(
+				"New",
+				"New",
+				mainSpecificationHasDefault: true,
+				mainItemPresent: false,
+				mainItemHasValue: false,
+				backupItemHasValue: true);
+
+			Assert.AreEqual(201, StatusCode(Controller.InitializeServiceFromOrderItem(OrderId, scenario.Item.Identifier)));
+
+			var fullVersion = new FullServiceBuilder(Helper).BuildVersion(scenario.Versions.Single());
+			var main = fullVersion.Parameters.Single(value => value.ConfigurationParameter.Label == "Main");
+			var backup = fullVersion.Parameters.Single(value => value.ConfigurationParameter.Label == "Backup");
+			Assert.AreEqual("SRT", main.ConfigurationParameter.StringValue);
+			Assert.IsTrue(main.Mandatory);
+			Assert.AreEqual("RTP", backup.ConfigurationParameter.StringValue);
+			Assert.IsFalse(backup.Mandatory);
+		}
+
+		[TestMethod]
+		public void InitializeService_EmptyMandatoryValue_Returns400NamingParameterWithoutCreatingService()
+		{
+			var item = AddItem();
+			item.ServiceInfo.SpecificationId = new SdmObjectReference<ServiceSpecification>(AddSpecification().ToString());
+			AddOrder("New", item);
+			AddEmptyMandatoryItemConfiguration(item, "Bitrate");
+
+			var result = Controller.InitializeServiceFromOrderItem(OrderId, item.Identifier);
+
+			Assert.AreEqual(400, StatusCode(result));
+			StringAssert.Contains(ErrorDetail(result), "without a value: Bitrate.");
+			Services.Verify(repository => repository.Create(It.IsAny<Service>()), Times.Never);
+		}
+
+		[TestMethod]
+		public void InitializeService_ServiceMandatoryEmptyValue_Returns400WithoutCreatingService()
+		{
+			var item = AddItem();
+			var specification = AddSpecification();
+			item.ServiceInfo.SpecificationId = new SdmObjectReference<ServiceSpecification>(specification.ToString());
+			AddOrder("New", item);
+
+			var parameter = new Cfg.ConfigurationParameter { Identifier = Guid.NewGuid().ToString(), Name = "Bitrate" };
+			var value = new Cfg.ConfigurationParameterValue
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				ConfigurationParameterId = new SdmObjectReference<Cfg.ConfigurationParameter>(parameter.Identifier),
+			};
+			var specificationConfiguration = new ServiceSpecificationConfigurationValue
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				ConfigurationParameterId = new SdmObjectReference<Cfg.ConfigurationParameter>(parameter.Identifier),
+				MandatoryAtService = true,
+			};
+			var itemConfiguration = new ServiceOrderItemConfigurationValue
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				ConfigurationParameterValueId = new SdmObjectReference<Cfg.ConfigurationParameterValue>(value.Identifier),
+				Mandatory = false,
+			};
+			StoredSpecifications.Single(candidate => candidate.Identifier == specification.ToString()).ConfigurationParameters =
+				new List<SdmObjectReference<ServiceSpecificationConfigurationValue>>
+				{
+					new SdmObjectReference<ServiceSpecificationConfigurationValue>(specificationConfiguration.Identifier),
+				};
+			item.ServiceInfo.Configurations = new List<SdmObjectReference<ServiceOrderItemConfigurationValue>>
+			{
+				new SdmObjectReference<ServiceOrderItemConfigurationValue>(itemConfiguration.Identifier),
+			};
+
+			Mock.Get(Helper.ServiceCatalog).SetupGet(api => api.ServiceSpecificationConfigurationValues)
+				.Returns(InitializationRepository(new List<ServiceSpecificationConfigurationValue> { specificationConfiguration }).Object);
+			Mock.Get(Helper.ServiceCatalog).SetupGet(api => api.ConfigurationParameters)
+				.Returns(InitializationRepository(new List<Cfg.ConfigurationParameter> { parameter }).Object);
+			Mock.Get(Helper.ServiceCatalog).SetupGet(api => api.ConfigurationParameterValues)
+				.Returns(InitializationRepository(new List<Cfg.ConfigurationParameterValue> { value }).Object);
+			Mock.Get(Helper.ServiceOrder).SetupGet(api => api.ServiceOrderItemConfigurationValues)
+				.Returns(InitializationRepository(new List<ServiceOrderItemConfigurationValue> { itemConfiguration }).Object);
+
+			var result = Controller.InitializeServiceFromOrderItem(OrderId, item.Identifier);
+
+			Assert.AreEqual(400, StatusCode(result));
+			StringAssert.Contains(ErrorDetail(result), "without a value: Bitrate.");
+			Services.Verify(repository => repository.Create(It.IsAny<Service>()), Times.Never);
+			Items.Verify(repository => repository.Update(It.IsAny<ServiceOrderItem>()), Times.Never);
+		}
+
+		[TestMethod]
 		public void InitializeService_MissingConfiguration_Returns400WithoutCreatingService()
 		{
 			var item = AddItem();
@@ -468,32 +658,21 @@ namespace SLC_SM_UDAPI_ServiceManagement.Tests.Controllers
 		}
 
 		[DataTestMethod]
-		[DataRow("copy")]
-		[DataRow("skip")]
-		[DataRow("missing")]
-		[DataRow("cycle")]
-		[DataRow("linkFailure")]
-		public void InitializeService_Profiles_CopiesNestedValuesIndependentlyAndCleansUpFailures(string scenario)
+		[DataRow(false)]
+		[DataRow(true)]
+		public void InitializeService_DoesNotCopySpecificationProfiles(bool brokenProfile)
 		{
 			var item = AddItem();
 			string specificationId = AddSpecification().ToString();
 			item.ServiceInfo.SpecificationId = new SdmObjectReference<ServiceSpecification>(specificationId);
 			item.ServiceInfo.Configurations = new List<SdmObjectReference<ServiceOrderItemConfigurationValue>>();
 			AddOrder("New", item);
-			var value = new Cfg.ConfigurationParameterValue { Identifier = Guid.NewGuid().ToString(), StringValue = "Profile value", ValueFixed = true };
-			var nested = new Cfg.Profile
-			{
-				Identifier = Guid.NewGuid().ToString(),
-				Name = "Nested",
-				IsReusable = true,
-				ConfigurationParameterValues = new List<SdmObjectReference<Cfg.ConfigurationParameterValue>> { value },
-			};
+			var value = new Cfg.ConfigurationParameterValue { Identifier = Guid.NewGuid().ToString(), StringValue = "Profile value" };
 			var root = new Cfg.Profile
 			{
 				Identifier = Guid.NewGuid().ToString(),
 				Name = "Root",
-				IsReusable = true,
-				Profiles = new List<SdmObjectReference<Cfg.Profile>> { nested },
+				ConfigurationParameterValues = new List<SdmObjectReference<Cfg.ConfigurationParameterValue>> { value },
 			};
 			var specificationProfile = new ServiceSpecificationProfile
 			{
@@ -504,8 +683,8 @@ namespace SLC_SM_UDAPI_ServiceManagement.Tests.Controllers
 			};
 			StoredSpecifications.Single(specification => specification.Identifier == specificationId).ConfigurationProfiles =
 				new List<SdmObjectReference<ServiceSpecificationProfile>> { specificationProfile };
-			var profiles = new List<Cfg.Profile> { root, nested };
-			var values = new List<Cfg.ConfigurationParameterValue> { value };
+			var profiles = new List<Cfg.Profile> { root };
+			var values = brokenProfile ? new List<Cfg.ConfigurationParameterValue>() : new List<Cfg.ConfigurationParameterValue> { value };
 			var serviceProfiles = new List<ServiceProfile>();
 			var versions = new List<ServiceConfigurationVersion>();
 			var catalog = Mock.Get(Helper.ServiceCatalog);
@@ -514,60 +693,15 @@ namespace SLC_SM_UDAPI_ServiceManagement.Tests.Controllers
 			catalog.SetupGet(api => api.ConfigurationParameterValues).Returns(InitializationRepository(values).Object);
 			Mock.Get(Helper.ServiceInventory).SetupGet(api => api.ServiceProfiles).Returns(InitializationRepository(serviceProfiles).Object);
 			Mock.Get(Helper.ServiceInventory).SetupGet(api => api.ServiceConfigurationVersions).Returns(InitializationRepository(versions).Object);
-			if (scenario == "missing") values.Clear();
-			if (scenario == "cycle") nested.Profiles = new List<SdmObjectReference<Cfg.Profile>> { root };
-			if (scenario == "linkFailure") Items.Setup(repository => repository.Update(item)).Throws(new InvalidOperationException("Link failed"));
 
-			var result = Controller.InitializeServiceFromOrderItem(OrderId, item.Identifier, new InitializeServiceRequest { CopyConfiguration = scenario != "skip" });
+			var result = Controller.InitializeServiceFromOrderItem(OrderId, item.Identifier, new InitializeServiceRequest { CopyConfiguration = true });
 
-			if (scenario == "copy")
-			{
-				Assert.AreEqual(201, StatusCode(result));
-				var service = Value<Service>(result);
-				Assert.AreEqual(versions.Single().Identifier, service.ServiceConfigurationId.Identifier);
-				Assert.AreEqual(serviceProfiles.Single().Identifier, versions[0].Profiles.Single().Identifier);
-				Assert.IsTrue(serviceProfiles[0].Mandatory);
-				Assert.AreEqual(specificationProfile.ProfileDefinitionId.Identifier, serviceProfiles[0].ProfileDefinitionId.Identifier);
-				var copiedRoot = profiles.Single(profile => profile.Identifier == serviceProfiles[0].ProfileId.Identifier);
-				var copiedNested = profiles.Single(profile => profile.Identifier == copiedRoot.Profiles.Single().Identifier);
-				Assert.AreNotEqual(root.Identifier, copiedRoot.Identifier);
-				Assert.AreNotEqual(nested.Identifier, copiedNested.Identifier);
-				Assert.IsFalse(copiedRoot.IsReusable);
-				Assert.IsFalse(copiedNested.IsReusable);
-				var copiedValue = values.Single(parameter => parameter.Identifier == copiedNested.ConfigurationParameterValues.Single().Identifier);
-				Assert.AreNotEqual(value.Identifier, copiedValue.Identifier);
-				Assert.AreEqual(value.StringValue, copiedValue.StringValue);
-				Assert.IsTrue(copiedValue.ValueFixed);
-				copiedValue.StringValue = "Changed";
-				Assert.AreEqual("Profile value", value.StringValue);
-			}
-			else
-			{
-				Assert.AreEqual(scenario == "skip" ? 201 : scenario == "linkFailure" ? 500 : 400, StatusCode(result));
-				Assert.AreEqual(2, profiles.Count);
-				Assert.AreEqual(scenario == "missing" ? 0 : 1, values.Count);
-				Assert.AreEqual(0, serviceProfiles.Count);
-				Assert.AreEqual(0, versions.Count);
-				Assert.AreEqual(scenario == "skip" ? 1 : 0, StoredServices.Count);
-			}
-		}
-
-		private static Mock<IBulkRepository<T>> InitializationRepository<T>(List<T> store)
-			where T : SdmObject<T>
-		{
-			var repository = new Mock<IBulkRepository<T>>();
-			repository.Setup(api => api.Read(It.IsAny<FilterElement<T>>())).Returns<FilterElement<T>>(filter => store.Where(filter.getLambda()).ToList());
-			repository.Setup(api => api.Create(It.IsAny<T>())).Callback<T>(store.Add).Returns<T>(value => value);
-			repository.Setup(api => api.Delete(It.IsAny<T>())).Callback<T>(value => store.Remove(value));
-			repository.Setup(api => api.CreateOrUpdate(It.IsAny<IEnumerable<T>>())).Callback<IEnumerable<T>>(values =>
-			{
-				foreach (var value in values)
-				{
-					store.RemoveAll(stored => stored.Identifier == value.Identifier);
-					store.Add(value);
-				}
-			});
-			return repository;
+			Assert.AreEqual(201, StatusCode(result));
+			Assert.AreEqual(versions.Single().Identifier, Value<Service>(result).ServiceConfigurationId.Identifier);
+			Assert.AreEqual(0, versions[0].Profiles.Count);
+			Assert.AreEqual(0, serviceProfiles.Count);
+			Assert.AreEqual(1, profiles.Count);
+			Assert.AreEqual(brokenProfile ? 0 : 1, values.Count);
 		}
 
 		#region POST /serviceOrder/{id}/item
@@ -629,6 +763,47 @@ namespace SLC_SM_UDAPI_ServiceManagement.Tests.Controllers
 			Assert.AreEqual(409, StatusCode(Controller.AddServiceOrderItem(OrderId, new CreateServiceOrderItemRequest { Action = "noChange" })));
 		}
 
+		[TestMethod]
+		public void AddServiceOrderItem_MandatoryParameterWithoutValue_CreatesEmptyMandatoryConfiguration()
+		{
+			var order = AddOrder();
+			string parameterId = Guid.NewGuid().ToString();
+			var values = new List<Cfg.ConfigurationParameterValue>();
+			var itemConfigurations = SetupMandatorySpecificationRepositories(values, parameterId, out var specificationId);
+
+			var result = Controller.AddServiceOrderItem(OrderId, new CreateServiceOrderItemRequest { Action = "add", ServiceSpecificationId = specificationId });
+
+			Assert.AreEqual(201, StatusCode(result));
+			Assert.AreEqual(1, order.OrderItems.Count);
+			Assert.IsTrue(itemConfigurations.Single().Mandatory);
+			var created = values.Single();
+			Assert.AreEqual(parameterId, created.ConfigurationParameterId.Identifier);
+			Assert.IsTrue(String.IsNullOrEmpty(created.StringValue) && created.DoubleValue == null);
+		}
+
+		[TestMethod]
+		public void AddServiceOrderItem_SpecificationReferencesValueId_CopiesSpecificationValue()
+		{
+			AddOrder();
+			string parameterId = Guid.NewGuid().ToString();
+			var specificationValue = new Cfg.ConfigurationParameterValue
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				ConfigurationParameterId = new SdmObjectReference<Cfg.ConfigurationParameter>(parameterId),
+				StringValue = "SRT",
+			};
+			var values = new List<Cfg.ConfigurationParameterValue> { specificationValue };
+			var itemConfigurations = SetupMandatorySpecificationRepositories(values, specificationValue.Identifier, out var specificationId);
+
+			var result = Controller.AddServiceOrderItem(OrderId, new CreateServiceOrderItemRequest { Action = "add", ServiceSpecificationId = specificationId });
+
+			Assert.AreEqual(201, StatusCode(result));
+			var copied = values.Single(value => value.Identifier != specificationValue.Identifier);
+			Assert.AreEqual(itemConfigurations.Single().ConfigurationParameterValueId.Identifier, copied.Identifier);
+			Assert.AreEqual(parameterId, copied.ConfigurationParameterId.Identifier);
+			Assert.AreEqual("SRT", copied.StringValue);
+		}
+
 		#endregion POST /serviceOrder/{id}/item
 
 		#region PATCH /serviceOrder/{id}/item/{itemId}
@@ -657,6 +832,20 @@ namespace SLC_SM_UDAPI_ServiceManagement.Tests.Controllers
 			Controller.UpdateServiceOrderItem(OrderId, item.Identifier, new JObject { ["description"] = "d" });
 
 			Orders.Verify(r => r.Update(It.IsAny<ServiceOrder>()), Times.Never);
+		}
+
+		[TestMethod]
+		public void UpdateServiceOrderItem_NewSpecificationWithMandatoryParameterWithoutValue_Returns200()
+		{
+			var item = AddItem();
+			AddOrder("New", item);
+			var values = new List<Cfg.ConfigurationParameterValue>();
+			var itemConfigurations = SetupMandatorySpecificationRepositories(values, Guid.NewGuid().ToString(), out var specificationId);
+
+			var result = Controller.UpdateServiceOrderItem(OrderId, item.Identifier, new JObject { ["serviceSpecificationId"] = specificationId.ToString() });
+
+			Assert.AreEqual(200, StatusCode(result));
+			Assert.IsTrue(itemConfigurations.Single().Mandatory);
 		}
 
 		[TestMethod]

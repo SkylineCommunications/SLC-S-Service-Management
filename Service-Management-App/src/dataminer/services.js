@@ -253,6 +253,8 @@ const CONFIGURATION_COLUMNS = {
     parameterValue: 'Parameter Value',
     mandatory: 'Mandatory',
     profileId: 'Profile ID',
+    profileReferenceId: 'Profile Reference ID',
+    warning: 'Warning',
     profileName: 'Profile Name',
     profileDefinitionId: 'Profile Definition ID',
     profileDefinitionName: 'Profile Definition Name',
@@ -297,6 +299,7 @@ export function mapServiceConfigurationRows(rows) {
     const availableParameters = [];
     const availableProfiles = [];
     const availableNestedProfiles = [];
+    const warnings = [];
     const parameterDetails = row => ({
         label: row['Parameter Label'] ?? '',
         isLinked: String(row['Parameter Is Linked'] ?? '').toLowerCase() === 'true',
@@ -345,6 +348,7 @@ export function mapServiceConfigurationRows(rows) {
         if (!profile) {
             profile = {
                 id,
+                referenceId: fields.referenceId ?? '',
                 name: fields.name ?? '',
                 definitionId: fields.definitionId ?? '',
                 definitionName: fields.definitionName ?? '',
@@ -360,6 +364,7 @@ export function mapServiceConfigurationRows(rows) {
         }
         else {
             profile.name ||= fields.name ?? '';
+            profile.referenceId ||= fields.referenceId ?? '';
             profile.definitionId ||= fields.definitionId ?? '';
             profile.definitionName ||= fields.definitionName ?? '';
             profile.reusable ||= fields.reusable ?? false;
@@ -388,6 +393,11 @@ export function mapServiceConfigurationRows(rows) {
     };
     rows.forEach(row => {
         const recordType = row['Record Type'] ?? '';
+        if (recordType === 'Warning') {
+            const warning = String(row.Warning ?? '').trim();
+            if (warning && !warnings.includes(warning)) warnings.push(warning);
+            return;
+        }
         if (recordType === 'AvailableParameter') {
             addUnique(availableParameters, { id: row['Parameter ID'] ?? '', name: row['Parameter Name'] ?? '', type: row['Parameter Type'] ?? '', options: parseDiscreteOptions(row['Parameter Options'], row['Parameter Name']), ...parameterDetails(row) });
             return;
@@ -429,6 +439,7 @@ export function mapServiceConfigurationRows(rows) {
                 name: row['Profile Name'] ?? '',
                 definitionId: row['Profile Definition ID'] ?? '',
                 definitionName: row['Profile Definition Name'] ?? '',
+                referenceId: row['Profile Reference ID'] ?? '',
                 reusable: String(row['Profile Reusable']).toLowerCase() === 'true',
                 mandatory: String(row['Profile Mandatory']).toLowerCase() === 'true',
                 exposeAtOrder: String(row['Expose At Order']).toLowerCase() === 'true',
@@ -439,6 +450,7 @@ export function mapServiceConfigurationRows(rows) {
                 name: row['Nested Profile Name'] ?? '',
                 definitionId: row['Nested Profile Definition ID'] ?? '',
                 definitionName: row['Nested Profile Definition Name'] ?? '',
+                referenceId: '',
                 reusable: availableNestedProfiles.some(item => item.id === nestedProfileId && item.reusable),
                 mandatory: String(row['Profile Mandatory']).toLowerCase() === 'true',
                 exposeAtOrder: String(row['Expose At Order']).toLowerCase() === 'true',
@@ -457,6 +469,7 @@ export function mapServiceConfigurationRows(rows) {
                 name: row['Profile Name'] ?? '',
                 definitionId: row['Profile Definition ID'] ?? '',
                 definitionName: row['Profile Definition Name'] ?? '',
+                referenceId: row['Profile Reference ID'] ?? '',
                 reusable: String(row['Profile Reusable']).toLowerCase() === 'true',
                 mandatory: String(row['Profile Mandatory']).toLowerCase() === 'true',
             });
@@ -480,21 +493,37 @@ export function mapServiceConfigurationRows(rows) {
         }
     });
     const reusableProfileIds = new Set(availableNestedProfiles.filter(profile => profile.reusable).map(profile => profile.id));
-    const visitedProfiles = new Set();
-    const markReusableProfiles = profile => {
-        if (!profile || visitedProfiles.has(profile.id)) return;
-        visitedProfiles.add(profile.id);
+    // Every profile, nested or not, is in its version's map, so one flat pass covers the whole tree.
+    versions.forEach(version => version.profiles.forEach(profile => {
         if (reusableProfileIds.has(profile.id)) profile.reusable = true;
-        (profile.nestedProfiles || []).forEach(markReusableProfiles);
-    };
-    versions.forEach(version => version.profiles.forEach(markReusableProfiles));
+        profile.parameters.sort(compareConfigurationParameters);
+        profile.nestedProfiles.sort(compareConfigurationProfiles);
+    }));
+    const mappedVersions = [...versions.values()].map(({ profiles, nestedProfileIds, ...version }) => ({
+        ...version,
+        parameters: version.parameters.sort(compareConfigurationParameters),
+        profiles: [...profiles.values()].filter(profile => !nestedProfileIds.has(profile.id)).sort(compareConfigurationProfiles),
+    }));
     return {
-        versions: [...versions.values()].map(({ profiles, nestedProfileIds, ...version }) => ({ ...version, profiles: [...profiles.values()].filter(profile => !nestedProfileIds.has(profile.id)) })),
-        availableParameters,
-        availableProfiles,
-        availableNestedProfiles,
+        versions: mappedVersions.filter(version => version.id !== SPECIFICATION_TEMPLATE_VERSION_ID),
+        specificationTemplate: mappedVersions.find(version => version.id === SPECIFICATION_TEMPLATE_VERSION_ID) ?? null,
+        availableParameters: availableParameters.sort(compareByName),
+        availableProfiles: availableProfiles.sort(compareByName),
+        availableNestedProfiles: availableNestedProfiles.sort(compareByName),
+        warnings,
     };
 }
+
+const compareText = (left, right) => String(left || '').localeCompare(String(right || ''), undefined, { sensitivity: 'base', numeric: true });
+const compareByName = (left, right) => compareText(left.name || left.id, right.name || right.id);
+const compareConfigurationParameters = (left, right) => compareByName(left, right) || compareText(left.label, right.label);
+const compareConfigurationProfiles = (left, right) => compareByName(left, right) || compareText(left.definitionName, right.definitionName);
+
+export const sortConfigurationParameters = parameters => [...parameters].sort(compareConfigurationParameters);
+export const sortConfigurationProfiles = profiles => [...profiles].sort(compareConfigurationProfiles);
+
+// Unsaved rows with the service specification's configuration, used to prefill a new configuration version.
+export const SPECIFICATION_TEMPLATE_VERSION_ID = 'SpecificationTemplate';
 
 export function configurationParameterKey(parameter) {
     return parameter.configurationId || parameter.valueId || parameter.clientId || parameter.id;

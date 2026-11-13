@@ -1,4 +1,4 @@
-﻿namespace SLC_SM_UDAPI_ServiceManagement.Controllers
+namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 {
 	using System;
 	using System.Collections.Generic;
@@ -99,7 +99,6 @@
 			[FromQuery] bool activate = false)
 		{
 			/* TODO
-			 * Partial writes on a server failure. If a write fails after some records were created, those records aren't removed.
 			 * No createdAt, and different field names. As with the list endpoint, there's no stored creation time, and the response uses the existing model's names, for example Identifier instead of id.
 			 */
 			_logger.LogInformation("CreateConfigurationVersion called with id={Id}, activate={Activate}, versionName={VersionName}", id, activate, request?.VersionName);
@@ -148,21 +147,14 @@
 					serviceProfiles.Add(BuildServiceProfile(profileRequests[i], i));
 				}
 
-				foreach (var value in parameterValues)
-				{
-					catalog.ConfigurationParameterValues.Create(value);
-				}
+				var parameterReferences = configurationValues.Select(v => new SdmObjectReference<ServiceConfigurationValue>(v.Identifier)).ToList();
+				var profileReferences = serviceProfiles.Select(p => new SdmObjectReference<ServiceProfile>(p.Identifier)).ToList();
 
-				foreach (var value in configurationValues)
-				{
-					inventory.ServiceConfigurationValues.Create(value);
-				}
-
-				foreach (var profile in serviceProfiles)
-				{
-					inventory.ServiceProfiles.Create(profile);
-				}
-
+				// Like the configuration dialog, a version without content starts from the specification's configuration.
+				var cleanup = new Stack<Action>();
+				var specification = request.Parameters == null && request.Profiles == null && !String.IsNullOrWhiteSpace(service.ServiceSpecificationId.Identifier)
+					? catalog.ServiceSpecifications.Read(ServiceSpecificationExposers.Identifier.Equal(service.ServiceSpecificationId.Identifier)).FirstOrDefault()
+					: null;
 				var version = new ServiceConfigurationVersion
 				{
 					Identifier = Guid.NewGuid().ToString(),
@@ -170,20 +162,59 @@
 					Description = request.Description ?? String.Empty,
 					StartDate = request.StartDate?.ToUniversalTime(),
 					EndDate = request.EndDate?.ToUniversalTime(),
-					Parameters = configurationValues.Select(v => new SdmObjectReference<ServiceConfigurationValue>(v.Identifier)).ToList(),
-					Profiles = serviceProfiles.Select(p => new SdmObjectReference<ServiceProfile>(p.Identifier)).ToList(),
 				};
 
-				inventory.ServiceConfigurationVersions.Create(version);
-
-				service.ConfigurationVersions = service.ConfigurationVersions ?? new List<SdmObjectReference<ServiceConfigurationVersion>>();
-				service.ConfigurationVersions.Add(new SdmObjectReference<ServiceConfigurationVersion>(version.Identifier));
-				if (activate)
+				try
 				{
-					service.ServiceConfigurationId = new SdmObjectReference<ServiceConfigurationVersion>(version.Identifier);
-				}
+					// Every write is registered for cleanup, so a failed activation check or write leaves nothing behind.
+					foreach (var value in parameterValues)
+					{
+						catalog.ConfigurationParameterValues.Create(value);
+						cleanup.Push(() => catalog.ConfigurationParameterValues.Delete(value));
+					}
 
-				inventory.Services.Update(service);
+					foreach (var value in configurationValues)
+					{
+						inventory.ServiceConfigurationValues.Create(value);
+						cleanup.Push(() => inventory.ServiceConfigurationValues.Delete(value));
+					}
+
+					foreach (var profile in serviceProfiles)
+					{
+						inventory.ServiceProfiles.Create(profile);
+						cleanup.Push(() => inventory.ServiceProfiles.Delete(profile));
+					}
+
+					if (specification != null)
+					{
+						new ServiceDuplicator(serviceManagementApiHelper).CopySpecificationConfiguration(specification, service.ServiceID, cleanup, out parameterReferences, out profileReferences);
+					}
+
+					version.Parameters = parameterReferences;
+					version.Profiles = profileReferences;
+
+					if (activate)
+					{
+						ValidateConfigurationVersion(new FullServiceBuilder(serviceManagementApiHelper).BuildVersion(version));
+					}
+
+					inventory.ServiceConfigurationVersions.Create(version);
+					cleanup.Push(() => inventory.ServiceConfigurationVersions.Delete(version));
+
+					service.ConfigurationVersions = service.ConfigurationVersions ?? new List<SdmObjectReference<ServiceConfigurationVersion>>();
+					service.ConfigurationVersions.Add(new SdmObjectReference<ServiceConfigurationVersion>(version.Identifier));
+					if (activate)
+					{
+						service.ServiceConfigurationId = new SdmObjectReference<ServiceConfigurationVersion>(version.Identifier);
+					}
+
+					inventory.Services.Update(service);
+				}
+				catch
+				{
+					RunCleanup(cleanup, service.ServiceID);
+					throw;
+				}
 
 				var refreshed = FindService(service.ServiceID) ?? service;
 				var created = new FullServiceBuilder(serviceManagementApiHelper).Build(new[] { refreshed }).First()
@@ -195,6 +226,11 @@
 			catch (InvalidQueryException ex)
 			{
 				_logger.LogWarning(ex, "Invalid CreateConfigurationVersion request: {Message}", ex.Message);
+				return BadRequest(CreateError("Invalid request", ex.Message, 400));
+			}
+			catch (InvalidConfigurationException ex)
+			{
+				_logger.LogWarning(ex, "CreateConfigurationVersion could not copy the specification configuration: {Message} {Details}", ex.Message, ex.TechnicalDetails);
 				return BadRequest(CreateError("Invalid request", ex.Message, 400));
 			}
 			catch (Exception ex)
@@ -210,7 +246,6 @@
 		{
 			/* TODO:
 			 * 1.Status isn't set explicitly. I assumed DOM starts new services as new; this needs checking on a live system.
-			 * 2.400 for a missing mandatory configuration parameter isn't covered. Configuration versions start empty.
 			*/
 
 			_logger.LogInformation("CreateService called with name={Name}", request?.Name);
@@ -262,7 +297,7 @@
 						: CopySpecificationItems(specification),
 					ServiceItemsRelationships = request.ServiceItemRelationships != null
 						? request.ServiceItemRelationships.Select(ToRelationship).ToList()
-						: specification?.ServiceItemsRelationships?.ToList() ?? new List<ServiceItemRelationship>(),
+						: specification.GetRealServiceItemRelationships(),
 					ConfigurationVersions = new List<SdmObjectReference<ServiceConfigurationVersion>>(),
 				};
 
@@ -1086,12 +1121,26 @@
 			return response;
 		}
 
+		private void RunCleanup(Stack<Action> cleanup, string serviceId)
+		{
+			while (cleanup.Count > 0)
+			{
+				try
+				{
+					cleanup.Pop()();
+				}
+				catch (Exception cleanupException)
+				{
+					_logger.LogError(cleanupException, "Could not clean up the configuration copied to service {ServiceId}.", serviceId);
+				}
+			}
+		}
+
 		private static List<ServiceItem> CopySpecificationItems(ServiceSpecification specification)
 		{
 			// The optional item type is left empty,
 			// because setting it can fail with DomInstanceSectionInvalidFieldValueTypes on some systems.
-			return specification?.ServiceItems?
-				.Where(item => item != null)
+			return specification.GetRealServiceItems()
 				.Select(item => new ServiceItem
 				{
 					ServiceItemID = item.ServiceItemID,
@@ -1102,13 +1151,30 @@
 					Type = null,
 					Icon = item.Icon,
 				})
-				.ToList()
-				?? new List<ServiceItem>();
+				.ToList();
 		}
 
 		private static bool Has(JObject patch, string property)
 		{
 			return patch.TryGetValue(property, StringComparison.OrdinalIgnoreCase, out _);
+		}
+
+		/// <summary>Gets a readable name for a service configuration value: its label, else the parameter's name, else its ID.</summary>
+		private string GetParameterDisplayName(FullServiceConfigurationValue configuration)
+		{
+			var value = configuration.ConfigurationParameter;
+			if (!String.IsNullOrWhiteSpace(value?.Label))
+			{
+				return value.Label;
+			}
+
+			string parameterId = value?.ConfigurationParameterId.Identifier;
+			string name = String.IsNullOrWhiteSpace(parameterId)
+				? null
+				: serviceManagementApiHelper.ServiceCatalog.ConfigurationParameters
+					.Read(Cfg.ConfigurationParameterExposers.Identifier.Equal(parameterId))
+					.FirstOrDefault()?.Name;
+			return String.IsNullOrWhiteSpace(name) ? configuration.Identifier : name;
 		}
 
 		private static bool HasValue(Cfg.ConfigurationParameterValue value)
@@ -1536,16 +1602,21 @@
 				throw new InvalidQueryException($"Configuration version '{versionGuid}' does not belong to service '{service.ServiceID}'.");
 			}
 
-			var missing = (version.Parameters ?? new List<FullServiceConfigurationValue>())
+			ValidateConfigurationVersion(version);
+			return version.Identifier;
+		}
+
+		private void ValidateConfigurationVersion(FullServiceConfigurationVersion version)
+		{
+			var missing = (version?.Parameters ?? new List<FullServiceConfigurationValue>())
 				.Where(p => p.Mandatory == true && !HasValue(p.ConfigurationParameter))
-				.Select(p => String.IsNullOrWhiteSpace(p.ConfigurationParameter?.Label) ? p.Identifier : p.ConfigurationParameter.Label)
+				.Select(p => GetParameterDisplayName(p))
 				.ToList();
+
 			if (missing.Count > 0)
 			{
-				throw new InvalidQueryException($"Configuration version '{versionGuid}' cannot be activated. Mandatory parameters without a value: {String.Join(", ", missing)}.");
+				throw new InvalidQueryException($"Configuration version '{version?.Identifier}' cannot be activated. Mandatory parameters without a value: {String.Join(", ", missing)}.");
 			}
-
-			return version.Identifier;
 		}
 
 		private void TryDelete(string kind, string id, Action delete)

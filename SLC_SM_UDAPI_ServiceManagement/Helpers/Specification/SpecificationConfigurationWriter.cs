@@ -14,6 +14,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Specification
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
 	using SLC_SM_UDAPI_ServiceManagement.Exceptions;
 	using SLC_SM_UDAPI_ServiceManagement.Models.Specification;
+	using static SLC_SM_UDAPI_ServiceManagement.Helpers.ConfigurationRequestHelper;
 
 	/// <summary>
 	/// Saves the configuration of a service specification using the configuration editor contract.
@@ -108,6 +109,11 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Specification
 			return result;
 		}
 
+		private static string ParameterName(SpecificationConfigurationParameter parameter, ConfigurationParameter definition)
+		{
+			return ConfigurationRequestHelper.ParameterName(parameter?.Label, definition);
+		}
+
 		private static Dictionary<string, T> ReadAll<T>(IEnumerable<T> items, Func<T, string> key)
 		{
 			var result = new Dictionary<string, T>(StringComparer.OrdinalIgnoreCase);
@@ -156,6 +162,13 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Specification
 				var specificationProfile = _api.ServiceCatalog.ServiceSpecificationProfiles
 					.Read(ServiceSpecificationProfileExposers.Identifier.Equal(reference.Identifier))
 					.FirstOrDefault();
+				if (specificationProfile != null
+					&& profiles.TryGetValue(specificationProfile.ProfileId.Identifier ?? String.Empty, out var assignedProfile)
+					&& assignedProfile.IsReusable)
+				{
+					ownership.ReusableProfileAssignments[reference.Identifier] = assignedProfile.Identifier;
+				}
+
 				ReadProfileOwnership(specificationProfile?.ProfileId.Identifier, profiles, ownership, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
 			}
 
@@ -199,19 +212,37 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Specification
 			ValidateOwnedIds(request.DeleteConfigurationIds, ownership.ConfigurationIds, "configuration");
 			ValidateOwnedIds(request.DeletedProfileIds, ownership.SpecificationProfileIds, "specification profile");
 			ValidateOwnedIds(request.DeletedProfileParameterIds, ownership.ProfileParameterValueIds, "profile parameter value");
+			ValidateUniqueReusableProfiles(request.Profiles, ownership);
 
 			foreach (var parameter in request.Parameters ?? new List<SpecificationConfigurationParameter>())
 			{
 				ValidateParameter(parameter, ownership);
-				ValidateOwnedId(parameter?.ConfigurationId, ownership.ConfigurationIds, "configuration");
+				ValidateOwnedId(parameter?.ConfigurationId, ownership.ConfigurationIds, "configuration", parameter?.Label);
 			}
 
 			foreach (var profile in request.Profiles ?? new List<SpecificationConfigurationProfile>())
 			{
-				// A newly linked reusable profile is sent with its catalog profile ID.
-				if (profile != null && !(profile.Reusable && ownership.ReusableProfileIds.Contains(profile.Id ?? String.Empty)))
+				if (profile == null)
 				{
-					ValidateOwnedId(profile.Id, ownership.SpecificationProfileIds, "specification profile");
+					continue;
+				}
+
+				if (profile.Reusable)
+				{
+					if (!String.IsNullOrWhiteSpace(profile.Id)
+						&& !ownership.SpecificationProfileIds.Contains(profile.Id)
+						&& !ownership.ReusableProfileIds.Contains(profile.Id))
+					{
+						throw new InvalidConfigurationException(
+							$"The requested reusable profile {FormatName(profile.Name, "the selected reusable profile")} does not belong to the service specification.",
+							$"Reusable profile '{profile.Id}'.");
+					}
+
+					ValidateOwnedId(GetReusableProfileId(profile, ownership), ownership.ReusableProfileIds, "reusable profile", profile.Name);
+				}
+				else
+				{
+					ValidateOwnedId(profile.Id, ownership.SpecificationProfileIds, "specification profile", profile.Name);
 				}
 
 				ValidateProfile(profile, ownership);
@@ -225,6 +256,9 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Specification
 				return;
 			}
 
+			ValidateUniqueReusableProfiles(profile.NestedProfiles, ownership);
+			EnsureUniqueReusableIds(profile.NestedProfileIds, ownership.ReusableProfileIds);
+
 			foreach (var parameter in profile.Parameters ?? new List<SpecificationConfigurationParameter>())
 			{
 				ValidateParameter(parameter, ownership);
@@ -232,9 +266,16 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Specification
 
 			foreach (var nestedId in profile.NestedProfileIds ?? new List<string>())
 			{
-				if (!String.IsNullOrWhiteSpace(nestedId) && !ownership.ProfileIds.Contains(nestedId) && !ownership.ReusableProfileIds.Contains(nestedId))
+				if (!String.IsNullOrWhiteSpace(nestedId)
+					&& !ownership.ProfileIds.Contains(nestedId)
+					&& !ownership.ReusableProfileIds.Contains(nestedId))
 				{
-					throw new InvalidConfigurationException($"Nested profile '{nestedId}' does not belong to the service specification.");
+					string nestedName = (profile.NestedProfiles ?? new List<SpecificationConfigurationProfile>())
+						.FirstOrDefault(nested => String.Equals(nested?.Id, nestedId, StringComparison.OrdinalIgnoreCase))
+						?.Name;
+					throw new InvalidConfigurationException(
+						$"Nested profile {FormatName(nestedName, "the selected nested profile")} does not belong to the service specification.",
+						$"Nested profile '{nestedId}'.");
 				}
 			}
 
@@ -243,16 +284,32 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Specification
 				if (nested != null)
 				{
 					// A reusable nested profile is only linked, never written; any other existing one must be owned.
-					ValidateOwnedId(nested.Id, nested.Reusable ? ownership.ReusableProfileIds : ownership.ProfileIds, nested.Reusable ? "reusable profile" : "profile");
+					ValidateOwnedId(
+						nested.Reusable ? GetReusableProfileId(nested, ownership) : nested.Id,
+						nested.Reusable ? ownership.ReusableProfileIds : ownership.ProfileIds,
+						nested.Reusable ? "reusable profile" : "profile",
+						nested.Name);
 				}
 
 				ValidateProfile(nested, ownership);
 			}
 		}
 
+		private static void ValidateUniqueReusableProfiles(
+			IEnumerable<SpecificationConfigurationProfile> profiles,
+			Ownership ownership)
+		{
+			EnsureUniqueReusableProfiles(profiles, profile => profile.Reusable, profile => GetReusableProfileId(profile, ownership), profile => profile.Name);
+		}
+
+		private static string GetReusableProfileId(SpecificationConfigurationProfile profile, Ownership ownership)
+		{
+			return ResolveReusableProfileId(profile?.ReusableProfileId, profile?.Id, ownership.ReusableProfileAssignments);
+		}
+
 		private static void ValidateParameter(SpecificationConfigurationParameter parameter, Ownership ownership)
 		{
-			ValidateOwnedId(parameter?.ParameterValueId, ownership.ParameterValueIds, "configuration parameter value");
+			ValidateOwnedId(parameter?.ParameterValueId, ownership.ParameterValueIds, "configuration parameter value", parameter?.Label);
 		}
 
 		private static void ValidateOwnedIds(IEnumerable<string> ids, ISet<string> ownedIds, string kind)
@@ -263,11 +320,13 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Specification
 			}
 		}
 
-		private static void ValidateOwnedId(string id, ISet<string> ownedIds, string kind)
+		private static void ValidateOwnedId(string id, ISet<string> ownedIds, string kind, string displayName = null)
 		{
 			if (!String.IsNullOrWhiteSpace(id) && !ownedIds.Contains(id))
 			{
-				throw new InvalidConfigurationException($"The requested {kind} '{id}' does not belong to the service specification.");
+				throw new InvalidConfigurationException(
+					$"The requested {kind} {FormatName(displayName, "the selected item")} does not belong to the service specification.",
+					$"{kind} '{id}'.");
 			}
 		}
 
@@ -328,7 +387,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Specification
 			}
 		}
 
-		private NumberParameterOptions PrepareNumberOptions(ConfigurationParameter definition, string existingOptionsId)
+		private NumberParameterOptions PrepareNumberOptions(ConfigurationParameter definition, string existingOptionsId, string parameterName)
 		{
 			string definitionOptionsId = definition.NumberOptionsId.Identifier;
 			if (!String.IsNullOrWhiteSpace(existingOptionsId)
@@ -336,7 +395,9 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Specification
 			{
 				return _api.ServiceCatalog.NumberParameterOptions
 					.Read(NumberParameterOptionsExposers.Identifier.Equal(existingOptionsId))
-					.FirstOrDefault() ?? throw new InvalidConfigurationException($"Number options '{existingOptionsId}' were not found.");
+					.FirstOrDefault() ?? throw new InvalidConfigurationException(
+						$"Number options for configuration parameter {FormatName(parameterName, "the selected parameter")} were not found.",
+						$"Number options '{existingOptionsId}'.");
 			}
 
 			var source = String.IsNullOrWhiteSpace(definitionOptionsId)
@@ -371,16 +432,21 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Specification
 			{
 				if (parameter == null || !parameters.TryGetValue(parameter?.ParameterId ?? String.Empty, out var definition))
 				{
-					throw new InvalidConfigurationException($"Configuration parameter '{parameter?.ParameterId}' was not found.");
+					throw new InvalidConfigurationException(
+						$"Configuration parameter {FormatName(parameter?.Label, "the selected parameter")} was not found.",
+						$"Configuration parameter '{parameter?.ParameterId}'.");
 				}
 
+				string parameterName = ParameterName(parameter, definition);
 				var value = SaveParameterValue(parameter, definition);
 
 				var configuration = String.IsNullOrWhiteSpace(parameter.ConfigurationId)
 					? new ServiceSpecificationConfigurationValue { Identifier = Guid.NewGuid().ToString() }
 					: _api.ServiceCatalog.ServiceSpecificationConfigurationValues
 						.Read(ServiceSpecificationConfigurationValueExposers.Identifier.Equal(parameter.ConfigurationId))
-						.FirstOrDefault() ?? throw new InvalidConfigurationException($"Configuration '{parameter.ConfigurationId}' was not found.");
+						.FirstOrDefault() ?? throw new InvalidConfigurationException(
+							$"Configuration for parameter {FormatName(parameterName, "the selected parameter")} was not found.",
+							$"Configuration '{parameter.ConfigurationId}'.");
 				configuration.ConfigurationParameterId = new SdmObjectReference<ConfigurationParameter>(value.Identifier);
 				configuration.MandatoryAtService = parameter.MandatoryAtService || parameter.Mandatory;
 				configuration.MandatoryAtServiceOrder = parameter.MandatoryAtServiceOrder;
@@ -399,26 +465,27 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Specification
 		{
 			if (request == null || String.IsNullOrWhiteSpace(request.DefinitionId) || !definitions.TryGetValue(request.DefinitionId, out var definition))
 			{
-				throw new InvalidConfigurationException($"Nested profile definition '{request?.DefinitionId}' was not found.");
+				throw new InvalidConfigurationException(
+					$"Nested profile definition for {FormatName(request?.Name, "the selected nested profile")} was not found.",
+					$"Profile definition '{request?.DefinitionId}'.");
 			}
 
 			if (request.Reusable)
 			{
-				if (String.IsNullOrWhiteSpace(request.Id))
-				{
-					throw new InvalidConfigurationException("A reusable nested profile is missing its identifier.");
-				}
-
-				var reusableProfile = _api.ServiceCatalog.Profiles
-					.Read(ProfileExposers.Identifier.Equal(request.Id))
-					.FirstOrDefault() ?? throw new InvalidConfigurationException($"Reusable nested profile '{request.Id}' was not found.");
+				var reusableProfile = ReadReusableProfile(
+					_api,
+					FirstNonEmpty(request.ReusableProfileId, request.Id),
+					"Reusable nested profile",
+					request.Name);
 				return reusableProfile.Identifier;
 			}
 
 			var profile = String.IsNullOrWhiteSpace(request.Id)
 				? new Profile { Identifier = Guid.NewGuid().ToString() }
 				: _api.ServiceCatalog.Profiles.Read(ProfileExposers.Identifier.Equal(request.Id)).FirstOrDefault()
-					?? throw new InvalidConfigurationException($"Nested profile '{request.Id}' was not found.");
+					?? throw new InvalidConfigurationException(
+						$"Nested profile {FormatName(request.Name, "the selected nested profile")} was not found.",
+						$"Profile '{request.Id}'.");
 			profile.Name = String.IsNullOrWhiteSpace(request.Name) ? definition.Name : request.Name.Trim();
 			profile.ProfileDefinitionId = new SdmObjectReference<ProfileDefinition>(definition.Identifier);
 			profile.IsReusable = false;
@@ -450,14 +517,17 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Specification
 
 		private ConfigurationParameterValue SaveParameterValue(SpecificationConfigurationParameter parameter, ConfigurationParameter definition)
 		{
+			string parameterName = ParameterName(parameter, definition);
 			var value = String.IsNullOrWhiteSpace(parameter.ParameterValueId)
 				? new ConfigurationParameterValue { Identifier = Guid.NewGuid().ToString() }
 				: _api.ServiceCatalog.ConfigurationParameterValues
 					.Read(ConfigurationParameterValueExposers.Identifier.Equal(parameter.ParameterValueId))
-					.FirstOrDefault() ?? throw new InvalidConfigurationException($"Configuration parameter value '{parameter.ParameterValueId}' was not found.");
+					.FirstOrDefault() ?? throw new InvalidConfigurationException(
+						$"The value for configuration parameter {FormatName(parameterName, "the selected parameter")} was not found.",
+						$"Configuration parameter value '{parameter.ParameterValueId}'.");
 			string existingNumberOptionsId = value.IsValueOf(definition) ? value.NumberOptionsId.Identifier : null;
 			var numberOptions = String.Equals(definition.Type.ToString(), "Number", StringComparison.OrdinalIgnoreCase)
-				? PrepareNumberOptions(definition, existingNumberOptionsId)
+				? PrepareNumberOptions(definition, existingNumberOptionsId, parameterName)
 				: null;
 
 			try
@@ -490,12 +560,31 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Specification
 		{
 			if (request == null || String.IsNullOrWhiteSpace(request.DefinitionId) || !definitions.TryGetValue(request.DefinitionId, out var definition))
 			{
-				throw new InvalidConfigurationException($"Profile definition '{request?.DefinitionId}' was not found.");
+				throw new InvalidConfigurationException(
+					$"Profile definition for {FormatName(request?.Name, "the selected profile")} was not found.",
+					$"Profile definition '{request?.DefinitionId}'.");
 			}
 
 			var existingConfiguration = String.IsNullOrWhiteSpace(request.Id)
 				? null
 				: _api.ServiceCatalog.ServiceSpecificationProfiles.Read(ServiceSpecificationProfileExposers.Identifier.Equal(request.Id)).FirstOrDefault();
+			if (request.Reusable)
+			{
+				var reusableProfile = ReadReusableProfile(
+					_api,
+					FirstNonEmpty(request.ReusableProfileId, existingConfiguration?.ProfileId.Identifier ?? request.Id),
+					"Reusable profile",
+					request.Name);
+				var reusableConfiguration = existingConfiguration ?? new ServiceSpecificationProfile { Identifier = Guid.NewGuid().ToString() };
+				reusableConfiguration.ProfileId = new SdmObjectReference<Profile>(reusableProfile.Identifier);
+				reusableConfiguration.ProfileDefinitionId = new SdmObjectReference<ProfileDefinition>(reusableProfile.ProfileDefinitionId.Identifier);
+				reusableConfiguration.MandatoryAtService = request.MandatoryAtService;
+				reusableConfiguration.MandatoryAtServiceOrder = request.MandatoryAtServiceOrder;
+				reusableConfiguration.ExposeAtServiceOrder = request.ExposeAtServiceOrder;
+				_api.ServiceCatalog.ServiceSpecificationProfiles.CreateOrUpdate(new[] { reusableConfiguration });
+				return reusableConfiguration;
+			}
+
 			string profileId = existingConfiguration == null ? String.Empty : existingConfiguration.ProfileId.Identifier;
 			var profile = String.IsNullOrWhiteSpace(profileId)
 				? new Profile { Identifier = Guid.NewGuid().ToString() }
@@ -528,7 +617,9 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Specification
 			{
 				if (parameter == null || !parameters.TryGetValue(parameter.ParameterId ?? String.Empty, out var definition))
 				{
-					throw new InvalidConfigurationException($"Profile parameter '{parameter?.ParameterId}' was not found.");
+					throw new InvalidConfigurationException(
+						$"Profile parameter {FormatName(parameter?.Label, "the selected parameter")} was not found.",
+						$"Configuration parameter '{parameter?.ParameterId}'.");
 				}
 
 				references.Add(new SdmObjectReference<ConfigurationParameterValue>(SaveParameterValue(parameter, definition).Identifier));
@@ -549,6 +640,8 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Specification
 
 			/// <summary>All reusable catalog profiles; they can be linked from any specification.</summary>
 			public HashSet<string> ReusableProfileIds { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+			public Dictionary<string, string> ReusableProfileAssignments { get; } = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
 			public HashSet<string> ParameterValueIds { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 

@@ -140,7 +140,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 			}
 			catch (InvalidConfigurationException ex)
 			{
-				_logger.LogWarning(ex, "Invalid SaveServiceConfiguration request: {Message}", ex.Message);
+				_logger.LogWarning(ex, "Invalid SaveServiceConfiguration request: {Message}", ex);
 				return BadRequest(CreateError("Invalid request", ex.Message, 400));
 			}
 			catch (Exception ex)

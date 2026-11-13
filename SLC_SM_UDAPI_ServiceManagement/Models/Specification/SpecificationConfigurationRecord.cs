@@ -8,7 +8,8 @@ namespace SLC_SM_UDAPI_ServiceManagement.Models.Specification
 	/// </summary>
 	/// <remarks>
 	/// <see cref="RecordType"/> is one of <c>AvailableParameter</c>, <c>AvailableProfile</c>, <c>AvailableNestedProfile</c> (what can be added),
-	/// <c>Parameter</c>, <c>Profile</c>, <c>ProfileParameter</c>, <c>NestedProfile</c> or <c>NestedProfileParameter</c> (the current configuration).
+	/// <c>Parameter</c>, <c>Profile</c>, <c>ProfileParameter</c>, <c>NestedProfile</c>, <c>NestedProfileParameter</c> (the current configuration),
+	/// or <c>Warning</c> (a recoverable configuration issue).
 	/// Number options are formatted with the invariant culture.
 	/// </remarks>
 	public sealed class SpecificationConfigurationRecord
@@ -32,6 +33,10 @@ namespace SLC_SM_UDAPI_ServiceManagement.Models.Specification
 		/// <summary>Gets or sets the record type.</summary>
 		[JsonProperty("recordType")]
 		public string RecordType { get; set; } = string.Empty;
+
+		/// <summary>Gets or sets a user-facing configuration warning.</summary>
+		[JsonProperty("warning", NullValueHandling = NullValueHandling.Ignore)]
+		public string Warning { get; set; }
 
 		/// <summary>Gets or sets the specification configuration value identifier (<c>Parameter</c> records).</summary>
 		[JsonProperty("configurationId")]
@@ -64,6 +69,12 @@ namespace SLC_SM_UDAPI_ServiceManagement.Models.Specification
 		/// <summary>Gets or sets the specification profile identifier, or the parent profile identifier for nested records.</summary>
 		[JsonProperty("profileId")]
 		public string ProfileId { get; set; } = string.Empty;
+
+		/// <summary>
+		/// Gets or sets the identifier of the catalog profile referenced by the specification profile assignment in <see cref="ProfileId"/>.
+		/// </summary>
+		[JsonProperty("profileReferenceId")]
+		public string ProfileReferenceId { get; set; } = string.Empty;
 
 		/// <summary>Gets or sets the profile name.</summary>
 		[JsonProperty("profileName")]

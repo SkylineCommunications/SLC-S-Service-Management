@@ -1,4 +1,5 @@
 import { executeAutomationScript, readScriptOutputs } from './automation.js';
+import { userFacingErrorMessage } from '../userFacingErrors.js';
 
 // Runs the Service Management UDAPI routes through the UDAPI script with the user's session; the script returns the HTTP status and body as outputs.
 const UDAPI_SCRIPT = {
@@ -13,7 +14,7 @@ const REQUEST_METHODS = { GET: 1, PUT: 2, POST: 3, DELETE: 4, PATCH: 5 };
 
 export class UdapiError extends Error {
     constructor(message, status = 0) {
-        super(message);
+        super(userFacingErrorMessage(message, 'The Service Management API request failed.'));
         this.name = 'UdapiError';
         this.status = status;
     }

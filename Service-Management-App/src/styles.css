@@ -33,11 +33,6 @@ body.drawer-open { overflow:hidden; } .drawer-layer { position:fixed; inset:0; z
 .orders-page { max-width:1280px; padding-top:42px; }
 .orders-hero { display:flex; align-items:flex-end; justify-content:space-between; gap:32px; margin-bottom:28px; }
 .orders-heading { min-width:0; }
-.orders-eyebrow { display:flex; align-items:center; gap:12px; }
-.orders-eyebrow .eyebrow { margin-bottom:0; }
-.live-indicator { display:inline-flex; align-items:center; gap:6px; color:var(--color10); font-size:12px; }
-.live-indicator > span { width:7px; height:7px; border-radius:50%; background:var(--success); box-shadow:0 0 0 3px color-mix(in srgb, var(--success) 14%, transparent); }
-.live-indicator.preview > span { background:var(--palette-color3); box-shadow:0 0 0 3px color-mix(in srgb, var(--palette-color3) 14%, transparent); }
 .orders-heading h1 { margin-top:12px; margin-bottom:8px; }
 .orders-heading .description { max-width:600px; }
 .page-header-actions { display:flex; align-items:center; gap:12px; flex-shrink:0; }
@@ -152,7 +147,6 @@ input[type="search"]::-ms-clear, input[type="search"]::-ms-reveal { display:none
 }
 @media (max-width:560px) {
     .orders-page { padding-left:16px; padding-right:16px; }
-    .orders-eyebrow { align-items:flex-start; flex-direction:column; gap:7px; }
     .orders-heading h1 { margin-top:10px; }
     .page-header-actions { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
     .page-header-update { grid-column:1 / -1; }
@@ -295,6 +289,8 @@ input[type="search"]::-ms-clear, input[type="search"]::-ms-reveal { display:none
 .configuration-empty.initial-version-empty { flex-direction:column; gap:12px; }
 .configuration-validation-error { min-height:40px; padding:10px 12px; display:flex; align-items:center; gap:8px; border:1px solid color-mix(in srgb, var(--error) 55%, var(--color5)); border-radius:6px; background:color-mix(in srgb, var(--error) 10%, var(--color1)); color:var(--error); font-size:12px; }
 .configuration-validation-error .icon { width:16px; font-size:16px; }
+.configuration-warning { min-height:40px; padding:10px 12px; display:flex; align-items:center; gap:8px; border:1px solid color-mix(in srgb, var(--minor) 55%, var(--color5)); border-radius:6px; background:color-mix(in srgb, var(--minor) 10%, var(--color1)); color:var(--color12); font-size:12px; }
+.configuration-warning .icon { width:16px; font-size:16px; color:var(--minor); }
 @media (max-width:560px) {
     .action-notice { top:58px; right:16px; max-width:calc(100vw - 32px); }
     .drawer-header-actions { flex-wrap:wrap; justify-content:flex-end; }
@@ -621,10 +617,6 @@ button.configuration-nested-chip { width:100%; min-height:36px; justify-content:
 @media (prefers-reduced-motion:reduce) {
     .catalog-page .service-metric, .catalog-page .catalog-row { animation:none; transition:none; }
 }
-.overview-heading-meta { display:flex; align-items:center; gap:12px; }
-.overview-heading-meta .eyebrow { margin-bottom:0; }
-.overview-status { display:inline-flex; align-items:center; gap:7px; color:var(--color10); font-size:11px; }
-.overview-status > span { width:7px; height:7px; border-radius:50%; background:var(--success); box-shadow:0 0 0 3px color-mix(in srgb, var(--success) 14%, transparent); }
 .overview-metric { animation:overview-rise .42s ease both; }
 .overview-metric:nth-child(2) { animation-delay:.06s; }
 .overview-metric:nth-child(3) { animation-delay:.12s; }
@@ -818,7 +810,7 @@ button.service-tab:hover { color:var(--color12); background:color-mix(in srgb, v
 .profile-collapse-button { width:32px; height:32px; display:inline-grid; place-items:center; border-radius:6px; }
 .configuration-profile-heading { align-items:center; }
 .configuration-profile-title { align-items:center !important; gap:8px; }
-.configuration-profile-heading strong { color:var(--color12); font-size:15px; font-weight:600; line-height:20px; }
+.configuration-profile-heading strong { color:var(--color12); font-size:15px; font-weight:600; line-height:22px; }
 .configuration-profile-detail { color:var(--color10); font-size:11px; }
 .configuration-profile-parameters > .configuration-profile-empty { display:block; padding:8px 0 0; }
 button.configuration-nested-chip > span:first-child { color:var(--color12); font-weight:500; }
@@ -876,10 +868,14 @@ button.configuration-nested-chip > span:first-child { color:var(--color12); font
 .profile-collapse-button { width:28px; height:28px; }
 .profile-collapse-button .icon { width:14px; font-size:14px; }
 .configuration-profile-heading .configuration-profile-title { gap:14px !important; }
-.configuration-profile-heading strong { font-size:14px; line-height:20px; font-weight:600; }
-.configuration-profile-name-input { min-width:0; width:min(100%, 360px); padding:0; border:0; border-bottom:1px solid transparent; background:transparent; color:var(--color12); font:inherit; font-size:14px; font-weight:600; line-height:20px; }
-.configuration-profile-name-input:focus { border-bottom-color:var(--focus-color); outline:none; }
-.configuration-profile-screen-heading .configuration-profile-name-input { width:min(100%, 520px); font-size:22px; line-height:28px; }
+.configuration-profile-heading strong { font-size:15px; line-height:22px; font-weight:600; }
+.configuration-profile-heading .configuration-profile-title { flex:1 1 auto; min-width:0; }
+.configuration-profile-heading .configuration-profile-title > div { flex:1 1 auto; min-width:0; }
+.configuration-profile-name-input { align-self:flex-start; box-sizing:content-box; min-width:6ch; width:calc(var(--name-length, 12) * 1ch + 4px); max-width:calc(100% - 12px); padding:2px 6px; margin-left:-7px; border:1px solid transparent; border-radius:4px; background:transparent; color:var(--color12); font:inherit; font-size:15px; font-weight:600; line-height:22px; text-overflow:ellipsis; transition:border-color .15s, background-color .15s; }
+@supports (field-sizing:content) { .configuration-profile-name-input { field-sizing:content; width:auto; } }
+.configuration-profile-name-input:hover { border-color:var(--color5); }
+.configuration-profile-name-input:focus { border-color:var(--focus-color); background:var(--color1); outline:none; }
+.configuration-profile-screen-heading h2, .configuration-profile-screen-heading .configuration-profile-name-input { font-size:22px; line-height:28px; font-weight:600; }
 button.configuration-nested-chip { min-height:44px; padding:10px 12px; }
 button.configuration-nested-chip > span:first-child { font-size:13px; font-weight:600; }
 

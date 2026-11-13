@@ -132,6 +132,10 @@ namespace SLC_SM_UDAPI_ServiceManagement.Models.Specification
 		[JsonProperty("reusable")]
 		public bool Reusable { get; set; }
 
+		/// <summary>Gets or sets the catalog identifier of the reusable profile referenced by this assignment.</summary>
+		[JsonProperty("reusableProfileId")]
+		public string ReusableProfileId { get; set; }
+
 		/// <summary>Gets or sets a value indicating whether the profile is mandatory at service level.</summary>
 		[JsonProperty("mandatoryAtService")]
 		public bool MandatoryAtService { get; set; }
