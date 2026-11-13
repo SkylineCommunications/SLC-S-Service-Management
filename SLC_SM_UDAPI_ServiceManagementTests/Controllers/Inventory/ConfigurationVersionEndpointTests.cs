@@ -412,6 +412,55 @@
 			Services.Verify(repository => repository.Update(It.IsAny<Service>()), Times.Never);
 		}
 
+		[TestMethod]
+		public void SaveServiceConfiguration_UnfilteredProfileReadIsTruncated_AcceptsOwnedProfileParameter()
+		{
+			var version = AddVersion(service, "v1");
+			service.ServiceConfigurationId = new SdmObjectReference<ServiceConfigurationVersion>(version.Identifier);
+			var parameter = AddParameter("Channel Name", ParameterType.Text);
+			var value = AddParameterValue("Welcome");
+			value.ConfigurationParameterId = new SdmObjectReference<Cfg.ConfigurationParameter>(parameter.Identifier);
+			var definitionId = Guid.NewGuid().ToString();
+			StoredProfileDefinitions.Add(new Cfg.ProfileDefinition { Identifier = definitionId, Name = "Basic" });
+			var profile = new Cfg.Profile
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				Name = "Basic (1)",
+				ProfileDefinitionId = new SdmObjectReference<Cfg.ProfileDefinition>(definitionId),
+				ConfigurationParameterValues = new List<SdmObjectReference<Cfg.ConfigurationParameterValue>> { new SdmObjectReference<Cfg.ConfigurationParameterValue>(value.Identifier) },
+			};
+			StoredProfiles.Add(profile);
+			var serviceProfile = new ServiceProfile
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				ProfileId = new SdmObjectReference<Cfg.Profile>(profile.Identifier),
+				ProfileDefinitionId = new SdmObjectReference<Cfg.ProfileDefinition>(definitionId),
+			};
+			StoredServiceProfiles.Add(serviceProfile);
+			version.Profiles.Add(new SdmObjectReference<ServiceProfile>(serviceProfile.Identifier));
+
+			// On large systems an unfiltered read does not return every profile.
+			Mock.Get(Catalog.Object.Profiles)
+				.Setup(r => r.Read(It.Is<FilterElement<Cfg.Profile>>(f => f is TRUEFilterElement<Cfg.Profile>)))
+				.Returns(new List<Cfg.Profile>());
+
+			var request = new ServiceConfigurationRequest { VersionId = version.Identifier, VersionName = version.VersionName };
+			request.Profiles.Add(new ServiceConfigurationProfileRequest
+			{
+				Id = serviceProfile.Identifier,
+				DefinitionId = definitionId,
+				Parameters = new List<ServiceConfigurationParameterRequest>
+				{
+					new ServiceConfigurationParameterRequest { ParameterId = parameter.Identifier, ParameterValueId = value.Identifier, Value = "Welcome 2" },
+				},
+			});
+
+			var result = Controller.SaveServiceConfiguration(service.ServiceID, JObject.FromObject(request));
+
+			Assert.AreEqual(200, StatusCode(result), StatusCode(result) == 200 ? String.Empty : ErrorDetail(result));
+			Assert.AreEqual("Welcome 2", value.StringValue);
+		}
+
 		// ---- POST /service/{id}/configurationVersion/{versionId}/duplicate ----
 		[TestMethod]
 		public void DuplicateConfigurationVersion_CopiesValuesAndOwnedProfilesAsInactiveVersion()

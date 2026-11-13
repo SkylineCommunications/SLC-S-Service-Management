@@ -135,15 +135,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 				}
 			}
 
-			var profiles = _api.ServiceCatalog.Profiles
-				.Read(new TRUEFilterElement<Profile>())
-				.Where(profile => !String.IsNullOrWhiteSpace(profile?.Identifier))
-				.ToDictionary(profile => profile.Identifier, StringComparer.OrdinalIgnoreCase);
-			foreach (var profile in profiles.Values.Where(profile => profile.IsReusable))
-			{
-				ownership.ReusableProfileIds.Add(profile.Identifier);
-			}
-
+			var assignedProfileIds = new List<string>();
 			foreach (var reference in version.Profiles ?? new List<SdmObjectReference<ServiceProfile>>())
 			{
 				if (String.IsNullOrWhiteSpace(reference.Identifier))
@@ -156,16 +148,25 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 					.Read(ServiceProfileExposers.Identifier.Equal(reference.Identifier))
 					.FirstOrDefault();
 				string profileId = serviceProfile?.ProfileId.Identifier;
-				if (String.IsNullOrWhiteSpace(profileId))
+				if (!String.IsNullOrWhiteSpace(profileId))
 				{
-					continue;
+					assignedProfileIds.Add(profileId);
 				}
+			}
 
-				if (profiles.TryGetValue(profileId, out var assignedProfile) && assignedProfile.IsReusable)
+			// Only read the profiles this version uses (plus the reusable ones): an unfiltered read of all profiles is truncated on large systems.
+			var profiles = FullServiceBuilder.ReadProfileTree(_api, assignedProfileIds);
+			foreach (var profile in _api.ServiceCatalog.Profiles.Read(ProfileExposers.IsReusable.Equal(true)))
+			{
+				if (!String.IsNullOrWhiteSpace(profile?.Identifier))
 				{
-					ownership.ReusableProfileAssignments[reference.Identifier] = profileId;
+					profiles[profile.Identifier] = profile;
+					ownership.ReusableProfileIds.Add(profile.Identifier);
 				}
+			}
 
+			foreach (var profileId in assignedProfileIds)
+			{
 				ReadProfileOwnership(profileId, profiles, ownership, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
 			}
 
