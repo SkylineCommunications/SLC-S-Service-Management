@@ -1,8 +1,7 @@
 name: QAOps integration tests
 
 # Builds the QAOps Test Package (which bundles the Service Management .dmapp), runs it on a clean QAOps DaaS
-# with 'dataminer-qaops test-run-and-wait' and fails when the run fails. The built .dmapp is uploaded as an
-# artifact so a later job can deploy exactly the bits that were tested.
+# with 'dataminer-qaops test-run-and-wait' and fails when the run fails.
 
 on:
   workflow_call:
@@ -11,6 +10,9 @@ on:
         description: Path to the DataMiner Test Package project
         type: string
         default: SLC-Service-Management.QAOps/SLC-Service-Management.QAOps.csproj
+      node-version:
+        type: string
+        default: '22'
       configuration-id:
         description: QAOps configuration (DataMiner target). Default is the latest Release Candidate.
         type: string
@@ -18,24 +20,10 @@ on:
       test-suite-id:
         type: string
         default: 01KTRNHRHWQJ9SMESYJAFP8SE9
-      run-on-qaops:
-        description: Submit the Test Package to QAOps. When false, only build and upload the artifacts.
-        type: boolean
-        default: true
-      node-version:
-        type: string
-        default: '22'
       timeout-seconds:
         description: Maximum time to wait for the QAOps run
         type: number
         default: 7200
-      dmapp-artifact-name:
-        type: string
-        default: service-management-dmapp
-    outputs:
-      dmapp-artifact-name:
-        description: Name of the uploaded .dmapp artifact (the package that was tested)
-        value: ${{ inputs.dmapp-artifact-name }}
     secrets:
       QAOPS_TOKEN:
         description: QAOps token with the Run_Scoped_* scope of the chosen configuration
@@ -100,20 +88,9 @@ jobs:
           $projectName = [IO.Path]::GetFileNameWithoutExtension($env:TEST_PACKAGE_PROJECT)
           $dmtest = Get-ChildItem -Path (Join-Path $projectDir 'bin') -Recurse -Filter "$projectName.$env:PACKAGE_VERSION.dmtest" | Select-Object -First 1
           if (-not $dmtest) { throw "No $projectName.$env:PACKAGE_VERSION.dmtest was produced." }
-          $dmapp = Get-ChildItem -Path (Join-Path $projectDir 'TestPackageContent/Dependencies') -Filter '*.dmapp' | Select-Object -First 1
-          if (-not $dmapp) { throw 'The solution .dmapp was not bundled into the Test Package.' }
-
           "dmtest=$($dmtest.FullName)" >> $env:GITHUB_OUTPUT
-          "dmapp=$($dmapp.FullName)" >> $env:GITHUB_OUTPUT
           Write-Host "Test package: $($dmtest.FullName)"
-          Write-Host "Solution package: $($dmapp.FullName)"
 
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: ${{ inputs.dmapp-artifact-name }}
-          path: ${{ steps.build.outputs.dmapp }}
-          if-no-files-found: error
-          retention-days: 7
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: qaops-test-package
@@ -122,12 +99,10 @@ jobs:
           retention-days: 7
 
       - name: Install QAOps tool
-        if: inputs.run-on-qaops
         run: dotnet tool install Skyline.DataMiner.qaops --global --add-source https://api.nuget.org/v3/index.json
 
       - name: Run on QAOps
         id: run
-        if: inputs.run-on-qaops
         env:
           QAOPS_TOKEN: ${{ secrets.QAOPS_TOKEN }}
           TEST_SUITE_ID: ${{ inputs.test-suite-id }}

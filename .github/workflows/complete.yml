@@ -39,7 +39,7 @@ jobs:
     needs: CI
     # Only released versions exist in the Catalog; the version string is the tag that the CI job published.
     if: github.ref_type == 'tag'
-    uses: ./.github/workflows/deploy-daas.yml
+    uses: ./.github/workflows/deploy-internal.yml
     with:
       mode: catalog
       catalog-version: ${{ github.ref_name }}

@@ -30,31 +30,57 @@ jobs:
       test-script: test:e2e
       report-name: playwright-report-mock
 
+  build:
+    name: Build package
+    needs: [unit-tests, playwright-mock]
+    if: github.event_name != 'pull_request'
+    uses: ./.github/workflows/build-package.yml
+    secrets:
+      DATAMINER_TOKEN: ${{ secrets.DATAMINER_TOKEN }}
+
   qaops:
     name: QAOps (RC)
     needs: [unit-tests, playwright-mock]
-    # Pull requests only run the fast local checks. Other branches still build the .dmapp for the deploy job, but only
-    # 2.0.X runs it on QAOps, which provisions a DataMiner and consumes a token use.
-    if: github.event_name != 'pull_request'
+    # A QAOps run provisions a DataMiner and consumes a token use, so only 2.0.X runs it.
+    if: github.ref == 'refs/heads/2.0.X'
     uses: ./.github/workflows/qaops-tests.yml
-    with:
-      run-on-qaops: ${{ github.ref == 'refs/heads/2.0.X' }}
     secrets:
       QAOPS_TOKEN: ${{ secrets.QAOPS_TOKEN }}
       DATAMINER_TOKEN: ${{ secrets.DATAMINER_TOKEN }}
 
-  deploy-daas:
-    name: Deploy to DaaS
-    needs: qaops
-    uses: ./.github/workflows/deploy-daas.yml
+  deploy-internal:
+    name: Deploy to Internal
+    needs: [build, qaops]
+    # QAOps is skipped on branches other than 2.0.X; a skipped gate must not block the deploy, a failed one must.
+    if: ${{ !cancelled() && needs.build.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.qaops.result) }}
+    uses: ./.github/workflows/deploy-internal.yml
     with:
       mode: volatile
-      dmapp-artifact-name: ${{ needs.qaops.outputs.dmapp-artifact-name }}
+      dmapp-artifact-name: ${{ needs.build.outputs.dmapp-artifact-name }}
     secrets:
       DAAS_SYSTEM_TOKEN: ${{ secrets.DAAS_SYSTEM_TOKEN }}
 
   k6-api:
-    name: k6 (API smoke on DaaS)
-    needs: deploy-daas
+    name: k6 (API smoke on Internal)
+    needs: deploy-internal
     uses: ./.github/workflows/k6-tests.yml
+    secrets: inherit
+
+  k6-load:
+    name: k6 (read load on Internal)
+    needs: [k6-api, playwright-live]
+    uses: ./.github/workflows/k6-tests.yml
+    with:
+      path: tests/k6/load/*.js
+    secrets: inherit
+
+  playwright-live:
+    name: Playwright (live data on Internal)
+    needs: deploy-internal
+    uses: ./.github/workflows/playwright-tests.yml
+    with:
+      working-directory: Service-Management-App
+      test-script: test:e2e:live
+      report-name: playwright-report-live
+      environment: dataminer-ovo-mole
     secrets: inherit
