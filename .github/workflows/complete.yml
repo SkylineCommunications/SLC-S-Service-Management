@@ -34,7 +34,7 @@ jobs:
     secrets:
       dataminerToken: ${{ secrets.DATAMINER_TOKEN }} # The API key: generated in the DCP Admin app (https://admin.dataminer.services/) as authentication for a certain DataMiner System.
 
-  deploy-daas:
+  deploy-demo:
     name: Deploy release to DaaS
     needs: CI
     # Only released versions exist in the Catalog; the version string is the tag that the CI job published.
@@ -43,11 +43,25 @@ jobs:
     with:
       mode: catalog
       catalog-version: ${{ github.ref_name }}
+      environment: dataminer-demo
     secrets:
       DATAMINER_TOKEN: ${{ secrets.DATAMINER_TOKEN }}
 
   k6-api:
-    name: k6 (API smoke on DaaS)
-    needs: deploy-daas
+    name: k6 (API smoke on Demo)
+    needs: deploy-demo
     uses: ./.github/workflows/k6-tests.yml
+    with:
+      environment: dataminer-demo
+    secrets: inherit
+
+  playwright-live:
+    name: Playwright (live data on Demo)
+    needs: deploy-demo
+    uses: ./.github/workflows/playwright-tests.yml
+    with:
+      working-directory: Service-Management-App
+      test-script: test:e2e:live
+      report-name: playwright-report-live
+      environment: dataminer-demo
     secrets: inherit

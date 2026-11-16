@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: ['2.0.X']
   push:
-    branches: ['2.0.X', 'dev/workflows']
+    branches: ['2.0.X']
   workflow_dispatch:
 
 concurrency:
