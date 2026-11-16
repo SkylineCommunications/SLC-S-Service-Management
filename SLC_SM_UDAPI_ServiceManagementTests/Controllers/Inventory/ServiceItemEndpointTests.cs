@@ -21,7 +21,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Tests.Controllers
 			var job = AddItem(service, 3, "Job", ItemType.Workflow, Guid.NewGuid().ToString());
 			AddItem(service, 1, "Svc", ItemType.Service, linked.Identifier);
 			service.ServiceItems.Add(new ServiceItem());
-			ItemImplementations.Setup(i => i.Describe(job)).Returns(new ServiceItemImplementation { Name = "Job 1", State = "Running", MonitoringServiceState = "Normal" });
+			ItemImplementations.Setup(i => i.Describe(job)).Returns(new ServiceItemImplementation { Name = "Job 1", State = "Running", MonitoringServiceState = "Normal", MonitoringServiceId = "123/45", BookingUrl = "https://dma/app" });
 
 			var items = Value<List<JObject>>(Controller.ListServiceItems(service.ServiceID));
 
@@ -32,6 +32,9 @@ namespace SLC_SM_UDAPI_ServiceManagement.Tests.Controllers
 			Assert.AreEqual("Job 1", (string)items[1]["ImplementationName"]);
 			Assert.AreEqual("Running", (string)items[1]["ImplementationState"]);
 			Assert.AreEqual("Normal", (string)items[1]["MonitoringServiceState"]);
+			Assert.AreEqual("123/45", (string)items[1]["MonitoringServiceId"]);
+			Assert.AreEqual("https://dma/app", (string)items[1]["BookingUrl"]);
+			Assert.AreEqual(String.Empty, (string)items[0]["MonitoringServiceId"]);
 		}
 
 		[TestMethod]

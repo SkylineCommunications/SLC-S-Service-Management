@@ -10,5 +10,9 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 		public string State { get; set; }
 
 		public string MonitoringServiceState { get; set; }
+
+		public string MonitoringServiceId { get; set; }
+
+		public string BookingUrl { get; set; }
 	}
 }

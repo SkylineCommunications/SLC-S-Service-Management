@@ -166,6 +166,8 @@ input[type="search"]::-ms-clear, input[type="search"]::-ms-reveal { display:none
 .action-notice { position:fixed; top:64px; right:24px; z-index:40; max-width:min(460px, calc(100vw - 48px)); min-height:44px; padding:8px 8px 8px 12px; display:flex; align-items:center; gap:9px; border:1px solid var(--color5); border-left:3px solid var(--focus-color); border-radius:8px; background:var(--color1); box-shadow:0 10px 30px rgb(0 0 0 / 18%); color:var(--color12); }
 .action-notice .icon { width:18px; font-size:18px; color:var(--focus-color); flex-shrink:0; }
 .action-notice > span:nth-child(2) { flex:1; min-width:0; overflow-wrap:anywhere; }
+.action-notice-copy { display:flex; flex-direction:column; gap:2px; }
+.action-notice-copy strong { font-weight:500; }
 .action-notice.success { border-left-color:var(--success); }
 .action-notice.success > .icon { color:var(--success); }
 .action-notice.error { border-left-color:var(--palette-color3); }
@@ -568,6 +570,12 @@ button.configuration-nested-chip { width:100%; min-height:36px; justify-content:
 .related-orders-table tr:last-child td { border-bottom:0; }
 .related-orders-table th:first-child { width:46%; }
 .related-orders-table td:first-child { font-weight:500; overflow-wrap:anywhere; }
+.related-orders-table .related-order-link { flex-direction:row; align-items:center; justify-content:flex-start; gap:10px; padding:4px 6px; margin:-4px -6px; border:0; border-radius:8px; transition:background-color .15s ease; }
+.related-orders-table .related-order-link:hover, .related-orders-table .related-order-link:focus-visible { background:color-mix(in srgb, var(--hyperlink) 8%, transparent); }
+.related-order-icon { flex:none; display:inline-grid; place-items:center; width:28px; height:28px; border-radius:8px; background:color-mix(in srgb, var(--hyperlink) 12%, transparent); color:var(--hyperlink); font-size:16px; }
+.related-order-text { flex:1; min-width:0; }
+.related-order-go { flex:none; color:var(--color10); font-size:16px; opacity:.55; transition:transform .15s ease, opacity .15s ease, color .15s ease; }
+.related-order-link:hover .related-order-go, .related-order-link:focus-visible .related-order-go { opacity:1; color:var(--hyperlink); transform:translateX(2px); }
 .related-orders-table .order-action-chip { text-transform:none; letter-spacing:normal; font-weight:500; }
 .related-orders-table .state-badge { min-width:0; white-space:normal; border-radius:12px; }
 @media (max-width:800px) {
@@ -1147,7 +1155,28 @@ button.configuration-nested-chip > span:first-child { font-size:13px; font-weigh
 .service-workspace .service-items-table td { height:44px; padding:8px 12px; white-space:normal; overflow-wrap:anywhere; }
 .service-workspace .service-items-table th:last-child { width:128px; }
 .service-workspace .service-items-table .service-actions { justify-content:flex-end; }
-.booking-actions-menu { position:fixed; z-index:1200; min-width:196px; padding:6px; display:flex; flex-direction:column; gap:2px; background:var(--color1); border:1px solid var(--color5); border-radius:8px; box-shadow:0 10px 28px rgb(0 0 0 / 22%); }
+.booking-reference-button { --reference-accent:var(--palette-color4); box-sizing:border-box; display:inline-flex; align-items:center; gap:6px; height:32px; max-width:200px; padding:0; border:0; background:transparent; font:inherit; font-size:12px; font-weight:400; color:var(--color11); text-decoration:none; text-align:left; white-space:nowrap; vertical-align:middle; }
+.booking-reference-button .icon { width:16px; font-size:16px; flex-shrink:0; color:var(--reference-accent); }
+.workflow-reference-button { --reference-accent:var(--palette-color1); }
+.linked-service-reference-button { --reference-accent:var(--success); }
+.implementation-reference-name { display:inline-block; max-width:200px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; vertical-align:middle; }
+.booking-create-button { cursor:pointer; }
+.booking-create-button:disabled { color:var(--color9); cursor:not-allowed; }
+.booking-create-button:disabled .icon { color:inherit; }
+.booking-reference-button:hover:not(:disabled) { color:var(--color12); }
+.booking-view-button { padding:0 8px; margin-left:-8px; border-radius:8px; transition:background-color .15s ease, color .15s ease; }
+.booking-view-button:hover, .booking-view-button:focus-visible { background:color-mix(in srgb, var(--reference-accent) 12%, transparent); }
+.booking-view-button:hover .implementation-reference-name { text-decoration:none; }
+.booking-reference-button:focus-visible { outline:2px solid var(--hyperlink); outline-offset:2px; }
+.service-item-state { --state-color:var(--color9); box-sizing:border-box; width:168px; height:26px; display:inline-flex; align-items:center; gap:6px; padding:2px 10px; border:1px solid color-mix(in srgb, var(--state-color) 40%, var(--color5)); border-radius:999px; background:color-mix(in srgb, var(--state-color) 10%, var(--color1)); color:var(--color11); font-size:12px; font-weight:500; line-height:20px; vertical-align:middle; }
+.service-item-state > span:not(.service-state-dot) { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.service-state-dot { width:6px; height:6px; flex-shrink:0; border-radius:50%; color:var(--state-color); background:currentColor; }
+.monitoring-state-controls.has-action { padding-right:2px; }
+.service-item-state > .monitoring-service-open { flex:none; width:22px; height:20px; margin-left:2px; display:inline-flex; align-items:center; justify-content:center; border-left:1px solid color-mix(in srgb, var(--state-color) 35%, var(--color5)); border-radius:0 999px 999px 0; color:var(--color11); text-decoration:none; cursor:pointer; transition:background-color .15s ease; }
+.monitoring-service-open .icon { width:14px; font-size:14px; color:inherit; }
+.monitoring-service-open:hover, .monitoring-service-open:focus-visible { background:color-mix(in srgb, var(--state-color) 22%, transparent); }
+.monitoring-service-open:focus-visible { outline:2px solid var(--focus-color); outline-offset:1px; }
+.booking-actions-menu { position:fixed; z-index:1200; min-width:196px; max-width:calc(100vw - 24px); max-height:calc(100vh - 24px); overflow-y:auto; padding:6px; display:flex; flex-direction:column; gap:2px; background:var(--color1); border:1px solid var(--color5); border-radius:8px; box-shadow:0 10px 28px rgb(0 0 0 / 22%); }
 .booking-actions-item { width:100%; min-height:32px; padding:6px 10px; display:flex; align-items:center; gap:8px; border:0; border-radius:5px; background:transparent; color:var(--color12); font:inherit; font-size:12px; text-align:left; cursor:pointer; }
 .booking-actions-item .icon { width:16px; font-size:16px; color:var(--color10); }
 .booking-actions-item:hover, .booking-actions-item:focus-visible { background:var(--color2); color:var(--focus-color); outline:0; }

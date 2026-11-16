@@ -1,4 +1,7 @@
 import { formatDataMinerDateTime, getDataMinerTimestamp } from './dateTime.js';
+import { adHocDataSourceQuery, runQuery } from './gqi.js';
+import { callDataMinerApi } from './transport.js';
+import { mediaOpsJobUrl } from './integrations.js';
 import {
     addInventoryServiceItem,
     addServiceScript,
@@ -57,6 +60,12 @@ export const SERVICE_TRANSITIONS = {
     active: [{ label: 'Terminate', next: 'Terminated' }],
 };
 export const SERVICE_INVENTORY_SCRIPTS = {
+    createWorkflowJob: {
+        name: 'SLC_SM_Create Job For Service Item',
+        folder: 'Service Management',
+        interactive: true,
+        parameterDefinitions: [{ id: 10, name: 'DOM ID' }, { id: 11, name: 'Service Item Label' }],
+    },
     // Runs the service item's own (interactive) script, e.g. a Booking Manager wizard, and stores the resulting reference.
     launchItemScript: {
         name: 'Launch Interactive Subscript',
@@ -83,7 +92,25 @@ export const SRM_BOOKING_ACTIONS = [
     { value: 'Finish', label: 'Finish Booking', icon: 'stop_circle' },
     { value: 'CHANGETIME', label: 'Change Booking Time', icon: 'schedule' },
     { value: 'EXTEND', label: 'Extend Booking Time', icon: 'more_time' },
+    { value: 'ViewLog', label: 'View Log', icon: 'description' },
 ];
+const SRM_BOOKING_ACTIONS_BY_STATE = {
+    confirmed: ['Start', 'Cancel', 'ViewLog'],
+    canceled: ['Delete', 'ViewLog'],
+    cancelled: ['Delete', 'ViewLog'],
+    ongoing: ['Finish', 'CHANGETIME', 'EXTEND', 'ViewLog'],
+};
+const SERVICE_ITEMS_SOURCE = {
+    scriptName: 'SLC_SM_GQIDS_Get Service Items',
+    libraryName: 'GetServiceItems',
+    typeFullName: 'SLC_SM_GQIDS_Get_Service_Items.EventManagerGetMultipleSections',
+    typeName: 'EventManagerGetMultipleSections',
+};
+
+export function getSrmBookingActions(state) {
+    const values = SRM_BOOKING_ACTIONS_BY_STATE[String(state ?? '').trim().toLowerCase()] ?? [];
+    return SRM_BOOKING_ACTIONS.filter(action => values.includes(action.value));
+}
 const ACTIVE_STATUSES = new Set(['active', 'reserved', 'designed']);
 const SERVICE_LIST_FIELDS = [
     'Identifier',
@@ -188,12 +215,99 @@ export function mapUdapiServiceItem(item) {
         implementation: String(pick('ImplementationName') ?? ''),
         implementationState: String(pick('ImplementationState') ?? ''),
         monitoringState: String(pick('MonitoringServiceState') ?? ''),
+        monitoringServiceId: String(pick('MonitoringServiceId') ?? ''),
+        bookingLink: String(pick('BookingUrl') ?? ''),
     };
+}
+
+// "Reference Unknown" is written by Launch Interactive Subscript when the wizard returned no reference.
+const UNKNOWN_IMPLEMENTATION_REFERENCE = 'reference unknown';
+
+export function hasImplementationReference(item) {
+    const reference = item?.implementationReference?.trim();
+    return Boolean(reference) && reference.toLowerCase() !== UNKNOWN_IMPLEMENTATION_REFERENCE;
+}
+
+// Alarm colors are system configuration, so they are read once per page load.
+let alarmColorsRequest;
+function fetchAlarmColors() {
+    alarmColorsRequest ??= callDataMinerApi('/API/v1/Json.asmx/GetDataMinerAgentAlarmColors', {})
+        .catch(error => { alarmColorsRequest = undefined; throw error; });
+    return alarmColorsRequest;
 }
 
 export async function fetchInventoryServiceItems(service) {
     const id = serviceApiId(service);
-    return id ? fetchServiceItems(id) : [];
+    if (!id) return [];
+    const items = (await fetchServiceItems(id)).map(({ bookingLink, ...item }) => ({
+        ...item,
+        bookingUrl: serviceItemType(item) === 'srmbooking' ? webLink(bookingLink) : '',
+        jobUrl: serviceItemType(item) === 'workflow' && hasImplementationReference(item)
+            ? mediaOpsJobUrl(item.implementationReference)
+            : '',
+    }));
+    if (!items.some(item => item.monitoringState && item.monitoringServiceId)) return items;
+    const colors = await fetchAlarmColors();
+    return items.map(item => {
+        const key = Object.keys(colors ?? {}).find(name => stateKey(name) === stateKey(item.monitoringState));
+        const color = colors?.[key];
+        return { ...item, monitoringColor: color ? `rgb(${color.R}, ${color.G}, ${color.B})` : undefined };
+    });
+}
+
+export function serviceItemType(item) {
+    return stateKey(item?.type);
+}
+
+function webLink(value) {
+    if (!String(value ?? '').trim()) return '';
+    const url = new URL(String(value).trim(), window.location.origin);
+    if (!['http:', 'https:'].includes(url.protocol)) throw new Error('The implementation link is not a valid web URL.');
+    return url.href;
+}
+
+function stateKey(value) {
+    return String(value ?? '').replace(/[\s_]/g, '').toLowerCase();
+}
+
+const IMPLEMENTATION_STATE_COLORS = {
+    pending: 'var(--palette-color3)',
+    confirmed: 'var(--success)',
+    ongoing: 'var(--success)',
+    ended: 'var(--color10)',
+    draft: 'var(--palette-color1)',
+    tentative: 'var(--palette-color3)',
+    running: 'var(--success)',
+    completed: 'var(--palette-color4)',
+    canceled: 'var(--palette-color3)',
+    cancelled: 'var(--palette-color3)',
+    haserrors: 'var(--error)',
+    readyforinvoice: 'var(--palette-color4)',
+    invoiced: 'var(--color10)',
+};
+
+export function implementationStateColor(state) {
+    return IMPLEMENTATION_STATE_COLORS[stateKey(state)];
+}
+
+export function monitoringServiceUrl(serviceId) {
+    const match = /^(\d+)\/(\d+)$/.exec(serviceId ?? '');
+    return match ? `${window.location.origin}/monitoring/service/${match[1]}/${match[2]}` : '';
+}
+
+export async function fetchSrmBookingLog(serviceId, itemId) {
+    const rows = await runQuery(adHocDataSourceQuery(SERVICE_ITEMS_SOURCE, { 'DOM ID': serviceId }));
+    const row = rows.find(candidate => String(candidate['Service Item ID'] ?? '') === String(itemId));
+    if (!row) throw new Error('The SRM booking service item could not be found.');
+
+    const logLocation = String(row.Log ?? '').trim();
+    if (!logLocation) throw new Error('No booking log is available for this SRM booking.');
+
+    const logUrl = new URL(logLocation, window.location.origin);
+    if (!['http:', 'https:'].includes(logUrl.protocol)) {
+        throw new Error('The booking log location is not a valid web URL.');
+    }
+    return logUrl.href;
 }
 
 export async function fetchServiceItemReferenceOptions() {

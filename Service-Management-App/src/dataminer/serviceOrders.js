@@ -12,6 +12,7 @@ import {
     fetchServiceOrderList,
     fetchServiceOrderCursorPage,
     fetchServiceOrderOverview,
+    fetchServiceOrderRecord,
     initializeServiceFromOrderItem,
     saveServiceOrderItemConfiguration,
     transitionServiceOrder,
@@ -133,6 +134,10 @@ export async function fetchServiceOrders() {
     return (await fetchServiceOrderList()).map(mapUdapiOrder);
 }
 
+export async function fetchServiceOrderById(orderId) {
+    return mapUdapiOrder(await fetchServiceOrderRecord(orderId));
+}
+
 export async function fetchServiceOrderPage(options) {
     const page = await fetchServiceOrderCursorPage(options);
     return {
@@ -152,7 +157,11 @@ export async function fetchServiceOrderOverviewData(options = {}) {
 export async function fetchRelatedServiceOrders(serviceId) {
     const rows = await fetchRelatedServiceOrderList(serviceId);
     return rows.map(row => ({
-        order: { id: row.OrderInstanceId ?? row.orderInstanceId ?? row.OrderId ?? row.orderId ?? '', name: row.OrderName ?? row.orderName ?? '' },
+        order: {
+            id: row.OrderInstanceId ?? row.orderInstanceId ?? row.OrderId ?? row.orderId ?? '',
+            orderId: row.OrderId ?? row.orderId ?? '',
+            name: row.OrderName ?? row.orderName ?? '',
+        },
         item: { id: row.ServiceOrderItemId ?? row.serviceOrderItemId ?? '', action: enumLabel(row.Action ?? row.action, ['Add', 'Modify', 'Delete', 'No Change']), status: enumLabel(row.State ?? row.state, UDAPI_STATUSES) },
     }));
 }

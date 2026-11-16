@@ -30,6 +30,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 		private const string BookingScriptDescription = "Booking Manager Element Info";
 		private const int BookingManagerScriptPid = 195;
 		private readonly IEngine engine;
+		private readonly Dictionary<string, string> bookingManagerAppLinks = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 		private bool? workflowModelExists;
 		private bool? relationshipModelExists;
 
@@ -52,7 +53,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 					return DescribeJob(id);
 
 				case SlcServicemanagementIds.Enums.ServiceItemTypesEnum.SRMBooking:
-					return DescribeBooking(id);
+					return DescribeBooking(id, item.DefinitionReference);
 
 				default:
 					return null;
@@ -327,7 +328,32 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 				.FirstOrDefault();
 		}
 
-		private ServiceItemImplementation DescribeBooking(Guid id)
+		private string ReadBookingManagerAppLink(string bookingManagerName)
+		{
+			if (String.IsNullOrWhiteSpace(bookingManagerName))
+			{
+				return String.Empty;
+			}
+
+			if (!bookingManagerAppLinks.TryGetValue(bookingManagerName, out string link))
+			{
+				try
+				{
+					var element = engine.SendSLNetSingleResponseMessage(new GetElementByNameMessage(bookingManagerName)) as ElementInfoEventMessage;
+					link = element?.GetPropertyValue("App Link")?.Trim() ?? String.Empty;
+				}
+				catch
+				{
+					link = String.Empty;
+				}
+
+				bookingManagerAppLinks[bookingManagerName] = link;
+			}
+
+			return link;
+		}
+
+		private ServiceItemImplementation DescribeBooking(Guid id, string bookingManagerName)
 		{
 			var reservation = ReadReservation(id) as ServiceReservationInstance;
 			if (reservation == null)
@@ -346,6 +372,8 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 				Name = reservation.Name,
 				State = reservation.Status.ToString(),
 				MonitoringServiceState = serviceState?.Level.ToString(),
+				MonitoringServiceId = serviceState != null ? $"{serviceState.DataMinerID}/{serviceState.ServiceID}" : String.Empty,
+				BookingUrl = ReadBookingManagerAppLink(bookingManagerName),
 			};
 		}
 

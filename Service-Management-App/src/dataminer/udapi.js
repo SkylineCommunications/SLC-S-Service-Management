@@ -199,6 +199,10 @@ export async function fetchServiceOrderList() {
     return Array.isArray(payload) ? payload : [];
 }
 
+export function fetchServiceOrderRecord(orderId) {
+    return callServiceManagementUdapi(serviceOrderRoute(orderId));
+}
+
 export async function fetchServiceOrderCursorPage({ limit = 100, after = '', before = '', includeTotalCount = true, includeMetrics = false, status = '', search = '', sort = '' } = {}) {
     const payload = await callServiceManagementUdapi('serviceOrder', {
         query: { pagination: 'cursor', limit, after, before, includeTotalCount, includeMetrics, status, search, sort },
