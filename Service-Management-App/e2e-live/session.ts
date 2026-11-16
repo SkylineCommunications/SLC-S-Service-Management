@@ -1,10 +1,14 @@
-import { chromium, request, type APIRequestContext, type BrowserContext } from '@playwright/test';
+import { chromium, request, type APIRequestContext, type BrowserContext, type Page } from '@playwright/test';
 
 const APP_FOLDER = process.env.APP_FOLDER || 'service-management';
 export const APP_ROOT_URL = `/public/${APP_FOLDER}/index.html`;
 
+type Cookie = Awaited<ReturnType<BrowserContext['cookies']>>[number];
+
 export interface DataMinerSession {
     connection: string;
+    // All cookies from the signed-in browser: the dataminer.services relay needs its own B2C session cookies, not only DMAConnection.
+    cookies: Cookie[];
     api: APIRequestContext;
 }
 
@@ -22,6 +26,7 @@ export async function connect(): Promise<DataMinerSession> {
     const ignoreHTTPSErrors = process.env.DMA_IGNORE_HTTPS_ERRORS === 'true';
     const browser = await chromium.launch();
     let connection: string | undefined;
+    let cookies: Cookie[] = [];
     try {
         const context = await browser.newContext({ ignoreHTTPSErrors });
         const page = await context.newPage();
@@ -38,15 +43,42 @@ export async function connect(): Promise<DataMinerSession> {
         await page.locator(signInButtons).first().click();
 
         const dmaOrigin = new URL(dmaUrl()).origin;
-        await page.waitForURL(url => url.origin === dmaOrigin && !url.pathname.startsWith('/auth'), { timeout: 60_000 });
-        connection = (await context.cookies(dmaUrl())).find(cookie => cookie.name === 'DMAConnection')?.value;
+        const signedIn = page.waitForURL(url => url.origin === dmaOrigin && !url.pathname.startsWith('/auth'), { timeout: 45_000 });
+        const rejected = page.locator('.error.pageLevel, [role="alert"]').filter({ hasText: /incorrect|invalid|locked|disabled/i }).first()
+            .waitFor({ timeout: 45_000 })
+            .then(
+                () => { throw new Error('dataminer.services rejected the DMA_USERNAME / DMA_PASSWORD credentials.'); },
+                () => new Promise<never>(() => undefined));
+        try {
+            await Promise.race([signedIn, rejected]);
+        } finally {
+            // Playwright attaches a page snapshot to failures; never leave the password in it.
+            // After a successful sign-in the B2C field no longer exists, so don't wait for it (actions have no timeout by default).
+            await passwordField.fill('', { timeout: 1_000 }).catch(() => undefined);
+        }
+        connection = await waitForConnectionCookie(context, page);
+        cookies = await context.cookies();
     } finally {
         await browser.close();
     }
 
     if (!connection) throw new Error('Sign-in finished but DataMiner did not set a DMAConnection cookie.');
     const api = await request.newContext({ baseURL: dmaUrl(), ignoreHTTPSErrors });
-    return { connection, api };
+    return { connection, cookies, api };
+}
+
+// The cookie can be set by the app page after the redirect, so poll briefly and report what exists when it never shows up.
+async function waitForConnectionCookie(context: BrowserContext, page: Page): Promise<string> {
+    const deadline = Date.now() + 20_000;
+    let names: string[] = [];
+    while (Date.now() < deadline) {
+        const cookies = await context.cookies();
+        const cookie = cookies.find(c => c.name === 'DMAConnection');
+        if (cookie) return cookie.value;
+        names = cookies.map(c => `${c.name}@${c.domain}`);
+        await page.waitForTimeout(500);
+    }
+    throw new Error(`Sign-in finished at ${new URL(page.url()).origin}${new URL(page.url()).pathname} but no DMAConnection cookie was set. Cookies: ${names.join(', ') || 'none'}.`);
 }
 
 export async function disconnect(session: DataMinerSession | undefined): Promise<void> {
@@ -55,7 +87,7 @@ export async function disconnect(session: DataMinerSession | undefined): Promise
     await session.api.dispose();
 }
 
-// The app reads the connection GUID from the DMAConnection cookie that DataMiner's /auth/ page normally sets.
+// Restores the signed-in browser's cookies: the relay session for dataminer.services and the DMAConnection cookie the app reads.
 export async function useSession(context: BrowserContext, session: DataMinerSession): Promise<void> {
-    await context.addCookies([{ name: 'DMAConnection', value: session.connection, url: dmaUrl(), sameSite: 'Strict' }]);
+    await context.addCookies(session.cookies);
 }

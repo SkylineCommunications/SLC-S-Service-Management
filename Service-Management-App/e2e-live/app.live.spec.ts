@@ -5,12 +5,17 @@ import { APP_ROOT_URL, connect, disconnect, useSession, type DataMinerSession } 
 test.describe('Service Management on DataMiner', () => {
     let session: DataMinerSession | undefined;
 
-    test.beforeAll(async () => { session = await connect(); });
+    // The browser sign-in goes through B2C and is slower than the default 60 s hook timeout.
+    test.beforeAll(async () => { test.setTimeout(180_000); session = await connect(); });
     test.afterAll(async () => { await disconnect(session); });
 
-    test('redirects to DataMiner authentication without a session', async ({ page }) => {
+    test('redirects to sign-in without a session', async ({ page }) => {
         await page.goto(`${APP_ROOT_URL}#orders`);
-        await expect.poll(() => new URL(page.url()).pathname).toBe('/auth/');
+        // A direct DMA redirects to /auth/; a dataminer.services system redirects to its B2C login first.
+        await expect.poll(() => {
+            const url = new URL(page.url());
+            return url.pathname === '/auth/' || url.hostname.endsWith('b2clogin.com');
+        }).toBe(true);
     });
 
     test.describe('signed in', () => {
