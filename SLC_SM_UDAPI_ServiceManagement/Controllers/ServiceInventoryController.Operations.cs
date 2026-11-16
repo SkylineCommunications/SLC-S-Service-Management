@@ -182,7 +182,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 		/// <summary>
 		/// Duplicates a single configuration version of a service as a new, inactive version.
 		/// </summary>
-		[HttpPost("{id}/configurationVersion/{versionId}/duplicate")]
+		[HttpPost("{id}/configuration/{versionId}/duplicate")]
 		public IApiResult DuplicateConfigurationVersion([FromRoute] string id, [FromRoute] string versionId)
 		{
 			try

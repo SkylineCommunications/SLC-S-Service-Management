@@ -687,7 +687,7 @@ export async function mockDataMinerApi(page: Page, mode: GqiMode = 'ok'): Promis
                         return respond(204);
                     }
                 }
-                if (subResource === 'configurationVersion' && subAction === 'duplicate' && request.RequestMethod === 3) {
+                if (subResource === 'configuration' && subAction === 'duplicate' && request.RequestMethod === 3) {
                     const rows = serviceConfigurationOverrides.get(service['DOM ID']) ?? SAMPLE_SPECIFICATION_CONFIGURATIONS.map(row => ({ ...row }));
                     const sourceRows = rows.filter(row => row['Version ID'] === subId);
                     if (sourceRows.length === 0) return notFound();

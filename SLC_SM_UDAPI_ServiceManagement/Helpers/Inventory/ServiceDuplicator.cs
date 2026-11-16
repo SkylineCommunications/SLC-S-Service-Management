@@ -94,57 +94,6 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 			CreateActiveVersion(service, "Order item configuration", item.Description, item.StartTime, item.EndTime, sources, specificationData, cleanup);
 		}
 
-		/// <summary>
-		/// Creates the content of a new configuration version from the specification: copies of the specification's parameter
-		/// values (with their defaults) and profiles. A parameter is mandatory when the specification marks it mandatory at service.
-		/// </summary>
-		/// <param name="specification">The service's specification.</param>
-		/// <param name="serviceId">The service ID, used to name copied profiles.</param>
-		/// <param name="cleanup">Collects the actions that remove the created records again.</param>
-		/// <param name="parameters">The created service configuration values.</param>
-		/// <param name="profiles">The created service profiles.</param>
-		public void CopySpecificationConfiguration(
-			ServiceSpecification specification,
-			string serviceId,
-			Stack<Action> cleanup,
-			out List<SdmObjectReference<ServiceConfigurationValue>> parameters,
-			out List<SdmObjectReference<ServiceProfile>> profiles)
-		{
-			if (specification == null)
-			{
-				throw new ArgumentNullException(nameof(specification));
-			}
-
-			var specificationParameters = ReadSpecificationParameters(specification);
-			var specificationData = LoadSpecificationData(
-				specification,
-				specificationParameters.Select(configuration => configuration.ConfigurationParameterId.Identifier),
-				includeProfiles: true);
-			var values = specificationData.Data.ParameterValues;
-
-			// A specification reference holds a parameter value ID or, without a default, a parameter ID.
-			var parametersById = FullServiceBuilder.ReadById(
-				specificationParameters.Select(configuration => configuration.ConfigurationParameterId.Identifier).Where(id => !values.ContainsKey(id)),
-				id => ConfigurationParameterExposers.Identifier.Equal(id),
-				filter => _api.ServiceCatalog.ConfigurationParameters.Read(filter),
-				parameter => parameter.Identifier);
-			var sources = new List<ParameterSource>();
-			foreach (var configuration in specificationParameters)
-			{
-				string reference = configuration.ConfigurationParameterId.Identifier ?? String.Empty;
-				if (values.ContainsKey(reference))
-				{
-					sources.Add(new ParameterSource { ValueId = reference, Mandatory = configuration.MandatoryAtService });
-				}
-				else if (parametersById.ContainsKey(reference))
-				{
-					sources.Add(new ParameterSource { ParameterId = reference, Mandatory = configuration.MandatoryAtService });
-				}
-			}
-
-			CreateVersionContent(serviceId, sources, specificationData, cleanup, out parameters, out profiles);
-		}
-
 		private List<ServiceSpecificationConfigurationValue> ReadSpecificationParameters(ServiceSpecification specification)
 		{
 			var ids = ReferenceIds(specification.ConfigurationParameters).Distinct(StringComparer.OrdinalIgnoreCase).ToList();

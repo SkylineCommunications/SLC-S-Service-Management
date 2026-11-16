@@ -19,6 +19,8 @@ test.describe('Service Management workspace', () => {
         for (const name of ['Services', 'Catalog', 'Settings']) { await page.getByRole('link', { name }).click(); await expect(page.getByRole('heading', { name, exact: true })).toBeVisible(); }
     });
     test('loads the overview through bounded list pages with metrics', { tag: '@G7' }, async ({ page }) => {
+        await expect(page.getByRole('heading', { name: 'Orders', exact: true })).toBeVisible();
+        mock.calls.length = 0;
         await page.goto(`${APP_ROOT_URL}#overview`);
         await expect(page.getByRole('heading', { name: 'Service Management', exact: true })).toBeVisible();
         await expect(page.getByRole('link', { name: /Catalog specifications/ }).locator('strong')).toHaveText('12');
@@ -811,7 +813,7 @@ test.describe('Service Management workspace', () => {
         await dialog.getByRole('button', { name: 'Duplicate configuration' }).click();
         await confirmation.getByRole('button', { name: 'Duplicate', exact: true }).click();
         await expect.poll(() => udapiRequests(mock).some(request =>
-            request.Route === `${SERVICES_ROUTE}/service-1/configurationVersion/spec-1/duplicate` && request.RequestMethod === 3,
+            request.Route === `${SERVICES_ROUTE}/service-1/configuration/spec-1/duplicate` && request.RequestMethod === 3,
         )).toBe(true);
         const version = dialog.getByRole('combobox', { name: 'Version' });
         await expect(version.locator('option:checked')).toHaveText('Current version (Copy)');

@@ -1,4 +1,4 @@
-﻿namespace SLC_SM_UDAPI_ServiceManagement.Tests.Controllers
+namespace SLC_SM_UDAPI_ServiceManagement.Tests.Controllers
 {
 	using System.Collections.Generic;
 	using Microsoft.Extensions.Logging;
@@ -615,94 +615,6 @@
 
 			Assert.AreEqual(specification.Identifier, service.ServiceSpecificationId.Identifier);
 			Assert.AreEqual(0, StoredVersions.Count);
-		}
-
-		[TestMethod]
-		public void CreateConfigurationVersion_WithoutContent_PrefillsFromSpecification()
-		{
-			var specification = AddSpecificationWithConfiguration(out var defaultValue, out var parameterWithoutDefault, out var profile);
-			var service = AddConfigurableService(specification);
-
-			Assert.AreEqual(201, StatusCode(Controller.CreateConfigurationVersion(service.ServiceID, new CreateConfigurationVersionRequest { VersionName = "v2" })));
-
-			var version = StoredVersions.Single();
-			Assert.AreEqual("v2", version.VersionName);
-			Assert.AreEqual(version.Identifier, service.ConfigurationVersions.Single().Identifier);
-
-			var configurations = version.Parameters.Select(reference => StoredConfigurationValues.Single(value => value.Identifier == reference.Identifier)).ToList();
-			Assert.AreEqual(2, configurations.Count);
-			var copiedDefault = StoredParameterValues.Single(value => value.Identifier == configurations[0].ConfigurationParameterId.Identifier);
-			Assert.AreNotEqual(defaultValue.Identifier, copiedDefault.Identifier);
-			Assert.AreEqual("SRT", copiedDefault.StringValue);
-			Assert.IsTrue(configurations[0].Mandatory);
-			var emptyValue = StoredParameterValues.Single(value => value.Identifier == configurations[1].ConfigurationParameterId.Identifier);
-			Assert.AreEqual(parameterWithoutDefault.Identifier, emptyValue.ConfigurationParameterId.Identifier);
-			Assert.IsNull(emptyValue.StringValue);
-			Assert.IsFalse(configurations[1].Mandatory);
-
-			var serviceProfile = StoredServiceProfiles.Single(p => p.Identifier == version.Profiles.Single().Identifier);
-			Assert.IsTrue(serviceProfile.Mandatory);
-			var copiedProfile = StoredProfiles.Single(p => p.Identifier == serviceProfile.ProfileId.Identifier);
-			Assert.AreNotEqual(profile.Identifier, copiedProfile.Identifier);
-			Assert.AreEqual("Main", StoredParameterValues.Single(value => value.Identifier == copiedProfile.ConfigurationParameterValues.Single().Identifier).StringValue);
-		}
-
-		[TestMethod]
-		public void CreateConfigurationVersion_PrefillWithMandatoryParameterWithoutDefault_ActivateReturns400AndCleansUp()
-		{
-			var specification = AddSpecificationWithConfiguration(out _, out var parameterWithoutDefault, out _);
-			StoredSpecificationConfigurations
-				.Single(configuration => configuration.ConfigurationParameterId.Identifier == parameterWithoutDefault.Identifier)
-				.MandatoryAtService = true;
-			var service = AddConfigurableService(specification);
-			string activeVersionId = service.ServiceConfigurationId.Identifier;
-			int parameterValueCount = StoredParameterValues.Count;
-			int profileCount = StoredProfiles.Count;
-
-			var result = Controller.CreateConfigurationVersion(
-				service.ServiceID,
-				new CreateConfigurationVersionRequest { VersionName = "invalid active version" },
-				activate: true);
-
-			Assert.AreEqual(400, StatusCode(result));
-			StringAssert.Contains(ErrorDetail(result), "Bitrate");
-			Assert.AreEqual(parameterValueCount, StoredParameterValues.Count);
-			Assert.AreEqual(profileCount, StoredProfiles.Count);
-			Assert.AreEqual(0, StoredConfigurationValues.Count);
-			Assert.AreEqual(0, StoredServiceProfiles.Count);
-			Assert.AreEqual(0, StoredVersions.Count);
-			Assert.AreEqual(0, service.ConfigurationVersions.Count);
-			Assert.AreEqual(activeVersionId, service.ServiceConfigurationId.Identifier);
-		}
-
-		[TestMethod]
-		public void CreateConfigurationVersion_ReusableSpecificationProfile_IsReferencedNotCopied()
-		{
-			var specification = AddSpecificationWithConfiguration(out _, out _, out var profile);
-			profile.IsReusable = true;
-			var service = AddConfigurableService(specification);
-
-			Assert.AreEqual(201, StatusCode(Controller.CreateConfigurationVersion(service.ServiceID, new CreateConfigurationVersionRequest())));
-
-			var serviceProfile = StoredServiceProfiles.Single(p => p.Identifier == StoredVersions.Single().Profiles.Single().Identifier);
-			Assert.AreEqual(profile.Identifier, serviceProfile.ProfileId.Identifier);
-			Assert.AreSame(profile, StoredProfiles.Single());
-		}
-
-		[TestMethod]
-		public void CreateConfigurationVersion_WithEmptyContent_DoesNotPrefill()
-		{
-			var service = AddConfigurableService(AddSpecificationWithConfiguration(out _, out _, out _));
-			var request = new CreateConfigurationVersionRequest
-			{
-				Parameters = new List<ServiceConfigurationValueRequest>(),
-				Profiles = new List<ServiceProfileRequest>(),
-			};
-
-			Assert.AreEqual(201, StatusCode(Controller.CreateConfigurationVersion(service.ServiceID, request)));
-
-			Assert.AreEqual(0, StoredVersions.Single().Parameters.Count);
-			Assert.AreEqual(0, StoredVersions.Single().Profiles.Count);
 		}
 
 		[TestMethod]
