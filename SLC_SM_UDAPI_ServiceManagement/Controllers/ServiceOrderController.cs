@@ -1107,57 +1107,6 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 			return CursorListFilter.Any(filters);
 		}
 
-		[HttpGet("overview")]
-		public IApiResult GetServiceOrderOverview([FromQuery] int limit = 6)
-		{
-			if (limit < 1 || limit > 50)
-			{
-				return BadRequest(CreateError("Invalid request", "'limit' must be between 1 and 50.", 400));
-			}
-
-			try
-			{
-				var repository = _serviceManagementApiHelper.ServiceOrder.ServiceOrders as IReadableRepository<ServiceOrder>;
-				if (repository == null)
-				{
-					return InternalServerError(CreateError("Internal server error", "The service-order repository does not support overview reads.", 500));
-				}
-
-				var recentOrders = ReadRecentServiceOrders(repository, limit);
-				var overview = _serviceManagementApiHelper.Overview.ReadServiceOrders();
-
-				return Ok(new ServiceOrderOverviewResponse
-				{
-					Items = ToOrderResponses(recentOrders),
-					TotalCount = overview.TotalCount,
-					OpenCount = overview.OpenCount,
-					AttentionCount = overview.AttentionCount,
-					CompletedCount = overview.CompletedCount,
-				});
-			}
-			catch (Exception ex)
-			{
-				_logger.LogError(ex, "GetServiceOrderOverview failed: {Message}", ex.Message);
-				return InternalServerError(CreateError("Internal server error", "An unexpected error occurred while retrieving the service-order overview.", 500));
-			}
-		}
-
-		private IReadOnlyList<ServiceOrder> ReadRecentServiceOrders(IReadableRepository<ServiceOrder> repository, int limit)
-		{
-			return repository.ReadCursorPage(
-				ServiceOrderExposers.OrderId,
-				order => order.OrderId ?? String.Empty,
-				CursorKeySerialization.SerializeString,
-				CursorKeySerialization.DeserializeString,
-				ServiceOrderExposers.Identifier,
-				order => order.Identifier,
-				CursorKeySerialization.SerializeString,
-				CursorKeySerialization.DeserializeString,
-				limit: limit,
-				descending: true,
-				secondaryDescending: true).Items;
-		}
-
 		/// <summary>
 		/// Moves a service order to another status.
 		/// </summary>

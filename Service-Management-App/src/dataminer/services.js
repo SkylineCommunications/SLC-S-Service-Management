@@ -18,7 +18,8 @@ import {
     fetchServiceItemOptions,
     fetchServiceList,
     fetchServiceCursorPage,
-    fetchServiceOverview,
+    OVERVIEW_PAGE,
+    toOverview,
     fetchServiceScriptList,
     saveServiceConfiguration,
     transitionInventoryService,
@@ -112,6 +113,7 @@ export function getSrmBookingActions(state) {
     return SRM_BOOKING_ACTIONS.filter(action => values.includes(action.value));
 }
 const ACTIVE_STATUSES = new Set(['active', 'reserved', 'designed']);
+const SERVICE_OVERVIEW_FIELDS = 'Identifier,ServiceID,Name,StatusName,ServiceSpecificationName';
 const SERVICE_LIST_FIELDS = [
     'Identifier',
     'ServiceID',
@@ -168,8 +170,8 @@ export async function fetchServicePage(options = {}) {
     };
 }
 
-export async function fetchServiceOverviewData(options = {}) {
-    const overview = await fetchServiceOverview(options);
+export async function fetchServiceOverviewData() {
+    const overview = toOverview(await fetchServiceCursorPage({ ...OVERVIEW_PAGE, fields: SERVICE_OVERVIEW_FIELDS }));
     return {
         ...overview,
         items: overview.items.map(mapUdapiService),

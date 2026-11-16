@@ -797,51 +797,6 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 			return CursorListFilter.Any(filters);
 		}
 
-		[HttpGet("overview")]
-		public IApiResult GetServiceOverview([FromQuery] int limit = 6)
-		{
-			if (limit < 1 || limit > 50)
-			{
-				return BadRequest(CreateError("Invalid request", "'limit' must be between 1 and 50.", 400));
-			}
-
-			try
-			{
-				var repository = serviceManagementApiHelper.ServiceInventory.Services as IReadableRepository<Service>;
-				if (repository == null)
-				{
-					return InternalServerError(CreateError("Internal server error", "The service repository does not support overview reads.", 500));
-				}
-
-				var page = repository.ReadCursorPage(
-					ServiceExposers.ServiceID,
-					service => service.ServiceID ?? String.Empty,
-					CursorKeySerialization.SerializeString,
-					CursorKeySerialization.DeserializeString,
-					ServiceExposers.Identifier,
-					service => service.Identifier,
-					CursorKeySerialization.SerializeString,
-					CursorKeySerialization.DeserializeString,
-					limit: limit,
-					descending: true,
-					secondaryDescending: true);
-				var overview = serviceManagementApiHelper.Overview.ReadServices();
-
-				return Ok(new ServiceOverviewResponse
-				{
-					Items = ToServiceOverviewResponses(page.Items),
-					TotalCount = overview.TotalCount,
-					ActiveCount = overview.ActiveCount,
-					RetiredCount = overview.RetiredCount,
-				});
-			}
-			catch (Exception ex)
-			{
-				_logger.LogError(ex, "GetServiceOverview failed: {Message}", ex.Message);
-				return InternalServerError(CreateError("Internal server error", "An unexpected error occurred while retrieving the service overview.", 500));
-			}
-		}
-
 		[HttpPost("{id}/transition")]
 		[Consumes("application/json")]
 		public IApiResult TransitionService([FromRoute] string id, [FromBody] TransitionServiceRequest request)
@@ -1664,47 +1619,6 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 			}
 		}
 
-		private List<JObject> ToServiceOverviewResponses(IEnumerable<Service> services)
-		{
-			var list = services.ToList();
-			var specificationNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-			FilterElement<ServiceSpecification> specificationFilter = null;
-			foreach (var specificationId in list
-				.Select(service => service.ServiceSpecificationId.Identifier)
-				.Where(id => !String.IsNullOrWhiteSpace(id))
-				.Distinct(StringComparer.OrdinalIgnoreCase))
-			{
-				var current = ServiceSpecificationExposers.Identifier.Equal(specificationId);
-				specificationFilter = specificationFilter == null ? current : specificationFilter.OR(current);
-			}
-
-			if (specificationFilter != null)
-			{
-				foreach (var specification in serviceManagementApiHelper.ServiceCatalog.ServiceSpecifications.Read(specificationFilter) ?? Enumerable.Empty<ServiceSpecification>())
-				{
-					specificationNames[specification.Identifier] = specification.Name;
-				}
-			}
-
-			return list.Select(service =>
-			{
-				var response = new JObject
-				{
-					["Identifier"] = service.Identifier,
-					["ServiceID"] = service.ServiceID,
-					["Name"] = service.Name,
-					["StatusName"] = ToApiStatus(service.Status.ToString()),
-				};
-				var specificationId = service.ServiceSpecificationId.Identifier;
-				if (specificationId != null && specificationNames.TryGetValue(specificationId, out var specificationName))
-				{
-					response["ServiceSpecificationName"] = specificationName;
-				}
-
-				return response;
-			}).ToList();
-		}
-
 		/// <summary>
 		/// Projects requested service fields and adds catalog and organization metadata only when needed.
 		/// </summary>
@@ -1733,9 +1647,12 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 					.GroupBy(c => c.Identifier, StringComparer.OrdinalIgnoreCase)
 					.ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase))
 				: new Dictionary<string, ServiceCategory>(StringComparer.OrdinalIgnoreCase);
-			var specifications = includeSpecificationMetadata
+			var specificationIds = includeSpecificationMetadata
+				? list.Select(s => s.ServiceSpecificationId.Identifier).Where(id => !String.IsNullOrWhiteSpace(id)).Distinct(StringComparer.OrdinalIgnoreCase).ToList()
+				: new List<string>();
+			var specifications = specificationIds.Count > 0
 				? ReadOrEmpty("service specifications", () => serviceManagementApiHelper.ServiceCatalog.ServiceSpecifications
-					.Read(new TRUEFilterElement<ServiceSpecification>())
+					.Read(CursorListFilter.Any(specificationIds.Select(id => ServiceSpecificationExposers.Identifier.Equal(id))))
 					.GroupBy(s => s.Identifier, StringComparer.OrdinalIgnoreCase)
 					.ToDictionary(g => g.Key, g => g.First().Name, StringComparer.OrdinalIgnoreCase))
 				: new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);

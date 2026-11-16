@@ -637,19 +637,6 @@ function handleUdapiRequest(request) {
         }
     }
     if (resource === 'serviceSpecification') {
-        if (id === 'overview' && request.RequestMethod === 1) {
-            const items = SPECIFICATIONS.slice(0, 6).map(row => ({
-                Identifier: row['Specification ID'],
-                Name: row.Name,
-                Description: row.Description,
-                CreatedAt: toIsoDate(row['Created At']),
-                CreatedBy: row['Created By'],
-                LastModified: toIsoDate(row['Last Modified']),
-                LastModifiedBy: row['Last Modified By'],
-                ServiceItems: Array.from({ length: Number(row['Service Item Count']) || 0 }, (_, itemIndex) => ({ ID: itemIndex, Label: `Item ${itemIndex + 1}` })),
-            }));
-            return { status: 200, response: { items, totalCount: SPECIFICATIONS.length, totalItemCount: SPECIFICATIONS.reduce((total, row) => total + (Number(row['Service Item Count']) || 0), 0) } };
-        }
         const index = id ? SPECIFICATIONS.findIndex(row => row['Specification ID'] === id) : -1;
         if (id && index < 0) return error(404, 'Not found', `Service specification '${id}' was not found.`);
         const toSpecification = row => ({
@@ -701,21 +688,6 @@ function handleUdapiRequest(request) {
         }
     }
     if (resource === 'serviceOrder') {
-        if (id === 'overview' && request.RequestMethod === 1) {
-            const rows = ORDERS.map(toUdapiOrder);
-            const closed = new Set(['completed', 'cancelled', 'rejected', 'failed']);
-            const attention = new Set(['held', 'assessCancellation', 'pendingCancellation', 'partiallyFailed', 'failed', 'rejected']);
-            return {
-                status: 200,
-                response: {
-                    items: rows.slice(0, 6),
-                    totalCount: rows.length,
-                    openCount: rows.filter(row => !closed.has(row.StatusName)).length,
-                    attentionCount: rows.filter(row => attention.has(row.StatusName)).length,
-                    completedCount: rows.filter(row => row.StatusName === 'completed').length,
-                },
-            };
-        }
         if (!id && request.RequestMethod === 1) {
             const rows = ORDERS.map(toUdapiOrder);
             return request.QueryParameters?.pagination?.[0] === 'cursor'
@@ -860,19 +832,6 @@ function handleUdapiRequest(request) {
                         },
                     ],
                     bookingScripts: ['SRM_Booking Wizard'],
-                },
-            };
-        }
-        if (id === 'overview' && request.RequestMethod === 1) {
-            const rows = SERVICES.map(toUdapiService);
-            const active = new Set(['active', 'reserved', 'designed']);
-            return {
-                status: 200,
-                response: {
-                    items: rows.slice(0, 6),
-                    totalCount: rows.length,
-                    activeCount: rows.filter(row => active.has(row.StatusName)).length,
-                    retiredCount: rows.filter(row => row.StatusName === 'retired').length,
                 },
             };
         }

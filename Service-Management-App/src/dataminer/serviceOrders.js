@@ -11,7 +11,8 @@ import {
     fetchServiceOrderItemList,
     fetchServiceOrderList,
     fetchServiceOrderCursorPage,
-    fetchServiceOrderOverview,
+    OVERVIEW_PAGE,
+    toOverview,
     fetchServiceOrderRecord,
     initializeServiceFromOrderItem,
     saveServiceOrderItemConfiguration,
@@ -146,8 +147,8 @@ export async function fetchServiceOrderPage(options) {
     };
 }
 
-export async function fetchServiceOrderOverviewData(options = {}) {
-    const overview = await fetchServiceOrderOverview(options);
+export async function fetchServiceOrderOverviewData() {
+    const overview = toOverview(await fetchServiceOrderCursorPage(OVERVIEW_PAGE));
     return {
         ...overview,
         items: overview.items.map(mapUdapiOrder),

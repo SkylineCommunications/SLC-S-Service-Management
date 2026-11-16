@@ -471,18 +471,6 @@ export async function mockDataMinerApi(page: Page, mode: GqiMode = 'ok'): Promis
             if (resource === 'monitoringService' && request.RequestMethod === 1) return respond(200, monitoringServices);
             if (resource === 'serviceOrder') {
                 if (mock.mode === 'error' || (subResource === 'item' && mock.itemsFail)) return respond(500, { error: [{ errorCode: 'InternalServerError', detail: 'DOM manager is unavailable.', faultingNode: '', title: 'Internal server error' }] });
-                if (id === 'overview' && request.RequestMethod === 1) {
-                    const orderRows = mock.mode === 'empty' ? [] : orders.map(toUdapiOrder);
-                    const closed = new Set(['completed', 'cancelled', 'rejected', 'failed']);
-                    const attention = new Set(['held', 'assessCancellation', 'pendingCancellation', 'partiallyFailed', 'failed', 'rejected']);
-                    return respond(200, {
-                        items: orderRows.slice(0, 6),
-                        totalCount: orderRows.length,
-                        openCount: orderRows.filter(order => !closed.has(order.StatusName)).length,
-                        attentionCount: orderRows.filter(order => attention.has(order.StatusName)).length,
-                        completedCount: orderRows.filter(order => order.StatusName === 'completed').length,
-                    });
-                }
                 if (!id && request.RequestMethod === 1) {
                     const orderRows = mock.mode === 'empty' ? [] : orders.map(toUdapiOrder);
                     if (request.QueryParameters?.pagination?.[0] !== 'cursor') return respond(200, orderRows);
@@ -610,16 +598,6 @@ export async function mockDataMinerApi(page: Page, mode: GqiMode = 'ok'): Promis
                             },
                         ],
                         bookingScripts: ['SRM_Booking Wizard'],
-                    });
-                }
-                if (id === 'overview' && request.RequestMethod === 1) {
-                    const serviceRows = services.map(service => toUdapiService(service));
-                    const active = new Set(['active', 'reserved', 'designed']);
-                    return respond(200, {
-                        items: serviceRows.slice(0, 6),
-                        totalCount: serviceRows.length,
-                        activeCount: serviceRows.filter(service => active.has(service.StatusName)).length,
-                        retiredCount: serviceRows.filter(service => service.StatusName === 'retired').length,
                     });
                 }
                 if (!id && request.RequestMethod === 1) {
@@ -781,10 +759,6 @@ export async function mockDataMinerApi(page: Page, mode: GqiMode = 'ok'): Promis
                     categories.splice(index, 1);
                     return respond(204);
                 }
-            }
-            if (resource === 'serviceSpecification' && request.RequestMethod === 1 && id === 'overview') {
-                const specification = { Identifier: SAMPLE_SPECIFICATION['Specification ID'], Name: SAMPLE_SPECIFICATION.Name, Description: SAMPLE_SPECIFICATION.Description, CreatedAt: '2026-09-01T14:40:53Z', CreatedBy: SAMPLE_SPECIFICATION['Created By'], LastModified: '2026-09-02T22:13:44Z', LastModifiedBy: SAMPLE_SPECIFICATION['Created By'], ServiceItems: Array.from({ length: Number(SAMPLE_SPECIFICATION['Service Item Count']) }, (_, index) => ({ ID: index, Label: `Item ${index + 1}` })) };
-                return respond(200, { items: [specification], totalCount: 1, totalItemCount: specification.ServiceItems.length });
             }
             if (resource === 'serviceSpecification' && request.RequestMethod === 1 && !id) {
                 const specificationRows = [SAMPLE_SPECIFICATION, ...Array.from({ length: 11 }, (_, index) => ({ ...SAMPLE_SPECIFICATION, 'Specification ID': `spec-${index + 2}`, Name: `A Specification ${index + 2}` }))].map(row => ({ Identifier: row['Specification ID'], Name: row.Name, Description: row.Description, CreatedAt: '2026-09-01T14:40:53Z', CreatedBy: row['Created By'], LastModified: '2026-09-02T22:13:44Z', LastModifiedBy: row['Created By'], ServiceItems: Array.from({ length: Number(row['Service Item Count']) }, (_, index) => ({ ID: index, Label: `Item ${index + 1}` })) }));

@@ -88,20 +88,19 @@ export async function fetchCatalogSpecificationList() {
     return Array.isArray(payload) ? payload : [];
 }
 
+// Overview cards: the first cursor page plus the list metrics (camelCased; older UDAPI versions return PascalCase).
+export function toOverview(page) {
+    const metrics = Object.fromEntries(Object.entries(page.metrics ?? {}).map(([key, value]) => [key.charAt(0).toLowerCase() + key.slice(1), value]));
+    return { ...metrics, totalCount: metrics.totalCount ?? page.totalCount ?? 0, items: page.items };
+}
+
+export const OVERVIEW_PAGE = { limit: 6, includeTotalCount: false, includeMetrics: true };
 export async function fetchCatalogSpecificationCursorPage({ limit = 100, after = '', before = '', fields = '', includeTotalCount = true, includeMetrics = false, search = '', sort = '' } = {}) {
     const payload = await callServiceManagementUdapi('serviceSpecification', {
         query: { pagination: 'cursor', limit, after, before, fields, includeTotalCount, includeMetrics, name: search, sort },
     });
     if (!payload || !Array.isArray(payload.items)) {
         throw new UdapiError('The Service Specification API returned an invalid cursor page.');
-    }
-    return payload;
-}
-
-export async function fetchCatalogSpecificationOverview({ limit = 6 } = {}) {
-    const payload = await callServiceManagementUdapi('serviceSpecification/overview', { query: { limit } });
-    if (!payload || !Array.isArray(payload.items)) {
-        throw new UdapiError('The Service Specification API returned an invalid overview response.');
     }
     return payload;
 }
@@ -213,14 +212,6 @@ export async function fetchServiceOrderCursorPage({ limit = 100, after = '', bef
     return payload;
 }
 
-export async function fetchServiceOrderOverview({ limit = 6 } = {}) {
-    const payload = await callServiceManagementUdapi('serviceOrder/overview', { query: { limit } });
-    if (!payload || !Array.isArray(payload.items)) {
-        throw new UdapiError('The Service Order API returned an invalid overview response.');
-    }
-    return payload;
-}
-
 export async function createServiceOrder(body) {
     return callServiceManagementUdapi('serviceOrder', { method: 'POST', body });
 }
@@ -316,14 +307,6 @@ export async function fetchServiceCursorPage({ limit = 100, after = '', before =
     });
     if (!payload || !Array.isArray(payload.items)) {
         throw new UdapiError('The Service API returned an invalid cursor page.');
-    }
-    return payload;
-}
-
-export async function fetchServiceOverview({ limit = 6 } = {}) {
-    const payload = await callServiceManagementUdapi('service/overview', { query: { limit } });
-    if (!payload || !Array.isArray(payload.items)) {
-        throw new UdapiError('The Service API returned an invalid overview response.');
     }
     return payload;
 }

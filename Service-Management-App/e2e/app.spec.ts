@@ -18,16 +18,19 @@ test.describe('Service Management workspace', () => {
         await expect(page.locator('.order-row').filter({ hasText: 'Network refresh' })).toBeVisible();
         for (const name of ['Services', 'Catalog', 'Settings']) { await page.getByRole('link', { name }).click(); await expect(page.getByRole('heading', { name, exact: true })).toBeVisible(); }
     });
-    test('loads the overview through bounded summary routes', { tag: '@G7' }, async ({ page }) => {
+    test('loads the overview through bounded list pages with metrics', { tag: '@G7' }, async ({ page }) => {
         await page.goto(`${APP_ROOT_URL}#overview`);
         await expect(page.getByRole('heading', { name: 'Service Management', exact: true })).toBeVisible();
-        const overviewRequests = udapiRequests(mock).filter(request => String(request.Route).endsWith('/overview'));
-        expect(overviewRequests.map(request => request.Route).sort()).toEqual([
-            'service-management/v1/service/overview',
-            'service-management/v1/serviceOrder/overview',
-            'service-management/v1/serviceSpecification/overview',
-        ]);
-        expect(overviewRequests.every(request => request.QueryParameters?.limit?.[0] === '6')).toBeTruthy();
+        await expect(page.getByRole('link', { name: /Catalog specifications/ }).locator('strong')).toHaveText('12');
+        const requests = udapiRequests(mock);
+        expect(requests.some(request => String(request.Route).endsWith('/overview'))).toBeFalsy();
+        const listRoutes = ['service', 'serviceOrder', 'serviceSpecification'].map(resource => `service-management/v1/${resource}`);
+        const overviewRequests = requests.filter(request => listRoutes.includes(request.Route));
+        expect(overviewRequests.map(request => request.Route).sort()).toEqual(listRoutes);
+        for (const request of overviewRequests) {
+            expect(request.QueryParameters).toMatchObject({ pagination: ['cursor'], limit: ['6'], includeMetrics: ['true'], includeTotalCount: ['false'] });
+        }
+        expect(overviewRequests.find(request => request.Route.endsWith('/service')).QueryParameters.fields).toEqual(['Identifier,ServiceID,Name,StatusName,ServiceSpecificationName']);
     });
     test('uses cursor pagination for specifications and shows the maximum page', { tag: '@G8' }, async ({ page }) => {
         await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: 'Catalog' }).click();
