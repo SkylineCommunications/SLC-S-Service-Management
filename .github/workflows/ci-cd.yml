@@ -33,7 +33,6 @@ jobs:
   build:
     name: Build package
     needs: [unit-tests, playwright-mock]
-    if: github.event_name != 'pull_request'
     uses: ./.github/workflows/build-package.yml
     secrets:
       DATAMINER_TOKEN: ${{ secrets.DATAMINER_TOKEN }}
@@ -41,7 +40,7 @@ jobs:
   qaops:
     name: QAOps (RC)
     needs: [unit-tests, playwright-mock]
-    # A QAOps run provisions a DataMiner and consumes a token use, so only 2.0.X runs it.
+    # A QAOps run provisions a DataMiner and consumes a token use, so it runs on merges to 2.0.X (pushes), not on PRs.
     if: github.ref == 'refs/heads/2.0.X'
     uses: ./.github/workflows/qaops-tests.yml
     secrets:
@@ -51,8 +50,8 @@ jobs:
   deploy-internal:
     name: Deploy to Internal
     needs: [build, qaops]
-    # QAOps is skipped on branches other than 2.0.X; a skipped gate must not block the deploy, a failed one must.
-    if: ${{ !cancelled() && needs.build.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.qaops.result) }}
+    # PRs only build; a skipped gate must not block the deploy of other branches, a failed one must.
+    if: ${{ !cancelled() && github.event_name != 'pull_request' && needs.build.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.qaops.result) }}
     uses: ./.github/workflows/deploy-internal.yml
     with:
       mode: volatile
