@@ -406,11 +406,18 @@ export async function mockDataMinerApi(page: Page, mode: GqiMode = 'ok'): Promis
     const services: Record<string, string>[] = [{ ...SAMPLE_SERVICE }];
     mock.services = services;
     mock.serviceItems = serviceItems;
-    const monitoringServices = [{ Id: 'monitoring-1', Name: 'Monitoring service 1' }];
     let sessionCount = 0;
     await serveAppAtBasePath(page);
     await mockIasWebSocket(page, mock, orders, serviceItems);
     await page.route('**/API/v1/Json.asmx/IsConnectionAlive', async route => { await json(route, 200, { d: true }); });
+    await page.route('**/API/v1/Json.asmx/GetServicesLiteForView', async route => {
+        mock.calls.push({ method: 'GetServicesLiteForView', body: route.request().postDataJSON() });
+        await json(route, 200, { d: [
+            { DataMinerID: 12, ID: 34, Name: 'Monitoring service 1', Type: 'Service', IsServiceTemplate: false },
+            { DataMinerID: 12, ID: 34, Name: 'Monitoring service 1', Type: 'Service', IsServiceTemplate: false },
+            { DataMinerID: 12, ID: 35, Name: 'Service template', Type: 'Service', IsServiceTemplate: true },
+        ] });
+    });
     await page.route('**/API/v1/Json.asmx/GetDataMinerAgentAlarmColors', async route => {
         mock.calls.push({ method: 'GetDataMinerAgentAlarmColors', body: route.request().postDataJSON() });
         await json(route, 200, { d: {
@@ -468,7 +475,6 @@ export async function mockDataMinerApi(page: Page, mode: GqiMode = 'ok'): Promis
             const [resource, id, subResource, subId, subAction] = String(request.Route ?? '').replace(/^service-management\/v1\//, '').split('/').map(decodeURIComponent);
             const requestBody = request.Body ? JSON.parse(request.Body) : {};
             const baseConfigurationRecords = (ownerId: string) => (serviceConfigurationOverrides.get(ownerId) ?? SAMPLE_SPECIFICATION_CONFIGURATIONS.map(row => ({ ...row }))).map(toConfigurationRecord);
-            if (resource === 'monitoringService' && request.RequestMethod === 1) return respond(200, monitoringServices);
             if (resource === 'serviceOrder') {
                 if (mock.mode === 'error' || (subResource === 'item' && mock.itemsFail)) return respond(500, { error: [{ errorCode: 'InternalServerError', detail: 'DOM manager is unavailable.', faultingNode: '', title: 'Internal server error' }] });
                 if (!id && request.RequestMethod === 1) {

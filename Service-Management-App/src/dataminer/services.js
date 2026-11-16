@@ -11,7 +11,6 @@ import {
     deleteServiceScript,
     duplicateInventoryService,
     duplicateServiceConfigurationVersion,
-    fetchMonitoringServiceList,
     fetchServiceRecord,
     fetchServiceConfigurationList,
     fetchServiceItemList,
@@ -189,11 +188,17 @@ export async function fetchServiceForDisplay(id) {
     return service ? mapUdapiService(service) : null;
 }
 
+// Lists the DataMiner services the user can see (root view and its subviews), excluding service templates.
 export async function fetchMonitoringServices() {
-    const services = await fetchMonitoringServiceList();
-    return services
-        .map(service => ({ id: service.id ?? service.Id ?? '', name: service.name ?? service.Name ?? '' }))
-        .filter(service => service.name.trim());
+    const services = await callDataMinerApi('/API/v1/Json.asmx/GetServicesLiteForView', { viewID: -1, includeSubViews: true });
+    const byId = new Map();
+    for (const service of Array.isArray(services) ? services : []) {
+        const name = String(service?.Name ?? '').trim();
+        if (!name || service.IsServiceTemplate || service.DataMinerID == null || service.ID == null) continue;
+        const id = `${service.DataMinerID}/${service.ID}`;
+        if (!byId.has(id)) byId.set(id, { id, name });
+    }
+    return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
 }
 
 export async function fetchServiceItems(serviceId) {

@@ -178,12 +178,6 @@ namespace SLC_SM_Setup_UDAPI
 				name: "Service Category - Service Category By Id",
 				description: "UDAPI to retrieve or delete a service category by id.",
 				route: "serviceCategory/{id}");
-
-			InstallEndpoint(
-				apiId: Constants.ApiDefinitions.MonitoringService_UDAPI_Id,
-				name: "Monitoring Service - List",
-				description: "UDAPI to retrieve monitoring services.",
-				route: "monitoringService");
 		}
 
 		private void Import(ApiDefinition definition)

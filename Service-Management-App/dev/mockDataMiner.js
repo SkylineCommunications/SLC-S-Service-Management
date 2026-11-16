@@ -607,12 +607,6 @@ function handleUdapiRequest(request) {
     let body = {};
     try { body = request.Body ? JSON.parse(request.Body) : {}; } catch { return error(400, 'Invalid request', 'The request body is not valid JSON.'); }
     const now = new Date().toLocaleString('en-US');
-    if (resource === 'monitoringService' && request.RequestMethod === 1) {
-        return {
-            status: 200,
-            response: SERVICES.map(service => ({ Id: service['DOM ID'], Name: service['Service Name'] })),
-        };
-    }
     if (resource === 'serviceCategory') {
         const category = id ? CATEGORY_ROWS.find(row => row['Category ID'] === id) : null;
         if (id && !category) return error(404, 'Not found', `Service category '${id}' was not found.`);
@@ -1117,6 +1111,7 @@ export default function mockDataMiner() {
                 if (path === '/auth/' || path === '/auth/logout') { res.statusCode = 302; res.setHeader('Location', '/'); return res.end(); }
                 if (path === '/API/v1/Json.asmx/IsConnectionAlive') return send(res, 200, { d: true });
                 if (path === '/API/v1/Json.asmx/GetDataMinerAgentAlarmColors') return send(res, 200, { d: ALARM_COLORS });
+                if (path === '/API/v1/Json.asmx/GetServicesLiteForView') return send(res, 200, { d: SERVICES.map((service, index) => ({ DataMinerID: 100, ID: index + 1, Name: service['Service Name'], Type: 'Service', IsServiceTemplate: false })) });
                 if (path === '/mock/srm-booking' || path === '/mock/booking-log' || path === '/mock/workflow-job' || /^\/app\/[^/]+\/Job%20Panel$/.test(path)) {
                     const query = new URL(req.url, 'http://localhost').searchParams;
                     const id = query.get('id') || query.get('object manager instances')?.replace(/^\(slc\)workflow\//, '');

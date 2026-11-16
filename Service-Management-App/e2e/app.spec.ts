@@ -87,7 +87,11 @@ test.describe('Service Management workspace', () => {
         await expect(form.getByRole('combobox', { name: 'Service specification' }).locator('option')).toContainText(['Managed switching']);
         await expect(form.getByRole('combobox', { name: 'Organization' }).locator('option')).toContainText(['Acme Media', 'Skyline Broadcast']);
         await form.getByRole('checkbox', { name: 'Link service' }).check();
-        await expect(form.getByRole('combobox', { name: 'Linked service' }).locator('option')).not.toHaveCount(1);
+        const linkedOptions = form.getByRole('combobox', { name: 'Linked service' }).locator('option');
+        await expect(linkedOptions.filter({ hasText: 'Monitoring service 1' })).toHaveCount(1);
+        await expect(linkedOptions.filter({ hasText: 'Service template' })).toHaveCount(0);
+        expect(mock.calls.find(call => call.method === 'GetServicesLiteForView')?.body).toMatchObject({ viewID: -1, includeSubViews: true });
+        expect(udapiRequests(mock).some(request => String(request.Route).endsWith('/monitoringService'))).toBe(false);
     });
     test('disables service inventory creation until its validation rules pass', { tag: '@S5' }, async ({ page }) => {
         await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: /Services/ }).click();
@@ -490,7 +494,7 @@ test.describe('Service Management workspace', () => {
         await expect(createForm).toBeHidden();
         const create = lastRequest(3);
         expect(create.Route).toBe(SERVICES_ROUTE);
-        expect(JSON.parse(create.Body)).toMatchObject({ serviceId: 'SERVICE-7', name: 'UDAPI service', category: { name: 'Production' }, serviceSpecificationId: 'spec-1', organizationId: 'org-1', endTime: null, generateMonitoringService: true, monitoringService: 'monitoring-1' });
+        expect(JSON.parse(create.Body)).toMatchObject({ serviceId: 'SERVICE-7', name: 'UDAPI service', category: { name: 'Production' }, serviceSpecificationId: 'spec-1', organizationId: 'org-1', endTime: null, generateMonitoringService: true, monitoringService: '12/34' });
         const createdRow = page.locator('.service-row').filter({ hasText: 'UDAPI service' });
         await expect(createdRow).toBeVisible();
 

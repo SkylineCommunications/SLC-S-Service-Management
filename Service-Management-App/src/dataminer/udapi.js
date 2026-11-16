@@ -286,11 +286,6 @@ export async function deleteServiceScript(serviceId, description) {
     return callServiceManagementUdapi(serviceRoute(serviceId, 'script'), { method: 'DELETE', body: { description } });
 }
 
-export async function fetchMonitoringServiceList() {
-    const payload = await callServiceManagementUdapi('monitoringService');
-    return Array.isArray(payload) ? payload : [];
-}
-
 function serviceRoute(serviceId, ...segments) {
     if (!serviceId) throw new UdapiError('No service was selected.');
     return ['service', serviceId, ...segments].map(encodeURIComponent).join('/');
