@@ -19,6 +19,8 @@ namespace SLC_SM_Setup_UDAPI
 
 		internal void Install()
 		{
+			RemoveDecommissionedEndpoints();
+
 			// Service Order
 			InstallEndpoint(
 				apiId: Constants.ApiDefinitions.ServiceOrder_UDAPI_Id,
@@ -178,6 +180,30 @@ namespace SLC_SM_Setup_UDAPI
 				name: "Service Category - Service Category By Id",
 				description: "UDAPI to retrieve or delete a service category by id.",
 				route: "serviceCategory/{id}");
+		}
+
+		private void RemoveDecommissionedEndpoints()
+		{
+			RemoveEndpoint(Constants.ApiDefinitions.ServiceOrder_Overview_UDAPI_Id, "serviceOrder/overview");
+			RemoveEndpoint(Constants.ApiDefinitions.ServiceInventory_Overview_UDAPI_Id, "service/overview");
+			RemoveEndpoint(Constants.ApiDefinitions.ServiceSpecification_Overview_UDAPI_Id, "serviceSpecification/overview");
+			RemoveEndpoint(Constants.ApiDefinitions.ServiceInventory_ById_Configuration_UDAPI_Id, "service/{id}/configurationVersion");
+			RemoveEndpoint(Constants.ApiDefinitions.ServiceInventory_ById_ByConfigurationId_UDAPI_Id, "service/{id}/configurationVersion/{versionId}");
+			RemoveEndpoint(Constants.ApiDefinitions.MonitoringService_UDAPI_Id, "monitoringService");
+		}
+
+		private void RemoveEndpoint(ApiDefinitionId apiId, string route)
+		{
+			var definitions = _helper.ApiDefinitions.Read(ApiDefinitionExposers.Id.Equal(apiId))
+				.Concat(_helper.ApiDefinitions.Read(ApiDefinitionExposers.Route.Equal($"{ApiPrefix}{route}")))
+				.GroupBy(definition => definition.ID.Id)
+				.Select(group => group.First())
+				.ToList();
+
+			foreach (var definition in definitions)
+			{
+				_helper.ApiDefinitions.Delete(definition);
+			}
 		}
 
 		private void Import(ApiDefinition definition)
