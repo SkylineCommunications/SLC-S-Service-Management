@@ -112,7 +112,7 @@ namespace SLC_SM_GQIDS_Get_Service_Items
 
 		private GQIRow BuildRow(Models.ServiceItem item)
 		{
-			var itemType = item.Type ?? SlcServicemanagementIds.Enums.ServiceitemtypesEnum.Service;
+			var itemType = item.Type ?? SlcServicemanagementIds.Enums.ServiceItemTypesEnum.Service;
 			var implementationRef = GetImplementationDetails(itemType, item.ImplementationReference, item.DefinitionReference);
 			int serviceItemId = item.ServiceItemID.HasValue ? (int)item.ServiceItemID.Value : -1;
 			GQICell[] columns = new[]
@@ -156,14 +156,14 @@ namespace SLC_SM_GQIDS_Get_Service_Items
 			}
 		}
 
-		private ImplementationItemInfo GetImplementationDetails(SlcServicemanagementIds.Enums.ServiceitemtypesEnum type, string referenceId, string definitionReference)
+		private ImplementationItemInfo GetImplementationDetails(SlcServicemanagementIds.Enums.ServiceItemTypesEnum type, string referenceId, string definitionReference)
 		{
 			if (String.IsNullOrEmpty(referenceId) || !Guid.TryParse(referenceId, out Guid id) || !_dms.DomModelExists(SlcWorkflowIds.ModuleId))
 			{
 				return new ImplementationItemInfo();
 			}
 
-			if (type == SlcServicemanagementIds.Enums.ServiceitemtypesEnum.Workflow)
+			if (type == SlcServicemanagementIds.Enums.ServiceItemTypesEnum.Workflow)
 			{
 				var inst = new DomHelper(_dms.SendMessages, SlcWorkflowIds.ModuleId).DomInstances.Read(DomInstanceExposers.Id.Equal(id)).FirstOrDefault();
 				if (inst == null)
@@ -178,7 +178,7 @@ namespace SLC_SM_GQIDS_Get_Service_Items
 					State = jobInst.Status.ToString(),
 				};
 			}
-			else if (type == SlcServicemanagementIds.Enums.ServiceitemtypesEnum.Service)
+			else if (type == SlcServicemanagementIds.Enums.ServiceItemTypesEnum.Service)
 			{
 				var serv = _serviceManagementApiHelper.ServiceInventory.Services
 					.Read(Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement.ServiceExposers.Identifier.Equal(id.ToString()))
@@ -193,7 +193,7 @@ namespace SLC_SM_GQIDS_Get_Service_Items
 					Name = serv.Name,
 				};
 			}
-			else if (type == SlcServicemanagementIds.Enums.ServiceitemtypesEnum.SRMBooking)
+			else if (type == SlcServicemanagementIds.Enums.ServiceItemTypesEnum.SRMBooking)
 			{
 				return BuildImplementationInfoForBookingType(definitionReference, id);
 			}

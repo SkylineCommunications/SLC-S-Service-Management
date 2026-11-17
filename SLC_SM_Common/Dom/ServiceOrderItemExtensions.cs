@@ -132,7 +132,7 @@
 
 			if (!orderItem.CanBeRejected(connection))
 			{
-				throw new NotSupportedException("Some underlying order items or linked service items are already in progress, it's not possible to reject the order at this point");
+				throw new NotSupportedException("The order item can only be rejected while it is New or Acknowledged and its linked service (if any) is Terminated or Retired.");
 			}
 
 			TransitionsEnum transition;
@@ -193,13 +193,9 @@
 				return true;
 			}
 
-			if (linkedService.Status == SlcServicemanagementIds.Behaviors.Service_Behavior.StatusesEnum.Designed
-				|| linkedService.Status == SlcServicemanagementIds.Behaviors.Service_Behavior.StatusesEnum.Active)
-			{
-				return false;
-			}
-
-			return true;
+			// Only Terminated can transition to Retired; any other non-retired state would leave the service diverged from the rejected order item.
+			return linkedService.Status == SlcServicemanagementIds.Behaviors.Service_Behavior.StatusesEnum.Terminated
+				|| linkedService.Status == SlcServicemanagementIds.Behaviors.Service_Behavior.StatusesEnum.Retired;
 		}
 
 		private static Models.ServiceOrder FindParentOrder(IServiceManagementApiHelper api, Models.ServiceOrderItem orderItem)

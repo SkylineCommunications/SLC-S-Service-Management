@@ -122,7 +122,7 @@ namespace SLCSMDSGetTopologyNodes
 					() => PropertyExtensions.GetIcons(_dms.SendMessages));
 
 				var workflowsFilter = serviceItems
-					.Where(item => item.Type == SlcServicemanagementIds.Enums.ServiceitemtypesEnum.Workflow)
+					.Where(item => item.Type == SlcServicemanagementIds.Enums.ServiceItemTypesEnum.Workflow)
 					.Select(item => DomInstanceExposers.Name.Equal(item.DefinitionReference))
 					.Aggregate<FilterElement<DomInstance>, FilterElement<DomInstance>>(null, (acc, next) => acc == null ? next : acc.OR(next));
 
@@ -138,7 +138,7 @@ namespace SLCSMDSGetTopologyNodes
 					: Enumerable.Empty<DomInstance>().ToList();
 
 				var messages = serviceItems
-					.Where(item => item.Type == SlcServicemanagementIds.Enums.ServiceitemtypesEnum.SRMBooking)
+					.Where(item => item.Type == SlcServicemanagementIds.Enums.ServiceItemTypesEnum.SRMBooking)
 					.Select(item => new GetLiteElementInfo { NameFilter = item.DefinitionReference })
 					.Cast<DMSMessage>()
 					.ToArray();
@@ -202,7 +202,7 @@ namespace SLCSMDSGetTopologyNodes
 			ICollection<PropertyValuesInstance> propertyValues,
 			PropertyChangeEventMessage[] icons)
 		{
-			if (item.Type == SlcServicemanagementIds.Enums.ServiceitemtypesEnum.SRMBooking)
+			if (item.Type == SlcServicemanagementIds.Enums.ServiceItemTypesEnum.SRMBooking)
 			{
 				var element = elements.FirstOrDefault(e => e.Name == item.DefinitionReference);
 				if (element == null)
@@ -216,7 +216,7 @@ namespace SLCSMDSGetTopologyNodes
 					.Value ?? String.Empty;
 			}
 
-			if (item.Type == SlcServicemanagementIds.Enums.ServiceitemtypesEnum.Workflow)
+			if (item.Type == SlcServicemanagementIds.Enums.ServiceItemTypesEnum.Workflow)
 			{
 				var workflow = workflows.FirstOrDefault(i => i.Name == item.DefinitionReference);
 				if (workflow == null)
@@ -231,7 +231,7 @@ namespace SLCSMDSGetTopologyNodes
 					?.Value ?? String.Empty;
 			}
 
-			if (item.Type == SlcServicemanagementIds.Enums.ServiceitemtypesEnum.Service)
+			if (item.Type == SlcServicemanagementIds.Enums.ServiceItemTypesEnum.Service)
 			{
 				return String.Empty;
 			}
@@ -241,18 +241,18 @@ namespace SLCSMDSGetTopologyNodes
 
 		private string GetReferenceId(Models.ServiceItem item, LiteElementInfoEvent[] elements, List<DomInstance> workflows)
 		{
-			if (item.Type == SlcServicemanagementIds.Enums.ServiceitemtypesEnum.SRMBooking)
+			if (item.Type == SlcServicemanagementIds.Enums.ServiceItemTypesEnum.SRMBooking)
 			{
 				var element = elements.FirstOrDefault(e => e.Name == item.DefinitionReference);
 				return element != null ? $"{element.DataMinerID}/{element.ElementID}" : String.Empty;
 			}
 
-			if (item.Type == SlcServicemanagementIds.Enums.ServiceitemtypesEnum.Workflow)
+			if (item.Type == SlcServicemanagementIds.Enums.ServiceItemTypesEnum.Workflow)
 			{
 				return workflows.FirstOrDefault(i => i.Name == item.DefinitionReference)?.ID.Id.ToString() ?? String.Empty;
 			}
 
-			if (item.Type == SlcServicemanagementIds.Enums.ServiceitemtypesEnum.Service)
+			if (item.Type == SlcServicemanagementIds.Enums.ServiceItemTypesEnum.Service)
 			{
 				return new DataHelperLink(_dms.GetConnection()).Read(LinkExposers.ParentID.Equal(_domId.ToString())).FirstOrDefault()?.ChildID ?? String.Empty;
 			}

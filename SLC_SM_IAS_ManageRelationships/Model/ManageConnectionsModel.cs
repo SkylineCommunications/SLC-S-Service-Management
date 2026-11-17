@@ -5,6 +5,7 @@
 	using System.Linq;
 	using DomHelpers.SlcServicemanagement;
 	using DomHelpers.SlcWorkflow;
+	using Library.Dom;
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Net.Apps.DataMinerObjectModel;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
@@ -167,7 +168,7 @@
 			if (spec != null)
 			{
 				spec.ServiceItemsRelationships = relationships;
-				_serviceManagementApi.ServiceCatalog.ServiceSpecifications.Update(spec);
+				_serviceManagementApi.UpdateSpecification(spec);
 			}
 		}
 
@@ -179,7 +180,11 @@
 			addServiceItemScript.SelectScriptParam("DefinitionReference", definitionReference);
 			addServiceItemScript.Synchronous = true;
 			addServiceItemScript.InheritScriptOutput = true;
-			addServiceItemScript.StartScript();
+
+			using (_engine.GetUserConnection().ShareCorrelationWithSubScripts())
+			{
+				addServiceItemScript.StartScript();
+			}
 
 			if (addServiceItemScript.HadError)
 				throw new InvalidOperationException($"Error creating the service item:{addServiceItemScript.GetErrorMessages()}");
@@ -189,17 +194,17 @@
 
 		public IDefinitionObject ResolveDefinitionReference(IServiceItem instance, Models.ServiceItem serviceItem)
 		{
-			if (serviceItem.Type == SlcServicemanagementIds.Enums.ServiceitemtypesEnum.Workflow)
+			if (serviceItem.Type == SlcServicemanagementIds.Enums.ServiceItemTypesEnum.Workflow)
 			{
 				return new WorkflowsInstanceAdapter(serviceItem, GetWorkflowbyName(serviceItem.DefinitionReference), instance.ServiceItemRelationships);
 			}
 
-			if (serviceItem.Type == SlcServicemanagementIds.Enums.ServiceitemtypesEnum.SRMBooking)
+			if (serviceItem.Type == SlcServicemanagementIds.Enums.ServiceItemTypesEnum.SRMBooking)
 			{
 				return new SRMBooking(serviceItem, instance.ServiceItemRelationships);
 			}
 
-			if (serviceItem.Type == SlcServicemanagementIds.Enums.ServiceitemtypesEnum.Service)
+			if (serviceItem.Type == SlcServicemanagementIds.Enums.ServiceItemTypesEnum.Service)
 			{
 				return new ServiceLink(_engine, instance);
 			}

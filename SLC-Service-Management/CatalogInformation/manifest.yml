@@ -61,7 +61,10 @@ documentation_url:
 #   The name is required; max 256 characters.
 #   The email and URL are optional, and should be in valid email/URL formats.
 owners:
+  - name: 'Flavio Meneses'
+    email: 'flavio.meneses@example.com'
   - name: 'Jonas Kockx'
+    email: 'jonas.kockx@example.com'
 # [Optional]
 # Tags that allow you to categorize your Catalog items.
 #   Max number of tags: 5

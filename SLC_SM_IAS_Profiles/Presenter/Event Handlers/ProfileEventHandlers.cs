@@ -37,7 +37,6 @@
 			presenter.Navigator.PushChildPage(record, records);
 
 			EnsureMandatoryParameters(record);
-			EnsureMandatoryProfiles(record);
 
 			presenter.BuildUI();
 		}
@@ -70,39 +69,6 @@
 					DataRecordFactory.CreateDataRecord(
 						newParameter,
 						parameterDefinition,
-						State.Updated,
-						RecordType.New));
-			}
-		}
-
-		private void EnsureMandatoryProfiles(ProfileDataRecord profileRecord)
-		{
-			PageNavigator navigator = presenter.Navigator;
-
-			var mandatoryIds = profileRecord.ReferredProfileDefinition.ProfileDefinitions
-				.Where(pd => pd.Mandatory)
-				.Select(pd => pd.ProfileDefinitionReference);
-
-			var existingIds = navigator.CurrentPage.Records
-				.OfType<ProfileDataRecord>()
-				.Select(r => r.ReferredProfileDefinition.ID)
-				.ToHashSet();
-
-			foreach (var id in mandatoryIds.Except(existingIds))
-			{
-				var profileDefinition = presenter.CachedProfileDefinitions.SingleOrDefault(p => p.ID == id);
-
-				if (profileDefinition == null)
-					continue;
-
-				var newProfile = CreateNewProfile(presenter.Navigator, profileDefinition);
-
-				AddSubProfileToProfile(profileRecord, newProfile.ID);
-
-				presenter.Navigator.AddRecordToCurrentPage(
-					DataRecordFactory.CreateDataRecord(
-						newProfile,
-						profileDefinition,
 						State.Updated,
 						RecordType.New));
 			}

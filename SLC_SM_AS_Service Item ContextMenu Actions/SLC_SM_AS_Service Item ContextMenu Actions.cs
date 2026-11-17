@@ -79,7 +79,7 @@ namespace SLCSMASServiceItemContextMenuActions
 			var serviceItem = service.ServiceItems?.FirstOrDefault(s => s.Label == label)
 							  ?? throw new NotSupportedException($"No Service item with label '{label}' exists on the service with ID '{domId}'!");
 
-			if (serviceItem.Type == DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Enums.ServiceitemtypesEnum.SRMBooking)
+			if (serviceItem.Type == DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Enums.ServiceItemTypesEnum.SRMBooking)
 			{
 				RunSrmBookingManagerActions(serviceItem, contextMenuAction);
 			}

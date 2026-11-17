@@ -39,7 +39,9 @@ namespace SLC_SM_GQIDS_Get_Service_Order_Items_1
 				new GQIStringColumn("End"),
 				new GQIStringColumn("Action"),
 				new GQIStringColumn("Category"),
+				new GQIStringColumn("Category ID"),
 				new GQIStringColumn("Service Specification"),
+				new GQIStringColumn("Service Specification ID"),
 				new GQIStringColumn("Service"),
 				new GQIStringColumn("ServiceId"),
 				new GQIStringColumn("Property"),
@@ -105,12 +107,14 @@ namespace SLC_SM_GQIDS_Get_Service_Order_Items_1
 							? categories.TryGetValue(categoryId, out var categoryName) ? categoryName : String.Empty
 							: String.Empty,
 					},
+					new GQICell { Value = item.ServiceInfo?.ServiceCategoryId != null ? item.ServiceInfo.ServiceCategoryId.Identifier : String.Empty },
 					new GQICell
 					{
 						Value = item.ServiceInfo?.SpecificationId != null && Guid.TryParse(item.ServiceInfo.SpecificationId.Identifier, out specificationId)
 							? specifications.TryGetValue(specificationId, out var specificationName) ? specificationName : String.Empty
 							: String.Empty,
 					},
+					new GQICell { Value = item.ServiceInfo?.SpecificationId != null ? item.ServiceInfo.SpecificationId.Identifier : String.Empty },
 					new GQICell
 					{
 						Value = item.ServiceInfo?.ServiceId != null && Guid.TryParse(item.ServiceInfo.ServiceId.Identifier, out serviceId)

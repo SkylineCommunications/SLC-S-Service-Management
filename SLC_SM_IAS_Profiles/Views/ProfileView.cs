@@ -231,17 +231,7 @@
 		{
 			var dropdownAddProfile = new DropDown<Models.ProfileDefinition>();
 
-			List<Models.ProfileDefinition> profileDefinitions;
-			if (context.GetCurrentPage() is ProfilePage profilePage)
-			{
-				profileDefinitions = GetEligibleProfileDefinitions(context, allProfileDefinitions, profilePage);
-			}
-			else
-			{
-				profileDefinitions = allProfileDefinitions.ToList();
-			}
-
-			var options = profileDefinitions.Select(pd => new Option<Models.ProfileDefinition>(pd.Name, pd)).ToList();
+			var options = allProfileDefinitions.Select(pd => new Option<Models.ProfileDefinition>(pd.Name, pd)).ToList();
 			options.Insert(0, new Option<Models.ProfileDefinition>("- Add Profile -", null));
 
 			dropdownAddProfile.Options = options;
@@ -250,39 +240,6 @@
 			AddWidget(dropdownAddProfile, row, 0);
 
 			return row;
-		}
-
-		private List<Models.ProfileDefinition> GetEligibleProfileDefinitions(
-			IReadOnlyNavigator context,
-			IReadOnlyList<Models.ProfileDefinition> allProfileDefinitions,
-			ProfilePage profilePage)
-		{
-			List<Models.ProfileDefinition> options;
-			var record = profilePage.ProfileDataRecord;
-
-			var multiples = record.ReferredProfileDefinition.ProfileDefinitions
-				.Where(pd => pd.AllowMultiple)
-				.Select(pd => pd.ProfileDefinitionReference);
-
-			var siblings = context.GetCurrentPage().Records
-				.OfType<ProfileDataRecord>()
-				.Where(r => r.State != State.Removed)
-				.Select(r => r.ReferredProfileDefinition.ID);
-
-			var singles = record.ReferredProfileDefinition.ProfileDefinitions
-				.Where(pd => !pd.AllowMultiple && !pd.Mandatory)
-				.Select(pd => pd.ProfileDefinitionReference)
-				.Except(siblings);
-
-			var ids = multiples
-				.Concat(singles)
-				.Distinct();
-
-			options = allProfileDefinitions
-				.Where(pd => ids.Contains(pd.ID))
-				.ToList();
-
-			return options;
 		}
 
 		private List<Models.ConfigurationParameter> GetEligibleConfigurationParameters(
@@ -351,8 +308,6 @@
 			ProfileDataRecord record,
 			int row)
 		{
-			bool canDelete = CanDeleteMandatoryProfile(context, record);
-
 			return new ProfileRowData
 			{
 				Record = record,
@@ -361,7 +316,7 @@
 				ReferenceOptions = new List<Models.ProfileDefinition>(),
 				Callbacks = Callbacks,
 				RowIndex = row,
-				CanDelete = canDelete,
+				CanDelete = true,
 			};
 		}
 
@@ -380,24 +335,6 @@
 			return page.Records
 				.OfType<ConfigurationDataRecord>()
 				.Count(r => r.ReferredConfigurationParameter.ID == id
-							&& r.State != State.Removed) > 1;
-		}
-
-		private bool CanDeleteMandatoryProfile(IReadOnlyNavigator context, ProfileDataRecord record)
-		{
-			var page = context.GetCurrentPage() as ProfilePage;
-			if (page == null)
-				return true;
-
-			var id = record.ReferredProfileDefinition.ID;
-
-			if (!page.ProfileDataRecord.ReferredProfileDefinition.ProfileDefinitions
-					.Any(pd => pd.Mandatory && pd.ProfileDefinitionReference == id))
-				return true;
-
-			return page.Records
-				.OfType<ProfileDataRecord>()
-				.Count(r => r.ReferredProfileDefinition.ID == id
 							&& r.State != State.Removed) > 1;
 		}
 

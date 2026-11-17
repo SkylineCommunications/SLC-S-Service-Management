@@ -57,36 +57,6 @@
 			record.State = State.Updated;
 		}
 
-		protected void AddProfileDefinitionReference(ProfileDefinitionDataRecord record, Guid id)
-		{
-			record.ProfileDefinition.ProfileDefinitions.Add(new Models.ReferencedProfileDefinitions
-			{
-				AllowMultiple = false,
-				Mandatory = false,
-				ProfileDefinitionReference = id,
-			});
-
-			record.State = State.Updated;
-		}
-
-		protected void RemoveProfileDefinitionReference(ProfileDefinitionDataRecord record, Guid id)
-		{
-			var refs = record.ProfileDefinition.ProfileDefinitions;
-
-			var toDelete = refs
-				.Where(r => r.ProfileDefinitionReference == id)
-				.ToList();
-
-			if (toDelete.Count == 0)
-				return;
-
-			refs.RemoveAll(r => r.ProfileDefinitionReference == id);
-
-			record.State = State.Updated;
-
-			presenter.Model.TryDelete(toDelete);
-		}
-
 		protected Models.ProfileDefinition CreateNewProfileDefinition(PageNavigator navigator)
 		{
 			var count = navigator.GetAllRecords().Count(r => r is ProfileDefinitionDataRecord) + 1;
@@ -96,8 +66,6 @@
 				ID = Guid.NewGuid(),
 				Name = $"Profile Definition #{count:000}",
 				ConfigurationParameters = new List<Models.ReferencedConfigurationParameters>(),
-				ProfileDefinitions = new List<Models.ReferencedProfileDefinitions>(),
-				Scripts = new List<Models.Script>(),
 			};
 		}
 	}

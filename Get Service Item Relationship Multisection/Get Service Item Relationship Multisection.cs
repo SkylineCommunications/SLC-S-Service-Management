@@ -161,18 +161,18 @@ namespace GetServiceItemRelationshipMultisection
 
 			var type = serviceItem.Type;
 
-			if (type == SlcServicemanagementIds.Enums.ServiceitemtypesEnum.Workflow)
+			if (type == SlcServicemanagementIds.Enums.ServiceItemTypesEnum.Workflow)
 			{
 				////return GetWorkflowInterfaceName(serviceItemId, interfaceId);
 				return interfaceId == "1" ? "Default Workflow Output" : "Default Workflow Input";
 			}
 
-			if (type == SlcServicemanagementIds.Enums.ServiceitemtypesEnum.SRMBooking)
+			if (type == SlcServicemanagementIds.Enums.ServiceItemTypesEnum.SRMBooking)
 			{
 				return interfaceId == "1" ? "Default SRM Output" : "Default SRM Input";
 			}
 
-			if (type == SlcServicemanagementIds.Enums.ServiceitemtypesEnum.Service)
+			if (type == SlcServicemanagementIds.Enums.ServiceItemTypesEnum.Service)
 			{
 				return interfaceId == "1" ? "Default Service Link Output" : "Default Service Link Input";
 			}

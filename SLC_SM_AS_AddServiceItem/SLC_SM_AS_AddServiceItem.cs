@@ -17,6 +17,7 @@ namespace SLCSMASAddServiceItem
 	using System.Collections.Generic;
 	using System.Linq;
 	using DomHelpers.SlcServicemanagement;
+	using Library.Dom;
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
@@ -105,7 +106,7 @@ namespace SLCSMASAddServiceItem
 				}
 
 				HandleServiceItemUpdate(spec.ServiceItems, newSection);
-				api.ServiceCatalog.ServiceSpecifications.Update(spec);
+				api.UpdateSpecification(spec);
 				return;
 			}
 
@@ -116,8 +117,8 @@ namespace SLCSMASAddServiceItem
 		{
 			return new Models.ServiceItem
 			{
-				Type = (SlcServicemanagementIds.Enums.ServiceitemtypesEnum)Enum.Parse(
-					typeof(SlcServicemanagementIds.Enums.ServiceitemtypesEnum), _serviceItemType),
+				Type = (SlcServicemanagementIds.Enums.ServiceItemTypesEnum)Enum.Parse(
+					typeof(SlcServicemanagementIds.Enums.ServiceItemTypesEnum), _serviceItemType),
 				DefinitionReference = _definitionReference,
 				Script = String.Empty,
 				ImplementationReference = String.Empty,

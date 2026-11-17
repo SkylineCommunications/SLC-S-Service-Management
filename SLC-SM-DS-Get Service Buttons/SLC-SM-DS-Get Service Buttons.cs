@@ -19,14 +19,6 @@ namespace SLCSMDSGetServiceButtons
 	{
 		private const string DataSourceName = "SLC-SM-DS-Get Service Buttons";
 
-		private static readonly List<TransitionsEnum> UnHappyFlows = new List<TransitionsEnum>
-		{
-			TransitionsEnum.New_To_Retired,
-			TransitionsEnum.Reserved_To_Retired,
-			TransitionsEnum.Designed_To_Retired,
-			TransitionsEnum.Terminated_To_Active,
-		};
-
 		private static readonly Dictionary<TransitionsEnum, string> ButtonNames = new Dictionary<TransitionsEnum, string>
 		{
 			{ TransitionsEnum.New_To_Designed, "Design" },
@@ -34,10 +26,6 @@ namespace SLCSMDSGetServiceButtons
 			{ TransitionsEnum.Reserved_To_Active, "Activate" },
 			{ TransitionsEnum.Active_To_Terminated, "Terminate" },
 			{ TransitionsEnum.Terminated_To_Retired, "Retire" },
-			{ TransitionsEnum.New_To_Retired, "Retire" },
-			{ TransitionsEnum.Designed_To_Retired, "Retire" },
-			{ TransitionsEnum.Reserved_To_Retired, "Retire" },
-			{ TransitionsEnum.Terminated_To_Active, "Activate" },
 		};
 
 		private readonly GQIStringArgument serviceReferenceArg = new GQIStringArgument("ServiceReference") { IsRequired = true };
@@ -125,7 +113,7 @@ namespace SLCSMDSGetServiceButtons
 										new GQICell { Value = "Service_StateTransitions" },
 										new GQICell { Value = currentState.ToString() },
 										new GQICell { Value = transition.ToString().Split('_').Last() },
-										new GQICell { Value = !UnHappyFlows.Contains(transition) },
+										new GQICell { Value = true },
 									}))
 							.ToList();
 

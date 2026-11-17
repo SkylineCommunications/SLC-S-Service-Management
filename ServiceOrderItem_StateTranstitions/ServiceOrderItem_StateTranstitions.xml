@@ -23,6 +23,9 @@
 		<ScriptParameter id="3" type="string" values="">
 			<Description>NextState</Description>
 		</ScriptParameter>
+		<ScriptParameter id="4" type="string" values="">
+			<Description>Skip Confirmation</Description>
+		</ScriptParameter>
 	</Parameters>
 
 	<Script>

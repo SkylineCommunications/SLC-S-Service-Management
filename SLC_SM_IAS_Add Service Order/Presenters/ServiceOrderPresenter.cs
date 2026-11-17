@@ -79,17 +79,17 @@
 
 			// Load correct types
 			view.Priority.SetOptions(
-				new List<Option<SlcServicemanagementIds.Enums.ServiceorderpriorityEnum>>
+				new List<Option<SlcServicemanagementIds.Enums.ServiceOrderPriorityEnum>>
 				{
-					new Option<SlcServicemanagementIds.Enums.ServiceorderpriorityEnum>(
+					new Option<SlcServicemanagementIds.Enums.ServiceOrderPriorityEnum>(
 						SlcServicemanagementIds.Enums.Serviceorderpriority.High,
-						SlcServicemanagementIds.Enums.ServiceorderpriorityEnum.High),
-					new Option<SlcServicemanagementIds.Enums.ServiceorderpriorityEnum>(
+						SlcServicemanagementIds.Enums.ServiceOrderPriorityEnum.High),
+					new Option<SlcServicemanagementIds.Enums.ServiceOrderPriorityEnum>(
 						SlcServicemanagementIds.Enums.Serviceorderpriority.Medium,
-						SlcServicemanagementIds.Enums.ServiceorderpriorityEnum.Medium),
-					new Option<SlcServicemanagementIds.Enums.ServiceorderpriorityEnum>(
+						SlcServicemanagementIds.Enums.ServiceOrderPriorityEnum.Medium),
+					new Option<SlcServicemanagementIds.Enums.ServiceOrderPriorityEnum>(
 						SlcServicemanagementIds.Enums.Serviceorderpriority.Low,
-						SlcServicemanagementIds.Enums.ServiceorderpriorityEnum.Low),
+						SlcServicemanagementIds.Enums.ServiceOrderPriorityEnum.Low),
 				});
 
 			var orgOptions = new List<Option<OrganizationsInstance>> { new Option<OrganizationsInstance>("-None-", null) };

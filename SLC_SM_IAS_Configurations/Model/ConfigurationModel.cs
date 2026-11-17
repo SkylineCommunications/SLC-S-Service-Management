@@ -75,29 +75,6 @@
 			return _model.ReferencedConfigurationParameters.Read(filter);
 		}
 
-		public List<Models.ReferencedProfileDefinitions> ReadReferencedProfileDefinitions(Models.ProfileDefinition profileDefinition)
-		{
-			FilterElement<Models.ReferencedProfileDefinitions> filter = null;
-			if (profileDefinition.ProfileDefinitions.Any())
-			{
-				filter = profileDefinition.ProfileDefinitions
-					.Select(p => (FilterElement<Models.ReferencedProfileDefinitions>)
-						ReferencedProfileDefinitionsExposers.ID.Equal(p.ID))
-					.Aggregate((f1, f2) => f1.OR(f2));
-			}
-			else
-			{
-				filter = new FALSEFilterElement<Models.ReferencedProfileDefinitions>();
-			}
-
-			return _model.ReferencedProfileDefinitions.Read(filter);
-		}
-
-		public bool TryDelete(IEnumerable<Models.ReferencedProfileDefinitions> referencedProfileDefinitions)
-		{
-			return _model.ReferencedProfileDefinitions.TryDelete(referencedProfileDefinitions);
-		}
-
 		public bool TryDelete(IEnumerable<Models.ReferencedConfigurationParameters> referencedConfigurationParameters)
 		{
 			return _model.ReferencedConfigurationParameters.TryDelete(referencedConfigurationParameters);

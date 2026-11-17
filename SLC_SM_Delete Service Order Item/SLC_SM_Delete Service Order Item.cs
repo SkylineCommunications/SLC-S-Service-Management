@@ -7,11 +7,13 @@ Revision History:
 DATE        VERSION        AUTHOR            COMMENTS
 
 dd/mm/2025    1.0.0.1        XXX, Skyline    Initial version
+09/10/2026    1.0.0.2        SKA, Skyline    DataMinerApp support
 ****************************************************************************
 */
 namespace SLC_SM_Delete_Service_Order_Item_1
 {
 	using System;
+	using System.Collections.Generic;
 	using System.Linq;
 
 	using Skyline.DataMiner.Automation;
@@ -50,43 +52,49 @@ namespace SLC_SM_Delete_Service_Order_Item_1
 			catch (ScriptAbortException)
 			{
 				// Catch normal abort exceptions (engine.ExitFail or engine.ExitSuccess)
+				throw;
 			}
 			catch (ScriptForceAbortException)
 			{
 				// Catch forced abort exceptions, caused via external maintenance messages.
+				throw;
 			}
 			catch (ScriptTimeoutException)
 			{
 				// Catch timeout exceptions for when a script has been running for too long.
+				throw;
 			}
 			catch (InteractiveUserDetachedException)
 			{
 				// Catch a user detaching from the interactive script by closing the window.
 				// Only applicable for interactive scripts, can be removed for non-interactive scripts.
+				throw;
 			}
 			catch (Exception e)
 			{
-				engine.ShowErrorDialog(e);
+				engine.HandleUnexpectedException(e);
 			}
 		}
 
 		private static void DeleteServiceItemFromInstance(IServiceManagementApiHelper api, ServiceOrder order, Guid serviceOrderItemId)
 		{
-			var itemToRemove = order.OrderItems.FirstOrDefault(x => String.Equals(x.ServiceOrderItemId.Identifier, serviceOrderItemId.ToString(), StringComparison.OrdinalIgnoreCase));
+			var itemToRemove = (order.OrderItems ?? new List<ServiceOrderEntry>())
+				.FirstOrDefault(x => x?.ServiceOrderItemId != null
+					&& String.Equals(x.ServiceOrderItemId.Identifier, serviceOrderItemId.ToString(), StringComparison.OrdinalIgnoreCase));
 			if (itemToRemove == null)
 			{
 				throw new InvalidOperationException($"No Service order item exists with ID '{serviceOrderItemId}' to remove");
 			}
 
+			var serviceOrderItem = api.ServiceOrder.ServiceOrderItems
+				.Read(ServiceOrderItemExposers.Identifier.Equal(serviceOrderItemId.ToString()))
+				.FirstOrDefault()
+				?? throw new InvalidOperationException($"Service order item '{serviceOrderItemId}' was not found.");
+
 			// Remove the reference first so the Service Order Item is no longer linked when it is deleted.
 			order.OrderItems.Remove(itemToRemove);
 			api.ServiceOrder.ServiceOrders.Update(order);
-
-			var serviceOrderItem = api.ServiceOrder.ServiceOrderItems.Read(ServiceOrderItemExposers.Identifier.Equal(serviceOrderItemId.ToString())).FirstOrDefault();
-			if (serviceOrderItem != null)
-			{
-				api.ServiceOrder.ServiceOrderItems.Delete(serviceOrderItem);
-			}
+			api.ServiceOrder.ServiceOrderItems.Delete(serviceOrderItem);
 		}
 
 		private void RunSafe()
@@ -95,8 +103,8 @@ namespace SLC_SM_Delete_Service_Order_Item_1
 
 			Guid serviceOrderItemId = _engine.ReadScriptParamFromApp<Guid>("Service Order Item ID");
 
-			// confirmation if the user wants to delete the services
-			if (!_engine.ShowConfirmDialog($"Are you sure to you want to delete the selected service order item(s)?"))
+			bool skipConfirmation = _engine.ReadBooleanScriptParam("Skip Confirmation");
+			if (!skipConfirmation && !_engine.ShowConfirmDialog($"Are you sure to you want to delete the selected service order item(s)?"))
 			{
 				return;
 			}
@@ -105,7 +113,7 @@ namespace SLC_SM_Delete_Service_Order_Item_1
 			var order = api.ServiceOrder.ServiceOrders.Read(ServiceOrderExposers.Identifier.Equal(domId.ToString())).FirstOrDefault();
 			if (order == null)
 			{
-				return;
+				throw new InvalidOperationException($"No service order with ID '{domId}' was found.");
 			}
 
 			DeleteServiceItemFromInstance(api, order, serviceOrderItemId);

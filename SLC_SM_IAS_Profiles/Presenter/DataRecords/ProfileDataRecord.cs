@@ -16,11 +16,6 @@
 	{
 		public ProfileDataRecord(Models.Profile profile, Models.ProfileDefinition profileDefinition, State initialState, RecordType type)
 		{
-			if (profile.TestedProtocols == null)
-			{
-				profile.TestedProtocols = new List<Models.ProtocolTest>();
-			}
-
 			if (profile.Profiles == null)
 			{
 				profile.Profiles = new List<Guid>();

@@ -8,6 +8,7 @@ Revision History:
 DATE        VERSION        AUTHOR            COMMENTS
 
 dd/mm/2025    1.0.0.1        XXX, Skyline    Initial version
+09/10/2026    1.0.0.2        SKA, Skyline    DataMinerApp support
 ****************************************************************************
 */
 namespace SLC_SM_IAS_Add_Service_Specification
@@ -21,7 +22,6 @@ namespace SLC_SM_IAS_Add_Service_Specification
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
-	using Skyline.DataMiner.Utils.ServiceManagement.Common.IAS;
 	using SLC_SM_IAS_Add_Service_Specification.Presenters;
 	using SLC_SM_IAS_Add_Service_Specification.Views;
 	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
@@ -67,23 +67,27 @@ namespace SLC_SM_IAS_Add_Service_Specification
 			catch (ScriptAbortException)
 			{
 				// Catch normal abort exceptions (engine.ExitFail or engine.ExitSuccess)
+				throw;
 			}
 			catch (ScriptForceAbortException)
 			{
 				// Catch forced abort exceptions, caused via external maintenance messages.
+				throw;
 			}
 			catch (ScriptTimeoutException)
 			{
 				// Catch timeout exceptions for when a script has been running for too long.
+				throw;
 			}
 			catch (InteractiveUserDetachedException)
 			{
 				// Catch a user detaching from the interactive script by closing the window.
 				// Only applicable for interactive scripts, can be removed for non-interactive scripts.
+				throw;
 			}
 			catch (Exception e)
 			{
-				engine.ShowErrorDialog(e);
+				engine.HandleUnexpectedException(e);
 			}
 		}
 
@@ -135,6 +139,12 @@ namespace SLC_SM_IAS_Add_Service_Specification
 
 		private void RunSafe()
 		{
+			if (!String.IsNullOrWhiteSpace(_engine.ReadScriptParamFromApp("Payload")))
+			{
+				RunApiSafe();
+				return;
+			}
+
 			string actionRaw = _engine.ReadScriptParamFromApp("Action");
 			if (!Enum.TryParse(actionRaw, true, out Action action))
 			{
@@ -203,6 +213,60 @@ namespace SLC_SM_IAS_Add_Service_Specification
 
 			// Run interactive
 			_controller.ShowDialog(view);
+		}
+
+		private void RunApiSafe()
+		{
+			string actionRaw = _engine.ReadScriptParamFromApp("Action");
+			if (!Enum.TryParse(actionRaw, true, out Action action))
+			{
+				throw new InvalidOperationException("No Action provided to the service-specification API mode.");
+			}
+
+			var payload = _engine.ReadJsonPayload<ApiPayload>("Payload", "service-specification");
+			var api = _engine.GetUserConnection().GetServiceManagementApiHelper("Service Catalog");
+			var specifications = api.ServiceCatalog.ServiceSpecifications.Read(new TRUEFilterElement<Models.ServiceSpecification>()).ToList();
+			Models.ServiceSpecification specification;
+
+			if (action == Action.Add)
+			{
+				specification = new Models.ServiceSpecification
+				{
+					Identifier = Guid.NewGuid().ToString(),
+					Name = String.IsNullOrWhiteSpace(payload.Name) ? GetDefaultSpecificationName(specifications.Select(item => item.Name)) : payload.Name,
+				};
+			}
+			else
+			{
+				Guid domId = _engine.ReadScriptParamFromApp<Guid>("DOM ID");
+				specification = specifications.FirstOrDefault(item => String.Equals(item.Identifier, domId.ToString(), StringComparison.OrdinalIgnoreCase))
+					?? throw new InvalidOperationException($"No Service Specification with ID '{domId}' found on the system.");
+			}
+
+			specification.Name = String.IsNullOrWhiteSpace(payload.Name) ? specification.Name : payload.Name;
+			specification.Description = payload.Description ?? String.Empty;
+			specification.Icon = payload.Icon ?? String.Empty;
+			EnsureRequiredSections(specification);
+			NormalizeOptionalCollections(specification);
+
+			if (action == Action.Add)
+			{
+				api.ServiceCatalog.ServiceSpecifications.Create(specification);
+			}
+			else
+			{
+				api.ServiceCatalog.ServiceSpecifications.Update(specification);
+			}
+		}
+
+		private static string GetDefaultSpecificationName(IEnumerable<string> usedNames)
+		{
+			int highest = usedNames
+				.Where(name => name?.Contains("#") == true)
+				.Select(name => Int32.TryParse(name.Split('#').Last(), out int number) ? number : 0)
+				.DefaultIfEmpty()
+				.Max();
+			return $"Specification #{highest + 1:00000}";
 		}
 	}
 }
