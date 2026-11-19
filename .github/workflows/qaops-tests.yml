@@ -16,14 +16,14 @@ on:
       configuration-id:
         description: QAOps configuration (DataMiner target). Default is the latest Release Candidate.
         type: string
-        default: 01KTRNMVWEZX5EAW3GRDB744G4
+        default: 01M7SRA4W8KYZEEKGNHY3BBVCZ
       test-suite-id:
         type: string
-        default: 01KTRNHRHWQJ9SMESYJAFP8SE9
+        default: 01M7SR6SYTGCAPJMMK4801Q9ZT
       timeout-seconds:
         description: Maximum time to wait for the QAOps run
         type: number
-        default: 7200
+        default: 900
     secrets:
       QAOPS_TOKEN:
         description: QAOps token with the Run_Scoped_* scope of the chosen configuration

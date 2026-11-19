@@ -1,7 +1,7 @@
 import { check, sleep } from 'k6';
 import { get } from '../lib/udapi.js';
 
-// Not matched by the CI glob (tests/k6/*.js); run manually: k6 run tests/k6/load/udapi-read-load.js
+// CI runs this separately from the smoke tests; run manually: k6 run tests/k6/load/udapi-read-load.js
 // UDAPI triggers are queued above the agent's concurrency limit (min. 4), so keep VUs modest on shared systems.
 export const options = {
     scenarios: {

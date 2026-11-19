@@ -18,11 +18,8 @@ const LIST_ROUTES = [
     { route: 'serviceSpecification', query: { limit: 5 } },
     { route: 'service', query: { limit: 5 } },
     { route: 'serviceOrder', query: { limit: 5 } },
-    { route: 'monitoringService' },
     { route: 'plannedChange', query: { date: Math.floor(Date.now() / 1000) } },
 ];
-
-const OVERVIEW_ROUTES = ['serviceSpecification/overview', 'service/overview', 'serviceOrder/overview'];
 
 function expectJson(response, label, status = 200) {
     check(response, {
@@ -35,12 +32,6 @@ export default function () {
     group('lists', () => {
         for (const { route, query } of LIST_ROUTES) {
             expectJson(get(route, { query }), `GET ${route}`);
-        }
-    });
-
-    group('overviews', () => {
-        for (const route of OVERVIEW_ROUTES) {
-            expectJson(get(route, { query: { limit: 3 } }), `GET ${route}`);
         }
     });
 

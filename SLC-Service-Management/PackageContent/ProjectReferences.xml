@@ -4,7 +4,7 @@
 	<!-- QAOps test projects are never part of the solution package. -->
 	<ProjectReference Exclude="..\SLC-Service-Management.QAOps\SLC-Service-Management.QAOps.csproj" />
 	<ProjectReference Exclude="..\SLC-Service-Management.IntegrationTests\SLC-Service-Management.IntegrationTests.csproj" />
-	<!--<ProjectReference Include="..\Operators\SLC_SM_CO_RenameColumn\SLC_SM_CO_RenameColumn.csproj" />
+	<!-- <ProjectReference Include="..\Operators\SLC_SM_CO_RenameColumn\SLC_SM_CO_RenameColumn.csproj" /> -->
 	
 	<!-- The regression tests are delivered by their own package. -->
 	<ProjectReference Exclude="..\SLC-Service-Management-QAOps\SLC-Service-Management-QAOps.csproj" />
