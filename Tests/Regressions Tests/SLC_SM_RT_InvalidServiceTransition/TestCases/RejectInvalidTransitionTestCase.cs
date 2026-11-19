@@ -12,7 +12,7 @@ namespace SLC_SM_RT_InvalidServiceTransition.TestCases
 	/// <summary>
 	/// Asks the state transition script for a transition that does not exist and verifies the service
 	/// is left untouched. "New" to "Active" is not part of the supported Service transitions, so the
-	/// script is expected to reject it rather than to move the service.
+	/// script is expected to fail (reject it) rather than to move the service or silently succeed.
 	/// </summary>
 	internal sealed class RejectInvalidTransitionTestCase : TestCase
 	{
@@ -39,6 +39,13 @@ namespace SLC_SM_RT_InvalidServiceTransition.TestCases
 
 			engine.GenerateInformation(
 				$"RT_InvalidServiceTransition: the script {(reportedError ? "reported an error" : "did not report an error")} for '{FromState}' -> '{ToState}'.");
+
+			// The non-interactive path rejects unsupported transitions through HandleUnexpectedException/ExitFail;
+			// an unchanged status alone would also pass if the script silently did nothing.
+			TestTools.AssertEqual(
+				Boolean.TrueString,
+				reportedError.ToString(),
+				$"Script '{Script.ScriptUnderTest}' reported an error for the unsupported transition '{FromState}' -> '{ToState}'");
 
 			Models.Service serviceAfter = testData.ReadService();
 
