@@ -1,7 +1,7 @@
 <Solution>
   <Folder Name="/Apps/">
     <Project Path="Service-Management-App/service-management-app.esproj">
-      <Build Solution="Release|*" />
+      <Build />
       <Deploy Solution="Release|*" />
     </Project>
   </Folder>

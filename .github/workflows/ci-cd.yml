@@ -30,9 +30,13 @@ jobs:
       test-script: test:e2e
       report-name: playwright-report-mock
 
+  api-contract:
+    name: API contract (oasdiff)
+    uses: ./.github/workflows/api-contract-check.yml
+
   build:
     name: Build package
-    needs: [unit-tests, playwright-mock]
+    needs: [unit-tests, playwright-mock, api-contract]
     uses: ./.github/workflows/build-package.yml
     secrets:
       DATAMINER_TOKEN: ${{ secrets.DATAMINER_TOKEN }}

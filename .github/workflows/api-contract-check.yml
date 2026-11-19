@@ -1,0 +1,157 @@
+name: API contract check
+
+# Builds the User-Defined API at the PR commit and at the base commit, then uses oasdiff to validate the generated
+# OpenAPI spec and to fail on breaking changes between the two.
+
+on:
+  workflow_call:
+    inputs:
+      project:
+        description: Path of the UDAPI project that generates the OpenAPI spec
+        type: string
+        default: SLC_SM_UDAPI_ServiceManagement/SLC_SM_UDAPI_ServiceManagement.csproj
+      spec-output:
+        description: Path of the generated OpenAPI spec, relative to the project folder
+        type: string
+        default: bin/Release/net48/openapi/openapi.json
+      base-ref:
+        description: Commit, branch or tag to compare against. Defaults to the PR base, or the previous commit on a push.
+        type: string
+        default: ''
+      enforce-validation:
+        description: Fail the job on spec validation errors. Off by default, because the SDK-generated spec has no response objects yet.
+        type: boolean
+        default: false
+      dotnet-version:
+        type: string
+        default: 10.0.x
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  oasdiff:
+    name: oasdiff
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      OASDIFF_VERSION: 1.38.0
+      OASDIFF_SHA256: 4509a5d838849ab39c759b6ed95a0b9193b80a69e55b88c6c9e72d7bde21bbcf
+      PROJECT: ${{ inputs.project }}
+      SPEC_OUTPUT: ${{ inputs.spec-output }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+          # The base commit is checked out into a worktree, so it must be available locally.
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          dotnet-version: ${{ inputs.dotnet-version }}
+
+      - name: Add Skyline GitHub Packages feed
+        env:
+          GITHUB_PACKAGES_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # User-level config, so the base worktree build also sees the feed.
+        run: dotnet nuget add source https://nuget.pkg.github.com/SkylineCommunications/index.json --name SkylineGitHub --username USERNAME --password $env:GITHUB_PACKAGES_TOKEN --store-password-in-clear-text --configfile (Join-Path $env:APPDATA 'NuGet/NuGet.Config')
+
+      - name: Install oasdiff
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP 'oasdiff'
+          New-Item -ItemType Directory -Path $dir -Force | Out-Null
+          $archive = Join-Path $dir 'oasdiff.tar.gz'
+          Invoke-WebRequest -Uri "https://github.com/oasdiff/oasdiff/releases/download/v$($env:OASDIFF_VERSION)/oasdiff_$($env:OASDIFF_VERSION)_windows_amd64.tar.gz" -OutFile $archive
+          if ((Get-FileHash -Path $archive -Algorithm SHA256).Hash -ne $env:OASDIFF_SHA256) { throw 'oasdiff archive checksum mismatch.' }
+          tar -xzf $archive -C $dir
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to extract oasdiff.' }
+          $dir >> $env:GITHUB_PATH
+
+      - name: Resolve base commit
+        id: base
+        env:
+          BASE_REF: ${{ inputs.base-ref }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          $base = $env:BASE_REF
+          if (-not $base) {
+            switch ($env:EVENT_NAME) {
+              'pull_request' { $base = $env:PR_BASE_SHA }
+              'push' { $base = $env:PUSH_BEFORE }
+            }
+          }
+          # A push that creates a branch reports an all-zero "before" SHA.
+          if (-not $base -or $base -match '^0+$') {
+            Write-Host '::notice::No base commit to compare against; skipping the breaking-change check.'
+            'found=false' >> $env:GITHUB_OUTPUT
+            exit 0
+          }
+          $sha = git rev-parse --verify --quiet "${base}^{commit}"
+          if ($LASTEXITCODE -ne 0) { throw "Base '$base' is not a known commit." }
+          Write-Host "Base commit: $sha"
+          "sha=$sha" >> $env:GITHUB_OUTPUT
+          'found=true' >> $env:GITHUB_OUTPUT
+
+      - name: Generate PR spec
+        run: |
+          dotnet build $env:PROJECT -c Release -nologo
+          if ($LASTEXITCODE -ne 0) { throw "dotnet build failed with exit code $LASTEXITCODE." }
+          $spec = Join-Path (Split-Path $env:PROJECT -Parent) $env:SPEC_OUTPUT
+          if (-not (Test-Path $spec)) { throw "The build did not generate $spec." }
+          $specs = Join-Path $env:RUNNER_TEMP 'specs'
+          New-Item -ItemType Directory -Path $specs -Force | Out-Null
+          Copy-Item $spec (Join-Path $specs 'pr.json')
+
+      - name: Generate base spec
+        id: base-spec
+        if: steps.base.outputs.found == 'true'
+        env:
+          BASE_SHA: ${{ steps.base.outputs.sha }}
+        run: |
+          $worktree = Join-Path $env:RUNNER_TEMP 'base'
+          git worktree add --detach $worktree $env:BASE_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to check out the base commit.' }
+          $project = Join-Path $worktree $env:PROJECT
+          if (-not (Test-Path $project)) {
+            Write-Host "::notice::$($env:PROJECT) does not exist at the base commit; skipping the breaking-change check."
+            'found=false' >> $env:GITHUB_OUTPUT
+            exit 0
+          }
+          dotnet build $project -c Release -nologo
+          if ($LASTEXITCODE -ne 0) { throw "dotnet build of the base commit failed with exit code $LASTEXITCODE." }
+          $spec = Join-Path (Split-Path $project -Parent) $env:SPEC_OUTPUT
+          if (-not (Test-Path $spec)) {
+            Write-Host '::notice::The base commit does not generate an OpenAPI spec; skipping the breaking-change check.'
+            'found=false' >> $env:GITHUB_OUTPUT
+            exit 0
+          }
+          Copy-Item $spec (Join-Path $env:RUNNER_TEMP 'specs/base.json')
+          'found=true' >> $env:GITHUB_OUTPUT
+
+      - name: Validate spec
+        env:
+          ENFORCE: ${{ inputs.enforce-validation }}
+        run: |
+          $pr = Join-Path $env:RUNNER_TEMP 'specs/pr.json'
+          $output = oasdiff validate $pr --fail-on ERR 2>&1
+          $failed = $LASTEXITCODE -ne 0
+          $output | Write-Host
+          if (-not $failed) { exit 0 }
+          "### OpenAPI validation`n`n``````text`n$($output -join "`n")`n``````" >> $env:GITHUB_STEP_SUMMARY
+          if ($env:ENFORCE -eq 'true') { throw 'The OpenAPI spec has validation errors.' }
+          Write-Host "::warning::The OpenAPI spec has validation errors ($($output | Select-Object -First 1)); reported only."
+          exit 0
+
+      - name: Check for breaking changes
+        if: steps.base-spec.outputs.found == 'true'
+        run: |
+          $base = Join-Path $env:RUNNER_TEMP 'specs/base.json'
+          $pr = Join-Path $env:RUNNER_TEMP 'specs/pr.json'
+          oasdiff breaking $base $pr --format markdown >> $env:GITHUB_STEP_SUMMARY
+          oasdiff breaking $base $pr --fail-on ERR --format githubactions
+          if ($LASTEXITCODE -ne 0) { throw 'The API spec has breaking changes compared to the base commit.' }

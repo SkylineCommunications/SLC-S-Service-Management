@@ -41,8 +41,6 @@
   <ItemGroup>
     <InternalsVisibleTo Include="SLC_SM_UDAPI_ServiceManagementTests" />
     <Folder Include="Helpers\Specification\" />
-  </ItemGroup>
-  <ItemGroup>
     <ProjectReference Include="..\SLC_SM_Common\SLC_SM_Common.csproj" />
   </ItemGroup>
 </Project>

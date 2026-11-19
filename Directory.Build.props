@@ -15,7 +15,7 @@
 			<Link>Properties\.editorconfig</Link>
 		</Content>
 	</ItemGroup>
-	<ItemGroup>
+	<ItemGroup Condition="'$(MSBuildProjectExtension)' != '.esproj'">
 		<PackageReference Include="StyleCop.Analyzers" Version="1.1.118">
 			<PrivateAssets>all</PrivateAssets>
 			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
