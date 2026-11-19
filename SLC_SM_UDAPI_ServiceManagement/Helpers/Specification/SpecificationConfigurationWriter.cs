@@ -243,6 +243,10 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Specification
 				else
 				{
 					ValidateOwnedId(profile.Id, ownership.SpecificationProfileIds, "specification profile", profile.Name);
+					EnsureNotReusable(
+						!String.IsNullOrWhiteSpace(profile.Id) && ownership.ReusableProfileAssignments.ContainsKey(profile.Id),
+						profile.Id,
+						profile.Name);
 				}
 
 				ValidateProfile(profile, ownership);
@@ -486,6 +490,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Specification
 					?? throw new InvalidConfigurationException(
 						$"Nested profile {FormatName(request.Name, "the selected nested profile")} was not found.",
 						$"Profile '{request.Id}'.");
+			EnsureNotReusable(profile.IsReusable, profile.Identifier, request.Name);
 			profile.Name = String.IsNullOrWhiteSpace(request.Name) ? definition.Name : request.Name.Trim();
 			profile.ProfileDefinitionId = new SdmObjectReference<ProfileDefinition>(definition.Identifier);
 			profile.IsReusable = false;
@@ -590,10 +595,11 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Specification
 				? new Profile { Identifier = Guid.NewGuid().ToString() }
 				: _api.ServiceCatalog.Profiles.Read(ProfileExposers.Identifier.Equal(profileId)).FirstOrDefault()
 					?? new Profile { Identifier = profileId };
+			EnsureNotReusable(profile.IsReusable, profile.Identifier, request.Name);
 
 			profile.Name = String.IsNullOrWhiteSpace(request.Name) ? definition.Name : request.Name.Trim();
 			profile.ProfileDefinitionId = new SdmObjectReference<ProfileDefinition>(definition.Identifier);
-			profile.IsReusable = request.Reusable;
+			profile.IsReusable = false;
 			profile.Profiles = SaveNestedProfiles(request, definitions, parameters);
 			profile.ConfigurationParameterValues = SaveProfileParameterValues(request, parameters);
 			_api.ServiceCatalog.Profiles.CreateOrUpdate(new[] { profile });

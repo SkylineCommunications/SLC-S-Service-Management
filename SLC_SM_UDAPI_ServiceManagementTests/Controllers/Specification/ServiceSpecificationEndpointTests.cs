@@ -721,6 +721,34 @@
 			Assert.AreEqual(0, spec.ConfigurationProfiles.Count);
 		}
 
+		[TestMethod]
+		public void SaveConfiguration_LinkedReusableAssignmentSentAsPrivate_Returns400AndLeavesSharedProfileUntouched()
+		{
+			var spec = AddSpec("A");
+			var definition = AddWithId(ProfileDefinitions, new ProfileDefinition { Name = "Transport" });
+			var reusable = AddWithId(Profiles, new Profile
+			{
+				Name = "Shared",
+				IsReusable = true,
+				ProfileDefinitionId = new SdmObjectReference<ProfileDefinition>(definition.Identifier),
+			});
+			var assignment = AddWithId(SpecProfiles, new ServiceSpecificationProfile { ProfileId = new SdmObjectReference<Profile>(reusable.Identifier) });
+			spec.ConfigurationProfiles = new List<SdmObjectReference<ServiceSpecificationProfile>> { new SdmObjectReference<ServiceSpecificationProfile>(assignment.Identifier) };
+			var request = new SpecificationConfigurationRequest
+			{
+				Profiles = { new SpecificationConfigurationProfile { Id = assignment.Identifier, Name = "Hijacked", DefinitionId = definition.Identifier } },
+			};
+
+			var result = controller.SaveServiceSpecificationConfiguration(spec.Identifier, JObject.FromObject(request));
+
+			Assert.AreEqual(400, StatusCode(result));
+			StringAssert.Contains(ErrorDetail(result), "cannot be saved as a private profile");
+			Assert.AreEqual("Shared", reusable.Name);
+			Assert.IsTrue(reusable.IsReusable);
+			Assert.AreEqual(1, Profiles.Count);
+			Assert.AreEqual(reusable.Identifier, assignment.ProfileId.Identifier);
+		}
+
 		private OwnedConfiguration AddOwnedConfiguration(ServiceSpecification spec)
 		{
 			var owned = new OwnedConfiguration { Specification = spec };

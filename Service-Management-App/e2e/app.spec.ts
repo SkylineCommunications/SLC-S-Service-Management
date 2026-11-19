@@ -243,7 +243,7 @@ test.describe('Service Management workspace', () => {
                 await page.keyboard.press('Escape');
             }
         }
-        expect(mock.calls.some(call => call.method === 'OpenQuerySession' && JSON.parse(call.body.query?.Options?.[0]?.Value?.Value ?? '{}').ScriptName === 'SLC_SM_GQIDS_Get Service Items')).toBeTruthy();
+        expect(mock.calls.some(call => call.method === 'OpenQuerySession' && JSON.parse(call.body.query?.Options?.[0]?.Value?.Value ?? '{}').ScriptName === 'SLC_SM_GQIDS_Get Service Items')).toBeFalsy();
     });
     test('shows booking links, implementation colors and configured monitoring severity colors', async ({ page }) => {
         const states = [

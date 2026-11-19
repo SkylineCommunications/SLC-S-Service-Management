@@ -961,6 +961,7 @@ function toUdapiServiceItem(row) {
         MonitoringServiceState: row['Monitoring Service State'] || '',
         MonitoringServiceId: row['Monitoring Service DMA ID/SID'] || '',
         BookingUrl: row['Implementation Reference Custom Link'] || '',
+        BookingLogUrl: row.Log || '',
     };
 }
 

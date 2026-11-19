@@ -1,6 +1,5 @@
 import { formatDataMinerDateTime, getDataMinerTimestamp } from './dateTime.js';
-import { adHocDataSourceQuery, runQuery } from './gqi.js';
-import { callDataMinerApi } from './transport.js';
+import { callDataMinerApi, DataMinerAuthError } from './transport.js';
 import { mediaOpsJobUrl } from './integrations.js';
 import {
     addInventoryServiceItem,
@@ -99,12 +98,6 @@ const SRM_BOOKING_ACTIONS_BY_STATE = {
     canceled: ['Delete', 'ViewLog'],
     cancelled: ['Delete', 'ViewLog'],
     ongoing: ['Finish', 'CHANGETIME', 'EXTEND', 'ViewLog'],
-};
-const SERVICE_ITEMS_SOURCE = {
-    scriptName: 'SLC_SM_GQIDS_Get Service Items',
-    libraryName: 'GetServiceItems',
-    typeFullName: 'SLC_SM_GQIDS_Get_Service_Items.EventManagerGetMultipleSections',
-    typeName: 'EventManagerGetMultipleSections',
 };
 
 export function getSrmBookingActions(state) {
@@ -224,6 +217,7 @@ export function mapUdapiServiceItem(item) {
         monitoringState: String(pick('MonitoringServiceState') ?? ''),
         monitoringServiceId: String(pick('MonitoringServiceId') ?? ''),
         bookingLink: String(pick('BookingUrl') ?? ''),
+        bookingLogUrl: String(pick('BookingLogUrl') ?? ''),
     };
 }
 
@@ -254,7 +248,11 @@ export async function fetchInventoryServiceItems(service) {
             : '',
     }));
     if (!items.some(item => item.monitoringState && item.monitoringServiceId)) return items;
-    const colors = await fetchAlarmColors();
+    // Colors are best effort: keep the items with default styling unless the session is no longer valid.
+    const colors = await fetchAlarmColors().catch(error => {
+        if (error instanceof DataMinerAuthError) throw error;
+        return {};
+    });
     return items.map(item => {
         const key = Object.keys(colors ?? {}).find(name => stateKey(name) === stateKey(item.monitoringState));
         const color = colors?.[key];
@@ -302,12 +300,8 @@ export function monitoringServiceUrl(serviceId) {
     return match ? `${window.location.origin}/monitoring/service/${match[1]}/${match[2]}` : '';
 }
 
-export async function fetchSrmBookingLog(serviceId, itemId) {
-    const rows = await runQuery(adHocDataSourceQuery(SERVICE_ITEMS_SOURCE, { 'DOM ID': serviceId }));
-    const row = rows.find(candidate => String(candidate['Service Item ID'] ?? '') === String(itemId));
-    if (!row) throw new Error('The SRM booking service item could not be found.');
-
-    const logLocation = String(row.Log ?? '').trim();
+export function srmBookingLogUrl(item) {
+    const logLocation = String(item?.bookingLogUrl ?? '').trim();
     if (!logLocation) throw new Error('No booking log is available for this SRM booking.');
 
     const logUrl = new URL(logLocation, window.location.origin);

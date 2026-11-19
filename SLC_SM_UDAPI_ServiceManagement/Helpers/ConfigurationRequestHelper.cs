@@ -96,6 +96,21 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers
 			}
 		}
 
+		/// <summary>
+		/// Ensures that a private (non-reusable) profile request does not target a stored reusable profile. The stored
+		/// reusability is authoritative: saving it as private would overwrite the shared catalog profile for every consumer.
+		/// </summary>
+		/// <exception cref="InvalidConfigurationException">The stored profile is reusable.</exception>
+		public static void EnsureNotReusable(bool storedIsReusable, string id, string name)
+		{
+			if (storedIsReusable)
+			{
+				throw new InvalidConfigurationException(
+					$"Reusable profile {FormatName(name, "the selected reusable profile")} is shared and cannot be saved as a private profile. Remove it and add a new profile instead.",
+					$"Profile '{id}' is reusable; the request marked it as not reusable.");
+			}
+		}
+
 		/// <summary>Reads a reusable catalog profile.</summary>
 		/// <exception cref="InvalidConfigurationException">The profile does not exist or is not reusable.</exception>
 		public static Profile ReadReusableProfile(IServiceManagementApiHelper api, string id, string kind, string name)

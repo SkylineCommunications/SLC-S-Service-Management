@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { DataMinerAuthError } from './dataminer/transport.js';
 import { addCatalogSpecificationItem, createCatalogCategory, createCatalogSpecification, deleteCatalogCategory, deleteCatalogSpecification, deleteCatalogSpecificationItem, fetchDocumentHubLogos, fetchServiceCategories, fetchServiceSpecificationOverview, fetchServiceSpecificationPage, fetchServiceSpecifications, fetchServiceSpecificationConfigurations, fetchSpecificationItems, saveCatalogSpecificationConfiguration, updateCatalogCategory, updateCatalogSpecification, updateCatalogSpecificationItem } from './dataminer/catalog.js';
 import { addServiceOrderItem, createServiceOrder, deleteServiceOrder, deleteServiceOrderItem, fetchRelatedServiceOrders, fetchServiceOrderById, fetchServiceOrderItemConfigurations, fetchServiceOrderItems, fetchServiceOrderOverviewData, fetchServiceOrderPage, fetchServiceOrganizations, getOrderItemTransitions, getOrderTransitions, transitionServiceOrder, transitionServiceOrderItem, updateServiceOrder, updateServiceOrderItem, saveServiceOrderItemConfiguration, initializeServiceFromOrderItem } from './dataminer/serviceOrders.js';
-import { addInventoryServiceItem, addServiceScript, configurationParameterKey, sortConfigurationParameters, sortConfigurationProfiles, createInventoryService, deleteInventoryService, deleteInventoryServiceItem, deleteServiceScript, duplicateInventoryService, duplicateServiceConfigurationVersion, fetchInventoryServiceItems, fetchMonitoringServices, fetchServiceConfigurations, fetchServiceDetails, fetchServiceForDisplay, fetchServiceItemReferenceOptions, fetchServiceOverviewData, fetchServicePage, fetchServiceScripts, fetchSrmBookingLog, fetchServices, getSrmBookingActions, hasImplementationReference, implementationStateColor, monitoringServiceUrl, saveServiceConfiguration as saveInventoryServiceConfiguration, serviceApiId, SERVICE_INVENTORY_SCRIPTS, SERVICE_TRANSITIONS, transitionInventoryService, updateInventoryService, updateInventoryServiceItem, updateServiceScript } from './dataminer/services.js';
+import { addInventoryServiceItem, addServiceScript, configurationParameterKey, sortConfigurationParameters, sortConfigurationProfiles, createInventoryService, deleteInventoryService, deleteInventoryServiceItem, deleteServiceScript, duplicateInventoryService, duplicateServiceConfigurationVersion, fetchInventoryServiceItems, fetchMonitoringServices, fetchServiceConfigurations, fetchServiceDetails, fetchServiceForDisplay, fetchServiceItemReferenceOptions, fetchServiceOverviewData, fetchServicePage, fetchServiceScripts, fetchServices, getSrmBookingActions, hasImplementationReference, implementationStateColor, monitoringServiceUrl, saveServiceConfiguration as saveInventoryServiceConfiguration, serviceApiId, SERVICE_INVENTORY_SCRIPTS, SERVICE_TRANSITIONS, srmBookingLogUrl, transitionInventoryService, updateInventoryService, updateInventoryServiceItem, updateServiceScript } from './dataminer/services.js';
 import { getConnectionFromCookie, redirectToAuth } from './dataminer/session.js';
 import { IasDialog } from './IasDialog.jsx';
 import { userFacingErrorMessage } from './userFacingErrors.js';
@@ -1306,18 +1306,19 @@ function TabbedServiceDetailPanel({ service, onClose, onEdit, onDelete, onDuplic
             return;
         }
 
-        const logWindow = window.open('about:blank', '_blank');
+        let logUrl;
+        try {
+            logUrl = srmBookingLogUrl(item);
+        } catch (error) {
+            onActionFailure(error?.message || 'The booking log could not be opened.');
+            return;
+        }
+        const logWindow = window.open(logUrl, '_blank');
         if (!logWindow) {
             onActionFailure('The booking log could not be opened because the browser blocked the new tab.');
             return;
         }
         logWindow.opener = null;
-        try {
-            logWindow.location.replace(await fetchSrmBookingLog(serviceApiId(service), item.id));
-        } catch (error) {
-            logWindow.close();
-            onActionFailure(error?.message || 'The booking log could not be opened.');
-        }
     };
     const openBookingMenuFromButton = (event, item) => {
         if (!canRunBookingAction(item) || getSrmBookingActions(item.implementationState).length === 0) {

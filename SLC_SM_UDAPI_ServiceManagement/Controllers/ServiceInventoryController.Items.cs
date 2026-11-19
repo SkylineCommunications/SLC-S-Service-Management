@@ -167,7 +167,8 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 		/// <para><c>GET service-management/v1/service/{id}/item</c>. Items are sorted by ID.</para>
 		/// <para>
 		/// Adds <c>ImplementationName</c>, <c>ImplementationState</c>, <c>MonitoringServiceState</c>, <c>MonitoringServiceId</c>
-		/// (<c>DMA ID/SID</c>) and <c>BookingUrl</c> (the booking manager's <c>App Link</c> property): the referenced service, the
+		/// (<c>DMA ID/SID</c>), <c>BookingUrl</c> (the booking manager's <c>App Link</c> property) and <c>BookingLogUrl</c>
+		/// (<c>{Booking Log Location}/{booking name}.html</c>): the referenced service, the
 		/// MediaOps job or the SRM booking and its service. Fields that cannot be resolved are empty.
 		/// </para>
 		/// </remarks>
@@ -391,6 +392,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 			result["MonitoringServiceState"] = implementation?.MonitoringServiceState ?? String.Empty;
 			result["MonitoringServiceId"] = implementation?.MonitoringServiceId ?? String.Empty;
 			result["BookingUrl"] = implementation?.BookingUrl ?? String.Empty;
+			result["BookingLogUrl"] = implementation?.BookingLogUrl ?? String.Empty;
 			return result;
 		}
 	}

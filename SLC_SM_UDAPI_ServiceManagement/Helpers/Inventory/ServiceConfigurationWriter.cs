@@ -136,6 +136,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 			}
 
 			var assignedProfileIds = new List<string>();
+			var serviceProfileAssignments = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 			foreach (var reference in version.Profiles ?? new List<SdmObjectReference<ServiceProfile>>())
 			{
 				if (String.IsNullOrWhiteSpace(reference.Identifier))
@@ -151,6 +152,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 				if (!String.IsNullOrWhiteSpace(profileId))
 				{
 					assignedProfileIds.Add(profileId);
+					serviceProfileAssignments[reference.Identifier] = profileId;
 				}
 			}
 
@@ -168,6 +170,15 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 			foreach (var profileId in assignedProfileIds)
 			{
 				ReadProfileOwnership(profileId, profiles, ownership, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+			}
+
+			// Maps service-profile IDs to their reusable catalog profile, so the assignment ID can be used as a reusable profile reference.
+			foreach (var assignment in serviceProfileAssignments)
+			{
+				if (profiles.TryGetValue(assignment.Value, out var assignedProfile) && assignedProfile.IsReusable)
+				{
+					ownership.ReusableProfileAssignments[assignment.Key] = assignment.Value;
+				}
 			}
 
 			return ownership;
@@ -260,6 +271,14 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 					throw new InvalidConfigurationException(
 						$"The requested {kind} {FormatName(profile.Name, $"the selected {kind}")} does not belong to the service configuration.",
 						$"{kind} '{profile.Id}'.");
+				}
+
+				if (!profile.Reusable)
+				{
+					EnsureNotReusable(
+						isServiceProfile ? ownership.ReusableProfileAssignments.ContainsKey(profile.Id) : ownership.ReusableProfileIds.Contains(profile.Id),
+						profile.Id,
+						profile.Name);
 				}
 			}
 
@@ -586,6 +605,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 					.FirstOrDefault() ?? throw new InvalidConfigurationException(
 						$"Profile {FormatName(request.Name, "the selected profile")} was not found.",
 						$"Profile '{serviceProfile.ProfileId.Identifier}'.");
+			EnsureNotReusable(profile.IsReusable, profile.Identifier, request.Name);
 			SaveOwnedProfile(profile, request, definition, definitions, parameters, ownership, depth);
 			return SaveServiceProfileReference(serviceProfile, profile, request.Mandatory, ownership);
 		}
@@ -658,6 +678,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 					.FirstOrDefault() ?? throw new InvalidConfigurationException(
 						$"Nested profile {FormatName(request.Name, "the selected nested profile")} was not found.",
 						$"Profile '{request.Id}'.");
+			EnsureNotReusable(profile.IsReusable, profile.Identifier, request.Name);
 			SaveOwnedProfile(profile, request, definition, definitions, parameters, ownership, depth);
 			ownership.ProfileIds.Add(profile.Identifier);
 			return profile.Identifier;

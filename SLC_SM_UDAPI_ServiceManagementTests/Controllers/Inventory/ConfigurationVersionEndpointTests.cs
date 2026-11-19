@@ -159,6 +159,84 @@ namespace SLC_SM_UDAPI_ServiceManagement.Tests.Controllers
 		}
 
 		[TestMethod]
+		public void SaveServiceConfiguration_ExistingReusableAssignmentWithoutReusableProfileId_KeepsLink()
+		{
+			var version = AddVersion(service, "v1");
+			var reusable = AddReusableAssignment(version, out var definition, out var serviceProfile);
+			var request = new ServiceConfigurationRequest { VersionId = version.Identifier, VersionName = version.VersionName };
+			request.Profiles.Add(new ServiceConfigurationProfileRequest { Id = serviceProfile.Identifier, Name = reusable.Name, DefinitionId = definition.Identifier, Reusable = true });
+
+			var result = Controller.SaveServiceConfiguration(service.ServiceID, JObject.FromObject(request));
+
+			int statusCode = StatusCode(result);
+			Assert.AreEqual(200, statusCode, statusCode == 200 ? String.Empty : ErrorDetail(result));
+			Assert.AreEqual(reusable.Identifier, serviceProfile.ProfileId.Identifier);
+			Assert.AreEqual(1, StoredProfiles.Count);
+		}
+
+		[DataTestMethod]
+		[DataRow(false, DisplayName = "Top-level service profile assignment")]
+		[DataRow(true, DisplayName = "Nested reusable profile")]
+		public void SaveServiceConfiguration_LinkedReusableProfileSentAsPrivate_Returns400AndLeavesSharedProfileUntouched(bool nested)
+		{
+			var version = AddVersion(service, "v1");
+			var reusable = AddReusableAssignment(version, out var definition, out var serviceProfile);
+			var owned = new Cfg.Profile
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				Name = "Owned",
+				ProfileDefinitionId = new SdmObjectReference<Cfg.ProfileDefinition>(definition.Identifier),
+				Profiles = new List<SdmObjectReference<Cfg.Profile>> { new SdmObjectReference<Cfg.Profile>(reusable.Identifier) },
+			};
+			StoredProfiles.Add(owned);
+			if (nested)
+			{
+				serviceProfile.ProfileId = new SdmObjectReference<Cfg.Profile>(owned.Identifier);
+			}
+
+			var hijack = new ServiceConfigurationProfileRequest { Name = "Hijacked", DefinitionId = definition.Identifier };
+			var request = new ServiceConfigurationRequest { VersionId = version.Identifier, VersionName = version.VersionName };
+			if (nested)
+			{
+				hijack.Id = reusable.Identifier;
+				request.Profiles.Add(new ServiceConfigurationProfileRequest { Id = serviceProfile.Identifier, Name = owned.Name, DefinitionId = definition.Identifier, NestedProfiles = { hijack } });
+			}
+			else
+			{
+				hijack.Id = serviceProfile.Identifier;
+				request.Profiles.Add(hijack);
+			}
+
+			var result = Controller.SaveServiceConfiguration(service.ServiceID, JObject.FromObject(request));
+
+			Assert.AreEqual(400, StatusCode(result));
+			StringAssert.Contains(ErrorDetail(result), "cannot be saved as a private profile");
+			Assert.AreEqual("Shared", reusable.Name);
+			Assert.IsTrue(reusable.IsReusable);
+			Assert.AreEqual(2, StoredProfiles.Count);
+			Assert.AreEqual(nested ? owned.Identifier : reusable.Identifier, serviceProfile.ProfileId.Identifier);
+		}
+
+		private Cfg.Profile AddReusableAssignment(ServiceConfigurationVersion version, out Cfg.ProfileDefinition definition, out ServiceProfile serviceProfile)
+		{
+			definition = new Cfg.ProfileDefinition { Identifier = Guid.NewGuid().ToString(), Name = "Transport" };
+			var reusable = new Cfg.Profile
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				Name = "Shared",
+				IsReusable = true,
+				ProfileDefinitionId = new SdmObjectReference<Cfg.ProfileDefinition>(definition.Identifier),
+				Profiles = new List<SdmObjectReference<Cfg.Profile>>(),
+			};
+			StoredProfileDefinitions.Add(definition);
+			StoredProfiles.Add(reusable);
+			serviceProfile = new ServiceProfile { Identifier = Guid.NewGuid().ToString(), ProfileId = new SdmObjectReference<Cfg.Profile>(reusable.Identifier) };
+			StoredServiceProfiles.Add(serviceProfile);
+			version.Profiles.Add(new SdmObjectReference<ServiceProfile>(serviceProfile.Identifier));
+			return reusable;
+		}
+
+		[TestMethod]
 		public void SaveServiceConfiguration_RepositoryThrows_Returns500WithErrorReference()
 		{
 			Services.Setup(repository => repository.Update(It.IsAny<Service>()))
