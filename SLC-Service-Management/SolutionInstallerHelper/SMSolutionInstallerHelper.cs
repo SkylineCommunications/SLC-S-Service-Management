@@ -24,10 +24,11 @@ namespace SLC_ServiceManagement.SolutionInstallerHelper
 	using Skyline.DataMiner.Utils.AppInstallerHelper;
 	using Skyline.DataMiner.Utils.SecureCoding.SecureIO;
 	using Skyline.DataMiner.Utils.SecureCoding.SecureSerialization.Json.Newtonsoft;
+	using SLC_ServiceManagement.SolutionInstallerHelper.Dom;
 	using SLC_ServiceManagement.SolutionInstallerHelper.Models;
 
 	/// <summary>
-	/// Performs the installation steps of the Service Management package: default content, DOM import,
+	/// Performs the installation steps of the Service Management package: default content, DOM modules,
 	/// SDM registration, MediaOps fallback dependencies, the DataMiner app, and the DataMiner Assistant
 	/// custom agent shipped under <c>SetupContent\Agents\{Agents,Skills,Scripts}</c>.
 	/// The Assistant part is adapted from the SLC-S-InfraOps SolutionInstaller.
@@ -164,23 +165,21 @@ namespace SLC_ServiceManagement.SolutionInstallerHelper
 		}
 
 		/// <summary>
-		/// Imports the DOM definitions from <c>SetupContent\DOMImportExport</c> by running the DOM ImportExport subscript.
+		/// Creates or updates the DOM modules shipped in <c>SetupContent\DomModules</c> directly through SLNet, so no external
+		/// tool (such as the DOM ImportExport package) is needed. Up-to-date objects are left untouched and nothing is deleted.
 		/// </summary>
-		/// <exception cref="DirectoryNotFoundException">The DOM import folder does not exist.</exception>
-		/// <exception cref="InvalidOperationException">The DOM ImportExport subscript reported an error.</exception>
-		public void ImportSolutionDom()
+		/// <exception cref="DirectoryNotFoundException">The DOM modules folder does not exist.</exception>
+		/// <exception cref="InvalidDataException">The shipped DOM module files are invalid.</exception>
+		/// <exception cref="InvalidOperationException">Creating or updating a DOM configuration object failed.</exception>
+		public void InstallSolutionDom()
 		{
-			_installer.Log("Importing DOM...");
-			var path = SecurePath.ConstructSecurePath(_setupContentPath, "DOMImportExport");
-			_engine.GenerateInformation($"setupContentPath for DOM: {path}");
+			_installer.Log("Installing DOM modules...");
+			var path = SecurePath.ConstructSecurePath(_setupContentPath, Constants.DomModulesFolderName);
 
-			if (!Directory.Exists(path))
-			{
-				throw new DirectoryNotFoundException($"DOM import folder was not found: '{path}'.");
-			}
+			var modules = DomModuleDefinition.LoadAll(path);
+			var result = new DomModuleInstaller(new DomHelperConfigurationStore(_engine.SendSLNetMessages), _installer.Log).Install(modules);
 
-			RunDomImportSubScript(_engine, path);
-			_installer.Log("DOM import completed successfully.");
+			_installer.Log($"DOM modules {String.Join(", ", modules.Select(m => $"'{m.ModuleId}'"))} are up to date ({result}).");
 		}
 
 		/// <summary>
@@ -586,22 +585,6 @@ namespace SLC_ServiceManagement.SolutionInstallerHelper
 				}
 
 				return SecureNewtonsoftDeserialization.DeserializeObject<TResponse>(body);
-			}
-		}
-
-		private static void RunDomImportSubScript(IEngine engine, string path)
-		{
-			var subScript = engine.PrepareSubScript(Constants.DomImportExportScriptName);
-			subScript.ExtendedErrorInfo = true;
-			subScript.SelectScriptParam("Action", "Import");
-			subScript.SelectScriptParam("Path", path);
-			subScript.SelectScriptParam("ModuleNames", "-1");
-			subScript.Synchronous = true;
-			subScript.StartScript();
-
-			if (subScript.HadError)
-			{
-				throw new InvalidOperationException($"Run Subscript 'DOM ImportExport' failed: {String.Join(" -> ", subScript.GetErrorMessages())}");
 			}
 		}
 

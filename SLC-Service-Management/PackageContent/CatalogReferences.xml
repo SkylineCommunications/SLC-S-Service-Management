@@ -7,11 +7,4 @@
 		</Selection>
 	</CatalogReference>
 
-	<CatalogReference id="8ce7d7af-62f6-4cfd-8687-663e24f3c5be">
-		<Name>2.DOM ImportExport</Name>
-		<Selection>
-			<Range>1.0.0</Range>
-		</Selection>
-	</CatalogReference>
-
 </CatalogReferences>
