@@ -7,6 +7,12 @@ namespace SLC_SM_UDAPI_ServiceManagement.Models.Inventory
 	/// </summary>
 	public sealed class ConfigurationRecord
 	{
+		/// <summary>
+		/// Version ID of the unsaved template rows that hold the service specification's configuration,
+		/// used to prefill a new configuration version.
+		/// </summary>
+		public const string SpecificationTemplateVersionId = "SpecificationTemplate";
+
 		public string VersionId { get; set; }
 
 		public string VersionName { get; set; }
@@ -36,6 +42,8 @@ namespace SLC_SM_UDAPI_ServiceManagement.Models.Inventory
 		public bool Mandatory { get; set; }
 
 		public string ProfileId { get; set; }
+
+		public string ProfileReferenceId { get; set; }
 
 		public string ProfileName { get; set; }
 

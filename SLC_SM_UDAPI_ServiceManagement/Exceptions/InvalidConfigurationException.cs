@@ -9,6 +9,8 @@ namespace SLC_SM_UDAPI_ServiceManagement.Exceptions
 	[Serializable]
 	public sealed class InvalidConfigurationException : Exception
 	{
+		private const string TechnicalDetailsKey = "TechnicalDetails";
+
 		/// <summary>
 		/// Initializes a new instance of the <see cref="InvalidConfigurationException"/> class.
 		/// </summary>
@@ -33,8 +35,26 @@ namespace SLC_SM_UDAPI_ServiceManagement.Exceptions
 		{
 		}
 
+		/// <summary>
+		/// Initializes a new instance of the <see cref="InvalidConfigurationException"/> class.
+		/// </summary>
+		/// <param name="message">The caller-safe message.</param>
+		/// <param name="technicalDetails">Identifiers and other details that are logged but not returned to the caller.</param>
+		public InvalidConfigurationException(string message, string technicalDetails) : base(message)
+		{
+			if (!String.IsNullOrWhiteSpace(technicalDetails))
+			{
+				Data[TechnicalDetailsKey] = technicalDetails;
+			}
+		}
+
 		private InvalidConfigurationException(System.Runtime.Serialization.SerializationInfo info, System.Runtime.Serialization.StreamingContext context) : base(info, context)
 		{
 		}
+
+		/// <summary>
+		/// Gets the identifiers and other details that are logged but not returned to the caller.
+		/// </summary>
+		public string TechnicalDetails => Data[TechnicalDetailsKey] as string ?? String.Empty;
 	}
 }

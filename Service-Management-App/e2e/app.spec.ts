@@ -18,16 +18,21 @@ test.describe('Service Management workspace', () => {
         await expect(page.locator('.order-row').filter({ hasText: 'Network refresh' })).toBeVisible();
         for (const name of ['Services', 'Catalog', 'Settings']) { await page.getByRole('link', { name }).click(); await expect(page.getByRole('heading', { name, exact: true })).toBeVisible(); }
     });
-    test('loads the overview through bounded summary routes', { tag: '@G7' }, async ({ page }) => {
+    test('loads the overview through bounded list pages with metrics', { tag: '@G7' }, async ({ page }) => {
+        await expect(page.getByRole('heading', { name: 'Orders', exact: true })).toBeVisible();
+        mock.calls.length = 0;
         await page.goto(`${APP_ROOT_URL}#overview`);
         await expect(page.getByRole('heading', { name: 'Service Management', exact: true })).toBeVisible();
-        const overviewRequests = udapiRequests(mock).filter(request => String(request.Route).endsWith('/overview'));
-        expect(overviewRequests.map(request => request.Route).sort()).toEqual([
-            'service-management/v1/service/overview',
-            'service-management/v1/serviceOrder/overview',
-            'service-management/v1/serviceSpecification/overview',
-        ]);
-        expect(overviewRequests.every(request => request.QueryParameters?.limit?.[0] === '6')).toBeTruthy();
+        await expect(page.getByRole('link', { name: /Catalog specifications/ }).locator('strong')).toHaveText('12');
+        const requests = udapiRequests(mock);
+        expect(requests.some(request => String(request.Route).endsWith('/overview'))).toBeFalsy();
+        const listRoutes = ['service', 'serviceOrder', 'serviceSpecification'].map(resource => `service-management/v1/${resource}`);
+        const overviewRequests = requests.filter(request => listRoutes.includes(request.Route));
+        expect(overviewRequests.map(request => request.Route).sort()).toEqual(listRoutes);
+        for (const request of overviewRequests) {
+            expect(request.QueryParameters).toMatchObject({ pagination: ['cursor'], limit: ['6'], includeMetrics: ['true'], includeTotalCount: ['false'] });
+        }
+        expect(overviewRequests.find(request => request.Route.endsWith('/service')).QueryParameters.fields).toEqual(['Identifier,ServiceID,Name,StatusName,ServiceSpecificationName']);
     });
     test('uses cursor pagination for specifications and shows the maximum page', { tag: '@G8' }, async ({ page }) => {
         await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: 'Catalog' }).click();
@@ -45,6 +50,16 @@ test.describe('Service Management workspace', () => {
         const orderRow = page.locator('.order-row').filter({ hasText: 'Network refresh' });
         await orderRow.getByRole('button', { name: 'Open details of Network refresh' }).click();
         await expect(page.getByRole('dialog').getByRole('button', { name: 'Launch test IAS', exact: true })).toHaveCount(0);
+    });
+    test('creates an order without label using the generated order ID as name', { tag: '@W1' }, async ({ page }) => {
+        await page.getByRole('button', { name: 'New order', exact: true }).click();
+        const form = page.getByRole('form', { name: 'New service order' });
+        await expect(form.getByRole('textbox', { name: 'Label' })).toHaveAttribute('placeholder', 'Order ID generated incrementally on create');
+        await form.getByRole('button', { name: 'Create order', exact: true }).click();
+        await expect(form).toHaveCount(0);
+        const create = udapiRequests(mock).find(request => request.Route === ORDERS_ROUTE && request.RequestMethod === 3);
+        expect(JSON.parse(create.Body).name).toBe('');
+        await expect(page.locator('.order-row').filter({ hasText: 'ORDER-000004' })).toHaveCount(1);
     });
     test('loads organizations into the service order form dropdown', { tag: '@W10' }, async ({ page }) => {
         await page.getByRole('button', { name: 'New order', exact: true }).click();
@@ -72,7 +87,11 @@ test.describe('Service Management workspace', () => {
         await expect(form.getByRole('combobox', { name: 'Service specification' }).locator('option')).toContainText(['Managed switching']);
         await expect(form.getByRole('combobox', { name: 'Organization' }).locator('option')).toContainText(['Acme Media', 'Skyline Broadcast']);
         await form.getByRole('checkbox', { name: 'Link service' }).check();
-        await expect(form.getByRole('combobox', { name: 'Linked service' }).locator('option')).not.toHaveCount(1);
+        const linkedOptions = form.getByRole('combobox', { name: 'Linked service' }).locator('option');
+        await expect(linkedOptions.filter({ hasText: 'Monitoring service 1' })).toHaveCount(1);
+        await expect(linkedOptions.filter({ hasText: 'Service template' })).toHaveCount(0);
+        expect(mock.calls.find(call => call.method === 'GetServicesLiteForView')?.body).toMatchObject({ viewID: -1, includeSubViews: true });
+        expect(udapiRequests(mock).some(request => String(request.Route).endsWith('/monitoringService'))).toBe(false);
     });
     test('disables service inventory creation until its validation rules pass', { tag: '@S5' }, async ({ page }) => {
         await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: /Services/ }).click();
@@ -155,11 +174,9 @@ test.describe('Service Management workspace', () => {
         await expect(bookingMenu.getByRole('menuitem')).toHaveText([
             'play_arrowStart Booking',
             'cancelCancel Booking',
-            'deleteDelete Booking',
-            'stop_circleFinish Booking',
-            'scheduleChange Booking Time',
-            'more_timeExtend Booking Time',
+            'descriptionView Log',
         ]);
+        await expect(details.getByRole('button', { name: 'Launch script for Linked encoder booking' })).toHaveCount(0);
         await bookingMenu.getByRole('menuitem', { name: /Start Booking/ }).click();
         await expect.poll(() => mock.calls.some(call => call.method === 'ExecuteAutomationScript' && call.body.script?.Name === 'SLC_SM_AS_Service Item ContextMenu Actions')).toBe(true);
         const contextActionCall = mock.calls.find(call => call.method === 'ExecuteAutomationScript' && call.body.script?.Name === 'SLC_SM_AS_Service Item ContextMenu Actions');
@@ -188,11 +205,212 @@ test.describe('Service Management workspace', () => {
         expect(mock.calls.some(call => /^SLC_SM_(IAS_Add Service Item|Delete Service Item)$/.test(call.body.script?.Name ?? ''))).toBeFalsy();
         expect(mock.calls.some(call => call.method === 'OpenQuerySession' && JSON.parse(call.body.query?.Options?.[0]?.Value?.Value ?? '{}').ScriptName === 'SLC_SM_GQIDS_Get Service Items')).toBeFalsy();
     });
+    test('shows only state-appropriate SRM booking actions and opens the booking log', { tag: ['@S5'] }, async ({ page }) => {
+        const items = mock.serviceItems!;
+        Object.assign(items[0], {
+            'Implementation Reference': 'reservation-confirmed',
+            'Implementation State': 'Confirmed',
+            Log: 'https://logs.example.test/confirmed.html',
+        });
+        items.push(
+            { Label: 'Canceled booking', 'Service Item ID': '3', 'Service Item Type': 'SRMBooking', 'Definition Reference': 'Encoding Booking Manager', 'Service Item Script': 'SRM_Booking Wizard', 'Implementation Reference': 'reservation-canceled', 'Implementation State': 'Canceled', Log: 'https://logs.example.test/canceled.html' },
+            { Label: 'Ongoing booking', 'Service Item ID': '4', 'Service Item Type': 'SRMBooking', 'Definition Reference': 'Encoding Booking Manager', 'Service Item Script': 'SRM_Booking Wizard', 'Implementation Reference': 'reservation-ongoing', 'Implementation State': 'Ongoing', Log: 'https://logs.example.test/ongoing.html' },
+        );
+        await page.context().route('https://logs.example.test/**', route => route.fulfill({ status: 200, contentType: 'text/html', body: 'booking log' }));
+        await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: /Services/ }).click();
+        await page.locator('.service-row').filter({ hasText: 'Test service' }).getByRole('button', { name: 'Open details of Test service' }).click();
+
+        const details = page.getByRole('dialog', { name: 'Test service' });
+        const cases = [
+            { label: 'Encoder booking', actions: ['Start Booking', 'Cancel Booking', 'View Log'] },
+            { label: 'Canceled booking', actions: ['Delete Booking', 'View Log'] },
+            { label: 'Ongoing booking', actions: ['Finish Booking', 'Change Booking Time', 'Extend Booking Time', 'View Log'] },
+        ];
+        for (const booking of cases) {
+            const row = details.locator('.service-items-table tbody tr').filter({ hasText: booking.label });
+            await expect(row.getByRole('button', { name: `Launch script for ${booking.label}` })).toHaveCount(0);
+            await row.getByRole('button', { name: `Booking actions for ${booking.label}` }).click();
+            const menu = page.getByRole('menu', { name: `Booking actions for ${booking.label}` });
+            await expect(menu.getByRole('menuitem')).toHaveCount(booking.actions.length);
+            for (const action of booking.actions) {
+                await expect(menu.getByRole('menuitem', { name: action })).toBeVisible();
+            }
+            if (booking.label === 'Encoder booking') {
+                const popupPromise = page.waitForEvent('popup');
+                await menu.getByRole('menuitem', { name: 'View Log' }).click();
+                await expect(await popupPromise).toHaveURL('https://logs.example.test/confirmed.html');
+            } else {
+                await page.keyboard.press('Escape');
+            }
+        }
+        expect(mock.calls.some(call => call.method === 'OpenQuerySession' && JSON.parse(call.body.query?.Options?.[0]?.Value?.Value ?? '{}').ScriptName === 'SLC_SM_GQIDS_Get Service Items')).toBeFalsy();
+    });
+    test('shows booking links, implementation colors and configured monitoring severity colors', async ({ page }) => {
+        const states = [
+            ['Pending', '#FF9861'], ['Confirmed', '#24A148'], ['Ongoing', '#24A148'], ['Ended', '#727579'],
+            ['Draft', '#8B73FF'], ['Tentative', '#FF9861'], ['Running', '#24A148'], ['Completed', '#4F9AFF'],
+            ['Canceled', '#FF9861'], ['Has Errors', '#FA4D56'], ['Ready for Invoice', '#4F9AFF'], ['Invoiced', '#727579'],
+        ];
+        const severities = [
+            ['Normal', 'rgb(12, 180, 90)'], ['Warning', 'rgb(50, 130, 255)'], ['Minor', 'rgb(80, 200, 220)'],
+            ['Major', 'rgb(255, 170, 10)'], ['Critical', 'rgb(240, 20, 30)'],
+        ];
+        mock.serviceItems!.push(...states.map(([state], index) => ({
+            Label: `${state} encoder`,
+            'Service Item ID': String(index + 3),
+            'Service Item Type': 'SRMBooking',
+            'Definition Reference': 'Encoding Booking Manager',
+            'Service Item Script': 'SRM_Booking Wizard',
+            'Implementation Reference': `reservation-${index}`,
+            'Implementation Reference Name': `Encoder ${index}`,
+            'Implementation State': state,
+            'Implementation Reference Custom Link': `/mock/srm-booking?id=${index}`,
+            'Monitoring Service State': severities[index % severities.length][0],
+            'Monitoring Service DMA ID/SID': `123/${index}`,
+        })));
+        mock.serviceItems!.push({ Label: 'Unlinked normal monitor', 'Service Item ID': '99', 'Service Item Type': 'Service', 'Implementation Reference': '', 'Monitoring Service State': 'Normal' });
+        await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: /Services/ }).click();
+        await page.locator('.service-row').filter({ hasText: 'Test service' }).getByRole('button', { name: 'Open details of Test service' }).click();
+        const dialog = page.getByRole('dialog', { name: 'Test service' });
+        await expect(dialog.getByRole('button', { name: 'Create SRM Booking for Encoder booking' })).toBeVisible();
+        await expect(dialog.getByRole('button', { name: 'Launch script for Encoder booking' })).toHaveCount(0);
+        for (const [index, [state, color]] of states.entries()) {
+            const row = dialog.locator('.service-items-table tbody tr').filter({ hasText: `${state} encoder` });
+            const rgb = `rgb(${[1, 3, 5].map(offset => parseInt(color.slice(offset, offset + 2), 16)).join(', ')})`;
+            await expect(row.locator('td').nth(4).locator('.service-state-dot')).toHaveCSS('background-color', rgb);
+            await expect(row.getByRole('link', { name: `View Booking Encoder ${index}`, exact: true })).toHaveAttribute('href', new RegExp(`/mock/srm-booking\\?id=${index}$`));
+            const monitoring = row.getByRole('link', { name: `Open monitoring service 123/${index} in Monitoring (${severities[index % severities.length][0]})`, exact: true });
+            const monitoringState = row.locator('td').nth(5).locator('.service-item-state');
+            await expect(monitoring).toHaveAttribute('href', `http://localhost:4173/monitoring/service/123/${index}`);
+            await expect(monitoringState.locator('.monitoring-severity-icon')).toHaveCSS('color', severities[index % severities.length][1]);
+            await expect(monitoringState.locator('span').nth(1)).toHaveText(severities[index % severities.length][0]);
+            await expect(monitoringState.locator('span').nth(1)).toHaveCSS('text-decoration-line', 'none');
+            await expect(monitoring).toHaveText('open_in_new');
+            await expect(monitoring.locator('.monitoring-state-open')).toBeVisible();
+            await expect(monitoring).toHaveAttribute('title', `${severities[index % severities.length][0]} — Open in Monitoring: 123/${index}`);
+        }
+        const sizes = await dialog.locator('.service-item-state').evaluateAll(badges => badges.map(badge => {
+            const { width, height } = badge.getBoundingClientRect();
+            const style = getComputedStyle(badge);
+            return { width, height, borderStyle: style.borderStyle, borderRadius: parseFloat(style.borderRadius), backgroundColor: style.backgroundColor };
+        }));
+        expect(new Set(sizes.map(size => size.width)).size).toBe(1);
+        expect(new Set(sizes.map(size => size.height)).size).toBe(1);
+        expect(sizes.every(size => size.borderStyle === 'solid' && size.borderRadius >= size.height / 2 && size.backgroundColor !== 'rgba(0, 0, 0, 0)')).toBe(true);
+        const monitoringLink = dialog.getByRole('link', { name: 'Open monitoring service 123/0 in Monitoring (Normal)', exact: true });
+        const plainMonitor = dialog.getByRole('row').filter({ hasText: 'Unlinked normal monitor' }).locator('td').nth(5).locator('.service-item-state');
+        await expect(plainMonitor.locator('.monitoring-state-open')).toHaveCount(0);
+        await expect(plainMonitor.locator('span').nth(1)).toHaveCSS('text-decoration-line', 'none');
+        await monitoringLink.focus();
+        await page.keyboard.press('Shift+Tab');
+        await page.keyboard.press('Tab');
+        await expect(monitoringLink).toBeFocused();
+        await expect(monitoringLink).toHaveCSS('outline-style', 'solid');
+        const bookingLink = dialog.getByRole('link', { name: 'View Booking Encoder 0', exact: true });
+        await expect(bookingLink.locator('.implementation-reference-name')).toHaveText('Encoder 0');
+        await expect(bookingLink).toHaveCSS('height', '32px');
+        await expect(bookingLink).toHaveCSS('border-style', 'none');
+        await expect(bookingLink).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+        await expect(monitoringLink.locator('.icon')).toHaveCSS('color', 'rgb(68, 72, 78)');
+        await expect(bookingLink).toHaveCSS('color', 'rgb(68, 72, 78)');
+        await bookingLink.hover();
+        await expect(bookingLink).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+        await expect(bookingLink).toHaveCSS('text-decoration-line', 'none');
+        await expect(bookingLink.locator('.implementation-reference-name')).toHaveCSS('text-decoration-line', 'none');
+        await monitoringLink.hover();
+        await expect(monitoringLink.locator('.icon')).toHaveCSS('color', 'rgb(68, 72, 78)');
+        await page.emulateMedia({ colorScheme: 'dark' });
+        await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+        await expect(bookingLink).toHaveCSS('color', 'rgb(206, 207, 209)');
+        await expect(monitoringLink.locator('.icon')).toHaveCSS('color', 'rgb(206, 207, 209)');
+        const endedRow = dialog.locator('.service-items-table tbody tr').filter({ hasText: 'Ended encoder' });
+        await expect(endedRow.locator('td').nth(4).locator('.service-state-dot')).toHaveCSS('background-color', 'rgb(160, 162, 166)');
+        await expect(dialog.getByRole('row').filter({ hasText: 'Pending encoder' }).locator('.monitoring-severity-icon')).toHaveCSS('color', 'rgb(12, 180, 90)');
+    });
+    test('automatically refreshes booking and monitoring states, pauses when hidden and stops when closed', async ({ page }) => {
+        await page.clock.install();
+        const item = mock.serviceItems![0];
+        Object.assign(item, {
+            'Implementation Reference': 'reservation-1',
+            'Implementation State': 'Confirmed',
+            'Monitoring Service State': 'Normal',
+            'Monitoring Service DMA ID/SID': '123/100',
+        });
+        const itemReads = () => udapiRequests(mock).filter(request => request.Route === `${SERVICES_ROUTE}/service-1/item` && request.RequestMethod === 1).length;
+        await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: /Services/ }).click();
+        await page.clock.fastForward(15000);
+        expect(itemReads()).toBe(0);
+        await page.locator('.service-row').filter({ hasText: 'Test service' }).getByRole('button', { name: 'Open details of Test service' }).click();
+        const dialog = page.getByRole('dialog', { name: 'Test service' });
+        const row = dialog.locator('.service-items-table tbody tr').filter({ hasText: 'Encoder booking' });
+        await expect(row).toContainText('Confirmed');
+        await row.getByRole('button', { name: 'Booking actions for Encoder booking' }).click();
+        const menu = page.getByRole('menu', { name: 'Booking actions for Encoder booking' });
+        await expect(menu.getByRole('menuitem', { name: 'Start Booking' })).toBeVisible();
+        Object.assign(item, { 'Implementation State': 'Ongoing', 'Monitoring Service State': 'Critical' });
+        await page.clock.fastForward(5000);
+        await expect(row).toContainText('Ongoing');
+        await expect(row.locator('.monitoring-severity-icon')).toHaveCSS('color', 'rgb(240, 20, 30)');
+        expect(mock.calls.filter(call => call.method === 'OpenQuerySession')).toHaveLength(0);
+        expect(mock.calls.filter(call => call.method === 'GetDataMinerAgentAlarmColors')).toHaveLength(1);
+        await expect(menu.getByRole('menuitem', { name: 'Start Booking' })).toHaveCount(0);
+        await expect(menu.getByRole('menuitem', { name: 'Finish Booking' })).toBeVisible();
+        await page.keyboard.press('Escape');
+
+        await page.evaluate(() => {
+            Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
+            document.dispatchEvent(new Event('visibilitychange'));
+        });
+        const readsWhileHidden = itemReads();
+        await page.clock.fastForward(15000);
+        expect(itemReads()).toBe(readsWhileHidden);
+        item['Implementation State'] = 'Ended';
+        await page.evaluate(() => {
+            Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+            document.dispatchEvent(new Event('visibilitychange'));
+        });
+        await expect(row).toContainText('Ended');
+        await dialog.getByRole('button', { name: 'Close service details' }).click();
+        await expect(dialog).toBeHidden();
+        const readsAfterClosing = itemReads();
+        await page.clock.fastForward(15000);
+        expect(itemReads()).toBe(readsAfterClosing);
+    });
+    test('does not poll service items that are neither implemented nor monitored', async ({ page }) => {
+        await page.clock.install();
+        for (const item of mock.serviceItems!) Object.assign(item, { 'Implementation Reference': '', 'Monitoring Service DMA ID/SID': '' });
+        Object.assign(mock.serviceItems![0], { 'Implementation Reference': 'Reference Unknown' });
+        const itemReads = () => udapiRequests(mock).filter(request => request.Route === `${SERVICES_ROUTE}/service-1/item` && request.RequestMethod === 1).length;
+        await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: /Services/ }).click();
+        await page.locator('.service-row').filter({ hasText: 'Test service' }).getByRole('button', { name: 'Open details of Test service' }).click();
+        const dialog = page.getByRole('dialog', { name: 'Test service' });
+        await expect(dialog.locator('.service-items-table tbody tr').first()).toBeVisible();
+        const initialReads = itemReads();
+        await page.clock.fastForward(15000);
+        expect(itemReads()).toBe(initialReads);
+    });
+    test('preserves service items and reports background refresh failures until recovery', async ({ page }) => {
+        await page.clock.install();
+        mock.serviceItems![0]['Implementation Reference'] = 'reservation-1';
+        await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: /Services/ }).click();
+        await page.locator('.service-row').filter({ hasText: 'Test service' }).getByRole('button', { name: 'Open details of Test service' }).click();
+        const dialog = page.getByRole('dialog', { name: 'Test service' });
+        const row = dialog.locator('.service-items-table tbody tr').filter({ hasText: 'Encoder booking' });
+        await expect(row).toBeVisible();
+        mock.serviceItemsFail = true;
+        await page.clock.fastForward(5000);
+        await expect(dialog.getByRole('alert')).toContainText('Service item states could not be refreshed');
+        await expect(row).toBeVisible();
+        mock.serviceItemsFail = false;
+        await page.clock.fastForward(5000);
+        await expect(dialog.getByRole('alert')).toHaveCount(0);
+        await expect(row).toBeVisible();
+    });
     test('keeps the background inert for the service item IAS dialog and restores focus when closed', { tag: '@A5' }, async ({ page }) => {
         await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: /Services/ }).click();
         await page.locator('.service-row').filter({ hasText: 'Test service' }).getByRole('button', { name: 'Open details of Test service' }).click();
         const details = page.getByRole('dialog', { name: 'Test service' });
-        const launch = details.getByRole('button', { name: 'Launch script for Encoder booking' });
+        const launch = details.getByRole('button', { name: 'Create SRM Booking for Encoder booking' });
         await launch.focus();
         await launch.click();
 
@@ -276,7 +494,7 @@ test.describe('Service Management workspace', () => {
         await expect(createForm).toBeHidden();
         const create = lastRequest(3);
         expect(create.Route).toBe(SERVICES_ROUTE);
-        expect(JSON.parse(create.Body)).toMatchObject({ serviceId: 'SERVICE-7', name: 'UDAPI service', category: { name: 'Production' }, serviceSpecificationId: 'spec-1', organizationId: 'org-1', endTime: null, generateMonitoringService: true, monitoringService: 'monitoring-1' });
+        expect(JSON.parse(create.Body)).toMatchObject({ serviceId: 'SERVICE-7', name: 'UDAPI service', category: { name: 'Production' }, serviceSpecificationId: 'spec-1', organizationId: 'org-1', endTime: null, generateMonitoringService: true, monitoringService: '12/34' });
         const createdRow = page.locator('.service-row').filter({ hasText: 'UDAPI service' });
         await expect(createdRow).toBeVisible();
 
@@ -431,6 +649,22 @@ test.describe('Service Management workspace', () => {
             const descriptor = JSON.parse(call.body.query.Options[0].Value.Value);
             return descriptor.TypeFullName === 'SLC_SM_GQIDS_Get_Related_Service_Orders.GetRelatedServiceOrders';
         })).toBeFalsy();
+        const orderLink = relatedRow.getByRole('link', { name: 'Network refresh ORDER-000001' });
+        await expect(orderLink).toHaveAttribute('href', '#orders/by-id/ORDER-000001');
+        await orderLink.click();
+        await expect(page.getByRole('dialog', { name: 'Network refresh', exact: true })).toBeVisible();
+    });
+    test('opens a service order by OrderId when it is outside the active filter', async ({ page }) => {
+        await page.goto(APP_URL);
+        await page.getByRole('combobox', { name: 'Filter orders by status' }).selectOption('open');
+        await expect(page.locator('.order-row')).toHaveCount(2);
+        await page.evaluate(() => { location.hash = 'orders/by-id/ORDER-000003'; });
+        await expect.poll(() => udapiRequests(mock).some(request => request.Route === `${ORDERS_ROUTE}/ORDER-000003`)).toBeTruthy();
+        await expect(page.getByRole('dialog', { name: 'Backup link', exact: true })).toBeVisible();
+        expect(udapiRequests(mock)).toContainEqual(expect.objectContaining({
+            Route: `${ORDERS_ROUTE}/ORDER-000003`,
+            RequestMethod: 1,
+        }));
     });
     test('loads service configuration only for the selected service when requested', { tag: '@C3' }, async ({ page }) => {
         await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: /Services/ }).click();
@@ -583,7 +817,7 @@ test.describe('Service Management workspace', () => {
         await dialog.getByRole('button', { name: 'Duplicate configuration' }).click();
         await confirmation.getByRole('button', { name: 'Duplicate', exact: true }).click();
         await expect.poll(() => udapiRequests(mock).some(request =>
-            request.Route === `${SERVICES_ROUTE}/service-1/configurationVersion/spec-1/duplicate` && request.RequestMethod === 3,
+            request.Route === `${SERVICES_ROUTE}/service-1/configuration/spec-1/duplicate` && request.RequestMethod === 3,
         )).toBe(true);
         const version = dialog.getByRole('combobox', { name: 'Version' });
         await expect(version.locator('option:checked')).toHaveText('Current version (Copy)');

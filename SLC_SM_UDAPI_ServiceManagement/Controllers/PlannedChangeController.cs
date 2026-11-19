@@ -216,7 +216,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 		private List<PlannedChange> BuildPlannedChanges(IEnumerable<Service> candidates, DateTime referenceDate, bool full)
 		{
 			var services = (candidates ?? Enumerable.Empty<Service>())
-				.Where(s => s != null && (!s.EndTime.HasValue || s.EndTime.Value.ToUniversalTime() > referenceDate))
+				// .Where(s => s != null && (!s.EndTime.HasValue || s.EndTime.Value.ToUniversalTime() > referenceDate))
 				.Where(s => s != null && s.ServiceConfigurationId != null && s.ServiceConfigurationId.Identifier != null && s.ConfigurationVersions != null && s.ConfigurationVersions.Count > 1)
 				.Where(s => s.Status != DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Service_Behavior.StatusesEnum.Terminated
  					&& s.Status != DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Service_Behavior.StatusesEnum.Retired)
