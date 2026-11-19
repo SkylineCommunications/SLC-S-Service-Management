@@ -24,7 +24,7 @@
 
 		// Registered in SDM as-is: the .dmapp version is converted (2.0.0-preview01 becomes 200.0.46997). Keep in sync with <Version> in the csproj.
 		// TODO: Remove this constant and register _context.AppInfo.Version again once releases no longer use prerelease versions.
-		internal const string SolutionVersion = "2.0.0-preview01";
+		internal const string SolutionVersion = "2.0.0-preview02";
 
 		internal static readonly FallbackDependency[] SolutionLibraryFallbackDependencies =
 		{
