@@ -1,4 +1,5 @@
 import { executeAutomationScript, readScriptOutputs } from './automation.js';
+import { userFacingErrorMessage } from '../userFacingErrors.js';
 
 // Runs the Service Management UDAPI routes through the UDAPI script with the user's session; the script returns the HTTP status and body as outputs.
 const UDAPI_SCRIPT = {
@@ -13,7 +14,7 @@ const REQUEST_METHODS = { GET: 1, PUT: 2, POST: 3, DELETE: 4, PATCH: 5 };
 
 export class UdapiError extends Error {
     constructor(message, status = 0) {
-        super(message);
+        super(userFacingErrorMessage(message, 'The Service Management API request failed.'));
         this.name = 'UdapiError';
         this.status = status;
     }
@@ -87,20 +88,19 @@ export async function fetchCatalogSpecificationList() {
     return Array.isArray(payload) ? payload : [];
 }
 
+// Overview cards: the first cursor page plus the list metrics (camelCased; older UDAPI versions return PascalCase).
+export function toOverview(page) {
+    const metrics = Object.fromEntries(Object.entries(page.metrics ?? {}).map(([key, value]) => [key.charAt(0).toLowerCase() + key.slice(1), value]));
+    return { ...metrics, totalCount: metrics.totalCount ?? page.totalCount ?? 0, items: page.items };
+}
+
+export const OVERVIEW_PAGE = { limit: 6, includeTotalCount: false, includeMetrics: true };
 export async function fetchCatalogSpecificationCursorPage({ limit = 100, after = '', before = '', fields = '', includeTotalCount = true, includeMetrics = false, search = '', sort = '' } = {}) {
     const payload = await callServiceManagementUdapi('serviceSpecification', {
         query: { pagination: 'cursor', limit, after, before, fields, includeTotalCount, includeMetrics, name: search, sort },
     });
     if (!payload || !Array.isArray(payload.items)) {
         throw new UdapiError('The Service Specification API returned an invalid cursor page.');
-    }
-    return payload;
-}
-
-export async function fetchCatalogSpecificationOverview({ limit = 6 } = {}) {
-    const payload = await callServiceManagementUdapi('serviceSpecification/overview', { query: { limit } });
-    if (!payload || !Array.isArray(payload.items)) {
-        throw new UdapiError('The Service Specification API returned an invalid overview response.');
     }
     return payload;
 }
@@ -198,20 +198,16 @@ export async function fetchServiceOrderList() {
     return Array.isArray(payload) ? payload : [];
 }
 
+export function fetchServiceOrderRecord(orderId) {
+    return callServiceManagementUdapi(serviceOrderRoute(orderId));
+}
+
 export async function fetchServiceOrderCursorPage({ limit = 100, after = '', before = '', includeTotalCount = true, includeMetrics = false, status = '', search = '', sort = '' } = {}) {
     const payload = await callServiceManagementUdapi('serviceOrder', {
         query: { pagination: 'cursor', limit, after, before, includeTotalCount, includeMetrics, status, search, sort },
     });
     if (!payload || !Array.isArray(payload.items)) {
         throw new UdapiError('The Service Order API returned an invalid cursor page.');
-    }
-    return payload;
-}
-
-export async function fetchServiceOrderOverview({ limit = 6 } = {}) {
-    const payload = await callServiceManagementUdapi('serviceOrder/overview', { query: { limit } });
-    if (!payload || !Array.isArray(payload.items)) {
-        throw new UdapiError('The Service Order API returned an invalid overview response.');
     }
     return payload;
 }
@@ -248,8 +244,8 @@ export async function saveServiceOrderItemConfiguration(orderId, itemId, body) {
     return callServiceManagementUdapi(serviceOrderRoute(orderId, 'item', itemId, 'configuration'), { method: 'PUT', body });
 }
 
-export async function initializeServiceFromOrderItem(orderId, itemId) {
-    return callServiceManagementUdapi(serviceOrderRoute(orderId, 'item', itemId, 'initializeService'), { method: 'POST', body: {} });
+export async function initializeServiceFromOrderItem(orderId, itemId, copyConfiguration = true) {
+    return callServiceManagementUdapi(serviceOrderRoute(orderId, 'item', itemId, 'initializeService'), { method: 'POST', body: { copyConfiguration } });
 }
 
 export async function updateServiceOrder(orderId, body) {
@@ -290,11 +286,6 @@ export async function deleteServiceScript(serviceId, description) {
     return callServiceManagementUdapi(serviceRoute(serviceId, 'script'), { method: 'DELETE', body: { description } });
 }
 
-export async function fetchMonitoringServiceList() {
-    const payload = await callServiceManagementUdapi('monitoringService');
-    return Array.isArray(payload) ? payload : [];
-}
-
 function serviceRoute(serviceId, ...segments) {
     if (!serviceId) throw new UdapiError('No service was selected.');
     return ['service', serviceId, ...segments].map(encodeURIComponent).join('/');
@@ -311,14 +302,6 @@ export async function fetchServiceCursorPage({ limit = 100, after = '', before =
     });
     if (!payload || !Array.isArray(payload.items)) {
         throw new UdapiError('The Service API returned an invalid cursor page.');
-    }
-    return payload;
-}
-
-export async function fetchServiceOverview({ limit = 6 } = {}) {
-    const payload = await callServiceManagementUdapi('service/overview', { query: { limit } });
-    if (!payload || !Array.isArray(payload.items)) {
-        throw new UdapiError('The Service API returned an invalid overview response.');
     }
     return payload;
 }
@@ -341,7 +324,7 @@ export async function duplicateInventoryService(serviceId) {
 }
 
 export async function duplicateServiceConfigurationVersion(serviceId, versionId) {
-    return callServiceManagementUdapi(serviceRoute(serviceId, 'configurationVersion', versionId, 'duplicate'), { method: 'POST', body: {} });
+    return callServiceManagementUdapi(serviceRoute(serviceId, 'configuration', versionId, 'duplicate'), { method: 'POST', body: {} });
 }
 
 export async function deleteInventoryService(serviceId) {
@@ -363,6 +346,11 @@ export async function transitionInventoryService(serviceId, targetStatus) {
 export async function fetchServiceItemList(serviceId) {
     const payload = await callServiceManagementUdapi(serviceRoute(serviceId, 'item'));
     return Array.isArray(payload) ? payload : [];
+}
+
+export async function fetchServiceItemOptions() {
+    const payload = await callServiceManagementUdapi('service/itemOptions');
+    return payload && typeof payload === 'object' ? payload : {};
 }
 
 export async function addInventoryServiceItem(serviceId, body) {

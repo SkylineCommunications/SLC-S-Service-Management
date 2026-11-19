@@ -49,5 +49,6 @@ namespace SLC_SM_UDAPI_ServiceManagement.Tests.Controllers
 			Assert.AreEqual("3", duplicate.ServiceItemsRelationships.Single().ParentServiceItem);
 			Assert.AreEqual("4", duplicate.ServiceItemsRelationships.Single().ChildServiceItem);
 		}
+
 	}
 }

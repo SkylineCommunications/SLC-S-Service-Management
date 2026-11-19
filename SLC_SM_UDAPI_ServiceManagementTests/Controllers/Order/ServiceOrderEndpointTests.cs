@@ -18,7 +18,11 @@
 	using SLDataGateway.API.Types.Querying;
 
 	using IEngine = Skyline.DataMiner.Automation.IEngine;
+	using Cfg = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.Configurations;
 	using OrderTransition = DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Serviceorder_Behavior.TransitionsEnum;
+	using ItemTransition = DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Serviceorderitem_Behavior.TransitionsEnum;
+	using ServiceStatus = DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Service_Behavior.StatusesEnum;
+	using ServiceTransition = DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Service_Behavior.TransitionsEnum;
 
 	[TestClass]
 	public class ServiceOrderEndpointTests : ServiceOrderControllerTestBase
@@ -219,6 +223,25 @@
 			Assert.AreEqual(400, StatusCode(Controller.CreateServiceOrder(request)));
 		}
 
+		[TestMethod]
+		public void CreateServiceOrder_MandatoryParameterWithoutValue_ErrorShowsParameterName()
+		{
+			var parameter = new Cfg.ConfigurationParameter { Identifier = Guid.NewGuid().ToString(), Name = "Bitrate" };
+			SetupMandatorySpecificationRepositories(new List<Cfg.ConfigurationParameterValue>(), parameter.Identifier, out var specificationId);
+			Mock.Get(Helper.ServiceCatalog).SetupGet(api => api.ConfigurationParameters)
+				.Returns(InitializationRepository(new List<Cfg.ConfigurationParameter> { parameter }).Object);
+			var request = new CreateServiceOrderRequest
+			{
+				Name = "x",
+				OrderItems = new List<CreateServiceOrderItemRequest> { new CreateServiceOrderItemRequest { Action = "add", ServiceSpecificationId = specificationId } },
+			};
+
+			var result = Controller.CreateServiceOrder(request);
+
+			Assert.AreEqual(400, StatusCode(result));
+			StringAssert.EndsWith(ErrorDetail(result), "without a value: Bitrate.");
+		}
+
 		// ---- PATCH /serviceOrder/{id} ----
 		[TestMethod]
 		public void UpdateServiceOrder_Valid_UpdatesOnlyProvidedFields()
@@ -279,10 +302,16 @@
 		}
 
 		// ---- DELETE /serviceOrder/{id} ----
-		[TestMethod]
-		public void DeleteServiceOrder_New_DeletesAndReturns204()
+		[DataTestMethod]
+		[DataRow("New")]
+		[DataRow("Cancelled")]
+		[DataRow("Completed")]
+		[DataRow("Rejected")]
+		[DataRow("Failed")]
+		[DataRow("PartiallyFailed")]
+		public void DeleteServiceOrder_DeletableStatus_DeletesAndReturns204(string status)
 		{
-			var order = AddOrder();
+			var order = AddOrder(status);
 			Assert.AreEqual(204, StatusCode(Controller.DeleteServiceOrder(OrderId)));
 			Orders.Verify(r => r.Delete(order), Times.Once);
 		}
@@ -299,10 +328,16 @@
 			Assert.AreEqual(404, StatusCode(Controller.DeleteServiceOrder(OrderId)));
 		}
 
-		[TestMethod]
-		public void DeleteServiceOrder_NotNew_Returns409()
+		[DataTestMethod]
+		[DataRow("Acknowledged")]
+		[DataRow("InProgress")]
+		[DataRow("Pending")]
+		[DataRow("Held")]
+		[DataRow("AssessCancellation")]
+		[DataRow("PendingCancellation")]
+		public void DeleteServiceOrder_NonDeletableStatus_Returns409(string status)
 		{
-			AddOrder("Acknowledged");
+			AddOrder(status);
 			Assert.AreEqual(409, StatusCode(Controller.DeleteServiceOrder(OrderId)));
 			Orders.Verify(r => r.Delete(It.IsAny<ServiceOrder>()), Times.Never);
 		}
@@ -377,6 +412,240 @@
 			AddOrder("New");
 			Assert.AreEqual(409, StatusCode(Controller.TransitionServiceOrder(OrderId, new TransitionServiceOrderRequest { TargetStatus = "new" })));
 			Orders.Verify(r => r.TransitionStatus(It.IsAny<ServiceOrder>(), It.IsAny<OrderTransition>()), Times.Never);
+		}
+
+		[TestMethod]
+		public void TransitionServiceOrder_Acknowledge_AcknowledgesNewItems()
+		{
+			var newItem = AddItem("New");
+			var acknowledgedItem = AddItem("Acknowledged");
+			AddOrder("New", newItem, acknowledgedItem);
+
+			Assert.AreEqual(200, StatusCode(Controller.TransitionServiceOrder(OrderId, new TransitionServiceOrderRequest { TargetStatus = "acknowledged" })));
+
+			Items.Verify(r => r.TransitionStatus(newItem, ItemTransition.New_To_Acknowledged), Times.Once);
+			Items.Verify(r => r.TransitionStatus(acknowledgedItem, It.IsAny<ItemTransition>()), Times.Never);
+			Orders.Verify(r => r.TransitionStatus(It.IsAny<ServiceOrder>(), OrderTransition.New_To_Acknowledged), Times.Once);
+		}
+
+		[TestMethod]
+		public void TransitionServiceOrder_Reject_RejectsItemsAndRetiresTerminatedService()
+		{
+			var service = new Service { Identifier = Guid.NewGuid().ToString(), Name = "S" };
+			SetStatus(service, ServiceStatus.Terminated);
+			StoredServices.Add(service);
+			var linkedItem = AddItem("Acknowledged");
+			linkedItem.ServiceInfo.ServiceId = new Skyline.DataMiner.SDM.SdmObjectReference<Service>(service.Identifier);
+			var newItem = AddItem("New");
+			AddOrder("Acknowledged", linkedItem, newItem);
+
+			var result = Controller.TransitionServiceOrder(OrderId, new TransitionServiceOrderRequest { TargetStatus = "rejected", CancellationInfo = new CancellationInfoRequest { Reason = "r" } });
+
+			Assert.AreEqual(200, StatusCode(result));
+			Items.Verify(r => r.TransitionStatus(linkedItem, ItemTransition.Acknowledged_To_Rejected), Times.Once);
+			Items.Verify(r => r.TransitionStatus(newItem, ItemTransition.New_To_Rejected), Times.Once);
+			Services.Verify(r => r.TransitionStatus(service, ServiceTransition.Terminated_To_Retired), Times.Once);
+			Orders.Verify(r => r.TransitionStatus(It.IsAny<ServiceOrder>(), OrderTransition.Acknowledged_To_Rejected), Times.Once);
+		}
+
+		[TestMethod]
+		public void TransitionServiceOrder_Start_StartsItemsAndInitializesServices()
+		{
+			var item = AddItem("Acknowledged");
+			item.ServiceInfo.SpecificationId = new Skyline.DataMiner.SDM.SdmObjectReference<ServiceSpecification>(AddSpecification().ToString());
+			AddOrder("Acknowledged", item);
+
+			Assert.AreEqual(200, StatusCode(Controller.TransitionServiceOrder(OrderId, new TransitionServiceOrderRequest { TargetStatus = "inProgress" })));
+
+			Items.Verify(r => r.TransitionStatus(item, ItemTransition.Acknowledged_To_Inprogress), Times.Once);
+			Assert.AreEqual(1, StoredServices.Count);
+			Assert.AreEqual(StoredServices[0].Identifier, item.ServiceInfo.ServiceId.Identifier);
+			Orders.Verify(r => r.TransitionStatus(It.IsAny<ServiceOrder>(), OrderTransition.Acknowledged_To_Inprogress), Times.Once);
+		}
+
+		[TestMethod]
+		public void TransitionServiceOrder_StartWithEmptyMandatoryValue_Returns409NamingItemAndParameter()
+		{
+			var item = AddItem("Acknowledged");
+			item.ServiceInfo.SpecificationId = new Skyline.DataMiner.SDM.SdmObjectReference<ServiceSpecification>(AddSpecification().ToString());
+			AddOrder("Acknowledged", item);
+			AddEmptyMandatoryItemConfiguration(item, "Bitrate");
+
+			var result = Controller.TransitionServiceOrder(OrderId, new TransitionServiceOrderRequest { TargetStatus = "inProgress" });
+
+			Assert.AreEqual(409, StatusCode(result));
+			StringAssert.Contains(ErrorDetail(result), "(Bitrate)");
+			Items.Verify(r => r.TransitionStatus(It.IsAny<ServiceOrderItem>(), It.IsAny<ItemTransition>()), Times.Never);
+			Assert.AreEqual(0, StoredServices.Count);
+		}
+
+		[TestMethod]
+		public void TransitionServiceOrder_StartWithServiceMandatoryEmptyValue_Returns409NamingItemAndParameter()
+		{
+			var item = AddItem("Acknowledged");
+			var specification = AddSpecification();
+			item.ServiceInfo.SpecificationId = new Skyline.DataMiner.SDM.SdmObjectReference<ServiceSpecification>(specification.ToString());
+			AddOrder("Acknowledged", item);
+
+			var parameter = new Cfg.ConfigurationParameter { Identifier = Guid.NewGuid().ToString(), Name = "Bitrate" };
+			var value = new Cfg.ConfigurationParameterValue
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				ConfigurationParameterId = new Skyline.DataMiner.SDM.SdmObjectReference<Cfg.ConfigurationParameter>(parameter.Identifier),
+			};
+			var specificationConfiguration = new ServiceSpecificationConfigurationValue
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				ConfigurationParameterId = new Skyline.DataMiner.SDM.SdmObjectReference<Cfg.ConfigurationParameter>(parameter.Identifier),
+				MandatoryAtService = true,
+			};
+			var itemConfiguration = new ServiceOrderItemConfigurationValue
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				ConfigurationParameterValueId = new Skyline.DataMiner.SDM.SdmObjectReference<Cfg.ConfigurationParameterValue>(value.Identifier),
+				Mandatory = false,
+			};
+			StoredSpecifications.Single(candidate => candidate.Identifier == specification.ToString()).ConfigurationParameters =
+				new List<Skyline.DataMiner.SDM.SdmObjectReference<ServiceSpecificationConfigurationValue>>
+				{
+					new Skyline.DataMiner.SDM.SdmObjectReference<ServiceSpecificationConfigurationValue>(specificationConfiguration.Identifier),
+				};
+			item.ServiceInfo.Configurations = new List<Skyline.DataMiner.SDM.SdmObjectReference<ServiceOrderItemConfigurationValue>>
+			{
+				new Skyline.DataMiner.SDM.SdmObjectReference<ServiceOrderItemConfigurationValue>(itemConfiguration.Identifier),
+			};
+
+			Mock.Get(Helper.ServiceCatalog).SetupGet(api => api.ServiceSpecificationConfigurationValues)
+				.Returns(InitializationRepository(new List<ServiceSpecificationConfigurationValue> { specificationConfiguration }).Object);
+			Mock.Get(Helper.ServiceCatalog).SetupGet(api => api.ConfigurationParameters)
+				.Returns(InitializationRepository(new List<Cfg.ConfigurationParameter> { parameter }).Object);
+			Mock.Get(Helper.ServiceCatalog).SetupGet(api => api.ConfigurationParameterValues)
+				.Returns(InitializationRepository(new List<Cfg.ConfigurationParameterValue> { value }).Object);
+			Mock.Get(Helper.ServiceOrder).SetupGet(api => api.ServiceOrderItemConfigurationValues)
+				.Returns(InitializationRepository(new List<ServiceOrderItemConfigurationValue> { itemConfiguration }).Object);
+
+			var result = Controller.TransitionServiceOrder(OrderId, new TransitionServiceOrderRequest { TargetStatus = "inProgress" });
+
+			Assert.AreEqual(409, StatusCode(result));
+			StringAssert.Contains(ErrorDetail(result), "(Bitrate)");
+			Items.Verify(r => r.TransitionStatus(It.IsAny<ServiceOrderItem>(), It.IsAny<ItemTransition>()), Times.Never);
+			Assert.AreEqual(0, StoredServices.Count);
+		}
+
+		[TestMethod]
+		public void TransitionServiceOrder_StartWithServiceMandatoryDefaultNotOnItem_StartsAndCopiesDefault()
+		{
+			var item = AddItem("Acknowledged");
+			var specification = AddSpecification();
+			item.ServiceInfo.SpecificationId = new Skyline.DataMiner.SDM.SdmObjectReference<ServiceSpecification>(specification.ToString());
+			AddOrder("Acknowledged", item);
+
+			var parameter = new Cfg.ConfigurationParameter { Identifier = Guid.NewGuid().ToString(), Name = "Protocol" };
+			var defaultValue = new Cfg.ConfigurationParameterValue
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				ConfigurationParameterId = new Skyline.DataMiner.SDM.SdmObjectReference<Cfg.ConfigurationParameter>(parameter.Identifier),
+				StringValue = "SRT",
+			};
+			var specificationConfiguration = new ServiceSpecificationConfigurationValue
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				ConfigurationParameterId = new Skyline.DataMiner.SDM.SdmObjectReference<Cfg.ConfigurationParameter>(defaultValue.Identifier),
+				MandatoryAtService = true,
+			};
+			StoredSpecifications.Single(candidate => candidate.Identifier == specification.ToString()).ConfigurationParameters =
+				new List<Skyline.DataMiner.SDM.SdmObjectReference<ServiceSpecificationConfigurationValue>>
+				{
+					new Skyline.DataMiner.SDM.SdmObjectReference<ServiceSpecificationConfigurationValue>(specificationConfiguration.Identifier),
+				};
+
+			var parameterValues = new List<Cfg.ConfigurationParameterValue> { defaultValue };
+			var configurations = new List<ServiceConfigurationValue>();
+			Mock.Get(Helper.ServiceCatalog).SetupGet(api => api.ServiceSpecificationConfigurationValues)
+				.Returns(InitializationRepository(new List<ServiceSpecificationConfigurationValue> { specificationConfiguration }).Object);
+			Mock.Get(Helper.ServiceCatalog).SetupGet(api => api.ConfigurationParameters)
+				.Returns(InitializationRepository(new List<Cfg.ConfigurationParameter> { parameter }).Object);
+			Mock.Get(Helper.ServiceCatalog).SetupGet(api => api.ConfigurationParameterValues)
+				.Returns(InitializationRepository(parameterValues).Object);
+			Mock.Get(Helper.ServiceOrder).SetupGet(api => api.ServiceOrderItemConfigurationValues)
+				.Returns(InitializationRepository(new List<ServiceOrderItemConfigurationValue>()).Object);
+			Mock.Get(Helper.ServiceInventory).SetupGet(api => api.ServiceConfigurationValues).Returns(InitializationRepository(configurations).Object);
+			Mock.Get(Helper.ServiceInventory).SetupGet(api => api.ServiceConfigurationVersions)
+				.Returns(InitializationRepository(new List<ServiceConfigurationVersion>()).Object);
+
+			var result = Controller.TransitionServiceOrder(OrderId, new TransitionServiceOrderRequest { TargetStatus = "inProgress" });
+
+			Assert.AreEqual(200, StatusCode(result));
+			Assert.AreEqual(1, StoredServices.Count);
+			var copied = configurations.Single();
+			Assert.IsTrue(copied.Mandatory);
+			var copiedValue = parameterValues.Single(value => value.Identifier == copied.ConfigurationParameterId.Identifier);
+			Assert.AreNotEqual(defaultValue.Identifier, copiedValue.Identifier);
+			Assert.AreEqual("SRT", copiedValue.StringValue);
+		}
+
+		[TestMethod]
+		public void TransitionServiceOrder_StartWithEmptyOptionalRepeatedInstance_Starts()
+		{
+			var scenario = SetupRepeatedSpecificationScenario(
+				"Acknowledged",
+				"Acknowledged",
+				mainSpecificationHasDefault: true,
+				mainItemPresent: true,
+				mainItemHasValue: true,
+				backupItemHasValue: false);
+
+			var result = Controller.TransitionServiceOrder(OrderId, new TransitionServiceOrderRequest { TargetStatus = "inProgress" });
+
+			Assert.AreEqual(200, StatusCode(result));
+			Assert.AreEqual(1, StoredServices.Count);
+			Assert.AreEqual(1, scenario.Versions.Count);
+		}
+
+		[TestMethod]
+		public void TransitionServiceOrder_StartWithMissingMandatoryRepeatedInstanceIsNotMaskedByOptionalSibling()
+		{
+			var scenario = SetupRepeatedSpecificationScenario(
+				"Acknowledged",
+				"Acknowledged",
+				mainSpecificationHasDefault: false,
+				mainItemPresent: false,
+				mainItemHasValue: false,
+				backupItemHasValue: true);
+
+			var result = Controller.TransitionServiceOrder(OrderId, new TransitionServiceOrderRequest { TargetStatus = "inProgress" });
+
+			Assert.AreEqual(409, StatusCode(result));
+			StringAssert.Contains(ErrorDetail(result), "(Transport)");
+			Items.Verify(r => r.TransitionStatus(It.IsAny<ServiceOrderItem>(), It.IsAny<ItemTransition>()), Times.Never);
+			Assert.AreEqual(0, StoredServices.Count);
+		}
+
+		[DataTestMethod]
+		[DataRow("New", "Rejected", "acknowledged", "")]
+		[DataRow("Acknowledged", "Acknowledged", "rejected", "Active")]
+		[DataRow("Acknowledged", "Acknowledged", "inProgress", "")]
+		[DataRow("InProgress", "InProgress", "completed", "")]
+		[DataRow("PendingCancellation", "Completed", "cancelled", "")]
+		public void TransitionServiceOrder_ItemsBlockTransition_Returns409WithoutChanges(string orderStatus, string itemStatus, string target, string linkedServiceStatus)
+		{
+			var item = AddItem(itemStatus);
+			if (!String.IsNullOrEmpty(linkedServiceStatus))
+			{
+				var service = new Service { Identifier = Guid.NewGuid().ToString(), Name = "S" };
+				SetStatus(service, Enum.Parse(typeof(ServiceStatus), linkedServiceStatus));
+				StoredServices.Add(service);
+				item.ServiceInfo.ServiceId = new Skyline.DataMiner.SDM.SdmObjectReference<Service>(service.Identifier);
+			}
+
+			AddOrder(orderStatus, item);
+
+			var result = Controller.TransitionServiceOrder(OrderId, new TransitionServiceOrderRequest { TargetStatus = target, CancellationInfo = new CancellationInfoRequest { Reason = "r" } });
+
+			Assert.AreEqual(409, StatusCode(result));
+			Items.Verify(r => r.TransitionStatus(It.IsAny<ServiceOrderItem>(), It.IsAny<ItemTransition>()), Times.Never);
+			Orders.Verify(r => r.TransitionStatus(It.IsAny<ServiceOrder>(), It.IsAny<OrderTransition>()), Times.Never);
+			Orders.Verify(r => r.Update(It.IsAny<ServiceOrder>()), Times.Never);
 		}
 
 		private static DMSMessage RespondWith(DMSMessage request, List<DomInstance> instances)

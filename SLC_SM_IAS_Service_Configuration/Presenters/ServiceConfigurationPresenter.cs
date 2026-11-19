@@ -1114,72 +1114,11 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 				view.ConfigurationVersions.Selected = configuration.ServiceConfigurationVersion;
 			}
 
-			var selectedConfiguration = this.view.ConfigurationVersions.Selected;
-			bool isPersistedSelection = this.IsPersistedConfigurationVersion(selectedConfiguration);
-
-			this.view.BtnCopyConfiguration.IsVisible = isPersistedSelection;
-			this.view.BtnDeleteConfiguration.IsVisible = isPersistedSelection
-				&& !string.Equals(this.instanceService.ServiceConfigurationId.Identifier, selectedConfiguration.Identifier, StringComparison.OrdinalIgnoreCase);
-		}
-
-		private bool IsPersistedConfigurationVersion(ServiceConfigurationVersion selectedConfiguration)
-		{
-			return selectedConfiguration != null
-				&& !string.IsNullOrWhiteSpace(selectedConfiguration.Identifier)
-				&& instanceService.ConfigurationVersions != null
-				&& instanceService.ConfigurationVersions.Any(reference => reference != null
-					&& string.Equals(reference.Identifier, selectedConfiguration.Identifier, StringComparison.OrdinalIgnoreCase));
-		}
-
-		private void DeleteSelectedConfiguration()
-		{
 			var selectedConfiguration = view.ConfigurationVersions.Selected;
-			if (!IsPersistedConfigurationVersion(selectedConfiguration)
-				|| string.Equals(instanceService.ServiceConfigurationId.Identifier, selectedConfiguration.Identifier, StringComparison.OrdinalIgnoreCase))
-			{
-				return;
-			}
-
-			string selectedIdentifier = selectedConfiguration.Identifier;
-			sdmHelper.ServiceInventory.ServiceConfigurationVersions.Delete(selectedConfiguration);
-
-			EnsureServiceCollections();
-			instanceService.ConfigurationVersions.RemoveAll(reference => reference != null
-				&& string.Equals(reference.Identifier, selectedIdentifier, StringComparison.OrdinalIgnoreCase));
-			serviceConfigurationVersionsById.Remove(selectedIdentifier);
-			sdmHelper.ServiceInventory.Services.CreateOrUpdate(new[] { instanceService });
-
-			string deletedVersionName = selectedConfiguration.VersionName ?? selectedIdentifier;
-			string deletionLog = ServiceManagementLogHelper.GenerateLogMessage(
-				instanceService.ServiceID,
-				"Edit",
-				$"Deleted configuration version '{deletedVersionName}'");
-			serviceManagementLogHelper.LogInfo(new List<string> { deletionLog });
-			serviceEditLogs.Clear();
-
-			var nextConfiguration = GetNextPersistedConfigurationVersion();
-			configuration = nextConfiguration == null
-				? BuildConfigurationDataRecord(CreateNewServiceConfigurationVersion(), State.Create)
-				: BuildConfigurationDataRecord(nextConfiguration);
-
-			BuildUI(showDetails);
-		}
-
-		private ServiceConfigurationVersion GetNextPersistedConfigurationVersion()
-		{
-			string activeConfigurationId = instanceService.ServiceConfigurationId.Identifier;
-			if (!string.IsNullOrWhiteSpace(activeConfigurationId)
-				&& instanceService.ConfigurationVersions.Any(reference => reference != null
-					&& string.Equals(reference.Identifier, activeConfigurationId, StringComparison.OrdinalIgnoreCase))
-				&& serviceConfigurationVersionsById.TryGetValue(activeConfigurationId, out var activeConfiguration))
-			{
-				return activeConfiguration;
-			}
-
-			return instanceService.ConfigurationVersions
-				.Where(reference => reference != null && !string.IsNullOrWhiteSpace(reference.Identifier))
-				.Select(reference => GetValue(serviceConfigurationVersionsById, reference.Identifier))
-				.FirstOrDefault(version => version != null);
+			bool isPersistedSelection = IsPersistedConfigurationVersion(selectedConfiguration);
+			view.BtnCopyConfiguration.IsVisible = isPersistedSelection;
+			view.BtnDeleteConfiguration.IsVisible = isPersistedSelection
+				&& !String.Equals(instanceService.ServiceConfigurationId.Identifier, selectedConfiguration.Identifier, StringComparison.OrdinalIgnoreCase);
 		}
 
 		private int BuildGeneralSettingsUI(int row)
@@ -3060,6 +2999,64 @@ namespace SLC_SM_IAS_Service_Configuration.Presenters
 			{
 				TrackNewObjects(profileParameter);
 			}
+		}
+
+		private bool IsPersistedConfigurationVersion(ServiceConfigurationVersion selectedConfiguration)
+		{
+			return selectedConfiguration != null
+				&& !String.IsNullOrWhiteSpace(selectedConfiguration.Identifier)
+				&& instanceService.ConfigurationVersions != null
+				&& instanceService.ConfigurationVersions.Any(reference => reference != null
+					&& String.Equals(reference.Identifier, selectedConfiguration.Identifier, StringComparison.OrdinalIgnoreCase));
+		}
+
+		private void DeleteSelectedConfiguration()
+		{
+			var selectedConfiguration = view.ConfigurationVersions.Selected;
+			if (!IsPersistedConfigurationVersion(selectedConfiguration)
+				|| String.Equals(instanceService.ServiceConfigurationId.Identifier, selectedConfiguration.Identifier, StringComparison.OrdinalIgnoreCase))
+			{
+				return;
+			}
+
+			string selectedIdentifier = selectedConfiguration.Identifier;
+			sdmHelper.ServiceInventory.ServiceConfigurationVersions.Delete(selectedConfiguration);
+			EnsureServiceCollections();
+			instanceService.ConfigurationVersions.RemoveAll(reference => reference != null
+				&& String.Equals(reference.Identifier, selectedIdentifier, StringComparison.OrdinalIgnoreCase));
+			serviceConfigurationVersionsById.Remove(selectedIdentifier);
+			sdmHelper.ServiceInventory.Services.CreateOrUpdate(new[] { instanceService });
+
+			string deletionLog = ServiceManagementLogHelper.GenerateLogMessage(
+				instanceService.ServiceID,
+				"Edit",
+				$"Deleted configuration version '{selectedConfiguration.VersionName ?? selectedIdentifier}'");
+			serviceManagementLogHelper.LogInfo(new List<string> { deletionLog });
+			serviceEditLogs.Clear();
+
+			var nextConfiguration = GetNextPersistedConfigurationVersion();
+			configuration = nextConfiguration == null
+				? BuildConfigurationDataRecord(CreateNewServiceConfigurationVersion(), State.Create)
+				: BuildConfigurationDataRecord(nextConfiguration);
+
+			BuildUI(showDetails);
+		}
+
+		private ServiceConfigurationVersion GetNextPersistedConfigurationVersion()
+		{
+			string activeConfigurationId = instanceService.ServiceConfigurationId.Identifier;
+			if (!String.IsNullOrWhiteSpace(activeConfigurationId)
+				&& instanceService.ConfigurationVersions.Any(reference => reference != null
+					&& String.Equals(reference.Identifier, activeConfigurationId, StringComparison.OrdinalIgnoreCase))
+				&& serviceConfigurationVersionsById.TryGetValue(activeConfigurationId, out var activeConfiguration))
+			{
+				return activeConfiguration;
+			}
+
+			return instanceService.ConfigurationVersions
+				.Where(reference => reference != null && !String.IsNullOrWhiteSpace(reference.Identifier))
+				.Select(reference => GetValue(serviceConfigurationVersionsById, reference.Identifier))
+				.FirstOrDefault(version => version != null);
 		}
 
 		private sealed class ScriptContext

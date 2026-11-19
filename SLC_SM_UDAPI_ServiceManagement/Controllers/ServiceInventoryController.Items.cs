@@ -3,6 +3,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 	using System;
 	using System.Collections.Generic;
 	using System.Linq;
+	using Library.Dom;
 	using Microsoft.Extensions.Logging;
 	using Newtonsoft.Json;
 	using Newtonsoft.Json.Linq;
@@ -48,7 +49,9 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 				}
 
 				string label = RequireLabel(request.Label);
-				var items = service.ServiceItems ?? new List<ServiceItem>();
+				var items = (service.ServiceItems ?? new List<ServiceItem>())
+					.Where(candidate => !ServiceSpecificationExtensions.IsServiceItemPlaceholder(candidate))
+					.ToList();
 				if (IsLabelInUse(items, label, null))
 				{
 					return Conflict(CreateError("Conflict", $"A service item with label '{label}' already exists.", 409));
@@ -118,6 +121,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 					return Conflict(CreateError("Conflict", $"Service item '{item.Label}' cannot be deleted because it is still linked.", 409));
 				}
 
+				itemImplementations.Unlink(item);
 				service.ServiceItems.Remove(item);
 
 				string key = item.ServiceItemID.ToString();
@@ -134,13 +138,38 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 		}
 
 		/// <summary>
+		/// Lists the available workflows, SRM booking managers, active bookings and booking scripts for adding or editing a service item.
+		/// </summary>
+		/// <remarks>
+		/// <c>GET service-management/v1/service/itemOptions</c>.
+		/// </remarks>
+		/// <returns>200 with the service item reference options; 500 on an unexpected error.</returns>
+		[HttpGet("itemOptions")]
+		public IApiResult GetServiceItemOptions()
+		{
+			_logger.LogInformation("GetServiceItemOptions called");
+
+			try
+			{
+				return Ok(itemImplementations.GetOptions() ?? new ServiceItemOptionsResponse());
+			}
+			catch (Exception ex)
+			{
+				_logger.LogError(ex, "GetServiceItemOptions failed: {Message}", ex.Message);
+				return InternalServerError(CreateError("Internal server error", "An unexpected error occurred while retrieving the service item options.", 500));
+			}
+		}
+
+		/// <summary>
 		/// Lists the items of a service.
 		/// </summary>
 		/// <remarks>
 		/// <para><c>GET service-management/v1/service/{id}/item</c>. Items are sorted by ID.</para>
 		/// <para>
-		/// Adds <c>ImplementationName</c>, <c>ImplementationState</c> and <c>MonitoringServiceState</c>: the referenced service, the
-		/// MediaOps job or the SRM booking and its service state. Fields that cannot be resolved are empty.
+		/// Adds <c>ImplementationName</c>, <c>ImplementationState</c>, <c>MonitoringServiceState</c>, <c>MonitoringServiceId</c>
+		/// (<c>DMA ID/SID</c>), <c>BookingUrl</c> (the booking manager's <c>App Link</c> property) and <c>BookingLogUrl</c>
+		/// (<c>{Booking Log Location}/{booking name}.html</c>): the referenced service, the
+		/// MediaOps job or the SRM booking and its service. Fields that cannot be resolved are empty.
 		/// </para>
 		/// </remarks>
 		/// <param name="id">The service ID.</param>
@@ -159,7 +188,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 				}
 
 				var items = (service.ServiceItems ?? new List<ServiceItem>())
-					.Where(item => item != null)
+					.Where(item => !ServiceSpecificationExtensions.IsServiceItemPlaceholder(item))
 					.OrderBy(item => item.ServiceItemID)
 					.ToList();
 				var serviceNames = ReadLinkedServiceNames(items);
@@ -361,6 +390,9 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 			result["ImplementationName"] = implementation?.Name ?? String.Empty;
 			result["ImplementationState"] = implementation?.State ?? String.Empty;
 			result["MonitoringServiceState"] = implementation?.MonitoringServiceState ?? String.Empty;
+			result["MonitoringServiceId"] = implementation?.MonitoringServiceId ?? String.Empty;
+			result["BookingUrl"] = implementation?.BookingUrl ?? String.Empty;
+			result["BookingLogUrl"] = implementation?.BookingLogUrl ?? String.Empty;
 			return result;
 		}
 	}

@@ -1,4 +1,4 @@
-﻿namespace SLC_SM_UDAPI_ServiceManagement.Tests.Controllers
+namespace SLC_SM_UDAPI_ServiceManagement.Tests.Controllers
 {
 	using System.Collections.Generic;
 	using Moq;
@@ -28,208 +28,22 @@
 			service.ServiceConfigurationId = new SdmObjectReference<ServiceConfigurationVersion>(Guid.NewGuid().ToString());
 		}
 
-		// ---- GET /service/{id}/configurationVersion ----
+		// ---- GET /service/{id}/configuration ----
 		[TestMethod]
-		public void ListConfigurationVersions_SortsNewestStartDateFirstAndUndatedLast()
+		public void GetConfiguration_ByInstanceId_ReturnsSelectedServiceWhenPublicIdIsDuplicated()
 		{
-			AddVersion(service, "undated");
-			AddVersion(service, "old", new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc));
-			AddVersion(service, "new", new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+			var wrongService = AddService("Other service with same public ID");
+			StoredServices.Remove(wrongService);
+			StoredServices.Insert(0, wrongService);
+			var version = AddVersion(service, "From order item");
+			service.ServiceConfigurationId = new SdmObjectReference<ServiceConfigurationVersion>(version.Identifier);
 
-			var result = Controller.ListConfigurationVersions(service.ServiceID);
+			var result = Controller.GetServiceConfiguration(service.Identifier);
 
 			Assert.AreEqual(200, StatusCode(result));
-			var names = Value<List<FullServiceConfigurationVersion>>(result).Select(v => v.VersionName).ToArray();
-			CollectionAssert.AreEqual(new[] { "new", "old", "undated" }, names);
-		}
-
-		[TestMethod]
-		public void ListConfigurationVersions_IncludesActiveVersionNotInList()
-		{
-			var active = new ServiceConfigurationVersion { Identifier = Guid.NewGuid().ToString(), VersionName = "active" };
-			StoredVersions.Add(active);
-			service.ServiceConfigurationId = new SdmObjectReference<ServiceConfigurationVersion>(active.Identifier);
-
-			var versions = Value<List<FullServiceConfigurationVersion>>(Controller.ListConfigurationVersions(service.ServiceID));
-
-			Assert.AreEqual(1, versions.Count);
-			Assert.AreEqual("active", versions[0].VersionName);
-		}
-
-		[TestMethod]
-		public void ListConfigurationVersions_NoVersions_ReturnsEmptyList()
-		{
-			var versions = Value<List<FullServiceConfigurationVersion>>(Controller.ListConfigurationVersions(service.ServiceID));
-			Assert.AreEqual(0, versions.Count);
-		}
-
-		[TestMethod]
-		public void ListConfigurationVersions_Unknown_Returns404()
-		{
-			Assert.AreEqual(404, StatusCode(Controller.ListConfigurationVersions("SERVICE-00404")));
-		}
-
-		// ---- GET /service/{id}/configurationVersion/{versionId} ----
-		[TestMethod]
-		public void GetConfigurationVersion_Existing_Returns200()
-		{
-			var version = AddVersion(service, "v1");
-			var result = Controller.GetConfigurationVersion(service.ServiceID, version.Identifier);
-			Assert.AreEqual(200, StatusCode(result));
-			Assert.AreEqual("v1", Value<FullServiceConfigurationVersion>(result).VersionName);
-		}
-
-		[DataTestMethod]
-		[DataRow(null)]
-		[DataRow("not-a-guid")]
-		public void GetConfigurationVersion_InvalidVersionId_Returns404(string versionId)
-		{
-			Assert.AreEqual(404, StatusCode(Controller.GetConfigurationVersion(service.ServiceID, versionId)));
-		}
-
-		[TestMethod]
-		public void GetConfigurationVersion_VersionOfOtherService_Returns404()
-		{
-			var other = AddService("Other", number: 2);
-			var version = AddVersion(other, "foreign");
-			Assert.AreEqual(404, StatusCode(Controller.GetConfigurationVersion(service.ServiceID, version.Identifier)));
-		}
-
-		[TestMethod]
-		public void GetConfigurationVersion_UnknownService_Returns404()
-		{
-			Assert.AreEqual(404, StatusCode(Controller.GetConfigurationVersion("SERVICE-00404", Guid.NewGuid().ToString())));
-		}
-
-		// ---- POST /service/{id}/configurationVersion ----
-		[TestMethod]
-		public void CreateConfigurationVersion_WithParameter_StoresRecordsAndReturns201()
-		{
-			var parameter = AddParameter("Bitrate", ParameterType.Number);
-			var request = new CreateConfigurationVersionRequest
-			{
-				VersionName = " v2 ",
-				Parameters = new List<ServiceConfigurationValueRequest>
-				{
-					new ServiceConfigurationValueRequest
-					{
-						Mandatory = true,
-						ConfigurationParameter = new ConfigurationParameterValueRequest { ConfigurationParameterId = Guid.Parse(parameter.Identifier), DoubleValue = 10 },
-					},
-				},
-			};
-
-			var result = Controller.CreateConfigurationVersion(service.ServiceID, request);
-
-			Assert.AreEqual(201, StatusCode(result));
-			Assert.AreEqual(1, StoredParameterValues.Count);
-			Assert.AreEqual(10, StoredParameterValues[0].DoubleValue);
-			Assert.AreEqual("Bitrate", StoredParameterValues[0].Label);
-			Assert.AreEqual(1, StoredConfigurationValues.Count);
-			Assert.AreEqual("v2", StoredVersions.Single().VersionName);
-			Assert.AreEqual(1, service.ConfigurationVersions.Count);
-			Assert.AreNotEqual(StoredVersions.Single().Identifier, service.ServiceConfigurationId.Identifier);
-		}
-
-		[TestMethod]
-		public void CreateConfigurationVersion_Activate_SetsActiveVersion()
-		{
-			var result = Controller.CreateConfigurationVersion(service.ServiceID, new CreateConfigurationVersionRequest(), activate: true);
-
-			Assert.AreEqual(201, StatusCode(result));
-			Assert.AreEqual("New Version", StoredVersions.Single().VersionName);
-			Assert.AreEqual(StoredVersions.Single().Identifier, service.ServiceConfigurationId.Identifier);
-		}
-
-		[TestMethod]
-		public void CreateConfigurationVersion_WithProfile_LinksExistingProfile()
-		{
-			var definition = new Cfg.ProfileDefinition { Identifier = Guid.NewGuid().ToString() };
-			var profile = new Cfg.Profile { Identifier = Guid.NewGuid().ToString() };
-			StoredProfileDefinitions.Add(definition);
-			StoredProfiles.Add(profile);
-
-			var request = new CreateConfigurationVersionRequest
-			{
-				Profiles = new List<ServiceProfileRequest>
-				{
-					new ServiceProfileRequest { ProfileDefinitionId = Guid.Parse(definition.Identifier), ProfileId = Guid.Parse(profile.Identifier) },
-				},
-			};
-
-			Assert.AreEqual(201, StatusCode(Controller.CreateConfigurationVersion(service.ServiceID, request)));
-			Assert.AreEqual(profile.Identifier, StoredServiceProfiles.Single().ProfileId.Identifier);
-		}
-
-		[TestMethod]
-		public void CreateConfigurationVersion_Unknown_Returns404()
-		{
-			Assert.AreEqual(404, StatusCode(Controller.CreateConfigurationVersion("SERVICE-00404", new CreateConfigurationVersionRequest())));
-		}
-
-		[TestMethod]
-		public void CreateConfigurationVersion_NullBody_Returns400()
-		{
-			Assert.AreEqual(400, StatusCode(Controller.CreateConfigurationVersion(service.ServiceID, null)));
-		}
-
-		[TestMethod]
-		public void CreateConfigurationVersion_EndBeforeStart_Returns400()
-		{
-			var request = new CreateConfigurationVersionRequest { StartDate = DateTime.UtcNow, EndDate = DateTime.UtcNow.AddDays(-1) };
-			Assert.AreEqual(400, StatusCode(Controller.CreateConfigurationVersion(service.ServiceID, request)));
-		}
-
-		[TestMethod]
-		public void CreateConfigurationVersion_UnknownParameter_Returns400AndWritesNothing()
-		{
-			var request = ParameterRequest(new ConfigurationParameterValueRequest { ConfigurationParameterId = Guid.NewGuid(), StringValue = "x" });
-			Assert.AreEqual(400, StatusCode(Controller.CreateConfigurationVersion(service.ServiceID, request)));
-			AssertNothingWritten();
-		}
-
-		[TestMethod]
-		public void CreateConfigurationVersion_MissingParameterId_Returns400()
-		{
-			var request = ParameterRequest(new ConfigurationParameterValueRequest { StringValue = "x" });
-			Assert.AreEqual(400, StatusCode(Controller.CreateConfigurationVersion(service.ServiceID, request)));
-		}
-
-		[TestMethod]
-		public void CreateConfigurationVersion_MandatoryWithoutValue_Returns400AndWritesNothing()
-		{
-			var parameter = AddParameter("Name", ParameterType.Text);
-			var request = ParameterRequest(new ConfigurationParameterValueRequest { ConfigurationParameterId = Guid.Parse(parameter.Identifier) }, mandatory: true);
-			var result = Controller.CreateConfigurationVersion(service.ServiceID, request);
-			Assert.AreEqual(400, StatusCode(result));
-			StringAssert.Contains(ErrorDetail(result), "Mandatory");
-			AssertNothingWritten();
-		}
-
-		[TestMethod]
-		public void CreateConfigurationVersion_InvalidType_Returns400()
-		{
-			var parameter = AddParameter("Name", ParameterType.Text);
-			var request = ParameterRequest(new ConfigurationParameterValueRequest { ConfigurationParameterId = Guid.Parse(parameter.Identifier), Type = "bogus" });
-			Assert.AreEqual(400, StatusCode(Controller.CreateConfigurationVersion(service.ServiceID, request)));
-		}
-
-		[TestMethod]
-		public void CreateConfigurationVersion_UnknownProfile_Returns400()
-		{
-			var request = new CreateConfigurationVersionRequest
-			{
-				Profiles = new List<ServiceProfileRequest> { new ServiceProfileRequest { ProfileDefinitionId = Guid.NewGuid(), ProfileId = Guid.NewGuid() } },
-			};
-			Assert.AreEqual(400, StatusCode(Controller.CreateConfigurationVersion(service.ServiceID, request)));
-			AssertNothingWritten();
-		}
-
-		[TestMethod]
-		public void CreateConfigurationVersion_RepositoryThrows_Returns500()
-		{
-			Services.Setup(r => r.Update(It.IsAny<Service>())).Throws(new InvalidOperationException());
-			Assert.AreEqual(500, StatusCode(Controller.CreateConfigurationVersion(service.ServiceID, new CreateConfigurationVersionRequest())));
+			var rows = Value<List<ConfigurationRecord>>(result);
+			Assert.IsTrue(rows.Any(row => row.VersionId == version.Identifier && row.VersionName == "From order item"));
+			Assert.AreEqual(0, Value<List<ConfigurationRecord>>(Controller.GetServiceConfiguration(wrongService.Identifier)).Count(row => row.RecordType == "Version"));
 		}
 
 		[DataTestMethod]
@@ -271,6 +85,158 @@
 		}
 
 		[TestMethod]
+		public void SaveServiceConfiguration_TopLevelReusableProfile_LinksExistingProfileWithoutCopy()
+		{
+			var version = AddVersion(service, "v1");
+			var definition = new Cfg.ProfileDefinition { Identifier = Guid.NewGuid().ToString(), Name = "Transport" };
+			var reusable = new Cfg.Profile
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				Name = "Shared",
+				IsReusable = true,
+				ProfileDefinitionId = new SdmObjectReference<Cfg.ProfileDefinition>(definition.Identifier),
+			};
+			StoredProfileDefinitions.Add(definition);
+			StoredProfiles.Add(reusable);
+			var request = new ServiceConfigurationRequest
+			{
+				VersionId = version.Identifier,
+				VersionName = version.VersionName,
+				Profiles =
+				{
+					new ServiceConfigurationProfileRequest
+					{
+						Name = reusable.Name,
+						DefinitionId = definition.Identifier,
+						Reusable = true,
+						ReusableProfileId = reusable.Identifier,
+					},
+				},
+			};
+
+			var result = Controller.SaveServiceConfiguration(service.ServiceID, JObject.FromObject(request));
+
+			int statusCode = StatusCode(result);
+			Assert.AreEqual(200, statusCode, statusCode == 200 ? String.Empty : ErrorDetail(result));
+			Assert.AreEqual(1, StoredProfiles.Count);
+			Assert.AreEqual(1, StoredServiceProfiles.Count);
+			Assert.AreEqual(reusable.Identifier, StoredServiceProfiles[0].ProfileId.Identifier);
+			Assert.AreEqual(StoredServiceProfiles[0].Identifier, version.Profiles.Single().Identifier);
+		}
+
+		[TestMethod]
+		public void SaveServiceConfiguration_DuplicateTopLevelReusableProfiles_Returns400AndDoesNotCreateAssignments()
+		{
+			var version = AddVersion(service, "v1");
+			var definition = new Cfg.ProfileDefinition { Identifier = Guid.NewGuid().ToString(), Name = "Transport" };
+			var reusable = new Cfg.Profile
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				Name = "Shared",
+				IsReusable = true,
+				ProfileDefinitionId = new SdmObjectReference<Cfg.ProfileDefinition>(definition.Identifier),
+			};
+			StoredProfileDefinitions.Add(definition);
+			StoredProfiles.Add(reusable);
+			var request = new ServiceConfigurationRequest
+			{
+				VersionId = version.Identifier,
+				VersionName = version.VersionName,
+				Profiles =
+				{
+					new ServiceConfigurationProfileRequest { Name = "Shared 1", DefinitionId = definition.Identifier, Reusable = true, ReusableProfileId = reusable.Identifier },
+					new ServiceConfigurationProfileRequest { Name = "Shared 2", DefinitionId = definition.Identifier, Reusable = true, ReusableProfileId = reusable.Identifier },
+				},
+			};
+
+			var result = Controller.SaveServiceConfiguration(service.ServiceID, JObject.FromObject(request));
+
+			Assert.AreEqual(400, StatusCode(result));
+			StringAssert.Contains(ErrorDetail(result), "already assigned");
+			Assert.AreEqual(1, StoredProfiles.Count);
+			Assert.AreEqual(0, StoredServiceProfiles.Count);
+			Assert.AreEqual(0, version.Profiles.Count);
+		}
+
+		[TestMethod]
+		public void SaveServiceConfiguration_ExistingReusableAssignmentWithoutReusableProfileId_KeepsLink()
+		{
+			var version = AddVersion(service, "v1");
+			var reusable = AddReusableAssignment(version, out var definition, out var serviceProfile);
+			var request = new ServiceConfigurationRequest { VersionId = version.Identifier, VersionName = version.VersionName };
+			request.Profiles.Add(new ServiceConfigurationProfileRequest { Id = serviceProfile.Identifier, Name = reusable.Name, DefinitionId = definition.Identifier, Reusable = true });
+
+			var result = Controller.SaveServiceConfiguration(service.ServiceID, JObject.FromObject(request));
+
+			int statusCode = StatusCode(result);
+			Assert.AreEqual(200, statusCode, statusCode == 200 ? String.Empty : ErrorDetail(result));
+			Assert.AreEqual(reusable.Identifier, serviceProfile.ProfileId.Identifier);
+			Assert.AreEqual(1, StoredProfiles.Count);
+		}
+
+		[DataTestMethod]
+		[DataRow(false, DisplayName = "Top-level service profile assignment")]
+		[DataRow(true, DisplayName = "Nested reusable profile")]
+		public void SaveServiceConfiguration_LinkedReusableProfileSentAsPrivate_Returns400AndLeavesSharedProfileUntouched(bool nested)
+		{
+			var version = AddVersion(service, "v1");
+			var reusable = AddReusableAssignment(version, out var definition, out var serviceProfile);
+			var owned = new Cfg.Profile
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				Name = "Owned",
+				ProfileDefinitionId = new SdmObjectReference<Cfg.ProfileDefinition>(definition.Identifier),
+				Profiles = new List<SdmObjectReference<Cfg.Profile>> { new SdmObjectReference<Cfg.Profile>(reusable.Identifier) },
+			};
+			StoredProfiles.Add(owned);
+			if (nested)
+			{
+				serviceProfile.ProfileId = new SdmObjectReference<Cfg.Profile>(owned.Identifier);
+			}
+
+			var hijack = new ServiceConfigurationProfileRequest { Name = "Hijacked", DefinitionId = definition.Identifier };
+			var request = new ServiceConfigurationRequest { VersionId = version.Identifier, VersionName = version.VersionName };
+			if (nested)
+			{
+				hijack.Id = reusable.Identifier;
+				request.Profiles.Add(new ServiceConfigurationProfileRequest { Id = serviceProfile.Identifier, Name = owned.Name, DefinitionId = definition.Identifier, NestedProfiles = { hijack } });
+			}
+			else
+			{
+				hijack.Id = serviceProfile.Identifier;
+				request.Profiles.Add(hijack);
+			}
+
+			var result = Controller.SaveServiceConfiguration(service.ServiceID, JObject.FromObject(request));
+
+			Assert.AreEqual(400, StatusCode(result));
+			StringAssert.Contains(ErrorDetail(result), "cannot be saved as a private profile");
+			Assert.AreEqual("Shared", reusable.Name);
+			Assert.IsTrue(reusable.IsReusable);
+			Assert.AreEqual(2, StoredProfiles.Count);
+			Assert.AreEqual(nested ? owned.Identifier : reusable.Identifier, serviceProfile.ProfileId.Identifier);
+		}
+
+		private Cfg.Profile AddReusableAssignment(ServiceConfigurationVersion version, out Cfg.ProfileDefinition definition, out ServiceProfile serviceProfile)
+		{
+			definition = new Cfg.ProfileDefinition { Identifier = Guid.NewGuid().ToString(), Name = "Transport" };
+			var reusable = new Cfg.Profile
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				Name = "Shared",
+				IsReusable = true,
+				ProfileDefinitionId = new SdmObjectReference<Cfg.ProfileDefinition>(definition.Identifier),
+				Profiles = new List<SdmObjectReference<Cfg.Profile>>(),
+			};
+			StoredProfileDefinitions.Add(definition);
+			StoredProfiles.Add(reusable);
+			serviceProfile = new ServiceProfile { Identifier = Guid.NewGuid().ToString(), ProfileId = new SdmObjectReference<Cfg.Profile>(reusable.Identifier) };
+			StoredServiceProfiles.Add(serviceProfile);
+			version.Profiles.Add(new SdmObjectReference<ServiceProfile>(serviceProfile.Identifier));
+			return reusable;
+		}
+
+		[TestMethod]
 		public void SaveServiceConfiguration_RepositoryThrows_Returns500WithErrorReference()
 		{
 			Services.Setup(repository => repository.Update(It.IsAny<Service>()))
@@ -287,7 +253,76 @@
 			Assert.AreEqual(1, StoredVersions.Count, "A failed multi-write save may leave earlier records persisted.");
 		}
 
-		// ---- POST /service/{id}/configurationVersion/{versionId}/duplicate ----
+		[DataTestMethod]
+		[DataRow(false)]
+		[DataRow(true)]
+		public void SaveServiceConfiguration_VersionOfAnotherService_Returns400AndLeavesItUntouched(bool deleteVersion)
+		{
+			var otherService = AddService("Other", number: 2);
+			var foreignVersion = AddVersion(otherService, "Theirs");
+
+			var result = Controller.SaveServiceConfiguration(
+				service.ServiceID,
+				JObject.FromObject(new ServiceConfigurationRequest { VersionId = foreignVersion.Identifier, VersionName = "Hijacked", DeleteVersion = deleteVersion }));
+
+			Assert.AreEqual(400, StatusCode(result));
+			Assert.AreEqual("Theirs", foreignVersion.VersionName);
+			var versions = Mock.Get(ApiHelper.Object.ServiceInventory.ServiceConfigurationVersions);
+			versions.Verify(repository => repository.Delete(It.IsAny<ServiceConfigurationVersion>()), Times.Never);
+			versions.Verify(repository => repository.CreateOrUpdate(It.IsAny<IEnumerable<ServiceConfigurationVersion>>()), Times.Never);
+			Services.Verify(repository => repository.Update(It.IsAny<Service>()), Times.Never);
+		}
+
+		[TestMethod]
+		public void SaveServiceConfiguration_UnfilteredProfileReadIsTruncated_AcceptsOwnedProfileParameter()
+		{
+			var version = AddVersion(service, "v1");
+			service.ServiceConfigurationId = new SdmObjectReference<ServiceConfigurationVersion>(version.Identifier);
+			var parameter = AddParameter("Channel Name", ParameterType.Text);
+			var value = AddParameterValue("Welcome");
+			value.ConfigurationParameterId = new SdmObjectReference<Cfg.ConfigurationParameter>(parameter.Identifier);
+			var definitionId = Guid.NewGuid().ToString();
+			StoredProfileDefinitions.Add(new Cfg.ProfileDefinition { Identifier = definitionId, Name = "Basic" });
+			var profile = new Cfg.Profile
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				Name = "Basic (1)",
+				ProfileDefinitionId = new SdmObjectReference<Cfg.ProfileDefinition>(definitionId),
+				ConfigurationParameterValues = new List<SdmObjectReference<Cfg.ConfigurationParameterValue>> { new SdmObjectReference<Cfg.ConfigurationParameterValue>(value.Identifier) },
+			};
+			StoredProfiles.Add(profile);
+			var serviceProfile = new ServiceProfile
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				ProfileId = new SdmObjectReference<Cfg.Profile>(profile.Identifier),
+				ProfileDefinitionId = new SdmObjectReference<Cfg.ProfileDefinition>(definitionId),
+			};
+			StoredServiceProfiles.Add(serviceProfile);
+			version.Profiles.Add(new SdmObjectReference<ServiceProfile>(serviceProfile.Identifier));
+
+			// On large systems an unfiltered read does not return every profile.
+			Mock.Get(Catalog.Object.Profiles)
+				.Setup(r => r.Read(It.Is<FilterElement<Cfg.Profile>>(f => f is TRUEFilterElement<Cfg.Profile>)))
+				.Returns(new List<Cfg.Profile>());
+
+			var request = new ServiceConfigurationRequest { VersionId = version.Identifier, VersionName = version.VersionName };
+			request.Profiles.Add(new ServiceConfigurationProfileRequest
+			{
+				Id = serviceProfile.Identifier,
+				DefinitionId = definitionId,
+				Parameters = new List<ServiceConfigurationParameterRequest>
+				{
+					new ServiceConfigurationParameterRequest { ParameterId = parameter.Identifier, ParameterValueId = value.Identifier, Value = "Welcome 2" },
+				},
+			});
+
+			var result = Controller.SaveServiceConfiguration(service.ServiceID, JObject.FromObject(request));
+
+			Assert.AreEqual(200, StatusCode(result), StatusCode(result) == 200 ? String.Empty : ErrorDetail(result));
+			Assert.AreEqual("Welcome 2", value.StringValue);
+		}
+
+		// ---- POST /service/{id}/configuration/{versionId}/duplicate ----
 		[TestMethod]
 		public void DuplicateConfigurationVersion_CopiesValuesAndOwnedProfilesAsInactiveVersion()
 		{
@@ -547,17 +582,6 @@
 		public void DuplicateConfigurationVersion_UnknownService_Returns404()
 		{
 			Assert.AreEqual(404, StatusCode(Controller.DuplicateConfigurationVersion("SERVICE-00404", Guid.NewGuid().ToString())));
-		}
-
-		private static CreateConfigurationVersionRequest ParameterRequest(ConfigurationParameterValueRequest value, bool mandatory = false)
-		{
-			return new CreateConfigurationVersionRequest
-			{
-				Parameters = new List<ServiceConfigurationValueRequest>
-				{
-					new ServiceConfigurationValueRequest { Mandatory = mandatory, ConfigurationParameter = value },
-				},
-			};
 		}
 
 		private Cfg.ConfigurationParameter AddParameter(string name, ParameterType type)

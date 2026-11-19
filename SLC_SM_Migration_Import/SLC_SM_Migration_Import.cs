@@ -155,14 +155,8 @@ namespace SLCSMMigrationImport
 			}
 
 			var schemas = KnownIds.ModulesInScope.ToDictionary(m => m, m => TargetModuleSchema.Load(target.GetHelper(m)), StringComparer.OrdinalIgnoreCase);
-			var planner = new MigrationPlanner(schemas, target, target);
-			var plan = planner.Preflight(export);
-			if (plan.FatalErrors.Count == 0)
-			{
-				// Validate and map every item before anything is changed, so the cleanup knows which items are rejected.
-				plan = planner.Plan(export);
-			}
 
+			var plan = new MigrationPlanner(schemas, target, target).Plan(export);
 			TimeSpan planDuration = total.Elapsed - readDuration;
 
 			// Free the exported data and the prefetched target instances; the plan holds everything needed from here on.

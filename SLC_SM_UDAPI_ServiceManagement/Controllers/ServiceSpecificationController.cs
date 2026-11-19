@@ -1,4 +1,4 @@
-﻿namespace SLC_SM_UDAPI_ServiceManagement.Controllers
+namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 {
 	using System;
 	using System.Collections.Generic;
@@ -164,8 +164,7 @@
 				}
 
 				// No ServiceOrderItem exposer exists for ServiceInfo.SpecificationId in this SDK version, so this stays in memory.
-				int openItemCount = (serviceManagementApiHelper.ServiceOrder.ServiceOrderItems
-					.Read(new TRUEFilterElement<ServiceOrderItem>()) ?? Enumerable.Empty<ServiceOrderItem>())
+				int openItemCount = PagedRead.All<ServiceOrderItem>(serviceManagementApiHelper.ServiceOrder.ServiceOrderItems)
 					.Count(i => i.ServiceInfo != null && IsSameId(i.ServiceInfo.SpecificationId.Identifier, key) && !ClosedItemStatuses.Contains(i.Status.ToString()));
 
 				if (openItemCount > 0)
@@ -404,50 +403,6 @@
 			});
 		}
 
-		[HttpGet("overview")]
-		public IApiResult GetServiceSpecificationOverview([FromQuery] int limit = 6)
-		{
-			if (limit < 1 || limit > 50)
-			{
-				return BadRequest(CreateError("Invalid request", "'limit' must be between 1 and 50.", 400));
-			}
-
-			try
-			{
-				var repository = serviceManagementApiHelper.ServiceCatalog.ServiceSpecifications as IReadableRepository<ServiceSpecification>;
-				if (repository == null)
-				{
-					return InternalServerError(CreateError("Internal server error", "The service-specification repository does not support overview reads.", 500));
-				}
-
-				var page = repository.ReadCursorPage(
-					ServiceSpecificationExposers.Name,
-					specification => specification.Name ?? String.Empty,
-					CursorKeySerialization.SerializeString,
-					CursorKeySerialization.DeserializeString,
-					ServiceSpecificationExposers.Identifier,
-					specification => specification.Identifier,
-					CursorKeySerialization.SerializeString,
-					CursorKeySerialization.DeserializeString,
-					limit: limit,
-					descending: true,
-					secondaryDescending: true);
-				var overview = serviceManagementApiHelper.Overview.ReadServiceSpecifications();
-
-				return Ok(new ServiceSpecificationOverviewResponse
-				{
-					Items = page.Items.Select(JObject.FromObject).ToList(),
-					TotalCount = overview.TotalCount,
-					TotalItemCount = overview.TotalItemCount,
-				});
-			}
-			catch (Exception ex)
-			{
-				_logger.LogError(ex, "GetServiceSpecificationOverview failed: {Message}", ex.Message);
-				return InternalServerError(CreateError("Internal server error", "An unexpected error occurred while retrieving the service-specification overview.", 500));
-			}
-		}
-
 		/// <summary>
 		/// Partially updates a service specification.
 		/// </summary>
@@ -625,16 +580,6 @@
 			}
 
 			return parsed;
-		}
-
-		private static bool IsServiceItemPlaceholder(ServiceItem item)
-		{
-			return !item.ServiceItemID.HasValue
-				&& String.IsNullOrWhiteSpace(item.Label)
-				&& String.IsNullOrWhiteSpace(item.DefinitionReference)
-				&& String.IsNullOrWhiteSpace(item.ImplementationReference)
-				&& String.IsNullOrWhiteSpace(item.Script)
-				&& String.IsNullOrWhiteSpace(item.Icon);
 		}
 
 		/// <summary>Compares two identifiers as UUIDs when both parse; otherwise as case-insensitive strings.</summary>

@@ -208,7 +208,7 @@ namespace SLC_SM_IAS_Service_Configuration
 					: helper.ServiceCatalog.ConfigurationParameterValues
 						.Read(ConfigurationParameterValueExposers.Identifier.Equal(parameter.ParameterValueId))
 						.FirstOrDefault() ?? throw new InvalidOperationException($"Configuration parameter value '{parameter.ParameterValueId}' was not found.");
-				string existingNumberOptionsId = parameterValue.NumberOptionsId.Identifier;
+				string existingNumberOptionsId = parameterValue.IsValueOf(definition) ? parameterValue.NumberOptionsId.Identifier : null;
 				var numberOptions = String.Equals(definition.Type.ToString(), "Number", StringComparison.OrdinalIgnoreCase)
 					? PrepareNumberOptions(helper, definition, existingNumberOptionsId)
 					: null;

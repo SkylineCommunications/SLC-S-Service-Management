@@ -1,0 +1,6 @@
+<ProjectReferences xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns="http://www.skyline.be/projectReferences">
+	<!-- Only the regression test scripts and their shared library. The product itself is deployed
+	     from TestPackageContent\Dependencies by TestPackagePipeline\1.TestPackageSetup.ps1. -->
+	<ProjectReference Include="..\Tests\SLC_SM_TestLibrary\SLC_SM_TestLibrary.csproj" />
+	<ProjectReference Include="..\Tests\Regressions Tests\*\*.csproj" />
+</ProjectReferences>

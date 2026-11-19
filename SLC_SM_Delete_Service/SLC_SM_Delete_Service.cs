@@ -16,6 +16,7 @@ namespace SLC_SM_Delete_Service
 	using System;
 	using System.Collections.Generic;
 	using System.Linq;
+	using Library.Dom;
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Core.DataMinerSystem.Automation;
 	using Skyline.DataMiner.Core.DataMinerSystem.Common;
@@ -132,7 +133,7 @@ namespace SLC_SM_Delete_Service
 			_engine.GenerateInformation($"Removed service {service.Identifier} ({service.Name}).");
 		}
 
-		private static bool HasActiveLinkedReference(ServiceManagementApiHelper serviceManagementHelper, Models.ServiceItem serviceItem)
+		private bool HasActiveLinkedReference(ServiceManagementApiHelper serviceManagementHelper, Models.ServiceItem serviceItem)
 		{
 			if (!Guid.TryParse(serviceItem.ImplementationReference, out Guid refId) || refId == Guid.Empty)
 			{
@@ -140,6 +141,11 @@ namespace SLC_SM_Delete_Service
 			}
 
 			var itemType = serviceItem.Type?.ToString();
+			if (String.Equals(itemType, "SRMBooking", StringComparison.OrdinalIgnoreCase))
+			{
+				return serviceItem.LinkedReferenceStillActive(_engine);
+			}
+
 			if (!String.Equals(itemType, "Service", StringComparison.OrdinalIgnoreCase))
 			{
 				return false;

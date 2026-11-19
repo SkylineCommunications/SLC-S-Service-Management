@@ -19,18 +19,14 @@ namespace SLC_SM_Setup_UDAPI
 
 		internal void Install()
 		{
+			RemoveDecommissionedEndpoints();
+
 			// Service Order
 			InstallEndpoint(
 				apiId: Constants.ApiDefinitions.ServiceOrder_UDAPI_Id,
 				name: "Service Order - Orders List",
 				description: "UDAPI to retrieve, update or delete service orders.",
 				route: "serviceOrder");
-
-			InstallEndpoint(
-				apiId: Constants.ApiDefinitions.ServiceOrder_Overview_UDAPI_Id,
-				name: "Service Order - Overview",
-				description: "UDAPI to retrieve service-order metrics and a bounded recent-order preview.",
-				route: "serviceOrder/overview");
 
 			InstallEndpoint(
 				apiId: Constants.ApiDefinitions.ServiceOrder_ById_UDAPI_Id,
@@ -82,10 +78,10 @@ namespace SLC_SM_Setup_UDAPI
 				route: "service");
 
 			InstallEndpoint(
-				apiId: Constants.ApiDefinitions.ServiceInventory_Overview_UDAPI_Id,
-				name: "Service Inventory - Overview",
-				description: "UDAPI to retrieve service metrics and a bounded inventory preview.",
-				route: "service/overview");
+				apiId: Constants.ApiDefinitions.ServiceInventory_ItemOptions_UDAPI_Id,
+				name: "Service Inventory - Service Item Options",
+				description: "UDAPI to retrieve workflow and SRM booking options for service items.",
+				route: "service/itemOptions");
 
 			InstallEndpoint(
 				apiId: Constants.ApiDefinitions.ServiceInventory_ById_UDAPI_Id,
@@ -100,22 +96,10 @@ namespace SLC_SM_Setup_UDAPI
 				route: "service/{id}/transition");
 
 			InstallEndpoint(
-				apiId: Constants.ApiDefinitions.ServiceInventory_ById_Configuration_UDAPI_Id,
-				name: "Service Inventory - Configuration Versions of a Service",
-				description: "UDAPI to list or create the configuration versions of a service.",
-				route: "service/{id}/configurationVersion");
-
-			InstallEndpoint(
-				apiId: Constants.ApiDefinitions.ServiceInventory_ById_ByConfigurationId_UDAPI_Id,
-				name: "Service Inventory - Configuration Version By Id of a Service",
-				description: "UDAPI to retrieve a configuration version of a service by id.",
-				route: "service/{id}/configurationVersion/{versionId}");
-
-			InstallEndpoint(
 				apiId: Constants.ApiDefinitions.ServiceInventory_ById_ByConfigurationId_Duplicate_UDAPI_Id,
 				name: "Service Inventory - Duplicate Configuration Version of a Service",
 				description: "UDAPI to duplicate a configuration version of a service as a new inactive version.",
-				route: "service/{id}/configurationVersion/{versionId}/duplicate");
+				route: "service/{id}/configuration/{versionId}/duplicate");
 
 			InstallEndpoint(
 				apiId: Constants.ApiDefinitions.ServiceInventory_ById_Configuration_Editor_UDAPI_Id,
@@ -161,12 +145,6 @@ namespace SLC_SM_Setup_UDAPI
 				route: "serviceSpecification");
 
 			InstallEndpoint(
-				apiId: Constants.ApiDefinitions.ServiceSpecification_Overview_UDAPI_Id,
-				name: "Service Specification - Overview",
-				description: "UDAPI to retrieve specification metrics and a bounded catalog preview.",
-				route: "serviceSpecification/overview");
-
-			InstallEndpoint(
 				apiId: Constants.ApiDefinitions.ServiceSpecification_ById_UDAPI_Id,
 				name: "Service Specification - Service Specification By Id",
 				description: "UDAPI to retrieve, partially update or delete a service specification by id.",
@@ -202,12 +180,30 @@ namespace SLC_SM_Setup_UDAPI
 				name: "Service Category - Service Category By Id",
 				description: "UDAPI to retrieve or delete a service category by id.",
 				route: "serviceCategory/{id}");
+		}
 
-			InstallEndpoint(
-				apiId: Constants.ApiDefinitions.MonitoringService_UDAPI_Id,
-				name: "Monitoring Service - List",
-				description: "UDAPI to retrieve monitoring services.",
-				route: "monitoringService");
+		private void RemoveDecommissionedEndpoints()
+		{
+			RemoveEndpoint(Constants.ApiDefinitions.ServiceOrder_Overview_UDAPI_Id, "serviceOrder/overview");
+			RemoveEndpoint(Constants.ApiDefinitions.ServiceInventory_Overview_UDAPI_Id, "service/overview");
+			RemoveEndpoint(Constants.ApiDefinitions.ServiceSpecification_Overview_UDAPI_Id, "serviceSpecification/overview");
+			RemoveEndpoint(Constants.ApiDefinitions.ServiceInventory_ById_Configuration_UDAPI_Id, "service/{id}/configurationVersion");
+			RemoveEndpoint(Constants.ApiDefinitions.ServiceInventory_ById_ByConfigurationId_UDAPI_Id, "service/{id}/configurationVersion/{versionId}");
+			RemoveEndpoint(Constants.ApiDefinitions.MonitoringService_UDAPI_Id, "monitoringService");
+		}
+
+		private void RemoveEndpoint(ApiDefinitionId apiId, string route)
+		{
+			var definitions = _helper.ApiDefinitions.Read(ApiDefinitionExposers.Id.Equal(apiId))
+				.Concat(_helper.ApiDefinitions.Read(ApiDefinitionExposers.Route.Equal($"{ApiPrefix}{route}")))
+				.GroupBy(definition => definition.ID.Id)
+				.Select(group => group.First())
+				.ToList();
+
+			foreach (var definition in definitions)
+			{
+				_helper.ApiDefinitions.Delete(definition);
+			}
 		}
 
 		private void Import(ApiDefinition definition)

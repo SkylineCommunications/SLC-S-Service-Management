@@ -139,7 +139,7 @@
 
 				// No ServiceOrderItem exposer exists for ServiceInfo.ServiceCategoryId in this SDK version, so this stays in memory.
 
-				int orderItemCount = (serviceManagementApiHelper.ServiceOrder.ServiceOrderItems.Read(new TRUEFilterElement<ServiceOrderItem>()) ?? Enumerable.Empty<ServiceOrderItem>())
+				int orderItemCount = PagedRead.All<ServiceOrderItem>(serviceManagementApiHelper.ServiceOrder.ServiceOrderItems)
 					.Count(i => i.ServiceInfo != null && IsSameId(i.ServiceInfo.ServiceCategoryId.Identifier, categoryId));
 
 				if (orderItemCount > 0)

@@ -93,7 +93,7 @@ namespace SLCSMMigrationImport.Migration
 
 			if (value is IList list)
 			{
-				return "[" + String.Join("|", list.Cast<object>().Select(EncodeScalar)) + "]";
+				return Newtonsoft.Json.JsonConvert.SerializeObject(list.Cast<object>().Select(EncodeScalar));
 			}
 
 			return EncodeScalar(value);

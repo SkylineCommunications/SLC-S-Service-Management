@@ -3,6 +3,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 	using System;
 	using System.Collections.Generic;
 	using System.Linq;
+	using Microsoft.Extensions.Logging;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.Configurations;
@@ -16,12 +17,271 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 	internal sealed class ServiceDuplicator
 	{
 		private readonly IServiceManagementApiHelper _api;
+		private readonly ILogger _logger;
 
-		public ServiceDuplicator(IServiceManagementApiHelper api)
+		public ServiceDuplicator(IServiceManagementApiHelper api, ILogger logger = null)
 		{
 			_api = api ?? throw new ArgumentNullException(nameof(api));
+			_logger = logger;
 		}
 
+		/// <summary>
+		/// Creates the service's active configuration version from an order item: copies of the item's standalone parameter values
+		/// (profiles are not copied). A parameter is mandatory when the specification marks it mandatory at service.
+		/// </summary>
+		public void CopyOrderItemConfiguration(ServiceOrderItem item, ServiceSpecification specification, Service service, Stack<Action> cleanup)
+		{
+			var sourceIds = (item.ServiceInfo?.Configurations ?? new List<SdmObjectReference<ServiceOrderItemConfigurationValue>>())
+				.Select(reference => reference.Identifier)
+				.Where(id => !String.IsNullOrWhiteSpace(id))
+				.Distinct(StringComparer.OrdinalIgnoreCase)
+				.ToList();
+			var configurations = FullServiceBuilder.ReadById(
+				sourceIds,
+				id => ServiceOrderItemConfigurationValueExposers.Identifier.Equal(id),
+				filter => _api.ServiceOrder.ServiceOrderItemConfigurationValues.Read(filter),
+				value => value.Identifier);
+			var specificationParameters = ReadSpecificationParameters(specification);
+
+			// Order items only hold standalone parameters, so the specification's profiles are not copied to the service.
+			var specificationData = LoadSpecificationData(
+				specification,
+				configurations.Values.Select(configuration => configuration.ConfigurationParameterValueId.Identifier)
+					.Concat(specificationParameters.Select(configuration => configuration.ConfigurationParameterId.Identifier)),
+				includeProfiles: false);
+			var values = specificationData.Data.ParameterValues;
+			foreach (string id in sourceIds)
+			{
+				if (!configurations.TryGetValue(id, out var configuration)
+					|| !values.ContainsKey(configuration.ConfigurationParameterValueId.Identifier ?? String.Empty))
+				{
+					throw new InvalidConfigurationException(
+						"A configuration value of the order item or its parameter value could not be found.",
+						$"Order item '{item.Identifier}', configuration '{id}'.");
+				}
+			}
+
+			// Order item values only carry the order-stage flag, so the service-stage flag comes from the matching
+			// specification instance. Values created for an order item have new identifiers, so matching also uses the
+			// parameter label and finally the specification order for references without a default value.
+			var specificationInstances = SpecificationParameterInstance.Create(specificationParameters, values);
+			var itemValues = sourceIds
+				.Select(id => values[configurations[id].ConfigurationParameterValueId.Identifier])
+				.ToList();
+			var matches = SpecificationParameterInstanceMatcher.MatchAll(
+				itemValues,
+				specificationInstances,
+				(value, candidates) => _logger?.LogWarning(
+					"Order item {ItemId}: value {ValueId} of parameter {ParameterId} matches {Count} specification instances; the first unlabelled or first instance is used.",
+					item.Identifier,
+					value.Identifier,
+					value.ConfigurationParameterId.Identifier,
+					candidates));
+
+			var sources = sourceIds
+				.Select((id, index) => new ParameterSource
+				{
+					ValueId = itemValues[index].Identifier,
+					Mandatory = matches[index]?.MandatoryAtService ?? configurations[id].Mandatory,
+				})
+				.ToList();
+
+			// A mandatory-at-service parameter that is not on the order item gets its specification default, so the service is complete.
+			sources.AddRange(specificationInstances
+				.Where(instance => instance.MandatoryAtService && instance.HasDefault)
+				.Select(instance => new ParameterSource { ValueId = instance.ReferenceId, Mandatory = true }));
+
+			CreateActiveVersion(service, "Order item configuration", item.Description, item.StartTime, item.EndTime, sources, specificationData, cleanup);
+		}
+
+		private List<ServiceSpecificationConfigurationValue> ReadSpecificationParameters(ServiceSpecification specification)
+		{
+			var ids = ReferenceIds(specification.ConfigurationParameters).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+			var configurations = FullServiceBuilder.ReadById(
+				ids,
+				id => ServiceSpecificationConfigurationValueExposers.Identifier.Equal(id),
+				filter => _api.ServiceCatalog.ServiceSpecificationConfigurationValues.Read(filter),
+				configuration => configuration.Identifier);
+			return ids
+				.Where(configurations.ContainsKey)
+				.Select(id => configurations[id])
+				.Where(configuration => !String.IsNullOrWhiteSpace(configuration.ConfigurationParameterId.Identifier))
+				.ToList();
+		}
+
+		/// <summary>Loads the given parameter values and, when requested, validates the specification's profiles and their profile trees.</summary>
+		private SpecificationData LoadSpecificationData(ServiceSpecification specification, IEnumerable<string> parameterValueIds, bool includeProfiles)
+		{
+			var profileIds = includeProfiles
+				? ReferenceIds(specification.ConfigurationProfiles).Distinct(StringComparer.OrdinalIgnoreCase).ToList()
+				: new List<string>();
+			var specificationProfiles = FullServiceBuilder.ReadById(
+				profileIds,
+				id => ServiceSpecificationProfileExposers.Identifier.Equal(id),
+				filter => _api.ServiceCatalog.ServiceSpecificationProfiles.Read(filter),
+				profile => profile.Identifier);
+			foreach (string id in profileIds)
+			{
+				if (!specificationProfiles.ContainsKey(id))
+				{
+					throw new InvalidConfigurationException("A profile of the service specification could not be found.", $"Specification profile '{id}'.");
+				}
+			}
+
+			var profiles = FullServiceBuilder.ReadProfileTree(_api, specificationProfiles.Values.Select(profile => profile.ProfileId.Identifier));
+			var values = FullServiceBuilder.ReadById(
+				parameterValueIds.Concat(profiles.Values.SelectMany(profile => ReferenceIds(profile.ConfigurationParameterValues))),
+				id => ConfigurationParameterValueExposers.Identifier.Equal(id),
+				filter => _api.ServiceCatalog.ConfigurationParameterValues.Read(filter),
+				value => value.Identifier);
+
+			var validated = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+			foreach (var profile in specificationProfiles.Values)
+			{
+				ValidateProfileCopy(profile.ProfileId.Identifier, profiles, values, validated, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+			}
+
+			return new SpecificationData
+			{
+				ProfileIds = profileIds,
+				SpecificationProfiles = specificationProfiles,
+				Data = new ConfigurationDuplicationData { ParameterValues = values, Profiles = profiles },
+			};
+		}
+
+		private void CreateActiveVersion(
+			Service service,
+			string versionName,
+			string description,
+			DateTime? startDate,
+			DateTime? endDate,
+			IEnumerable<ParameterSource> sources,
+			SpecificationData specificationData,
+			Stack<Action> cleanup)
+		{
+			CreateVersionContent(service.ServiceID, sources, specificationData, cleanup, out var parameters, out var serviceProfiles);
+			var version = new ServiceConfigurationVersion
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				VersionName = versionName,
+				Description = description,
+				StartDate = startDate,
+				EndDate = endDate,
+				Parameters = parameters,
+				Profiles = serviceProfiles,
+			};
+			cleanup.Push(() => _api.ServiceInventory.ServiceConfigurationVersions.Delete(version));
+			_api.ServiceInventory.ServiceConfigurationVersions.Create(version);
+			service.ConfigurationVersions = new List<SdmObjectReference<ServiceConfigurationVersion>>
+			{
+				new SdmObjectReference<ServiceConfigurationVersion>(version.Identifier),
+			};
+			service.ServiceConfigurationId = new SdmObjectReference<ServiceConfigurationVersion>(version.Identifier);
+		}
+
+		private void CreateVersionContent(
+			string serviceId,
+			IEnumerable<ParameterSource> sources,
+			SpecificationData specificationData,
+			Stack<Action> cleanup,
+			out List<SdmObjectReference<ServiceConfigurationValue>> parameters,
+			out List<SdmObjectReference<ServiceProfile>> serviceProfiles)
+		{
+			var data = specificationData.Data;
+			var state = new VersionDuplicationState();
+			parameters = new List<SdmObjectReference<ServiceConfigurationValue>>();
+			foreach (var source in sources)
+			{
+				string valueId = source.ValueId != null
+					? DuplicateParameterValue(source.ValueId, data, state, cleanup)
+					: CreateEmptyParameterValue(source.ParameterId, cleanup);
+				var configuration = new ServiceConfigurationValue
+				{
+					Identifier = Guid.NewGuid().ToString(),
+					ConfigurationParameterId = new SdmObjectReference<ConfigurationParameterValue>(valueId),
+					Mandatory = source.Mandatory,
+				};
+				cleanup.Push(() => _api.ServiceInventory.ServiceConfigurationValues.Delete(configuration));
+				_api.ServiceInventory.ServiceConfigurationValues.Create(configuration);
+				parameters.Add(new SdmObjectReference<ServiceConfigurationValue>(configuration.Identifier));
+			}
+
+			serviceProfiles = new List<SdmObjectReference<ServiceProfile>>();
+			foreach (string id in specificationData.ProfileIds)
+			{
+				var source = specificationData.SpecificationProfiles[id];
+				string profileId = DuplicateProfile(source.ProfileId.Identifier, serviceId, data, state, cleanup);
+				var profile = new ServiceProfile
+				{
+					Identifier = Guid.NewGuid().ToString(),
+					ProfileId = new SdmObjectReference<Config.Profile>(profileId),
+					ProfileDefinitionId = CopyReference<ProfileDefinition>(source.ProfileDefinitionId),
+					Mandatory = source.MandatoryAtService,
+				};
+				cleanup.Push(() => _api.ServiceInventory.ServiceProfiles.Delete(profile));
+				_api.ServiceInventory.ServiceProfiles.Create(profile);
+				serviceProfiles.Add(new SdmObjectReference<ServiceProfile>(profile.Identifier));
+			}
+
+			RemapLinkedConsumers(state);
+		}
+
+		private string CreateEmptyParameterValue(string parameterId, Stack<Action> cleanup)
+		{
+			var value = new ConfigurationParameterValue
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				ConfigurationParameterId = new SdmObjectReference<ConfigurationParameter>(parameterId),
+			};
+			cleanup.Push(() => _api.ServiceCatalog.ConfigurationParameterValues.Delete(value));
+			_api.ServiceCatalog.ConfigurationParameterValues.Create(value);
+			return value.Identifier;
+		}
+
+		private static void ValidateProfileCopy(
+			string id,
+			IReadOnlyDictionary<string, Config.Profile> profiles,
+			IReadOnlyDictionary<string, ConfigurationParameterValue> values,
+			HashSet<string> validated,
+			HashSet<string> path)
+		{
+			if (String.IsNullOrWhiteSpace(id) || !profiles.TryGetValue(id, out var profile))
+			{
+				throw new InvalidConfigurationException("A referenced profile could not be found.", $"Profile '{id}'.");
+			}
+
+			if (validated.Contains(id))
+			{
+				return;
+			}
+
+			if (!path.Add(id))
+			{
+				throw new InvalidConfigurationException("A profile contains a circular nested profile reference.", $"Profile '{id}'.");
+			}
+
+			foreach (string valueId in ReferenceIds(profile.ConfigurationParameterValues))
+			{
+				if (!values.ContainsKey(valueId))
+				{
+					throw new InvalidConfigurationException("A profile parameter value could not be found.", $"Profile parameter value '{valueId}'.");
+				}
+			}
+
+			foreach (string childId in ReferenceIds(profile.Profiles))
+			{
+				ValidateProfileCopy(childId, profiles, values, validated, path);
+			}
+
+			path.Remove(id);
+			validated.Add(id);
+		}
+
+		/// <summary>
+		/// Duplicates a service with the given service ID (allocated via <see cref="SLC_SM_Common.IdGeneration.IServiceManagementIdGenerator.AllocateServiceId"/>).
+		/// </summary>
+		/// <param name="source">The service to copy.</param>
+		/// <param name="newServiceId">The service ID of the copy.</param>
 		public Service Duplicate(Service source, string newServiceId)
 		{
 			if (source == null)
@@ -356,7 +616,8 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 			string sourceProfileId,
 			string newServiceId,
 			ConfigurationDuplicationData data,
-			VersionDuplicationState state)
+			VersionDuplicationState state,
+			Stack<Action> cleanup = null)
 		{
 			if (state.ProfileIds.TryGetValue(sourceProfileId, out var duplicateId))
 			{
@@ -368,6 +629,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 				return null;
 			}
 
+			// Reusable profiles are shared, so they are always referenced and never copied.
 			if (source.IsReusable)
 			{
 				state.ProfileIds[sourceProfileId] = source.Identifier;
@@ -382,7 +644,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 					continue;
 				}
 
-				string nestedId = DuplicateProfile(reference.Identifier, newServiceId, data, state);
+				string nestedId = DuplicateProfile(reference.Identifier, newServiceId, data, state, cleanup);
 				if (!String.IsNullOrWhiteSpace(nestedId))
 				{
 					nested.Add(new SdmObjectReference<Config.Profile>(nestedId));
@@ -397,7 +659,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 					continue;
 				}
 
-				string valueId = DuplicateParameterValue(reference.Identifier, data, state);
+				string valueId = DuplicateParameterValue(reference.Identifier, data, state, cleanup);
 				if (!String.IsNullOrWhiteSpace(valueId))
 				{
 					values.Add(new SdmObjectReference<ConfigurationParameterValue>(valueId));
@@ -408,17 +670,18 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 			{
 				Identifier = Guid.NewGuid().ToString(),
 				Name = (source.Name ?? String.Empty).ReplaceTrailingParentesisContent(newServiceId),
-				IsReusable = source.IsReusable,
+				IsReusable = false,
 				ProfileDefinitionId = CopyReference<ProfileDefinition>(source.ProfileDefinitionId),
 				Profiles = nested,
 				ConfigurationParameterValues = values,
 			};
+			cleanup?.Push(() => _api.ServiceCatalog.Profiles.Delete(duplicate));
 			_api.ServiceCatalog.Profiles.Create(duplicate);
 			state.ProfileIds[sourceProfileId] = duplicate.Identifier;
 			return duplicate.Identifier;
 		}
 
-		private string DuplicateParameterValue(string sourceValueId, ConfigurationDuplicationData data, VersionDuplicationState state)
+		private string DuplicateParameterValue(string sourceValueId, ConfigurationDuplicationData data, VersionDuplicationState state, Stack<Action> cleanup = null)
 		{
 			if (String.IsNullOrWhiteSpace(sourceValueId))
 			{
@@ -443,7 +706,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 				DoubleValue = source.DoubleValue,
 				StringValue = source.StringValue,
 				ConfigurationParameterId = CopyReference<ConfigurationParameter>(source.ConfigurationParameterId),
-				NumberOptionsId = this.DuplicateNumberOptions(source),
+				NumberOptionsId = this.DuplicateNumberOptions(source, cleanup),
 				DiscreteOptionsId = CopyReference<DiscreteParameterOptions>(source.DiscreteOptionsId),
 				TextOptionsId = CopyReference<TextParameterOptions>(source.TextOptionsId),
 				ValueFixed = source.ValueFixed,
@@ -451,13 +714,14 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 				LinkedScript = source.LinkedScript,
 				IsLinked = source.IsLinked,
 			};
+			cleanup?.Push(() => _api.ServiceCatalog.ConfigurationParameterValues.Delete(duplicate));
 			_api.ServiceCatalog.ConfigurationParameterValues.Create(duplicate);
 			state.ParameterValueIds[sourceValueId] = duplicate.Identifier;
 			state.DuplicatedParameterValues.Add(duplicate);
 			return duplicate.Identifier;
 		}
 
-		private SdmObjectReference<NumberParameterOptions> DuplicateNumberOptions(ConfigurationParameterValue value)
+		private SdmObjectReference<NumberParameterOptions> DuplicateNumberOptions(ConfigurationParameterValue value, Stack<Action> cleanup = null)
 		{
 			string optionsId = value.NumberOptionsId.Identifier;
 			if (string.IsNullOrWhiteSpace(optionsId))
@@ -477,7 +741,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 
 			var source = this._api.ServiceCatalog.NumberParameterOptions
 				.Read(NumberParameterOptionsExposers.Identifier.Equal(optionsId))
-				.FirstOrDefault() ?? throw new InvalidConfigurationException($"Number options '{optionsId}' were not found.");
+				.FirstOrDefault() ?? throw new InvalidConfigurationException("The number options of a parameter were not found.", $"Number options '{optionsId}'.");
 			var duplicate = new NumberParameterOptions
 			{
 				Identifier = Guid.NewGuid().ToString(),
@@ -489,6 +753,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 				StepSize = source.StepSize,
 				DefaultValue = source.DefaultValue,
 			};
+			cleanup?.Push(() => _api.ServiceCatalog.NumberParameterOptions.Delete(duplicate));
 			this._api.ServiceCatalog.NumberParameterOptions.Create(duplicate);
 			return new SdmObjectReference<NumberParameterOptions>(duplicate.Identifier);
 		}
@@ -559,6 +824,25 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 			return (references ?? Enumerable.Empty<SdmObjectReference<T>>())
 				.Select(reference => reference.Identifier)
 				.Where(id => !String.IsNullOrWhiteSpace(id));
+		}
+
+		private sealed class ParameterSource
+		{
+			/// <summary>Gets or sets the parameter value to copy; <c>null</c> to create an empty value for <see cref="ParameterId"/>.</summary>
+			public string ValueId { get; set; }
+
+			public string ParameterId { get; set; }
+
+			public bool Mandatory { get; set; }
+		}
+
+		private sealed class SpecificationData
+		{
+			public List<string> ProfileIds { get; set; }
+
+			public Dictionary<string, ServiceSpecificationProfile> SpecificationProfiles { get; set; }
+
+			public ConfigurationDuplicationData Data { get; set; }
 		}
 
 		private sealed class ConfigurationDuplicationData
