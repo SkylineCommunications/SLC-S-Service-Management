@@ -66,7 +66,7 @@ const CATEGORY_COLUMNS = ['Category ID', 'Category Name', 'Category Type', 'Cate
 export const SAMPLE_SPECIFICATION = { 'Specification ID': 'spec-1', Name: 'Managed switching', Description: 'Managed switching service specification', 'Created At': '9/1/2026 2:40:53 PM', 'Created By': 'Test user', 'Last Modified': '9/2/2026 10:13:44 PM', 'Last Modified By': 'Test user', 'Service Item Count': '2' };
 const SPECIFICATION_COLUMNS = ['Specification ID', 'Name', 'Description', 'Created At', 'Created By', 'Last Modified', 'Last Modified By', 'Service Item Count'];
 const SERVICE_ITEM_COLUMNS = ['Actions', 'Label', 'Service Item ID', 'Service Item Type', 'Definition Reference', 'Service Item Script', 'Implementation Reference', 'Implementation Reference Name', 'Implementation Reference Link', 'Implementation Reference Has Value', 'Implementation Reference Name Has Value', 'Implementation Reference Link Has Value', 'Implementation State', 'Implementation Reference Custom Link', 'Implementation Reference Custom Link Has Value', 'Monitoring Service State', 'Monitoring Service DMA ID/SID', 'Log'];
-const CONFIGURATION_COLUMNS = ['Version ID', 'Version Name', 'Version Description', 'Version Start', 'Version End', 'Is Active', 'Record Type', 'Configuration ID', 'Parameter ID', 'Parameter Value ID', 'Parameter Name', 'Parameter Type', 'Parameter Value', 'Mandatory', 'Profile ID', 'Profile Name', 'Profile Definition ID', 'Profile Definition Name', 'Profile Reusable', 'Profile Mandatory', 'Nested Profile ID', 'Nested Profile Name', 'Nested Profile Definition ID', 'Nested Profile Definition Name', 'Parameter Label', 'Parameter Is Linked', 'Parameter Unit', 'Parameter Unit ID', 'Parameter Start', 'Parameter End', 'Parameter Step Size', 'Parameter Decimals', 'Parameter Options', 'Parameter Fixed', 'Parameter N/A', 'Expose At Order', 'Mandatory At Order', 'Mandatory At Service'];
+const CONFIGURATION_COLUMNS = ['Version ID', 'Version Name', 'Version Description', 'Version Start', 'Version End', 'Is Active', 'Record Type', 'Configuration ID', 'Parameter ID', 'Parameter Value ID', 'Parameter Name', 'Parameter Type', 'Parameter Value', 'Mandatory', 'Profile ID', 'Profile Reference ID', 'Profile Name', 'Profile Definition ID', 'Profile Definition Name', 'Profile Reusable', 'Profile Mandatory', 'Nested Profile ID', 'Nested Profile Name', 'Nested Profile Definition ID', 'Nested Profile Definition Name', 'Parameter Label', 'Parameter Is Linked', 'Parameter Unit', 'Parameter Unit ID', 'Parameter Start', 'Parameter End', 'Parameter Step Size', 'Parameter Decimals', 'Parameter Options', 'Parameter Fixed', 'Parameter N/A', 'Expose At Order', 'Mandatory At Order', 'Mandatory At Service'];
 // GQI configuration row -> UDAPI SpecificationConfigurationRecord (camelCase keys).
 const toConfigurationRecord = (row: Record<string, unknown>) => Object.fromEntries(CONFIGURATION_COLUMNS.map(column => [
     column === 'Parameter N/A' ? 'parameterNotApplicable' : column.split(' ').map((word, index) => index === 0 ? word.toLowerCase() : word[0] + word.slice(1).toLowerCase()).join(''),
@@ -94,11 +94,12 @@ export interface IasMock {
     launchError: string | null;
     subscriptError: string | null;
 }
-export interface GqiMock { mode: GqiMode; itemsFail: boolean; calls: { method: string; body: Record<string, any> }[]; ias: IasMock; services?: Record<string, string>[] }
+export interface GqiMock { mode: GqiMode; itemsFail: boolean; serviceItemsFail?: boolean; calls: { method: string; body: Record<string, any> }[]; ias: IasMock; services?: Record<string, string>[]; serviceItems?: Record<string, string>[] }
 
 export const IAS_SCRIPT_ID = 42;
 export const SUBSCRIPT_ID = 43;
 export const CONTEXT_ACTION_SCRIPT_ID = 44;
+export const CREATE_JOB_SCRIPT_ID = 45;
 export const SUBSCRIPT_DEST_VARS = { bookingName: 'dv-booking-name', start: 'dv-booking-start', details: 'dv-error-details', toggle: 'dv-error-toggle', cancel: 'dv-booking-cancel', create: 'dv-booking-create', close: 'dv-error-close' } as const;
 // Rows returned by the mocked "Get Service Items" data source for SAMPLE_SERVICE.
 const SAMPLE_SERVICE_ITEMS = [
@@ -193,7 +194,7 @@ async function mockIasWebSocket(page: Page, mock: GqiMock, orders: Record<string
             if (trigger === S.close || trigger === S.cancel) return event('DMAAutomationScriptBasicUpdate', { Type: 'Completed', Data: 'SUCCEEDED' });
             if (trigger === S.create) {
                 const item = serviceItems.find(candidate => candidate.Label === 'Encoder booking');
-                if (item) Object.assign(item, { 'Implementation Reference': 'reservation-1', 'Implementation State': 'Implemented' });
+                if (item) Object.assign(item, { 'Implementation Reference': 'reservation-1', 'Implementation Reference Name': 'Test service', 'Implementation State': 'Confirmed', 'Implementation Reference Custom Link': '/mock/srm-booking?id=reservation-1', 'Monitoring Service State': 'Normal', 'Monitoring Service DMA ID/SID': '123/100' });
                 return event('DMAAutomationScriptBasicUpdate', { Type: 'Completed', Data: 'SUCCEEDED' });
             }
             return event('WebSocketError', { Message: `Unexpected trigger ${trigger}` });
@@ -211,9 +212,17 @@ async function mockIasWebSocket(page: Page, mock: GqiMock, orders: Record<string
                 launchId = message.ClientSubscriptionID;
                 activeScriptId = parameters.scriptID;
                 subscriptExpanded = false;
-                if (parameters.connection !== CONNECTION_GUID || ![IAS_SCRIPT_ID, SUBSCRIPT_ID, CONTEXT_ACTION_SCRIPT_ID].includes(parameters.scriptID)) return event('WebSocketError', { Message: `Unexpected LaunchAutomationScript parameters ${JSON.stringify(parameters)}` });
+                if (parameters.connection !== CONNECTION_GUID || ![IAS_SCRIPT_ID, SUBSCRIPT_ID, CONTEXT_ACTION_SCRIPT_ID, CREATE_JOB_SCRIPT_ID].includes(parameters.scriptID)) return event('WebSocketError', { Message: `Unexpected LaunchAutomationScript parameters ${JSON.stringify(parameters)}` });
                 if (mock.ias.launchError) return event('WebSocketError', { Message: mock.ias.launchError });
                 event('DMAAutomationScriptBasicUpdate', { Type: 'Started', Data: '' });
+                if (activeScriptId === CREATE_JOB_SCRIPT_ID) {
+                    const request = mock.calls.filter(call => call.method === 'ExecuteAutomationScript').pop()!;
+                    const label = JSON.parse(request.body.script.Parameters.find((parameter: any) => parameter.Name === 'Service Item Label').Value)[0];
+                    const item = serviceItems.find(candidate => candidate.Label === label);
+                    if (!item || item['Implementation Reference']) return event('WebSocketError', { Message: 'No unimplemented workflow service item found.' });
+                    Object.assign(item, { 'Implementation Reference': '11111111-1111-4111-8111-111111111111', 'Implementation Reference Name': `Test service | ${label}`, 'Implementation State': 'Draft' });
+                    return event('DMAAutomationScriptBasicUpdate', { Type: 'Completed', Data: 'SUCCEEDED' });
+                }
                 if (activeScriptId === SUBSCRIPT_ID) return renderSubscript();
                 if (activeScriptId === CONTEXT_ACTION_SCRIPT_ID) return event('DMAAutomationScriptBasicUpdate', { Type: 'Completed', Data: 'SUCCEEDED' });
                 state = { name: '', nameError: '', description: '', externalId: '', priority: 'High', organization: '-None-', contacts: '', expanded: false, completion: false, start: IAS_DEFAULT_DATE, end: IAS_DEFAULT_DATE };
@@ -365,13 +374,19 @@ function applyServiceRequest(row: Record<string, string>, body: any, categories:
 const SERVICE_ITEM_TYPE_VALUES: Record<string, number> = { workflow: 0, service: 1, srmbooking: 2 };
 const SERVICE_ITEM_TYPE_NAMES = ['Workflow', 'Service', 'SRMBooking'];
 function toUdapiServiceItem(row: Record<string, string>) {
-    return { ServiceItemID: Number(row['Service Item ID']), Label: row.Label, Type: SERVICE_ITEM_TYPE_VALUES[row['Service Item Type'].replace(/[\s_]/g, '').toLowerCase()] ?? 1, DefinitionReference: row['Definition Reference'] || '', ImplementationReference: row['Implementation Reference'] || '', Script: row['Service Item Script'] || '', Icon: '', ImplementationName: '', ImplementationState: row['Implementation State'] || '', MonitoringServiceState: row['Monitoring Service State'] || '' };
+    return { ServiceItemID: Number(row['Service Item ID']), Label: row.Label, Type: SERVICE_ITEM_TYPE_VALUES[row['Service Item Type'].replace(/[\s_]/g, '').toLowerCase()] ?? 1, DefinitionReference: row['Definition Reference'] || '', ImplementationReference: row['Implementation Reference'] || '', Script: row['Service Item Script'] || '', Icon: '', ImplementationName: row['Implementation Reference Name'] || '', ImplementationState: row['Implementation State'] || '', MonitoringServiceState: row['Monitoring Service State'] || '', MonitoringServiceId: row['Monitoring Service DMA ID/SID'] || '', BookingUrl: row['Implementation Reference Custom Link'] || '', BookingLogUrl: row.Log || '' };
 }
 function applyServiceItemRequest(row: Record<string, string>, body: any) {
     if ('label' in body) row.Label = String(body.label ?? '').trim();
     if ('type' in body) row['Service Item Type'] = SERVICE_ITEM_TYPE_NAMES[SERVICE_ITEM_TYPE_VALUES[String(body.type || 'Service').replace(/[\s_]/g, '').toLowerCase()] ?? 1];
     if ('definitionReference' in body) row['Definition Reference'] = body.definitionReference ?? '';
-    if ('implementationReference' in body) row['Implementation Reference'] = body.implementationReference ?? '';
+    if ('implementationReference' in body) {
+        row['Implementation Reference'] = body.implementationReference ?? '';
+        if (row['Service Item Type'] === 'SRMBooking' && row['Implementation Reference']) {
+            row['Implementation State'] = 'Confirmed';
+            row.Log = `/booking-logs/${encodeURIComponent(row.Label)}.html`;
+        }
+    }
     if ('script' in body) row['Service Item Script'] = body.script ?? '';
     return row;
 }
@@ -390,11 +405,29 @@ export async function mockDataMinerApi(page: Page, mode: GqiMode = 'ok'): Promis
     const categories = SAMPLE_CATEGORIES.map(category => ({ ...category }));
     const services: Record<string, string>[] = [{ ...SAMPLE_SERVICE }];
     mock.services = services;
-    const monitoringServices = [{ Id: 'monitoring-1', Name: 'Monitoring service 1' }];
+    mock.serviceItems = serviceItems;
     let sessionCount = 0;
     await serveAppAtBasePath(page);
     await mockIasWebSocket(page, mock, orders, serviceItems);
     await page.route('**/API/v1/Json.asmx/IsConnectionAlive', async route => { await json(route, 200, { d: true }); });
+    await page.route('**/API/v1/Json.asmx/GetServicesLiteForView', async route => {
+        mock.calls.push({ method: 'GetServicesLiteForView', body: route.request().postDataJSON() });
+        await json(route, 200, { d: [
+            { DataMinerID: 12, ID: 34, Name: 'Monitoring service 1', Type: 'Service', IsServiceTemplate: false },
+            { DataMinerID: 12, ID: 34, Name: 'Monitoring service 1', Type: 'Service', IsServiceTemplate: false },
+            { DataMinerID: 12, ID: 35, Name: 'Service template', Type: 'Service', IsServiceTemplate: true },
+        ] });
+    });
+    await page.route('**/API/v1/Json.asmx/GetDataMinerAgentAlarmColors', async route => {
+        mock.calls.push({ method: 'GetDataMinerAgentAlarmColors', body: route.request().postDataJSON() });
+        await json(route, 200, { d: {
+            Normal: { R: 12, G: 180, B: 90 },
+            Warning: { R: 50, G: 130, B: 255 },
+            Minor: { R: 80, G: 200, B: 220 },
+            Major: { R: 255, G: 170, B: 10 },
+            Critical: { R: 240, G: 20, B: 30 },
+        } });
+    });
     await page.route('**/API/v1/Json.asmx/ExecuteAutomationScript', async route => {
         const body = route.request().postDataJSON() ?? {};
         mock.calls.push({ method: 'ExecuteAutomationScript', body });
@@ -403,6 +436,7 @@ export async function mockDataMinerApi(page: Page, mode: GqiMode = 'ok'): Promis
             'SLC_SM_IAS_Add Service Order': IAS_SCRIPT_ID,
             'Launch Interactive Subscript': SUBSCRIPT_ID,
             'SLC_SM_AS_Service Item ContextMenu Actions': CONTEXT_ACTION_SCRIPT_ID,
+            'SLC_SM_Create Job For Service Item': CREATE_JOB_SCRIPT_ID,
         };
         if (!scriptIds[body.script?.Name]) return json(route, 500, { Message: `Unexpected Automation script ${body.script?.Name}`, ExceptionType: 'System.ArgumentException' });
         if (mock.ias.executeError) return json(route, 500, { Message: mock.ias.executeError, ExceptionType: 'Skyline.DataMiner.Web.Common.WebApiException' });
@@ -441,21 +475,8 @@ export async function mockDataMinerApi(page: Page, mode: GqiMode = 'ok'): Promis
             const [resource, id, subResource, subId, subAction] = String(request.Route ?? '').replace(/^service-management\/v1\//, '').split('/').map(decodeURIComponent);
             const requestBody = request.Body ? JSON.parse(request.Body) : {};
             const baseConfigurationRecords = (ownerId: string) => (serviceConfigurationOverrides.get(ownerId) ?? SAMPLE_SPECIFICATION_CONFIGURATIONS.map(row => ({ ...row }))).map(toConfigurationRecord);
-            if (resource === 'monitoringService' && request.RequestMethod === 1) return respond(200, monitoringServices);
             if (resource === 'serviceOrder') {
                 if (mock.mode === 'error' || (subResource === 'item' && mock.itemsFail)) return respond(500, { error: [{ errorCode: 'InternalServerError', detail: 'DOM manager is unavailable.', faultingNode: '', title: 'Internal server error' }] });
-                if (id === 'overview' && request.RequestMethod === 1) {
-                    const orderRows = mock.mode === 'empty' ? [] : orders.map(toUdapiOrder);
-                    const closed = new Set(['completed', 'cancelled', 'rejected', 'failed']);
-                    const attention = new Set(['held', 'assessCancellation', 'pendingCancellation', 'partiallyFailed', 'failed', 'rejected']);
-                    return respond(200, {
-                        items: orderRows.slice(0, 6),
-                        totalCount: orderRows.length,
-                        openCount: orderRows.filter(order => !closed.has(order.StatusName)).length,
-                        attentionCount: orderRows.filter(order => attention.has(order.StatusName)).length,
-                        completedCount: orderRows.filter(order => order.StatusName === 'completed').length,
-                    });
-                }
                 if (!id && request.RequestMethod === 1) {
                     const orderRows = mock.mode === 'empty' ? [] : orders.map(toUdapiOrder);
                     if (request.QueryParameters?.pagination?.[0] !== 'cursor') return respond(200, orderRows);
@@ -472,8 +493,16 @@ export async function mockDataMinerApi(page: Page, mode: GqiMode = 'ok'): Promis
                         completedCount: orderRows.filter(order => order.StatusName === 'completed').length,
                     }));
                 }
+                if (!id && request.RequestMethod === 3) {
+                    const highest = Math.max(0, ...orders.map(row => Number(String(row.OrderId || '').split('-').pop()) || 0));
+                    const orderId = `ORDER-${String(highest + 1).padStart(6, '0')}`;
+                    const created = { 'Order ID': `order-${highest + 1}`, OrderId: orderId, Name: String(requestBody.name || '').trim() || orderId, Description: requestBody.description || '', Priority: ['High', 'Medium', 'Low'].find(priority => priority.toLowerCase() === String(requestBody.priority || '').toLowerCase()) || 'High', 'External ID': requestBody.externalId || '', 'Related Organization': '', State: 'New' };
+                    orders.unshift(created);
+                    return respond(201, toUdapiOrder(created));
+                }
                 const order = orders.find(row => row.OrderId === id);
                 if (!order) return notFound();
+                if (!subResource && request.RequestMethod === 1) return respond(200, toUdapiOrder(order));
                 if (!subResource && request.RequestMethod === 4) {
                     orders.splice(orders.indexOf(order), 1);
                     delete orderItems[order['Order ID']];
@@ -527,11 +556,7 @@ export async function mockDataMinerApi(page: Page, mode: GqiMode = 'ok'): Promis
                     };
                     services.push(created);
                     serviceItemsByDomId.set(created['DOM ID'], []);
-                    const sourceRows = [
-                        ...(orderItemConfigurationOverrides.get(`${id}:${subId}`) ?? []),
-                        ...(item['Service Specification ID'] === SAMPLE_SPECIFICATION['Specification ID']
-                            ? SAMPLE_SPECIFICATION_CONFIGURATIONS.filter(row => ['Profile', 'ProfileParameter', 'NestedProfile', 'NestedProfileParameter'].includes(row['Record Type'])) : []),
-                    ];
+                    const sourceRows = orderItemConfigurationOverrides.get(`${id}:${subId}`) ?? [];
                     const copiedRows = requestBody.copyConfiguration === false ? [] : sourceRows.filter(row => !row['Record Type'].startsWith('Available')).map(row => ({
                         ...row,
                         'Version ID': `${created['DOM ID']}-version`,
@@ -579,16 +604,6 @@ export async function mockDataMinerApi(page: Page, mode: GqiMode = 'ok'): Promis
                             },
                         ],
                         bookingScripts: ['SRM_Booking Wizard'],
-                    });
-                }
-                if (id === 'overview' && request.RequestMethod === 1) {
-                    const serviceRows = services.map(service => toUdapiService(service));
-                    const active = new Set(['active', 'reserved', 'designed']);
-                    return respond(200, {
-                        items: serviceRows.slice(0, 6),
-                        totalCount: serviceRows.length,
-                        activeCount: serviceRows.filter(service => active.has(service.StatusName)).length,
-                        retiredCount: serviceRows.filter(service => service.StatusName === 'retired').length,
                     });
                 }
                 if (!id && request.RequestMethod === 1) {
@@ -678,7 +693,7 @@ export async function mockDataMinerApi(page: Page, mode: GqiMode = 'ok'): Promis
                         return respond(204);
                     }
                 }
-                if (subResource === 'configurationVersion' && subAction === 'duplicate' && request.RequestMethod === 3) {
+                if (subResource === 'configuration' && subAction === 'duplicate' && request.RequestMethod === 3) {
                     const rows = serviceConfigurationOverrides.get(service['DOM ID']) ?? SAMPLE_SPECIFICATION_CONFIGURATIONS.map(row => ({ ...row }));
                     const sourceRows = rows.filter(row => row['Version ID'] === subId);
                     if (sourceRows.length === 0) return notFound();
@@ -706,6 +721,7 @@ export async function mockDataMinerApi(page: Page, mode: GqiMode = 'ok'): Promis
                     return respond(201, toUdapiService(created));
                 }
                 if (subResource === 'item') {
+                    if (mock.serviceItemsFail) return respond(500, { error: [{ errorCode: 'InternalServerError', detail: 'Service item states are unavailable.', faultingNode: '', title: 'Internal server error' }] });
                     const items = serviceItemsByDomId.get(service['DOM ID']) ?? [];
                     const conflict = (label: string) => respond(409, { error: [{ errorCode: 'Conflict', detail: `Service item label '${label}' is already in use on service '${id}'.`, faultingNode: '', title: 'Conflict' }] });
                     const labelInUse = (label: string, except?: Record<string, string>) => items.some(row => row !== except && row.Label.toLowerCase() === label.toLowerCase());
@@ -749,10 +765,6 @@ export async function mockDataMinerApi(page: Page, mode: GqiMode = 'ok'): Promis
                     categories.splice(index, 1);
                     return respond(204);
                 }
-            }
-            if (resource === 'serviceSpecification' && request.RequestMethod === 1 && id === 'overview') {
-                const specification = { Identifier: SAMPLE_SPECIFICATION['Specification ID'], Name: SAMPLE_SPECIFICATION.Name, Description: SAMPLE_SPECIFICATION.Description, CreatedAt: '2026-09-01T14:40:53Z', CreatedBy: SAMPLE_SPECIFICATION['Created By'], LastModified: '2026-09-02T22:13:44Z', LastModifiedBy: SAMPLE_SPECIFICATION['Created By'], ServiceItems: Array.from({ length: Number(SAMPLE_SPECIFICATION['Service Item Count']) }, (_, index) => ({ ID: index, Label: `Item ${index + 1}` })) };
-                return respond(200, { items: [specification], totalCount: 1, totalItemCount: specification.ServiceItems.length });
             }
             if (resource === 'serviceSpecification' && request.RequestMethod === 1 && !id) {
                 const specificationRows = [SAMPLE_SPECIFICATION, ...Array.from({ length: 11 }, (_, index) => ({ ...SAMPLE_SPECIFICATION, 'Specification ID': `spec-${index + 2}`, Name: `A Specification ${index + 2}` }))].map(row => ({ Identifier: row['Specification ID'], Name: row.Name, Description: row.Description, CreatedAt: '2026-09-01T14:40:53Z', CreatedBy: row['Created By'], LastModified: '2026-09-02T22:13:44Z', LastModifiedBy: row['Created By'], ServiceItems: Array.from({ length: Number(row['Service Item Count']) }, (_, index) => ({ ID: index, Label: `Item ${index + 1}` })) }));

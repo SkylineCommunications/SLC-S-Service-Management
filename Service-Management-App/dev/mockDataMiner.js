@@ -1,6 +1,15 @@
-// Dev-only DataMiner Web API stand-in for `npm run dev` (apply: 'serve'), so the UI can be previewed live without an
+// Dev-only DataMiner Web API stand-in for `npm run dev:mock` (apply: 'serve'), so the UI can be previewed live without an
 // Agent. It answers the same Json.asmx / Internal.asmx calls the app makes and is never part of `vite build`.
+import { WebSocketServer } from 'ws';
+
 const CONNECTION = 'dev-connection';
+const ALARM_COLORS = {
+    Normal: { R: 66, G: 204, B: 126 },
+    Warning: { R: 81, G: 182, B: 255 },
+    Minor: { R: 93, G: 219, B: 219 },
+    Major: { R: 255, G: 194, B: 8 },
+    Critical: { R: 255, G: 72, B: 66 },
+};
 const ORDER_COLUMNS = ['Order ID', 'Name', 'Description', 'Priority', 'External ID', 'Related Organization', 'State', 'Start', 'Created At'];
 const ITEM_COLUMNS = ['ID', 'Name', 'Start', 'End', 'Action', 'Category', 'Category ID', 'Service Specification', 'Service Specification ID', 'Service', 'ServiceId', 'Property', 'Configuration', 'Status', 'StatusId', 'Description'];
 const SERVICE_COLUMNS = ['DOM ID', 'Service ID', 'Service Name', 'Service Status', 'Service Start', 'Service End', 'Service Category', 'Service Category Type', 'Service Logo', 'Service Specification', 'Alarm Level', 'Service Organization', 'Monitoring Service', 'Related Service Orders', 'Related Service Order Count'];
@@ -85,6 +94,31 @@ const EXTRA_ITEMS = new Map();
 const SERVICE_SCRIPT_OVERRIDES = new Map();
 const SERVICE_CONFIGURATION_OVERRIDES = new Map();
 const SERVICE_WITHOUT_CONFIGURATION_ID = SERVICES[SERVICES.length - 1]['DOM ID'];
+const BOOKING_DEMO_SERVICE = {
+    ...SERVICES[0],
+    'DOM ID': guid(9900),
+    'Service ID': 'SERVICE-9999',
+    'Service Name': 'SRM booking demo',
+};
+SERVICES.unshift(BOOKING_DEMO_SERVICE);
+const BOOKING_DEMO_STATES = ['Pending', 'Confirmed', 'Ongoing', 'Ended', 'Draft', 'Tentative', 'Running', 'Completed', 'Canceled', 'Has Errors', 'Ready for Invoice', 'Invoiced'];
+EXTRA_ITEMS.set(BOOKING_DEMO_SERVICE['DOM ID'], [
+    { Label: 'New encoder booking', 'Service Item ID': '1', 'Service Item Type': 'SRM Booking', 'Definition Reference': 'Encoding Booking Manager', 'Service Item Script': 'SRM_Booking Wizard', 'Implementation Reference': '', 'Implementation State': 'Not implemented', 'Monitoring Service State': '' },
+    ...BOOKING_DEMO_STATES.map((state, index) => ({
+        Label: `${state} booking`,
+        'Service Item ID': String(index + 2),
+        'Service Item Type': 'SRM Booking',
+        'Definition Reference': 'Encoding Booking Manager',
+        'Service Item Script': 'SRM_Booking Wizard',
+        'Implementation Reference': guid(10000 + index),
+        'Implementation Reference Name': `Encoder ${index + 1}`,
+        'Implementation State': state,
+        'Implementation Reference Custom Link': `/mock/srm-booking?id=${guid(10000 + index)}`,
+        'Monitoring Service State': Object.keys(ALARM_COLORS)[index % 5],
+        'Monitoring Service DMA ID/SID': `123/${100 + index}`,
+        Log: `/mock/booking-log?id=${guid(10000 + index)}`,
+    })),
+]);
 
 function serviceItemsFor(serviceId) {
     if (EXTRA_ITEMS.has(serviceId)) return EXTRA_ITEMS.get(serviceId);
@@ -98,6 +132,23 @@ function serviceItemsFor(serviceId) {
         { Actions: '', Label: `${name} monitoring`, 'Service Item ID': '2', 'Service Item Type': 'Service', 'Definition Reference': definition, 'Service Item Script': '', 'Implementation Reference': '', 'Implementation Reference Name': '', 'Implementation Reference Link': '', 'Implementation Reference Has Value': 'false', 'Implementation Reference Link Has Value': 'false', 'Implementation Reference Name Has Value': 'false', 'Implementation State': 'Active', 'Implementation Reference Custom Link': '', 'Implementation Reference Custom Link Has Value': 'false', 'Monitoring Service State': 'Active', 'Monitoring Service DMA ID/SID': '', Log: '' },
     ];
 }
+
+const LINKED_DEMO_SERVICE = SERVICES.find(service => service['Service ID'] === 'SERVICE-200');
+const IMPLEMENTATION_DEMO_SERVICE = {
+    ...SERVICES[1],
+    'DOM ID': guid(9901),
+    'Service ID': 'SERVICE-9998',
+    'Service Name': 'Implementation demo',
+    'Service Start': '11/14/2026 8:00:00 AM',
+    'Service End': '11/14/2026 6:00:00 PM',
+};
+SERVICES.unshift(IMPLEMENTATION_DEMO_SERVICE);
+EXTRA_ITEMS.set(IMPLEMENTATION_DEMO_SERVICE['DOM ID'], [
+    { Label: 'New workflow job', 'Service Item ID': '1', 'Service Item Type': 'Workflow', 'Definition Reference': 'Default', 'Implementation Reference': '', 'Implementation State': '' },
+    { Label: 'Existing workflow job', 'Service Item ID': '2', 'Service Item Type': 'Workflow', 'Definition Reference': 'Default', 'Implementation Reference': guid(12000), 'Implementation Reference Name': 'Existing production job', 'Implementation State': 'Running' },
+    { Label: 'Unlinked service', 'Service Item ID': '3', 'Service Item Type': 'Service', 'Definition Reference': LINKED_DEMO_SERVICE['Service Specification'], 'Implementation Reference': '' },
+    { Label: 'Linked service', 'Service Item ID': '4', 'Service Item Type': 'Service', 'Definition Reference': LINKED_DEMO_SERVICE['Service Specification'], 'Implementation Reference': LINKED_DEMO_SERVICE['DOM ID'], 'Implementation Reference Name': LINKED_DEMO_SERVICE['Service Name'], 'Implementation State': LINKED_DEMO_SERVICE['Service Status'] },
+]);
 
 function serviceScriptsFor(serviceId) {
     if (SERVICE_SCRIPT_OVERRIDES.has(serviceId)) return SERVICE_SCRIPT_OVERRIDES.get(serviceId);
@@ -339,10 +390,7 @@ function initializeServiceFromOrderItem(orderItemId, copyConfiguration = true) {
             'Alarm Level': '0',
         };
         SERVICES.push(service);
-        const sourceRows = copyConfiguration ? [
-            ...serviceConfigurationsFor(orderItemId, { includeProfiles: false }),
-            ...serviceConfigurationsFor(item['Service Specification ID']).filter(row => ['Profile', 'ProfileParameter', 'NestedProfile', 'NestedProfileParameter'].includes(row['Record Type'])),
-        ] : [];
+        const sourceRows = copyConfiguration ? serviceConfigurationsFor(orderItemId, { includeProfiles: false }) : [];
         const copiedIds = new Map();
         const copyId = id => {
             if (!id) return '';
@@ -559,12 +607,6 @@ function handleUdapiRequest(request) {
     let body = {};
     try { body = request.Body ? JSON.parse(request.Body) : {}; } catch { return error(400, 'Invalid request', 'The request body is not valid JSON.'); }
     const now = new Date().toLocaleString('en-US');
-    if (resource === 'monitoringService' && request.RequestMethod === 1) {
-        return {
-            status: 200,
-            response: SERVICES.map(service => ({ Id: service['DOM ID'], Name: service['Service Name'] })),
-        };
-    }
     if (resource === 'serviceCategory') {
         const category = id ? CATEGORY_ROWS.find(row => row['Category ID'] === id) : null;
         if (id && !category) return error(404, 'Not found', `Service category '${id}' was not found.`);
@@ -589,19 +631,6 @@ function handleUdapiRequest(request) {
         }
     }
     if (resource === 'serviceSpecification') {
-        if (id === 'overview' && request.RequestMethod === 1) {
-            const items = SPECIFICATIONS.slice(0, 6).map(row => ({
-                Identifier: row['Specification ID'],
-                Name: row.Name,
-                Description: row.Description,
-                CreatedAt: toIsoDate(row['Created At']),
-                CreatedBy: row['Created By'],
-                LastModified: toIsoDate(row['Last Modified']),
-                LastModifiedBy: row['Last Modified By'],
-                ServiceItems: Array.from({ length: Number(row['Service Item Count']) || 0 }, (_, itemIndex) => ({ ID: itemIndex, Label: `Item ${itemIndex + 1}` })),
-            }));
-            return { status: 200, response: { items, totalCount: SPECIFICATIONS.length, totalItemCount: SPECIFICATIONS.reduce((total, row) => total + (Number(row['Service Item Count']) || 0), 0) } };
-        }
         const index = id ? SPECIFICATIONS.findIndex(row => row['Specification ID'] === id) : -1;
         if (id && index < 0) return error(404, 'Not found', `Service specification '${id}' was not found.`);
         const toSpecification = row => ({
@@ -653,21 +682,6 @@ function handleUdapiRequest(request) {
         }
     }
     if (resource === 'serviceOrder') {
-        if (id === 'overview' && request.RequestMethod === 1) {
-            const rows = ORDERS.map(toUdapiOrder);
-            const closed = new Set(['completed', 'cancelled', 'rejected', 'failed']);
-            const attention = new Set(['held', 'assessCancellation', 'pendingCancellation', 'partiallyFailed', 'failed', 'rejected']);
-            return {
-                status: 200,
-                response: {
-                    items: rows.slice(0, 6),
-                    totalCount: rows.length,
-                    openCount: rows.filter(row => !closed.has(row.StatusName)).length,
-                    attentionCount: rows.filter(row => attention.has(row.StatusName)).length,
-                    completedCount: rows.filter(row => row.StatusName === 'completed').length,
-                },
-            };
-        }
         if (!id && request.RequestMethod === 1) {
             const rows = ORDERS.map(toUdapiOrder);
             return request.QueryParameters?.pagination?.[0] === 'cursor'
@@ -677,6 +691,15 @@ function handleUdapiRequest(request) {
                     completedCount: rows.filter(row => row.StatusName === 'completed').length,
                 }) }
                 : { status: 200, response: rows };
+        }
+        if (!id && request.RequestMethod === 3) {
+            const highest = Math.max(0, ...ORDERS.map(row => Number(orderIdFor(row['Order ID']).split('-').pop()) || 0));
+            const domId = guid(5600 + highest);
+            const orderId = `ORDER-${String(highest + 1).padStart(6, '0')}`;
+            ORDER_NUMBERS.set(domId, orderId);
+            const created = { 'Order ID': domId, Name: String(body.name || '').trim() || orderId, Description: body.description || '', Priority: PRIORITIES.find(priority => priority.toLowerCase() === String(body.priority || '').toLowerCase()) || 'High', 'External ID': body.externalId || '', 'Related Organization': ORGANIZATION_ROWS.find(row => row['Organization ID'] === body.organizationId)?.['Organization Name'] || '', State: 'New' };
+            ORDERS.unshift(created);
+            return { status: 201, response: toUdapiOrder(created) };
         }
         const order = id ? ORDERS.find(row => orderIdFor(row['Order ID']) === id) : null;
         if (id && !order) return error(404, 'Not found', `Service order '${id}' does not exist.`);
@@ -806,19 +829,6 @@ function handleUdapiRequest(request) {
                 },
             };
         }
-        if (id === 'overview' && request.RequestMethod === 1) {
-            const rows = SERVICES.map(toUdapiService);
-            const active = new Set(['active', 'reserved', 'designed']);
-            return {
-                status: 200,
-                response: {
-                    items: rows.slice(0, 6),
-                    totalCount: rows.length,
-                    activeCount: rows.filter(row => active.has(row.StatusName)).length,
-                    retiredCount: rows.filter(row => row.StatusName === 'retired').length,
-                },
-            };
-        }
         if (!id && request.RequestMethod === 1) {
             const rows = SERVICES.map(toUdapiService);
             return request.QueryParameters?.pagination?.[0] === 'cursor'
@@ -838,6 +848,7 @@ function handleUdapiRequest(request) {
         }
         const service = id ? SERVICES.find(row => row['DOM ID'] === id) ?? SERVICES.find(row => row['Service ID'] === id) : null;
         if (!service) return error(404, 'Not found', `Service '${id}' does not exist.`);
+        if (!subResource && request.RequestMethod === 1) return { status: 200, response: toUdapiService(service) };
         if (!subResource && request.RequestMethod === 4) {
             SERVICES.splice(SERVICES.indexOf(service), 1);
             EXTRA_ITEMS.delete(service['DOM ID']);
@@ -934,6 +945,9 @@ const SERVICE_ITEM_TYPE_VALUES = { workflow: 0, service: 1, srmbooking: 2 };
 const SERVICE_ITEM_TYPE_NAMES = ['Workflow', 'Service', 'SRM Booking'];
 
 function toUdapiServiceItem(row) {
+    const linkedService = row['Service Item Type'] === 'Service'
+        ? SERVICES.find(service => service['DOM ID'] === row['Implementation Reference'])
+        : null;
     return {
         ServiceItemID: Number(row['Service Item ID']),
         Label: row.Label,
@@ -942,9 +956,12 @@ function toUdapiServiceItem(row) {
         ImplementationReference: row['Implementation Reference'] || '',
         Script: row['Service Item Script'] || '',
         Icon: '',
-        ImplementationName: row['Implementation Reference Name'] || '',
-        ImplementationState: row['Implementation State'] || '',
+        ImplementationName: linkedService?.['Service Name'] || row['Implementation Reference Name'] || '',
+        ImplementationState: linkedService?.['Service Status'] || row['Implementation State'] || '',
         MonitoringServiceState: row['Monitoring Service State'] || '',
+        MonitoringServiceId: row['Monitoring Service DMA ID/SID'] || '',
+        BookingUrl: row['Implementation Reference Custom Link'] || '',
+        BookingLogUrl: row.Log || '',
     };
 }
 
@@ -995,17 +1012,141 @@ function handleServiceItemRequest(request, service, body, subId, error) {
 
 export default function mockDataMiner() {
     const sessions = new Map();
+    const scripts = new Map();
     let sessionCount = 0;
+    let scriptCount = 100;
     return {
         name: 'mock-dataminer',
         apply: 'serve',
         configureServer(server) {
             server.config.logger.info('  [mock-dataminer] Serving sample service orders (dev only).');
+            const wsServer = new WebSocketServer({ noServer: true });
+            const upgrade = (request, socket, head) => {
+                if (request.url?.split('?')[0] !== '/API/v1/WebSocket.ashx') return;
+                wsServer.handleUpgrade(request, socket, head, ws => wsServer.emit('connection', ws));
+            };
+            server.httpServer.on('upgrade', upgrade);
+            server.httpServer.once('close', () => {
+                server.httpServer.off('upgrade', upgrade);
+                for (const client of wsServer.clients) client.terminate();
+                wsServer.close();
+            });
+            wsServer.on('connection', ws => {
+                let subscriptionId = 0;
+                let scriptId = 0;
+                const sendEvent = (Type, Data) => ws.send(JSON.stringify({ Type, Data, ClientSubscriptionID: subscriptionId }));
+                const complete = () => {
+                    scripts.delete(scriptId);
+                    sendEvent('DMAAutomationScriptBasicUpdate', { Type: 'Completed', Data: 'SUCCEEDED' });
+                };
+                ws.on('message', raw => {
+                    const message = JSON.parse(String(raw));
+                    const parameters = message.Parameters ?? {};
+                    if (message.Method === 'SetConnectionID') {
+                        return ws.send(JSON.stringify({ Type: parameters.connectionID === CONNECTION ? 'String' : 'WebSocketError', Data: parameters.connectionID === CONNECTION ? CONNECTION : { Message: 'Unknown mock connection.' }, ClientSubscriptionID: message.ClientSubscriptionID }));
+                    }
+                    if (message.Method === 'Ping') return ws.send(JSON.stringify({ Type: 'Pong', ClientSubscriptionID: 0 }));
+                    if (message.Method === 'LaunchAutomationScript') {
+                        subscriptionId = message.ClientSubscriptionID;
+                        scriptId = parameters.scriptID;
+                        const script = scripts.get(scriptId);
+                        if (!script) return sendEvent('WebSocketError', { Message: 'Unknown mock script.' });
+                        sendEvent('DMAAutomationScriptBasicUpdate', { Type: 'Started', Data: '' });
+                        if (script.createJob) {
+                            if (script.item['Implementation Reference']) return sendEvent('WebSocketError', { Message: 'A job is already linked to this service item.' });
+                            const id = guid(++scriptCount + 12000);
+                            Object.assign(script.item, {
+                                'Implementation Reference': id,
+                                'Implementation Reference Name': `${script.serviceName} | ${script.item.Label}`,
+                                'Implementation State': 'Draft',
+                            });
+                            return complete();
+                        }
+                        if (script.action) {
+                            const state = { Start: 'Ongoing', Cancel: 'Canceled', Finish: 'Ended' }[script.action];
+                            if (state) script.item['Implementation State'] = state;
+                            if (script.action === 'Delete') {
+                                Object.assign(script.item, { 'Implementation Reference': '', 'Implementation Reference Name': '', 'Implementation State': 'Not implemented', 'Implementation Reference Custom Link': '', 'Monitoring Service State': '', 'Monitoring Service DMA ID/SID': '', Log: '' });
+                            }
+                            return complete();
+                        }
+                        const cell = components => ({ ColSpan: 1, RowSpan: 1, Components: components });
+                        return sendEvent('DMAAutomationScriptUIUpdate', { Type: 'InteractiveUI', AsyncCalls: 0, Layout: {
+                            Title: 'Mock SRM Booking Wizard',
+                            Rows: [
+                                { Cells: [cell([{ Type: 'static', Text: 'Booking name' }]), cell([{ Type: 'textbox', DestVar: 'booking-name', Value: script.item.Label }])] },
+                                { Cells: [cell([{ Type: 'static', Text: 'Local preview only — no DataMiner reservation will be created.' }])] },
+                                { Cells: [cell([{ Type: 'button', DestVar: 'cancel', Text: 'Cancel' }]), cell([{ Type: 'button', DestVar: 'create', Text: 'Create Booking', Class: 'CallToAction' }])] },
+                            ],
+                        } });
+                    }
+                    if (message.Method === 'ContinueAutomationScript') {
+                        const script = scripts.get(parameters.scriptId);
+                        if (!script) return sendEvent('WebSocketError', { Message: 'Unknown mock script.' });
+                        const values = Object.fromEntries(String(parameters.values).split('\x1d').map(part => {
+                            const separator = part.indexOf('=');
+                            return [part.slice(0, separator), part.slice(separator + 1)];
+                        }));
+                        if (values._onchange === 'create') {
+                            const id = guid(++scriptCount + 11000);
+                            Object.assign(script.item, {
+                                'Implementation Reference': id,
+                                'Implementation Reference Name': values['booking-name'] || script.item.Label,
+                                'Implementation State': 'Confirmed',
+                                'Implementation Reference Custom Link': `/mock/srm-booking?id=${id}`,
+                                'Monitoring Service State': 'Normal',
+                                'Monitoring Service DMA ID/SID': `123/${scriptCount}`,
+                                Log: `/mock/booking-log?id=${id}`,
+                            });
+                        } else if (values._onchange !== 'cancel') {
+                            return sendEvent('WebSocketError', { Message: 'Unexpected mock booking action.' });
+                        }
+                        return complete();
+                    }
+                    return sendEvent('WebSocketError', { Message: `Unsupported mock WebSocket method ${message.Method}.` });
+                });
+            });
             server.middlewares.use(async (req, res, next) => {
                 if (!/(?:^|;\s*)DMAConnection=/.test(req.headers.cookie || '')) res.setHeader('Set-Cookie', `DMAConnection=${CONNECTION}; Path=/`);
                 const path = (req.url || '').split('?')[0];
                 if (path === '/auth/' || path === '/auth/logout') { res.statusCode = 302; res.setHeader('Location', '/'); return res.end(); }
                 if (path === '/API/v1/Json.asmx/IsConnectionAlive') return send(res, 200, { d: true });
+                if (path === '/API/v1/Json.asmx/GetDataMinerAgentAlarmColors') return send(res, 200, { d: ALARM_COLORS });
+                if (path === '/API/v1/Json.asmx/GetServicesLiteForView') return send(res, 200, { d: SERVICES.map((service, index) => ({ DataMinerID: 100, ID: index + 1, Name: service['Service Name'], Type: 'Service', IsServiceTemplate: false })) });
+                if (path === '/mock/srm-booking' || path === '/mock/booking-log' || path === '/mock/workflow-job' || /^\/app\/[^/]+\/Job%20Panel$/.test(path)) {
+                    const query = new URL(req.url, 'http://localhost').searchParams;
+                    const id = query.get('id') || query.get('object manager instances')?.replace(/^\(slc\)workflow\//, '');
+                    const isJob = path === '/mock/workflow-job' || path.startsWith('/app/');
+                    const item = [...EXTRA_ITEMS.values()].flat().find(row => row['Implementation Reference'] === id);
+                    res.statusCode = item ? 200 : 404;
+                    res.setHeader('Content-Type', 'text/html');
+                    const escape = value => String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
+                    return res.end(`<html><body><h1>Mock ${isJob ? 'workflow job' : path.endsWith('booking-log') ? 'booking log' : 'SRM booking'}</h1><p>${item ? escape(item['Implementation Reference Name']) : 'Implementation not found'}</p><p>${escape(item?.['Implementation State'])}</p><p>Local preview only.</p></body></html>`);
+                }
+                if (path === '/API/v1/Json.asmx/ExecuteAutomationScript') {
+                    const body = await readBody(req);
+                    const script = body.script ?? {};
+                    if (body.connection !== CONNECTION) return send(res, 500, { Message: 'Unexpected connection' });
+                    if (!['Launch Interactive Subscript', 'SLC_SM_AS_Service Item ContextMenu Actions', 'SLC_SM_Create Job For Service Item'].includes(script.Name)) return send(res, 500, { Message: `Interactive script "${script.Name}" is not mocked.` });
+                    const serviceId = scriptParameter(script.Parameters, 'DOM ID');
+                    const label = scriptParameter(script.Parameters, script.Name === 'Launch Interactive Subscript' ? 'Item Label' : 'Service Item Label');
+                    const items = [...serviceItemsFor(serviceId)];
+                    const item = items.find(row => row.Label === label);
+                    if (!item) return send(res, 500, { Message: 'The mock service item could not be found.' });
+                    const action = scriptParameter(script.Parameters, 'ContextMenu Action');
+                    if (['CHANGETIME', 'EXTEND'].includes(action)) return send(res, 500, { Message: 'Booking time-editing dialogs are not simulated in this local preview.' });
+                    EXTRA_ITEMS.set(serviceId, items);
+                    const id = ++scriptCount;
+                    const createJob = script.Name === 'SLC_SM_Create Job For Service Item';
+                    if (createJob && (item['Service Item Type'] !== 'Workflow' || !item['Definition Reference'])) return send(res, 500, { Message: 'No workflow is configured for this service item.' });
+                    scripts.set(id, { item, action, createJob, serviceName: SERVICES.find(service => service['DOM ID'] === serviceId)?.['Service Name'] });
+                    return send(res, 200, { d: id });
+                }
+                if (path === '/API/v1/Json.asmx/DetachAutomationScript') {
+                    const body = await readBody(req);
+                    scripts.delete(body.scriptID);
+                    return send(res, 200, { d: null });
+                }
                 if (path === '/API/v1/Json.asmx/ExecuteAutomationScriptWithOutput') {
                     const body = await readBody(req);
                     await new Promise(resolve => setTimeout(resolve, 300));

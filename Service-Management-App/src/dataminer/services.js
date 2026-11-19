@@ -1,4 +1,6 @@
 import { formatDataMinerDateTime, getDataMinerTimestamp } from './dateTime.js';
+import { callDataMinerApi, DataMinerAuthError } from './transport.js';
+import { mediaOpsJobUrl } from './integrations.js';
 import {
     addInventoryServiceItem,
     addServiceScript,
@@ -8,14 +10,14 @@ import {
     deleteServiceScript,
     duplicateInventoryService,
     duplicateServiceConfigurationVersion,
-    fetchMonitoringServiceList,
     fetchServiceRecord,
     fetchServiceConfigurationList,
     fetchServiceItemList,
     fetchServiceItemOptions,
     fetchServiceList,
     fetchServiceCursorPage,
-    fetchServiceOverview,
+    OVERVIEW_PAGE,
+    toOverview,
     fetchServiceScriptList,
     saveServiceConfiguration,
     transitionInventoryService,
@@ -57,6 +59,12 @@ export const SERVICE_TRANSITIONS = {
     active: [{ label: 'Terminate', next: 'Terminated' }],
 };
 export const SERVICE_INVENTORY_SCRIPTS = {
+    createWorkflowJob: {
+        name: 'SLC_SM_Create Job For Service Item',
+        folder: 'Service Management',
+        interactive: true,
+        parameterDefinitions: [{ id: 10, name: 'DOM ID' }, { id: 11, name: 'Service Item Label' }],
+    },
     // Runs the service item's own (interactive) script, e.g. a Booking Manager wizard, and stores the resulting reference.
     launchItemScript: {
         name: 'Launch Interactive Subscript',
@@ -83,8 +91,21 @@ export const SRM_BOOKING_ACTIONS = [
     { value: 'Finish', label: 'Finish Booking', icon: 'stop_circle' },
     { value: 'CHANGETIME', label: 'Change Booking Time', icon: 'schedule' },
     { value: 'EXTEND', label: 'Extend Booking Time', icon: 'more_time' },
+    { value: 'ViewLog', label: 'View Log', icon: 'description' },
 ];
+const SRM_BOOKING_ACTIONS_BY_STATE = {
+    confirmed: ['Start', 'Cancel', 'ViewLog'],
+    canceled: ['Delete', 'ViewLog'],
+    cancelled: ['Delete', 'ViewLog'],
+    ongoing: ['Finish', 'CHANGETIME', 'EXTEND', 'ViewLog'],
+};
+
+export function getSrmBookingActions(state) {
+    const values = SRM_BOOKING_ACTIONS_BY_STATE[String(state ?? '').trim().toLowerCase()] ?? [];
+    return SRM_BOOKING_ACTIONS.filter(action => values.includes(action.value));
+}
 const ACTIVE_STATUSES = new Set(['active', 'reserved', 'designed']);
+const SERVICE_OVERVIEW_FIELDS = 'Identifier,ServiceID,Name,StatusName,ServiceSpecificationName';
 const SERVICE_LIST_FIELDS = [
     'Identifier',
     'ServiceID',
@@ -141,8 +162,8 @@ export async function fetchServicePage(options = {}) {
     };
 }
 
-export async function fetchServiceOverviewData(options = {}) {
-    const overview = await fetchServiceOverview(options);
+export async function fetchServiceOverviewData() {
+    const overview = toOverview(await fetchServiceCursorPage({ ...OVERVIEW_PAGE, fields: SERVICE_OVERVIEW_FIELDS }));
     return {
         ...overview,
         items: overview.items.map(mapUdapiService),
@@ -160,11 +181,17 @@ export async function fetchServiceForDisplay(id) {
     return service ? mapUdapiService(service) : null;
 }
 
+// Lists the DataMiner services the user can see (root view and its subviews), excluding service templates.
 export async function fetchMonitoringServices() {
-    const services = await fetchMonitoringServiceList();
-    return services
-        .map(service => ({ id: service.id ?? service.Id ?? '', name: service.name ?? service.Name ?? '' }))
-        .filter(service => service.name.trim());
+    const services = await callDataMinerApi('/API/v1/Json.asmx/GetServicesLiteForView', { viewID: -1, includeSubViews: true });
+    const byId = new Map();
+    for (const service of Array.isArray(services) ? services : []) {
+        const name = String(service?.Name ?? '').trim();
+        if (!name || service.IsServiceTemplate || service.DataMinerID == null || service.ID == null) continue;
+        const id = `${service.DataMinerID}/${service.ID}`;
+        if (!byId.has(id)) byId.set(id, { id, name });
+    }
+    return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
 }
 
 export async function fetchServiceItems(serviceId) {
@@ -188,12 +215,100 @@ export function mapUdapiServiceItem(item) {
         implementation: String(pick('ImplementationName') ?? ''),
         implementationState: String(pick('ImplementationState') ?? ''),
         monitoringState: String(pick('MonitoringServiceState') ?? ''),
+        monitoringServiceId: String(pick('MonitoringServiceId') ?? ''),
+        bookingLink: String(pick('BookingUrl') ?? ''),
+        bookingLogUrl: String(pick('BookingLogUrl') ?? ''),
     };
+}
+
+// "Reference Unknown" is written by Launch Interactive Subscript when the wizard returned no reference.
+const UNKNOWN_IMPLEMENTATION_REFERENCE = 'reference unknown';
+
+export function hasImplementationReference(item) {
+    const reference = item?.implementationReference?.trim();
+    return Boolean(reference) && reference.toLowerCase() !== UNKNOWN_IMPLEMENTATION_REFERENCE;
+}
+
+// Alarm colors are system configuration, so they are read once per page load.
+let alarmColorsRequest;
+function fetchAlarmColors() {
+    alarmColorsRequest ??= callDataMinerApi('/API/v1/Json.asmx/GetDataMinerAgentAlarmColors', {})
+        .catch(error => { alarmColorsRequest = undefined; throw error; });
+    return alarmColorsRequest;
 }
 
 export async function fetchInventoryServiceItems(service) {
     const id = serviceApiId(service);
-    return id ? fetchServiceItems(id) : [];
+    if (!id) return [];
+    const items = (await fetchServiceItems(id)).map(({ bookingLink, ...item }) => ({
+        ...item,
+        bookingUrl: serviceItemType(item) === 'srmbooking' ? webLink(bookingLink) : '',
+        jobUrl: serviceItemType(item) === 'workflow' && hasImplementationReference(item)
+            ? mediaOpsJobUrl(item.implementationReference)
+            : '',
+    }));
+    if (!items.some(item => item.monitoringState && item.monitoringServiceId)) return items;
+    // Colors are best effort: keep the items with default styling unless the session is no longer valid.
+    const colors = await fetchAlarmColors().catch(error => {
+        if (error instanceof DataMinerAuthError) throw error;
+        return {};
+    });
+    return items.map(item => {
+        const key = Object.keys(colors ?? {}).find(name => stateKey(name) === stateKey(item.monitoringState));
+        const color = colors?.[key];
+        return { ...item, monitoringColor: color ? `rgb(${color.R}, ${color.G}, ${color.B})` : undefined };
+    });
+}
+
+export function serviceItemType(item) {
+    return stateKey(item?.type);
+}
+
+function webLink(value) {
+    if (!String(value ?? '').trim()) return '';
+    const url = new URL(String(value).trim(), window.location.origin);
+    if (!['http:', 'https:'].includes(url.protocol)) throw new Error('The implementation link is not a valid web URL.');
+    return url.href;
+}
+
+function stateKey(value) {
+    return String(value ?? '').replace(/[\s_]/g, '').toLowerCase();
+}
+
+const IMPLEMENTATION_STATE_COLORS = {
+    pending: 'var(--palette-color3)',
+    confirmed: 'var(--success)',
+    ongoing: 'var(--success)',
+    ended: 'var(--color10)',
+    draft: 'var(--palette-color1)',
+    tentative: 'var(--palette-color3)',
+    running: 'var(--success)',
+    completed: 'var(--palette-color4)',
+    canceled: 'var(--palette-color3)',
+    cancelled: 'var(--palette-color3)',
+    haserrors: 'var(--error)',
+    readyforinvoice: 'var(--palette-color4)',
+    invoiced: 'var(--color10)',
+};
+
+export function implementationStateColor(state) {
+    return IMPLEMENTATION_STATE_COLORS[stateKey(state)];
+}
+
+export function monitoringServiceUrl(serviceId) {
+    const match = /^(\d+)\/(\d+)$/.exec(serviceId ?? '');
+    return match ? `${window.location.origin}/monitoring/service/${match[1]}/${match[2]}` : '';
+}
+
+export function srmBookingLogUrl(item) {
+    const logLocation = String(item?.bookingLogUrl ?? '').trim();
+    if (!logLocation) throw new Error('No booking log is available for this SRM booking.');
+
+    const logUrl = new URL(logLocation, window.location.origin);
+    if (!['http:', 'https:'].includes(logUrl.protocol)) {
+        throw new Error('The booking log location is not a valid web URL.');
+    }
+    return logUrl.href;
 }
 
 export async function fetchServiceItemReferenceOptions() {
@@ -253,6 +368,8 @@ const CONFIGURATION_COLUMNS = {
     parameterValue: 'Parameter Value',
     mandatory: 'Mandatory',
     profileId: 'Profile ID',
+    profileReferenceId: 'Profile Reference ID',
+    warning: 'Warning',
     profileName: 'Profile Name',
     profileDefinitionId: 'Profile Definition ID',
     profileDefinitionName: 'Profile Definition Name',
@@ -297,6 +414,7 @@ export function mapServiceConfigurationRows(rows) {
     const availableParameters = [];
     const availableProfiles = [];
     const availableNestedProfiles = [];
+    const warnings = [];
     const parameterDetails = row => ({
         label: row['Parameter Label'] ?? '',
         isLinked: String(row['Parameter Is Linked'] ?? '').toLowerCase() === 'true',
@@ -345,6 +463,7 @@ export function mapServiceConfigurationRows(rows) {
         if (!profile) {
             profile = {
                 id,
+                referenceId: fields.referenceId ?? '',
                 name: fields.name ?? '',
                 definitionId: fields.definitionId ?? '',
                 definitionName: fields.definitionName ?? '',
@@ -360,6 +479,7 @@ export function mapServiceConfigurationRows(rows) {
         }
         else {
             profile.name ||= fields.name ?? '';
+            profile.referenceId ||= fields.referenceId ?? '';
             profile.definitionId ||= fields.definitionId ?? '';
             profile.definitionName ||= fields.definitionName ?? '';
             profile.reusable ||= fields.reusable ?? false;
@@ -388,6 +508,11 @@ export function mapServiceConfigurationRows(rows) {
     };
     rows.forEach(row => {
         const recordType = row['Record Type'] ?? '';
+        if (recordType === 'Warning') {
+            const warning = String(row.Warning ?? '').trim();
+            if (warning && !warnings.includes(warning)) warnings.push(warning);
+            return;
+        }
         if (recordType === 'AvailableParameter') {
             addUnique(availableParameters, { id: row['Parameter ID'] ?? '', name: row['Parameter Name'] ?? '', type: row['Parameter Type'] ?? '', options: parseDiscreteOptions(row['Parameter Options'], row['Parameter Name']), ...parameterDetails(row) });
             return;
@@ -429,6 +554,7 @@ export function mapServiceConfigurationRows(rows) {
                 name: row['Profile Name'] ?? '',
                 definitionId: row['Profile Definition ID'] ?? '',
                 definitionName: row['Profile Definition Name'] ?? '',
+                referenceId: row['Profile Reference ID'] ?? '',
                 reusable: String(row['Profile Reusable']).toLowerCase() === 'true',
                 mandatory: String(row['Profile Mandatory']).toLowerCase() === 'true',
                 exposeAtOrder: String(row['Expose At Order']).toLowerCase() === 'true',
@@ -439,6 +565,7 @@ export function mapServiceConfigurationRows(rows) {
                 name: row['Nested Profile Name'] ?? '',
                 definitionId: row['Nested Profile Definition ID'] ?? '',
                 definitionName: row['Nested Profile Definition Name'] ?? '',
+                referenceId: '',
                 reusable: availableNestedProfiles.some(item => item.id === nestedProfileId && item.reusable),
                 mandatory: String(row['Profile Mandatory']).toLowerCase() === 'true',
                 exposeAtOrder: String(row['Expose At Order']).toLowerCase() === 'true',
@@ -457,6 +584,7 @@ export function mapServiceConfigurationRows(rows) {
                 name: row['Profile Name'] ?? '',
                 definitionId: row['Profile Definition ID'] ?? '',
                 definitionName: row['Profile Definition Name'] ?? '',
+                referenceId: row['Profile Reference ID'] ?? '',
                 reusable: String(row['Profile Reusable']).toLowerCase() === 'true',
                 mandatory: String(row['Profile Mandatory']).toLowerCase() === 'true',
             });
@@ -480,21 +608,37 @@ export function mapServiceConfigurationRows(rows) {
         }
     });
     const reusableProfileIds = new Set(availableNestedProfiles.filter(profile => profile.reusable).map(profile => profile.id));
-    const visitedProfiles = new Set();
-    const markReusableProfiles = profile => {
-        if (!profile || visitedProfiles.has(profile.id)) return;
-        visitedProfiles.add(profile.id);
+    // Every profile, nested or not, is in its version's map, so one flat pass covers the whole tree.
+    versions.forEach(version => version.profiles.forEach(profile => {
         if (reusableProfileIds.has(profile.id)) profile.reusable = true;
-        (profile.nestedProfiles || []).forEach(markReusableProfiles);
-    };
-    versions.forEach(version => version.profiles.forEach(markReusableProfiles));
+        profile.parameters.sort(compareConfigurationParameters);
+        profile.nestedProfiles.sort(compareConfigurationProfiles);
+    }));
+    const mappedVersions = [...versions.values()].map(({ profiles, nestedProfileIds, ...version }) => ({
+        ...version,
+        parameters: version.parameters.sort(compareConfigurationParameters),
+        profiles: [...profiles.values()].filter(profile => !nestedProfileIds.has(profile.id)).sort(compareConfigurationProfiles),
+    }));
     return {
-        versions: [...versions.values()].map(({ profiles, nestedProfileIds, ...version }) => ({ ...version, profiles: [...profiles.values()].filter(profile => !nestedProfileIds.has(profile.id)) })),
-        availableParameters,
-        availableProfiles,
-        availableNestedProfiles,
+        versions: mappedVersions.filter(version => version.id !== SPECIFICATION_TEMPLATE_VERSION_ID),
+        specificationTemplate: mappedVersions.find(version => version.id === SPECIFICATION_TEMPLATE_VERSION_ID) ?? null,
+        availableParameters: availableParameters.sort(compareByName),
+        availableProfiles: availableProfiles.sort(compareByName),
+        availableNestedProfiles: availableNestedProfiles.sort(compareByName),
+        warnings,
     };
 }
+
+const compareText = (left, right) => String(left || '').localeCompare(String(right || ''), undefined, { sensitivity: 'base', numeric: true });
+const compareByName = (left, right) => compareText(left.name || left.id, right.name || right.id);
+const compareConfigurationParameters = (left, right) => compareByName(left, right) || compareText(left.label, right.label);
+const compareConfigurationProfiles = (left, right) => compareByName(left, right) || compareText(left.definitionName, right.definitionName);
+
+export const sortConfigurationParameters = parameters => [...parameters].sort(compareConfigurationParameters);
+export const sortConfigurationProfiles = profiles => [...profiles].sort(compareConfigurationProfiles);
+
+// Unsaved rows with the service specification's configuration, used to prefill a new configuration version.
+export const SPECIFICATION_TEMPLATE_VERSION_ID = 'SpecificationTemplate';
 
 export function configurationParameterKey(parameter) {
     return parameter.configurationId || parameter.valueId || parameter.clientId || parameter.id;

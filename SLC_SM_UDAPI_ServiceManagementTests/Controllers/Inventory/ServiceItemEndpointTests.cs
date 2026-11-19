@@ -13,6 +13,15 @@ namespace SLC_SM_UDAPI_ServiceManagement.Tests.Controllers
 	public class ServiceItemEndpointTests : ServiceInventoryControllerTestBase
 	{
 		// ---- GET /service/{id}/item ----
+		[DataTestMethod]
+		[DataRow("https://dma/logs/", "Backup #1", "https://dma/logs/Backup%20%231.html")]
+		[DataRow("https://dma/logs", "a?b/c", "https://dma/logs/a%3Fb%2Fc.html")]
+		[DataRow("", "Booking", "")]
+		public void BuildBookingLogUrl_EncodesBookingNameAsSinglePathSegment(string location, string name, string expected)
+		{
+			Assert.AreEqual(expected, ServiceItemImplementations.BuildBookingLogUrl(location, name));
+		}
+
 		[TestMethod]
 		public void ListServiceItems_ReturnsItemsSortedByIdWithImplementation()
 		{
@@ -20,17 +29,23 @@ namespace SLC_SM_UDAPI_ServiceManagement.Tests.Controllers
 			var service = AddService();
 			var job = AddItem(service, 3, "Job", ItemType.Workflow, Guid.NewGuid().ToString());
 			AddItem(service, 1, "Svc", ItemType.Service, linked.Identifier);
-			ItemImplementations.Setup(i => i.Describe(job)).Returns(new ServiceItemImplementation { Name = "Job 1", State = "Running", MonitoringServiceState = "Normal" });
+			service.ServiceItems.Add(new ServiceItem());
+			ItemImplementations.Setup(i => i.Describe(job)).Returns(new ServiceItemImplementation { Name = "Job 1", State = "Running", MonitoringServiceState = "Normal", MonitoringServiceId = "123/45", BookingUrl = "https://dma/app", BookingLogUrl = "https://dma/logs/Job 1.html" });
 
 			var items = Value<List<JObject>>(Controller.ListServiceItems(service.ServiceID));
 
-			Assert.AreEqual(2, items.Count);
+			Assert.AreEqual(2, items.Count, "The empty placeholder item is hidden.");
 			Assert.AreEqual("Svc", (string)items[0]["Label"]);
 			Assert.AreEqual("Linked", (string)items[0]["ImplementationName"]);
 			Assert.AreEqual(String.Empty, (string)items[0]["ImplementationState"]);
 			Assert.AreEqual("Job 1", (string)items[1]["ImplementationName"]);
 			Assert.AreEqual("Running", (string)items[1]["ImplementationState"]);
 			Assert.AreEqual("Normal", (string)items[1]["MonitoringServiceState"]);
+			Assert.AreEqual("123/45", (string)items[1]["MonitoringServiceId"]);
+			Assert.AreEqual("https://dma/app", (string)items[1]["BookingUrl"]);
+			Assert.AreEqual("https://dma/logs/Job 1.html", (string)items[1]["BookingLogUrl"]);
+			Assert.AreEqual(String.Empty, (string)items[0]["BookingLogUrl"]);
+			Assert.AreEqual(String.Empty, (string)items[0]["MonitoringServiceId"]);
 		}
 
 		[TestMethod]
@@ -59,10 +74,12 @@ namespace SLC_SM_UDAPI_ServiceManagement.Tests.Controllers
 			var service = AddService();
 			service.Icon = "logo";
 			AddItem(service, 4, "Existing", ItemType.Service, null);
+			service.ServiceItems.Add(new ServiceItem());
 
 			var result = Controller.AddServiceItem(service.ServiceID, new ServiceRequestItem { Label = " New ", Type = "SRM Booking", DefinitionReference = "def" });
 
 			Assert.AreEqual(201, StatusCode(result));
+			Assert.AreEqual(2, service.ServiceItems.Count, "The empty placeholder item is removed when saving.");
 			var item = service.ServiceItems.Single(i => i.Label == "New");
 			Assert.AreEqual(5L, item.ServiceItemID);
 			Assert.AreEqual(ItemType.SRMBooking, item.Type);

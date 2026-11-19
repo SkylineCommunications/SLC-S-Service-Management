@@ -1,11 +1,13 @@
-import { StrictMode, useCallback, useEffect, useRef, useState } from 'react';
+import { StrictMode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { DataMinerAuthError } from './dataminer/transport.js';
 import { addCatalogSpecificationItem, createCatalogCategory, createCatalogSpecification, deleteCatalogCategory, deleteCatalogSpecification, deleteCatalogSpecificationItem, fetchDocumentHubLogos, fetchServiceCategories, fetchServiceSpecificationOverview, fetchServiceSpecificationPage, fetchServiceSpecifications, fetchServiceSpecificationConfigurations, fetchSpecificationItems, saveCatalogSpecificationConfiguration, updateCatalogCategory, updateCatalogSpecification, updateCatalogSpecificationItem } from './dataminer/catalog.js';
-import { addServiceOrderItem, createServiceOrder, deleteServiceOrder, deleteServiceOrderItem, fetchRelatedServiceOrders, fetchServiceOrderItemConfigurations, fetchServiceOrderItems, fetchServiceOrderOverviewData, fetchServiceOrderPage, fetchServiceOrganizations, getOrderItemTransitions, getOrderTransitions, transitionServiceOrder, transitionServiceOrderItem, updateServiceOrder, updateServiceOrderItem, saveServiceOrderItemConfiguration, initializeServiceFromOrderItem } from './dataminer/serviceOrders.js';
-import { addInventoryServiceItem, addServiceScript, configurationParameterKey, createInventoryService, deleteInventoryService, deleteInventoryServiceItem, deleteServiceScript, duplicateInventoryService, duplicateServiceConfigurationVersion, fetchInventoryServiceItems, fetchMonitoringServices, fetchServiceConfigurations, fetchServiceDetails, fetchServiceForDisplay, fetchServiceItemReferenceOptions, fetchServiceOverviewData, fetchServicePage, fetchServiceScripts, fetchServices, saveServiceConfiguration as saveInventoryServiceConfiguration, serviceApiId, SERVICE_INVENTORY_SCRIPTS, SERVICE_TRANSITIONS, SRM_BOOKING_ACTIONS, transitionInventoryService, updateInventoryService, updateInventoryServiceItem, updateServiceScript } from './dataminer/services.js';
+import { addServiceOrderItem, createServiceOrder, deleteServiceOrder, deleteServiceOrderItem, fetchRelatedServiceOrders, fetchServiceOrderById, fetchServiceOrderItemConfigurations, fetchServiceOrderItems, fetchServiceOrderOverviewData, fetchServiceOrderPage, fetchServiceOrganizations, getOrderItemTransitions, getOrderTransitions, transitionServiceOrder, transitionServiceOrderItem, updateServiceOrder, updateServiceOrderItem, saveServiceOrderItemConfiguration, initializeServiceFromOrderItem } from './dataminer/serviceOrders.js';
+import { addInventoryServiceItem, addServiceScript, configurationParameterKey, sortConfigurationParameters, sortConfigurationProfiles, createInventoryService, deleteInventoryService, deleteInventoryServiceItem, deleteServiceScript, duplicateInventoryService, duplicateServiceConfigurationVersion, fetchInventoryServiceItems, fetchMonitoringServices, fetchServiceConfigurations, fetchServiceDetails, fetchServiceForDisplay, fetchServiceItemReferenceOptions, fetchServiceOverviewData, fetchServicePage, fetchServiceScripts, fetchServices, getSrmBookingActions, hasImplementationReference, implementationStateColor, monitoringServiceUrl, saveServiceConfiguration as saveInventoryServiceConfiguration, serviceApiId, SERVICE_INVENTORY_SCRIPTS, SERVICE_TRANSITIONS, srmBookingLogUrl, transitionInventoryService, updateInventoryService, updateInventoryServiceItem, updateServiceScript } from './dataminer/services.js';
 import { getConnectionFromCookie, redirectToAuth } from './dataminer/session.js';
 import { IasDialog } from './IasDialog.jsx';
+import { userFacingErrorMessage } from './userFacingErrors.js';
+import { serviceItemType } from './dataminer/services.js';
 import './styles.css';
 
 const pages = {
@@ -80,16 +82,58 @@ const ORDER_STATUS_QUERY = {
 const serviceStateTones = { active: 'done', reserved: 'active', designed: 'active', new: 'pending', terminated: 'closed', retired: 'closed' };
 function serviceTone(state) { return serviceStateTones[state.trim().toLowerCase()] || 'pending'; }
 
-function useDataList(fetcher) {
-    const [state, setState] = useState({ status: 'loading', items: [], error: '', updatedAt: null });
+function useDataList(fetcher, { refreshIntervalMs = 0, shouldRefresh } = {}) {
+    const [state, setState] = useState({ status: 'loading', items: [], error: '', refreshError: '', updatedAt: null });
     const latestRequest = useRef(0);
-    const load = useCallback(({ rejectOnError = false } = {}) => {
+    const pendingRequests = useRef(0);
+    const load = useCallback(({ rejectOnError = false, background = false } = {}) => {
         const request = ++latestRequest.current;
-        setState(current => ({ ...current, status: 'loading', error: '' }));
-        return fetcher().then(items => { if (request === latestRequest.current) setState({ status: 'ready', items, error: '', updatedAt: new Date() }); return items; }, error => { if (request === latestRequest.current && !(error instanceof DataMinerAuthError)) setState({ status: 'error', items: [], error: error?.message || 'Unknown error.', updatedAt: null }); if (rejectOnError) throw error; return []; });
+        pendingRequests.current++;
+        if (!background) setState(current => ({ ...current, status: 'loading', error: '', refreshError: '' }));
+        return fetcher().then(items => {
+            if (request === latestRequest.current) setState({ status: 'ready', items, error: '', refreshError: '', updatedAt: new Date() });
+            return items;
+        }, error => {
+            if (request === latestRequest.current && !(error instanceof DataMinerAuthError)) {
+                const message = userFacingErrorMessage(error, 'Unknown error.');
+                setState(current => background
+                    ? { ...current, refreshError: message }
+                    : { status: 'error', items: [], error: message, refreshError: '', updatedAt: null });
+            }
+            if (rejectOnError) throw error;
+            return [];
+        }).finally(() => { pendingRequests.current--; });
     }, [fetcher]);
     const reloadAndWait = useCallback(() => load({ rejectOnError: true }), [load]);
     useEffect(() => { load(); return () => { latestRequest.current++; }; }, [load]);
+    const activeRefreshIntervalMs = refreshIntervalMs && (!shouldRefresh || shouldRefresh(state.items)) ? refreshIntervalMs : 0;
+    useEffect(() => {
+        if (!activeRefreshIntervalMs) return undefined;
+        let stopped = false;
+        let refreshing = false;
+        let timer;
+        const refresh = async () => {
+            if (stopped || refreshing) return;
+            if (document.visibilityState === 'visible' && pendingRequests.current === 0) {
+                refreshing = true;
+                await load({ background: true });
+                refreshing = false;
+            }
+            if (!stopped) timer = window.setTimeout(refresh, activeRefreshIntervalMs);
+        };
+        const onVisibility = () => {
+            if (document.visibilityState !== 'visible') return;
+            window.clearTimeout(timer);
+            refresh();
+        };
+        timer = window.setTimeout(refresh, activeRefreshIntervalMs);
+        document.addEventListener('visibilitychange', onVisibility);
+        return () => {
+            stopped = true;
+            window.clearTimeout(timer);
+            document.removeEventListener('visibilitychange', onVisibility);
+        };
+    }, [load, activeRefreshIntervalMs]);
     return { ...state, reload: load, reloadAndWait };
 }
 
@@ -140,7 +184,7 @@ function OverviewPage() {
         ? new Date(Math.min(orderData.updatedAt.getTime(), serviceData.updatedAt.getTime(), catalogData.updatedAt.getTime()))
         : null;
     return <main className="page-content overview-page">
-        <section className="overview-hero"><div><div className="overview-heading-meta"><p className="eyebrow">Workspace overview</p><span className="overview-status"><span aria-hidden="true" />Operational view</span></div><h1>Service Management</h1><p className="description">Monitor service orders, inventory, and the catalog from one operational view.</p></div><PageHeaderActions updatedAt={overviewUpdatedAt} loading={overviewLoading} onRefresh={reloadAll} /></section>
+        <section className="overview-hero"><div><p className="eyebrow">Workspace overview</p><h1>Service Management</h1><p className="description">Monitor service orders, inventory, and the catalog from one operational view.</p></div><PageHeaderActions updatedAt={overviewUpdatedAt} loading={overviewLoading} onRefresh={reloadAll} /></section>
         <section className="overview-metrics" aria-label="Workspace metrics">
             <OverviewMetric href="#orders" label="Open orders" value={ordersReady ? openOrders : '—'} note={ordersReady ? `${orderOverview.totalCount} total orders` : 'Waiting for DataMiner'} accent="--palette-color4" icon="assignment" />
             <OverviewMetric href="#orders" label="Orders needing attention" value={ordersReady ? attentionOrders : '—'} note="Held, partially failed, rejected, or cancelling" accent="--palette-color3" icon="error" />
@@ -154,10 +198,13 @@ function OverviewPage() {
     </main>;
 }
 
+// Only items with an implementation or a monitoring service have states that can change.
+const hasLiveServiceItemState = items => items.some(item => hasImplementationReference(item) || item.monitoringServiceId?.trim());
+
 function useServiceItems(service) {
     const { id, serviceId } = service ?? {};
     const fetcher = useCallback(() => fetchInventoryServiceItems({ id, serviceId }), [id, serviceId]);
-    return useDataList(fetcher);
+    return useDataList(fetcher, { refreshIntervalMs: 5000, shouldRefresh: hasLiveServiceItemState });
 }
 
 function useSpecificationItems(specificationId) {
@@ -175,7 +222,40 @@ function useServiceScripts(serviceId) {
     return useDataList(fetcher);
 }
 
-const EMPTY_SERVICE_CONFIGURATION_DATA = { versions: [], availableParameters: [], availableProfiles: [] };
+const EMPTY_SERVICE_CONFIGURATION_DATA = { versions: [], specificationTemplate: null, availableParameters: [], availableProfiles: [], warnings: [] };
+
+function getReusableProfileReference(profile) {
+    return profile?.reusable ? profile.reusableProfileId || profile.referenceId || profile.id || '' : '';
+}
+
+function hasReusableProfile(profiles, reusableProfileId) {
+    const target = String(reusableProfileId || '').trim().toLowerCase();
+    return Boolean(target) && (profiles || []).some(profile => String(getReusableProfileReference(profile)).trim().toLowerCase() === target);
+}
+
+// Copies the specification's parameters and profiles into a new draft; reusable profiles stay referenced, the rest is created on save.
+// A top-level template profile ID is the specification assignment, so a reusable one becomes a new service assignment of its catalog profile.
+// A nested reusable profile ID is the catalog profile itself and is kept.
+function configurationContentFromTemplate(template) {
+    const copyParameter = parameter => ({ ...parameter, clientId: crypto.randomUUID(), configurationId: '', valueId: '' });
+    const copyProfile = (profile, isNested) => {
+        const { referenceId, ...profileContent } = profile;
+        const reusableProfileId = profile.reusable ? referenceId || profile.id : '';
+        const identity = profile.reusable && isNested
+            ? { clientId: '', ...(reusableProfileId ? { reusableProfileId } : {}) }
+            : { id: '', clientId: `new-${crypto.randomUUID()}`, ...(reusableProfileId ? { reusableProfileId } : {}) };
+        return {
+            ...profileContent,
+            ...identity,
+            parameters: (profile.parameters || []).map(copyParameter),
+            nestedProfiles: (profile.nestedProfiles || []).map(nested => copyProfile(nested, true)),
+        };
+    };
+    return {
+        parameters: (template?.parameters || []).map(copyParameter),
+        profiles: (template?.profiles || []).map(profile => copyProfile(profile, false)),
+    };
+}
 
 function findConfigurationProfilePath(profiles, id, parentPath = []) {
     for (const profile of profiles || []) {
@@ -301,7 +381,7 @@ function NativeConfigurationProfileView({ profile, profilePath, profilesAtLevel,
     const levelProfiles = profilesAtLevel || [];
     const canAddProfileAtLevel = !parentProfile?.reusable;
     const profileOptions = availableProfiles;
-    const nestedProfileOptions = availableNestedProfiles.filter(nested => nested.definitionId === nestedDefinitionChoice && !profilePath.some(pathProfile => (pathProfile.id || pathProfile.clientId) === nested.id) && !nestedProfiles.some(current => current.id === nested.id));
+    const nestedProfileOptions = availableNestedProfiles.filter(nested => nested.definitionId === nestedDefinitionChoice && !profilePath.some(pathProfile => (pathProfile.id || pathProfile.clientId) === nested.id) && !hasReusableProfile(nestedProfiles, nested.id));
     const addProfile = () => {
         if (!profileChoice) return;
         onAddProfileAtLevel(parentProfile?.id || parentProfile?.clientId || null, profileChoice);
@@ -330,7 +410,7 @@ function NativeConfigurationProfileView({ profile, profilePath, profilesAtLevel,
                 <p className="eyebrow">Profile configuration</p>
                 {reusable
                     ? <h2>{profile.name || 'Unnamed profile'}</h2>
-                    : <input className="configuration-profile-name-input" value={profile.name || ''} onChange={event => onUpdateProfileName(profile.id || profile.clientId, event.target.value)} aria-label={`Profile name for ${profile.name || 'profile'}`} />}
+                    : <input className="configuration-profile-name-input" value={profile.name || ''} title={profile.name || ''} style={{ '--name-length': (profile.name || '').length + 1 }} onChange={event => onUpdateProfileName(profile.id || profile.clientId, event.target.value)} aria-label={`Profile name for ${profile.name || 'profile'}`} />}
                 <nav className="configuration-profile-breadcrumbs" aria-label="Profile nesting path">
                     <span>Configuration</span>
                     {profilePath.map((pathProfile, index) => <span className="configuration-profile-breadcrumb" key={pathProfile.id || pathProfile.clientId || index}>
@@ -430,7 +510,7 @@ function ConfigurationProfileNodeV2({ profile, depth, availableProfiles, availab
     const showDefinitionLabel = definitionLabel && definitionLabel.trim().toLowerCase() !== String(profile.name || '').trim().toLowerCase();
     const nested = profile.nestedProfiles || [];
     const parameters = profile.parameters || [];
-    const reusableNestedOptions = availableNestedProfiles.filter(nestedItem => nestedItem.definitionId === nestedDefinitionChoice && nestedItem.id !== parentId && !nested.some(current => current.id === nestedItem.id));
+    const reusableNestedOptions = availableNestedProfiles.filter(nestedItem => nestedItem.definitionId === nestedDefinitionChoice && nestedItem.id !== parentId && !hasReusableProfile(nested, nestedItem.id));
     const addNested = () => { if (nestedChoice) { onAddNested(parentId, nestedChoice); onOpenNested(nestedChoice); setNestedChoice(''); } };
     const addNestedDefinition = () => {
         if (!nestedDefinitionChoice) return;
@@ -447,7 +527,7 @@ function ConfigurationProfileNodeV2({ profile, depth, availableProfiles, availab
                 <div>
                     {reusable
                         ? <strong>{profile.name || 'Unnamed profile'}</strong>
-                        : <input className="configuration-profile-name-input" value={profile.name || ''} onChange={event => onUpdateProfileName(profile.id || profile.clientId, event.target.value)} aria-label={`Profile name for ${profile.name || 'profile'}`} />}
+                        : <input className="configuration-profile-name-input" value={profile.name || ''} title={profile.name || ''} style={{ '--name-length': (profile.name || '').length + 1 }} onChange={event => onUpdateProfileName(profile.id || profile.clientId, event.target.value)} aria-label={`Profile name for ${profile.name || 'profile'}`} />}
                     {showDefinitionLabel && <span className="configuration-profile-detail">{definitionLabel}</span>}
                 </div>
             </div>
@@ -513,7 +593,7 @@ function ConfigurationProfilesSectionV2({ profiles, availableProfiles, available
     const [expandedProfileId, setExpandedProfileId] = useState('');
     const [profileChoice, setProfileChoice] = useState('');
     const [reusableChoice, setReusableChoice] = useState('');
-    const reusableOptions = profileChoice ? availableNestedProfiles.filter(profile => profile.definitionId === profileChoice && !profiles.some(current => current.id === profile.id)) : [];
+    const reusableOptions = profileChoice ? availableNestedProfiles.filter(profile => profile.definitionId === profileChoice && !hasReusableProfile(profiles, profile.id)) : [];
     const addProfile = () => {
         if (!profileChoice) return;
         setExpandedProfileId(onAdd(profileChoice) || '');
@@ -686,6 +766,12 @@ function NativeServiceConfigurationsView({ service, actionState, onSave, onDupli
     const availableParameters = configurationData.availableParameters;
     const availableProfiles = configurationData.availableProfiles;
     const availableNestedProfiles = configurationData.availableNestedProfiles || [];
+    const configurationWarnings = configurationData.warnings || [];
+    const savedProfileIds = useMemo(() => new Set(
+        (configurations.find(version => version.id === versionId)?.profiles || [])
+            .map(profile => profile.id)
+            .filter(Boolean),
+    ), [configurations, versionId]);
     const selectedProfilePath = openProfileId && draft ? findConfigurationProfilePath(draft.profiles, openProfileId) : null;
     const selectedProfile = selectedProfilePath ? selectedProfilePath[selectedProfilePath.length - 1] : null;
     const profilesAtLevel = selectedProfilePath && selectedProfilePath.length > 1
@@ -702,7 +788,7 @@ function NativeServiceConfigurationsView({ service, actionState, onSave, onDupli
     };
     const addInitialVersion = () => {
         setVersionId('');
-        setDraft({ id: '', name: 'Initial version', description: '', start: '', end: '', active: true, parameters: [], profiles: [] });
+        setDraft({ id: '', name: 'Initial version', description: '', start: '', end: '', active: true, ...configurationContentFromTemplate(configurationData.specificationTemplate) });
         setParameterToAdd('');
         setProfileToAdd('');
         setDeletedConfigurationIds([]);
@@ -713,7 +799,7 @@ function NativeServiceConfigurationsView({ service, actionState, onSave, onDupli
     };
     const addNewVersion = () => {
         setVersionId('__new__');
-        setDraft({ id: '', name: 'New version', description: '', start: '', end: '', active: false, parameters: [], profiles: [] });
+        setDraft({ id: '', name: 'New version', description: '', start: '', end: '', active: false, ...configurationContentFromTemplate(configurationData.specificationTemplate) });
         setParameterToAdd('');
         setProfileToAdd('');
         setDeletedConfigurationIds([]);
@@ -749,7 +835,7 @@ function NativeServiceConfigurationsView({ service, actionState, onSave, onDupli
         const parameter = availableParameters.find(item => item.id === parameterToAdd);
         if (!parameter || !draft) return;
         const instance = createConfigurationParameter(parameter, draft.parameters);
-        setDraft(current => ({ ...current, parameters: [...current.parameters, instance] }));
+        setDraft(current => ({ ...current, parameters: sortConfigurationParameters([...current.parameters, instance]) }));
         setParameterToAdd('');
     };
     const removeParameter = id => {
@@ -775,26 +861,27 @@ function NativeServiceConfigurationsView({ service, actionState, onSave, onDupli
         const definition = availableProfiles.find(item => item.id === (profileIdOverride || profileToAdd));
         if (!definition || !draft) return;
         const newProfile = createProfile(definition, draft.profiles);
-        setDraft(current => ({ ...current, profiles: [...current.profiles, newProfile] }));
+        setDraft(current => ({ ...current, profiles: sortConfigurationProfiles([...current.profiles, newProfile]) }));
         setProfileToAdd('');
         return newProfile.clientId;
     };
     const addReusableProfile = profileId => {
         const reusable = availableNestedProfiles.find(item => item.id === profileId);
-        if (!reusable || !draft || draft.profiles.some(profile => profile.id === reusable.id)) return;
+        if (!reusable || !draft || hasReusableProfile(draft.profiles, reusable.id)) return;
         const newProfile = {
-            id: reusable.id,
-            clientId: '',
+            id: '',
+            clientId: `new-${crypto.randomUUID()}`,
             name: reusable.name,
             definitionId: reusable.definitionId,
             definitionName: reusable.definitionName,
             reusable: true,
+            reusableProfileId: reusable.id,
             mandatory: false,
             parameters: [],
             nestedProfiles: [],
         };
-        setDraft(current => ({ ...current, profiles: [...current.profiles, newProfile] }));
-        return newProfile.id;
+        setDraft(current => ({ ...current, profiles: sortConfigurationProfiles([...current.profiles, newProfile]) }));
+        return newProfile.clientId;
     };
     const mapProfileTree = (profiles, updater) => profiles.map(profile => {
         const updated = updater(profile);
@@ -809,8 +896,8 @@ function NativeServiceConfigurationsView({ service, actionState, onSave, onDupli
         const siblings = parent ? parent.nestedProfiles || [] : draft.profiles;
         const newProfile = createProfile(definition, siblings);
         setDraft(current => parent
-            ? { ...current, profiles: mapProfileTree(current.profiles, profile => (profile.id === parentId || profile.clientId === parentId) ? { ...profile, nestedProfiles: [...(profile.nestedProfiles || []), newProfile] } : profile) }
-            : { ...current, profiles: [...current.profiles, newProfile] });
+            ? { ...current, profiles: mapProfileTree(current.profiles, profile => (profile.id === parentId || profile.clientId === parentId) ? { ...profile, nestedProfiles: sortConfigurationProfiles([...(profile.nestedProfiles || []), newProfile]) } : profile) }
+            : { ...current, profiles: sortConfigurationProfiles([...current.profiles, newProfile]) });
         setOpenProfileId(newProfile.clientId);
     };
     const addNestedProfileDefinition = (parentId, definitionId) => {
@@ -820,19 +907,29 @@ function NativeServiceConfigurationsView({ service, actionState, onSave, onDupli
         const parent = parentPath ? parentPath[parentPath.length - 1] : null;
         if (!parent || parent.reusable || parentPath.length >= 3) return;
         const newProfile = createProfile(definition, parent.nestedProfiles || []);
-        setDraft(current => ({ ...current, profiles: mapProfileTree(current.profiles, profile => (profile.id === parentId || profile.clientId === parentId) ? { ...profile, nestedProfiles: [...(profile.nestedProfiles || []), newProfile] } : profile) }));
+        setDraft(current => ({ ...current, profiles: mapProfileTree(current.profiles, profile => (profile.id === parentId || profile.clientId === parentId) ? { ...profile, nestedProfiles: sortConfigurationProfiles([...(profile.nestedProfiles || []), newProfile]) } : profile) }));
         setOpenProfileId(newProfile.clientId);
     };
     const addNestedProfile = (parentId, nestedId) => {
         const nested = availableNestedProfiles.find(profile => profile.id === nestedId);
         if (!nested || !draft || !nestedId) return;
-        setDraft(current => ({ ...current, profiles: mapProfileTree(current.profiles, profile => (profile.id === parentId || profile.clientId === parentId) ? { ...profile, nestedProfiles: profile.nestedProfiles.some(item => item.id === nestedId) ? profile.nestedProfiles : [...profile.nestedProfiles, { ...nested, parameters: [], nestedProfiles: [] }] } : profile) }));
+        setDraft(current => ({ ...current, profiles: mapProfileTree(current.profiles, profile => {
+            if (profile.id !== parentId && profile.clientId !== parentId) return profile;
+            if (hasReusableProfile(profile.nestedProfiles, nestedId)) return profile;
+            return {
+                ...profile,
+                nestedProfiles: sortConfigurationProfiles([
+                    ...profile.nestedProfiles,
+                    { ...nested, ...(nested.reusable ? { reusableProfileId: nested.id } : {}), parameters: [], nestedProfiles: [] },
+                ]),
+            };
+        }) }));
     };
     const removeNestedProfile = (parentId, nestedId) => setDraft(current => ({ ...current, profiles: mapProfileTree(current.profiles, profile => (profile.id === parentId || profile.clientId === parentId) ? { ...profile, nestedProfiles: profile.nestedProfiles.filter(item => (item.id || item.clientId) !== nestedId) } : profile) }));
     const addProfileParameter = (profileId, parameterId) => {
         const parameter = availableParameters.find(item => item.id === parameterId);
         if (!parameter || !draft || !parameterId) return;
-        setDraft(current => ({ ...current, profiles: mapProfileTree(current.profiles, profile => (profile.id === profileId || profile.clientId === profileId) ? { ...profile, parameters: [...profile.parameters, createConfigurationParameter(parameter, profile.parameters)] } : profile) }));
+        setDraft(current => ({ ...current, profiles: mapProfileTree(current.profiles, profile => (profile.id === profileId || profile.clientId === profileId) ? { ...profile, parameters: sortConfigurationParameters([...profile.parameters, createConfigurationParameter(parameter, profile.parameters)]) } : profile) }));
     };
     const updateProfileParameter = (profileId, parameterId, value, field = 'value') => setDraft(current => ({ ...current, profiles: mapProfileTree(current.profiles, profile => (profile.id === profileId || profile.clientId === profileId) ? { ...profile, parameters: profile.parameters.map(parameter => configurationParameterKey(parameter) === parameterId ? withDetail(parameter, field, value) : parameter) } : profile) }));
     const updateProfileName = (profileId, name) => setDraft(current => ({ ...current, profiles: mapProfileTree(current.profiles, profile => (profile.id === profileId || profile.clientId === profileId) ? { ...profile, name } : profile) }));
@@ -842,9 +939,11 @@ function NativeServiceConfigurationsView({ service, actionState, onSave, onDupli
         setDraft(current => ({ ...current, profiles: mapProfileTree(current.profiles, profile => (profile.id === profileId || profile.clientId === profileId) ? { ...profile, parameters: profile.parameters.filter(item => configurationParameterKey(item) !== configurationParameterKey(parameter)) } : profile) }));
     };
     const serializeProfile = profile => {
-        const { clientId, parameters, nestedProfiles, ...payload } = profile;
+        const { clientId, referenceId, reusableProfileId, parameters, nestedProfiles, ...payload } = profile;
+        const reusableReferenceId = profile.reusable ? reusableProfileId || referenceId || profile.id : '';
         return {
             ...payload,
+            ...(reusableReferenceId ? { reusableProfileId: reusableReferenceId } : {}),
             MandatoryAtService: profile.mandatoryAtService ?? profile.mandatory ?? false,
             MandatoryAtServiceOrder: profile.mandatoryAtOrder ?? profile.mandatoryAtServiceOrder ?? false,
             ExposeAtServiceOrder: profile.exposeAtOrder ?? profile.exposeAtServiceOrder ?? false,
@@ -870,7 +969,10 @@ function NativeServiceConfigurationsView({ service, actionState, onSave, onDupli
         };
     };
     const removeProfile = (id, definitionId, clientId) => {
-        if (id) setDeletedProfileIds(current => [...new Set([...current, id])]);
+        const profile = draft?.profiles.find(item => clientId
+            ? item.clientId === clientId
+            : item.id === id && item.definitionId === definitionId);
+        if (profile?.id && savedProfileIds.has(profile.id)) setDeletedProfileIds(current => [...new Set([...current, profile.id])]);
         setDraft(current => ({ ...current, profiles: current.profiles.filter(profile => clientId ? profile.clientId !== clientId : profile.id !== id || profile.definitionId !== definitionId) }));
     };
     const deleteVersion = async () => {
@@ -955,6 +1057,7 @@ function NativeServiceConfigurationsView({ service, actionState, onSave, onDupli
             </div>
         </div>
         {validationError && <div className="configuration-validation-error" role="alert"><span className="icon" aria-hidden="true">error</span>{validationError}</div>}
+        {configurationWarnings.map(warning => <div className="configuration-warning" role="status" key={warning}><span className="icon" aria-hidden="true">warning</span>{warning}</div>)}
         {data.status === 'loading' ? <div className="configuration-empty"><span className="icon spin" aria-hidden="true">refresh</span>{showVersionMetadata ? 'Loading configuration versions…' : 'Loading configuration parameters…'}</div>
             : data.status === 'error' ? <div className="configuration-empty error"><span className="icon" aria-hidden="true">error</span>{data.error}<button className="quiet-button" type="button" onClick={data.reload}>Retry</button></div>
                 : configurations.length === 0 && !draft ? <div className={allowInitialVersion ? 'configuration-empty initial-version-empty' : 'configuration-empty'}><span className="icon" aria-hidden="true">tune</span><span>{showVersionMetadata ? 'No configuration versions are defined for this service yet.' : 'No configuration parameters are available for this order item.'}</span>{allowInitialVersion && <button className="primary-button" type="button" onClick={addInitialVersion} disabled={busy}>Add initial version</button>}</div>
@@ -1061,14 +1164,53 @@ function ServiceOperationsView({ scripts, busy, onSubmit, onDelete }) {
     </section>;
 }
 
+function ServiceItemImplementation({ item, busy, onCreateBooking, onCreateJob, onNotice }) {
+    const type = serviceItemType(item);
+    const reference = item.implementationReference?.trim();
+    const name = item.implementation || reference;
+    if (type === 'srmbooking') {
+        if (!reference) return <button className="booking-reference-button booking-create-button" type="button" aria-label={`Create SRM Booking for ${item.label}`} title={item.script ? `Launch ${item.script}` : 'No service item script is configured'} onClick={() => onCreateBooking(item)} disabled={!item.script || !item.label || busy}><span className="icon" aria-hidden="true">add</span>Create SRM Booking</button>;
+        return item.bookingUrl
+            ? <a className="booking-reference-button booking-view-button" href={item.bookingUrl} target="_blank" rel="noopener noreferrer" title={name} aria-label={`View Booking ${name}`}><span className="icon" aria-hidden="true">open_in_new</span><span className="implementation-reference-name">{name}</span></a>
+            : <span className="implementation-reference-name" title={`No booking application link is configured: ${name}`}>{name}</span>;
+    }
+    if (type === 'workflow') {
+        if (!reference) return <button className="booking-reference-button booking-create-button workflow-reference-button" type="button" aria-label={`Create Job for ${item.label}`} title={item.definition ? `Create a job from ${item.definition}` : 'No workflow definition is configured'} disabled={!item.definition?.trim() || !item.label || busy} onClick={() => onCreateJob(item)}><span className="icon" aria-hidden="true">add</span>Create Job</button>;
+        return <a className="booking-reference-button booking-view-button workflow-reference-button" href={item.jobUrl} target="_blank" rel="noopener noreferrer" title={name} aria-label={`View Job ${name}`}><span className="icon" aria-hidden="true">open_in_new</span><span className="implementation-reference-name">{name}</span></a>;
+    }
+    if (type === 'service') {
+        if (!reference) return <button className="booking-reference-button booking-create-button linked-service-reference-button" type="button" aria-label={`No Linked Service for ${item.label}`} disabled={busy} onClick={() => onNotice('info', 'Please edit the service item and link another service.', { title: 'Linked Service', durationMs: 5000 })}><span className="icon" aria-hidden="true">add</span>No Linked Service</button>;
+        return <a className="booking-reference-button booking-view-button linked-service-reference-button" href={`#services/${encodeURIComponent(reference)}`} title={name}><span className="icon" aria-hidden="true">dm_service</span><span className="implementation-reference-name">{name}</span></a>;
+    }
+    return name || '—';
+}
+
+function ImplementationState({ item }) {
+    const monitoringUrl = monitoringServiceUrl(item.monitoringServiceId);
+    const monitoringStyle = { '--state-color': item.monitoringColor };
+    const monitoringState = item.monitoringState || 'Not monitored';
+    const monitoring = <><span className="service-state-dot monitoring-severity-icon" aria-hidden="true" /><span>{monitoringState}</span></>;
+    return <>
+        <td><span className="service-item-state" style={{ '--state-color': implementationStateColor(item.implementationState) }} title={item.implementationState || 'Not implemented'}><span className="service-state-dot" aria-hidden="true" /><span>{item.implementationState || 'Not implemented'}</span></span></td>
+        <td><span className={`service-item-state monitoring-state-controls${monitoringUrl ? ' has-action' : ''}`} style={monitoringStyle} title={monitoringState}>
+            {monitoring}
+            {monitoringUrl && <a className="monitoring-service-open" href={monitoringUrl} target="_blank" rel="noopener noreferrer" title={`${monitoringState} — Open in Monitoring: ${item.monitoringServiceId}`} aria-label={`Open monitoring service ${item.monitoringServiceId} in Monitoring (${item.monitoringState})`}><span className="icon monitoring-state-open" aria-hidden="true">open_in_new</span></a>}
+        </span></td>
+    </>;
+}
+
 function TabbedServiceDetailPanel({ service, onClose, onEdit, onDelete, onDuplicate, onDeleteItem, onAddItem, onEditItem, onTransitionService, onSaveConfiguration, onDuplicateConfiguration, onConfirmConfiguration, onManageOperation, onDeleteOperation, onConfirmOperation, onActionNotice, onActionFailure, actionState }) {
     const closeButton = useRef(null);
     const [tab, setTab] = useState('service');
     const [itemEditor, setItemEditor] = useState(null);
     const [scriptItem, setScriptItem] = useState(null);
     const [bookingMenu, setBookingMenu] = useState(null);
+    const bookingMenuRef = useRef(null);
+    const [bookingMenuPosition, setBookingMenuPosition] = useState({ top: 0, left: 0 });
     const [bookingActionRun, setBookingActionRun] = useState(null);
     const itemData = useServiceItems(service);
+    const bookingMenuItem = itemData.items.find(item => (item.id || item.label) === bookingMenu?.itemKey);
+    const bookingMenuActions = getSrmBookingActions(bookingMenuItem?.implementationState);
     const relatedOrders = useRelatedServiceOrders(serviceApiId(service));
     const scripts = useServiceScripts(serviceApiId(service));
     const transitions = SERVICE_TRANSITIONS[service.status.trim().toLowerCase()] || [];
@@ -1118,25 +1260,89 @@ function TabbedServiceDetailPanel({ service, onClose, onEdit, onDelete, onDuplic
             document.removeEventListener('keydown', onKey, true);
         };
     }, [bookingMenu]);
-    const isSrmBookingItem = item => String(item?.type || '').replace(/\s+/g, '').toLowerCase() === 'srmbooking';
+    useEffect(() => {
+        if (bookingMenu && bookingMenuActions.length === 0) setBookingMenu(null);
+    }, [bookingMenu, bookingMenuActions.length]);
+    useLayoutEffect(() => {
+        if (!bookingMenu || !bookingMenuRef.current) return undefined;
+        const positionMenu = () => {
+            const menu = bookingMenuRef.current;
+            if (!menu) return;
+            if (bookingMenu.anchorElement && !bookingMenu.anchorElement.isConnected) {
+                setBookingMenu(null);
+                return;
+            }
+            const anchor = bookingMenu.anchorElement?.getBoundingClientRect();
+            const width = menu.offsetWidth;
+            const height = menu.offsetHeight;
+            const bottom = anchor ? anchor.bottom + 4 : bookingMenu.point.y;
+            const above = anchor ? anchor.top - height - 4 : bookingMenu.point.y - height;
+            const top = bottom + height <= window.innerHeight - 12 ? bottom : above;
+            const left = anchor ? anchor.right - width : bookingMenu.point.x;
+            const position = {
+                top: Math.max(12, Math.min(window.innerHeight - height - 12, top)),
+                left: Math.max(12, Math.min(window.innerWidth - width - 12, left)),
+            };
+            setBookingMenuPosition(current => current.top === position.top && current.left === position.left ? current : position);
+        };
+        positionMenu();
+        window.addEventListener('resize', positionMenu);
+        document.addEventListener('scroll', positionMenu, true);
+        return () => {
+            window.removeEventListener('resize', positionMenu);
+            document.removeEventListener('scroll', positionMenu, true);
+        };
+    }, [bookingMenu, bookingMenuItem?.implementationState, bookingMenuItem?.implementationReference]);
+    const isSrmBookingItem = item => serviceItemType(item) === 'srmbooking';
     const canRunBookingAction = item => isSrmBookingItem(item) && Boolean(item?.definition?.trim()) && Boolean(item?.implementationReference?.trim());
+    const notifyNoBookingActions = () => {
+        setBookingMenu(null);
+        onActionNotice('info', 'No context menu options are available for the current state of the service item.', { title: 'Context Menu', durationMs: 5000 });
+    };
+    const selectBookingAction = async (item, action) => {
+        setBookingMenu(null);
+        if (action.value !== 'ViewLog') {
+            setBookingActionRun({ item, action });
+            return;
+        }
+
+        let logUrl;
+        try {
+            logUrl = srmBookingLogUrl(item);
+        } catch (error) {
+            onActionFailure(error?.message || 'The booking log could not be opened.');
+            return;
+        }
+        const logWindow = window.open(logUrl, '_blank');
+        if (!logWindow) {
+            onActionFailure('The booking log could not be opened because the browser blocked the new tab.');
+            return;
+        }
+        logWindow.opener = null;
+    };
     const openBookingMenuFromButton = (event, item) => {
-        const rect = event.currentTarget.getBoundingClientRect();
+        if (!canRunBookingAction(item) || getSrmBookingActions(item.implementationState).length === 0) {
+            notifyNoBookingActions();
+            return;
+        }
+        const anchorElement = event.currentTarget;
         setBookingMenu(current => current?.itemKey === (item.id || item.label) ? null : {
             item,
             itemKey: item.id || item.label,
-            top: Math.min(window.innerHeight - 240, rect.bottom + 4),
-            left: Math.max(12, Math.min(window.innerWidth - 210, rect.right - 196)),
+            anchorElement,
         });
     };
     const openBookingMenuFromContext = (event, item) => {
-        if (!canRunBookingAction(item) || busy) return;
+        if (!isSrmBookingItem(item) || busy) return;
         event.preventDefault();
+        if (!canRunBookingAction(item) || getSrmBookingActions(item.implementationState).length === 0) {
+            notifyNoBookingActions();
+            return;
+        }
         setBookingMenu({
             item,
             itemKey: item.id || item.label,
-            top: Math.min(window.innerHeight - 240, event.clientY),
-            left: Math.max(12, Math.min(window.innerWidth - 210, event.clientX)),
+            point: { x: event.clientX, y: event.clientY },
         });
     };
     const deleteItem = async item => { await onDeleteItem(item, itemData.reloadAndWait); };
@@ -1161,8 +1367,14 @@ function TabbedServiceDetailPanel({ service, onClose, onEdit, onDelete, onDuplic
         return () => { document.removeEventListener('keydown', onKey); document.body.classList.remove('drawer-open'); previous?.focus?.(); };
     }, [onClose]);
     const details = [['Service ID', service.serviceId], ['Service specification', service.specification], ['Service category', service.category], ['Category type', service.categoryType], ['Start date', service.start], ['End date', service.end]];
-    const relatedOrdersContent = relatedOrders.status === 'loading' ? <div className="service-related-empty"><span className="icon spin" aria-hidden="true">refresh</span>Loading related orders…</div> : relatedOrders.status === 'error' ? <div className="service-related-empty error"><span className="icon" aria-hidden="true">error</span>{relatedOrders.error}</div> : relatedOrders.items.length === 0 ? <div className="service-related-empty"><span className="icon" aria-hidden="true">assignment</span>No related service orders.</div> : <div className="related-orders-table-wrap"><table className="related-orders-table"><thead><tr><th>Name</th><th>Action</th><th>Item status</th></tr></thead><tbody>{relatedOrders.items.map(({ order, item }, index) => <tr key={`${order.id}-${item.id || index}`}><td>{order.name || 'Unnamed order'}</td><td><span className={`order-action-chip ${orderItemAction(item)}`}>{item.action || '—'}</span></td><td><span className={`state-badge ${stateTone(item.status)}`}>{item.status || 'Unknown'}</span></td></tr>)}</tbody></table></div>;
+    const relatedOrdersContent = relatedOrders.status === 'loading' ? <div className="service-related-empty"><span className="icon spin" aria-hidden="true">refresh</span>Loading related orders…</div> : relatedOrders.status === 'error' ? <div className="service-related-empty error"><span className="icon" aria-hidden="true">error</span>{relatedOrders.error}</div> : relatedOrders.items.length === 0 ? <div className="service-related-empty"><span className="icon" aria-hidden="true">assignment</span>No related service orders.</div> : <div className="related-orders-table-wrap"><table className="related-orders-table"><thead><tr><th>Name</th><th>Action</th><th>Item status</th></tr></thead><tbody>{relatedOrders.items.map(({ order, item }, index) => <tr key={`${order.id}-${item.id || index}`}><td><a className="related-order-link" href={order.orderId ? `#orders/by-id/${encodeURIComponent(order.orderId)}` : `#orders/${encodeURIComponent(order.id)}`} title={`Open service order ${order.name || order.orderId || ''}`.trim()}><span className="icon related-order-icon" aria-hidden="true">receipt_long</span><span className="related-order-text"><strong>{order.name || 'Unnamed order'}</strong><small>{order.orderId || 'Open service order'}</small></span><span className="icon related-order-go" aria-hidden="true">arrow_forward</span></a></td><td><span className={`order-action-chip ${orderItemAction(item)}`}>{item.action || '—'}</span></td><td><span className={`state-badge ${stateTone(item.status)}`}>{item.status || 'Unknown'}</span></td></tr>)}</tbody></table></div>;
     const busy = actionState?.status === 'running';
+    useEffect(() => {
+        setTab('service');
+        setItemEditor(null);
+        setScriptItem(null);
+        setBookingMenu(null);
+    }, [service.id]);
     const serviceView = <>
         <section className="service-workspace-summary" aria-label="Service details">
             <dl>{details.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value || '—'}</dd></div>)}</dl>
@@ -1172,6 +1384,7 @@ function TabbedServiceDetailPanel({ service, onClose, onEdit, onDelete, onDuplic
                 <div className="order-items-title"><h3 id="service-workspace-items-title">Service items</h3><span className="count-pill">{itemData.status === 'ready' ? itemData.items.length : '—'}</span></div>
                 <button className="quiet-button" type="button" onClick={() => setItemEditor({ action: 'Add', item: null })} disabled={busy}><span className="icon" aria-hidden="true">add</span>Add item</button>
             </div>
+            {itemData.refreshError && <div className="list-message error" role="alert"><div className="list-message-text"><strong>Service item states could not be refreshed</strong><span>{itemData.refreshError}</span></div><button className="quiet-button" type="button" onClick={itemData.reload}>Retry</button></div>}
             {itemData.status === 'loading'
                 ? <div className="service-related-empty"><span className="icon spin" aria-hidden="true">refresh</span>Loading service items…</div>
                 : itemData.status === 'error'
@@ -1181,17 +1394,19 @@ function TabbedServiceDetailPanel({ service, onClose, onEdit, onDelete, onDuplic
                         : <div className="service-items-table-wrap"><table className="service-items-table">
                             <thead><tr><th>Label</th><th>Service item type</th><th>Definition reference</th><th>Implementation reference</th><th>Implementation state</th><th>Monitoring service state</th><th>Actions</th></tr></thead>
                             <tbody>{itemData.items.map(item => <tr key={item.id || item.label} onContextMenu={event => openBookingMenuFromContext(event, item)}>
-                                <td>{item.label || '—'}</td><td><span className="service-item-type">{item.type || '—'}</span></td><td>{item.definition || '—'}</td><td>{item.implementation || item.implementationReference || '—'}</td><td>{item.implementationState || '—'}</td><td>{item.monitoringState || '—'}</td>
+                                <td>{item.label || '—'}</td><td><span className="service-item-type">{item.type || '—'}</span></td><td>{item.definition || '—'}</td>
+                                <td><ServiceItemImplementation item={item} busy={busy} onCreateBooking={setScriptItem} onCreateJob={setScriptItem} onNotice={onActionNotice} /></td>
+                                <ImplementationState item={item} />
                                 <td><div className="service-actions">
-                                    <button className="table-icon-action" type="button" aria-label={`Launch script for ${item.label || 'service item'}`} title={item.script ? `Launch ${item.script}` : 'No service item script is configured'} onClick={() => setScriptItem(item)} disabled={!item.script || !item.label || busy}><span className="icon" aria-hidden="true">play_circle</span></button>
-                                    {isSrmBookingItem(item) && <button className="table-icon-action booking-actions-trigger" type="button" aria-label={`Booking actions for ${item.label || 'service item'}`} aria-haspopup="menu" aria-expanded={bookingMenu?.itemKey === (item.id || item.label)} title={canRunBookingAction(item) ? 'Booking actions' : 'No SRM booking is linked yet'} onClick={event => openBookingMenuFromButton(event, item)} disabled={!canRunBookingAction(item) || busy}><span className="icon" aria-hidden="true">more_vert</span></button>}
+                                    {!isSrmBookingItem(item) && serviceItemType(item) !== 'workflow' && <button className="table-icon-action" type="button" aria-label={`Launch script for ${item.label || 'service item'}`} title={item.script ? `Launch ${item.script}` : 'No service item script is configured'} onClick={() => setScriptItem(item)} disabled={!item.script || !item.label || busy}><span className="icon" aria-hidden="true">play_circle</span></button>}
+                                    {isSrmBookingItem(item) && <button className="table-icon-action booking-actions-trigger" type="button" aria-label={`Booking actions for ${item.label || 'service item'}`} aria-haspopup="menu" aria-expanded={bookingMenu?.itemKey === (item.id || item.label)} title="Booking actions" onClick={event => openBookingMenuFromButton(event, item)} disabled={busy}><span className="icon" aria-hidden="true">more_vert</span></button>}
                                     <button className="table-icon-action" type="button" aria-label={`Edit ${item.label || 'service item'}`} onClick={() => setItemEditor({ action: 'Edit', item })} disabled={busy}><span className="icon" aria-hidden="true">edit</span></button>
                                     <button className="table-icon-action danger" type="button" aria-label={`Delete ${item.label || 'service item'}`} onClick={() => deleteItem(item)} disabled={busy}><span className="icon" aria-hidden="true">delete</span></button>
                                 </div></td>
                             </tr>)}</tbody>
                         </table></div>}
-            {bookingMenu && <div className="booking-actions-menu" role="menu" aria-label={`Booking actions for ${bookingMenu.item.label || 'service item'}`} style={{ top: `${bookingMenu.top}px`, left: `${bookingMenu.left}px` }}>
-                {SRM_BOOKING_ACTIONS.map(action => <button key={action.value} className="booking-actions-item" role="menuitem" type="button" onClick={() => { const selectedItem = bookingMenu.item; setBookingMenu(null); setBookingActionRun({ item: selectedItem, action }); }}>
+            {bookingMenu && canRunBookingAction(bookingMenuItem) && bookingMenuActions.length > 0 && <div ref={bookingMenuRef} className="booking-actions-menu" role="menu" aria-label={`Booking actions for ${bookingMenuItem.label || 'service item'}`} style={{ top: `${bookingMenuPosition.top}px`, left: `${bookingMenuPosition.left}px` }}>
+                {bookingMenuActions.map(action => <button key={action.value} className="booking-actions-item" role="menuitem" type="button" onClick={() => selectBookingAction(bookingMenuItem, action)}>
                     <span className="icon" aria-hidden="true">{action.icon}</span>
                     <span>{action.label}</span>
                 </button>)}
@@ -1233,7 +1448,7 @@ function TabbedServiceDetailPanel({ service, onClose, onEdit, onDelete, onDuplic
             </section>
         </div>
         {itemEditor && <ServiceItemDialog key={`${itemEditor.action}-${itemEditor.item?.label || 'new'}`} busy={busy} parentId={service.id} parentService={service} action={itemEditor.action} initialItem={itemEditor.item} context="Service" onClose={() => setItemEditor(null)} onSubmit={submitItem} />}
-        {scriptItem && <IasDialog script={SERVICE_INVENTORY_SCRIPTS.launchItemScript} parameters={{ 'DOM ID': service.id, 'Item Label': scriptItem.label }} eyebrow={`Service item · ${scriptItem.label}`} onClose={closeItemScript} onFinished={finishItemScript} />}
+        {scriptItem && <IasDialog script={serviceItemType(scriptItem) === 'workflow' ? SERVICE_INVENTORY_SCRIPTS.createWorkflowJob : SERVICE_INVENTORY_SCRIPTS.launchItemScript} parameters={serviceItemType(scriptItem) === 'workflow' ? { 'DOM ID': service.id, 'Service Item Label': scriptItem.label } : { 'DOM ID': service.id, 'Item Label': scriptItem.label }} eyebrow={`Service item · ${scriptItem.label}`} onClose={closeItemScript} onFinished={finishItemScript} />}
         {bookingActionRun && <IasDialog script={SERVICE_INVENTORY_SCRIPTS.serviceItemContextMenuAction} parameters={{ 'DOM ID': service.id, 'Service Item Label': bookingActionRun.item.label, 'ContextMenu Action': bookingActionRun.action.value }} eyebrow={`${bookingActionRun.action.label} · ${bookingActionRun.item.label}`} onClose={closeBookingAction} onFinished={finishBookingAction} />}
     </>;
 }
@@ -1703,7 +1918,7 @@ function useCursorList({ pageSize, fetchPage, query = {} }) {
             return result.items;
         }, error => {
             if (currentRequest === request.current && !(error instanceof DataMinerAuthError)) {
-                setState(current => ({ ...current, status: 'error', items: [], error: error?.message || 'Unknown error.', updatedAt: null }));
+                setState(current => ({ ...current, status: 'error', items: [], error: userFacingErrorMessage(error, 'Unknown error.'), updatedAt: null }));
             }
             if (rejectOnError) throw error;
             return [];
@@ -1739,7 +1954,7 @@ function useAutomationActions() {
     const [state, setState] = useState(null);
     useEffect(() => {
         if (!state || state.status === 'running') return undefined;
-        const timeout = window.setTimeout(() => setState(null), state.status === 'error' ? 8000 : 4000);
+        const timeout = window.setTimeout(() => setState(null), state.durationMs ?? (state.status === 'error' ? 8000 : 4000));
         return () => window.clearTimeout(timeout);
     }, [state]);
     const runApi = useCallback(async (operation, label, refresh) => {
@@ -1750,17 +1965,17 @@ function useAutomationActions() {
             setState({ status: 'success', message: `${label} completed.` });
             return true;
         } catch (error) {
-            setState({ status: 'error', message: error?.message || `${label} failed.` });
+            setState({ status: 'error', message: userFacingErrorMessage(error, `${label} failed.`) });
             return false;
         }
     }, []);
-    return { state, runApi, fail: message => setState({ status: 'error', message }), notify: (status, message) => setState({ status, message }), dismiss: () => setState(null) };
+    return { state, runApi, fail: message => setState({ status: 'error', message: userFacingErrorMessage(message, 'The action failed.') }), notify: (status, message, options = {}) => setState({ status, message, title: options.title, durationMs: options.durationMs }), dismiss: () => setState(null) };
 }
 
 function ActionNotice({ state, onDismiss }) {
     if (!state) return null;
-    const icon = state.status === 'error' ? 'error' : state.status === 'success' ? 'check_circle' : 'refresh';
-    return <div className={`action-notice ${state.status}`} role={state.status === 'error' ? 'alert' : 'status'}><span className={state.status === 'running' ? 'icon spin' : 'icon'} aria-hidden="true">{icon}</span><span>{state.message}</span><button className="icon-button" type="button" aria-label="Dismiss notification" onClick={onDismiss}><span className="icon" aria-hidden="true">close</span></button></div>;
+    const icon = state.status === 'error' ? 'error' : state.status === 'success' ? 'check_circle' : state.status === 'info' ? 'info' : 'refresh';
+    return <div className={`action-notice ${state.status}`} role={state.status === 'error' ? 'alert' : 'status'}><span className={state.status === 'running' ? 'icon spin' : 'icon'} aria-hidden="true">{icon}</span><span className={state.title ? 'action-notice-copy' : undefined}>{state.title && <strong>{state.title}</strong>}{state.message}</span><button className="icon-button" type="button" aria-label="Dismiss notification" onClick={onDismiss}><span className="icon" aria-hidden="true">close</span></button></div>;
 }
 
 function CursorTablePagination({ page, pageSize, total, pageInfo, onPrevious, onNext, onPageSizeChange }) {
@@ -1818,7 +2033,8 @@ function NewOrderDialog({ busy, onClose, onSubmit, initialOrder = null, action =
     const update = (field, value) => setForm(current => ({ ...current, [field]: value }));
     const close = () => { setClosed(true); onClose(); };
     const closeFromClick = event => { event.preventDefault(); event.stopPropagation(); close(); };
-    const placeholder = initialOrder?.externalId || initialOrder?.id?.split('-')[0]?.toUpperCase() || `ORDER-${String(existingOrderNames.length + 1).padStart(6, '0')}`;
+    const isNew = action === 'Add';
+    const placeholder = isNew ? 'Order ID generated incrementally on create' : initialOrder?.externalId || initialOrder?.id?.split('-')[0]?.toUpperCase() || '';
     const duplicateName = Boolean(form.name.trim()) && existingOrderNames.some(name => String(name || '').trim().toLowerCase() === form.name.trim().toLowerCase() && name !== initialOrder?.name);
     const invalidCompletionDates = form.completionEnabled
         && form.requestedStart
@@ -1831,7 +2047,8 @@ function NewOrderDialog({ busy, onClose, onSubmit, initialOrder = null, action =
         event.preventDefault();
         setSubmitAttempted(true);
         if (duplicateName) return;
-        const name = form.name.trim() || placeholder;
+        // An empty name on a new order makes the API use the order ID it generates.
+        const name = form.name.trim() || (isNew ? '' : placeholder);
         const requestedStart = form.completionEnabled ? dateTimeLocalToUtc(form.requestedStart) : '';
         const requestedEnd = form.completionEnabled ? dateTimeLocalToUtc(form.requestedEnd) : '';
         const organizationId = !form.organization ? null : organizationData.items.find(organization => organization.name === form.organization)?.id;
@@ -1860,7 +2077,7 @@ function NewOrderDialog({ busy, onClose, onSubmit, initialOrder = null, action =
         });
     };
     if (closed) return null;
-    return <div className="confirm-layer order-form-layer"><div className="confirm-backdrop" onClick={closeFromClick} aria-hidden="true" /><form className="order-form-dialog" onSubmit={submit} aria-labelledby="new-order-title"><header className="order-form-header"><div><p className="eyebrow">Service operations</p><h2 id="new-order-title">{action === 'Edit' ? 'Edit service order' : 'New service order'}</h2></div><button className="icon-button" type="button" aria-label="Close service order form" onClick={closeFromClick}><span className="icon" aria-hidden="true">close</span></button></header><div className="order-form-grid"><label className="wide">Label<input autoFocus value={form.name} onChange={event => update('name', event.target.value)} placeholder={placeholder} aria-invalid={duplicateName || undefined} />{duplicateName && <span className="form-field-error">Name already exists!</span>}{submitAttempted && !form.name.trim() && !duplicateName && <span className="form-field-hint">Placeholder will be used: {placeholder}</span>}</label><label className="wide">Description<textarea value={form.description} onChange={event => update('description', event.target.value)} placeholder="Describe the service request" /></label><label>External ID<input value={form.externalId} onChange={event => update('externalId', event.target.value)} placeholder="Optional external ID" /></label><label>Priority<select value={form.priority} onChange={event => update('priority', event.target.value)}><option>High</option><option>Medium</option><option>Low</option></select></label><label className="wide">Organization<select aria-label="Organization" value={form.organization} onChange={event => update('organization', event.target.value)} disabled={organizationData.status === 'loading' && organizationOptions.length === 0}><option value="">No organization</option>{organizationData.status === 'loading' && organizationOptions.length === 0 && <option disabled>Loading organizations…</option>}{organizationOptions.map(organization => <option key={organization.id || organization.name} value={organization.name}>{organization.name}</option>)}</select>{organizationData.status === 'error' && <span className="form-field-error">Organizations could not be loaded. You can leave this empty.</span>}</label><button className="completion-toggle wide" type="button" onClick={() => setForm(current => ({ ...current, completionEnabled: !current.completionEnabled }))}>{form.completionEnabled ? 'Hide Completion Details' : 'Show Completion Details'}</button>{form.completionEnabled && <div className="completion-section wide"><label><span>Completion settings enabled</span><input type="checkbox" checked={form.completionEnabled} onChange={event => update('completionEnabled', event.target.checked)} /></label><label>Requested start date<input type="datetime-local" value={form.requestedStart} onChange={event => update('requestedStart', event.target.value)} /></label><label>Requested completed date<input type="datetime-local" value={form.requestedEnd} onChange={event => update('requestedEnd', event.target.value)} />{invalidCompletionDates && <span className="form-field-error">Requested completion cannot be earlier than requested start.</span>}</label></div>}</div><footer className="order-form-actions"><button className="quiet-button" type="button" onClick={closeFromClick} disabled={busy}>Cancel</button><button className="primary-button" type="submit" disabled={busy || duplicateName || invalidCompletionDates}>{busy ? (action === 'Edit' ? 'Saving…' : 'Creating…') : action === 'Edit' ? 'Save' : 'Create order'}</button></footer></form></div>;
+    return <div className="confirm-layer order-form-layer"><div className="confirm-backdrop" onClick={closeFromClick} aria-hidden="true" /><form className="order-form-dialog" onSubmit={submit} aria-labelledby="new-order-title"><header className="order-form-header"><div><p className="eyebrow">Service operations</p><h2 id="new-order-title">{action === 'Edit' ? 'Edit service order' : 'New service order'}</h2></div><button className="icon-button" type="button" aria-label="Close service order form" onClick={closeFromClick}><span className="icon" aria-hidden="true">close</span></button></header><div className="order-form-grid"><label className="wide">Label<input autoFocus value={form.name} onChange={event => update('name', event.target.value)} placeholder={placeholder} aria-invalid={duplicateName || undefined} />{duplicateName && <span className="form-field-error">Name already exists!</span>}{submitAttempted && !form.name.trim() && !duplicateName && <span className="form-field-hint">{isNew ? 'No label: the order ID will be generated on create, incremented from the latest order.' : `Placeholder will be used: ${placeholder}`}</span>}</label><label className="wide">Description<textarea value={form.description} onChange={event => update('description', event.target.value)} placeholder="Describe the service request" /></label><label>External ID<input value={form.externalId} onChange={event => update('externalId', event.target.value)} placeholder="Optional external ID" /></label><label>Priority<select value={form.priority} onChange={event => update('priority', event.target.value)}><option>High</option><option>Medium</option><option>Low</option></select></label><label className="wide">Organization<select aria-label="Organization" value={form.organization} onChange={event => update('organization', event.target.value)} disabled={organizationData.status === 'loading' && organizationOptions.length === 0}><option value="">No organization</option>{organizationData.status === 'loading' && organizationOptions.length === 0 && <option disabled>Loading organizations…</option>}{organizationOptions.map(organization => <option key={organization.id || organization.name} value={organization.name}>{organization.name}</option>)}</select>{organizationData.status === 'error' && <span className="form-field-error">Organizations could not be loaded. You can leave this empty.</span>}</label><button className="completion-toggle wide" type="button" onClick={() => setForm(current => ({ ...current, completionEnabled: !current.completionEnabled }))}>{form.completionEnabled ? 'Hide Completion Details' : 'Show Completion Details'}</button>{form.completionEnabled && <div className="completion-section wide"><label><span>Completion settings enabled</span><input type="checkbox" checked={form.completionEnabled} onChange={event => update('completionEnabled', event.target.checked)} /></label><label>Requested start date<input type="datetime-local" value={form.requestedStart} onChange={event => update('requestedStart', event.target.value)} /></label><label>Requested completed date<input type="datetime-local" value={form.requestedEnd} onChange={event => update('requestedEnd', event.target.value)} />{invalidCompletionDates && <span className="form-field-error">Requested completion cannot be earlier than requested start.</span>}</label></div>}</div><footer className="order-form-actions"><button className="quiet-button" type="button" onClick={closeFromClick} disabled={busy}>Cancel</button><button className="primary-button" type="submit" disabled={busy || duplicateName || invalidCompletionDates}>{busy ? (action === 'Edit' ? 'Saving…' : 'Creating…') : action === 'Edit' ? 'Save' : 'Create order'}</button></footer></form></div>;
 }
 
 function NewSpecificationDialog({ busy, onClose, onSubmit, initialSpecification = null, action = 'Add', existingSpecificationNames = [], existingSpecificationCount = null }) {
@@ -2365,7 +2582,7 @@ function ServiceItemDialog({ busy, onClose, onSubmit, parentId, parentService = 
                 ExistingLabel: initialItem?.label || '',
                 Type: form.type,
                 DefinitionReference: form.definitionReference,
-                ImplementationReference: form.type === 'Workflow' ? '' : form.implementationReference,
+                ImplementationReference: form.type === 'Workflow' && context === 'Specification' ? '' : form.implementationReference,
                 Script: form.type === 'SRMBooking' ? form.script : '',
             }),
         });
@@ -2380,7 +2597,7 @@ function useOrderItems(order, refreshKey = 0) {
     useEffect(() => {
         let active = true;
         setState({ status: 'loading', items: [], error: '' });
-        fetchServiceOrderItems({ id, orderId }).then(items => { if (active) setState({ status: 'ready', items, error: '' }); }, error => { if (active && !(error instanceof DataMinerAuthError)) setState({ status: 'error', items: [], error: error?.message || 'Unknown error.' }); });
+        fetchServiceOrderItems({ id, orderId }).then(items => { if (active) setState({ status: 'ready', items, error: '' }); }, error => { if (active && !(error instanceof DataMinerAuthError)) setState({ status: 'error', items: [], error: userFacingErrorMessage(error, 'Unknown error.') }); });
         return () => { active = false; };
     }, [id, orderId, attempt, refreshKey]);
     return { ...state, retry: () => setAttempt(value => value + 1) };
@@ -2749,8 +2966,28 @@ function OrdersPage({ selectedId }) {
     const openCount = metrics?.openCount;
     const attentionCount = metrics?.attentionCount;
     const completedCount = metrics?.completedCount;
-    const selectedOrder = selectedId ? orders.find(order => order.id === selectedId) : null;
-    const isPreviewData = import.meta.env.MODE === 'mock' || import.meta.env.VITE_USE_MOCK === 'true';
+    const directOrderId = selectedId?.startsWith('by-id/') ? selectedId.slice('by-id/'.length) : '';
+    const listedOrder = selectedId ? orders.find(order => order.id === selectedId || (directOrderId && order.orderId === directOrderId)) : null;
+    const listedOrderFound = Boolean(listedOrder);
+    const [fallbackOrder, setFallbackOrder] = useState(null);
+    const fallbackOrderRef = useRef(null);
+    fallbackOrderRef.current = fallbackOrder;
+    useEffect(() => {
+        if (!directOrderId || listedOrderFound || status === 'loading') return undefined;
+        let cancelled = false;
+        const isRefresh = fallbackOrderRef.current?.orderId === directOrderId;
+        fetchServiceOrderById(directOrderId)
+            .then(order => {
+                if (!cancelled) setFallbackOrder(order);
+            })
+            .catch(error => {
+                if (!cancelled && !isRefresh) failAction(error?.message || 'The selected service order could not be loaded.');
+            });
+        return () => { cancelled = true; };
+        // Refresh off-page details after the service order list reloads.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [directOrderId, listedOrderFound, status, updatedAt]);
+    const selectedOrder = listedOrder || (fallbackOrder?.orderId === directOrderId ? fallbackOrder : null);
     const closeDetails = useCallback(() => { location.hash = 'orders'; }, []);
     const createOrder = () => setNewOrderOpen(true);
     const submitNewOrder = async (_values, fields) => {
@@ -2794,7 +3031,7 @@ function OrdersPage({ selectedId }) {
     else body = <div className="orders-table-wrap" aria-busy={loading}><table className="orders-table"><colgroup><col className="order-column" /><col className="organization-column" /><col className="priority-column" /><col className="state-column" /><col className="description-column" /><col className="action-column" /></colgroup><thead><tr><th scope="col">{sortButton('name', 'Order')}</th><th scope="col">Organization</th><th scope="col">Priority</th><th scope="col">State</th><th scope="col">Description</th><th scope="col"><span className="sr-only">Open</span></th></tr></thead><tbody>{orders.map((order, index) => <tr className={order.id && order.id === selectedId ? 'order-row selected' : 'order-row'} key={`${order.id || order.name || 'order'}-${index}`} onDoubleClick={() => openOrder(order)}><td><div className="table-order-cell"><span className="order-icon"><span className="icon" aria-hidden="true">assignment</span></span><span className="table-cell-main"><strong>{order.name || 'Unnamed order'}</strong><span>{orderReference(order) || 'No external ID'}</span></span></div></td><td><span className="table-primary">{order.organization || '—'}</span></td><td><span className={`priority-chip ${order.priority.trim().toLowerCase() || 'none'}`}><span className="priority-dot" aria-hidden="true" />{order.priority ? `${order.priority} priority` : 'No priority'}</span></td><td><span className={`state-badge ${stateTone(order.state)}`}>{order.state || 'Unknown'}</span></td><td><span className="table-description" title={order.description || undefined}>{order.description || 'No description'}</span></td><td className="table-action"><button className="table-row-open" type="button" aria-label={`Open details of ${order.name || 'unnamed order'}`} onClick={() => openOrder(order)}><span className="icon" aria-hidden="true">chevron_right</span></button></td></tr>)}</tbody></table></div>;
     return <main className="page-content orders-page">
         <section className="orders-hero">
-            <div className="orders-heading"><div className="orders-eyebrow"><p className="eyebrow">{pages.orders.eyebrow}</p><span className={isPreviewData ? 'live-indicator preview' : 'live-indicator'}><span aria-hidden="true" />{isPreviewData ? 'Preview data' : 'DataMiner data'}</span></div><h1>Orders</h1><p className="description">A clear view of every service order, from request to completion.</p></div>
+            <div className="orders-heading"><p className="eyebrow">{pages.orders.eyebrow}</p><h1>Orders</h1><p className="description">A clear view of every service order, from request to completion.</p></div>
             <PageHeaderActions
                 updatedAt={updatedAt}
                 loading={loading}

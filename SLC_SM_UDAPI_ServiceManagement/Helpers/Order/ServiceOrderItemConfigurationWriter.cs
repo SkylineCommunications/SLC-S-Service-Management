@@ -12,6 +12,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Order
 	using SLC_SM_UDAPI_ServiceManagement.Exceptions;
 	using SLC_SM_UDAPI_ServiceManagement.Models.Inventory;
 	using SLC_SM_UDAPI_ServiceManagement.Models.Order;
+	using static SLC_SM_UDAPI_ServiceManagement.Helpers.ConfigurationRequestHelper;
 
 	internal sealed class ServiceOrderItemConfigurationWriter
 	{
@@ -163,20 +164,21 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Order
 
 				if (String.IsNullOrWhiteSpace(parameter.ParameterId) || !definitions.TryGetValue(parameter.ParameterId, out var definition))
 				{
-					throw new InvalidConfigurationException($"Configuration parameter '{parameter.ParameterId}' was not found.");
+					throw new InvalidConfigurationException($"Configuration parameter {FormatName(parameter.Label, "the selected parameter")} was not found.", $"Configuration parameter '{parameter.ParameterId}'.");
 				}
 
+				string parameterName = ParameterName(parameter, definition);
 				if (!String.IsNullOrWhiteSpace(parameter.ConfigurationId))
 				{
 					ValidateOwnedId(parameter.ConfigurationId, ownership.ConfigurationIds, ownership.Configurations.ContainsKey(parameter.ConfigurationId), "configuration");
 					if (deletedIds.Contains(parameter.ConfigurationId))
 					{
-						throw new InvalidConfigurationException($"Configuration '{parameter.ConfigurationId}' cannot be deleted and updated in the same request.");
+						throw new InvalidConfigurationException($"Configuration for parameter {FormatName(parameterName, "the selected parameter")} cannot be deleted and updated in the same request.", $"Configuration '{parameter.ConfigurationId}'.");
 					}
 
 					if (!usedConfigurationIds.Add(parameter.ConfigurationId))
 					{
-						throw new InvalidConfigurationException($"Configuration '{parameter.ConfigurationId}' is referenced more than once.");
+						throw new InvalidConfigurationException($"Configuration for parameter {FormatName(parameterName, "the selected parameter")} is referenced more than once.", $"Configuration '{parameter.ConfigurationId}'.");
 					}
 				}
 
@@ -185,18 +187,18 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Order
 					ValidateOwnedId(parameter.ParameterValueId, ownership.ParameterValueIds, ownership.ParameterValues.ContainsKey(parameter.ParameterValueId), "configuration parameter value");
 					if (parameterValueIdsToDelete.Contains(parameter.ParameterValueId))
 					{
-						throw new InvalidConfigurationException($"Configuration parameter value '{parameter.ParameterValueId}' cannot be deleted and updated in the same request.");
+						throw new InvalidConfigurationException($"The value for configuration parameter {FormatName(parameterName, "the selected parameter")} cannot be deleted and updated in the same request.", $"Configuration parameter value '{parameter.ParameterValueId}'.");
 					}
 
 					if (!usedParameterValueIds.Add(parameter.ParameterValueId))
 					{
-						throw new InvalidConfigurationException($"Configuration parameter value '{parameter.ParameterValueId}' is referenced more than once.");
+						throw new InvalidConfigurationException($"The value for configuration parameter {FormatName(parameterName, "the selected parameter")} is referenced more than once.", $"Configuration parameter value '{parameter.ParameterValueId}'.");
 					}
 
 					var value = ownership.ParameterValues[parameter.ParameterValueId];
 					if (!String.Equals(value.ConfigurationParameterId.Identifier, definition.Identifier, StringComparison.OrdinalIgnoreCase))
 					{
-						throw new InvalidConfigurationException($"Configuration parameter value '{parameter.ParameterValueId}' does not belong to parameter '{parameter.ParameterId}'.");
+						throw new InvalidConfigurationException($"The value for configuration parameter {FormatName(parameterName, "the selected parameter")} does not belong to that parameter.", $"Configuration parameter value '{parameter.ParameterValueId}' belongs to parameter '{value.ConfigurationParameterId.Identifier}', not '{definition.Identifier}'.");
 					}
 				}
 
@@ -206,7 +208,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Order
 					if (!String.IsNullOrWhiteSpace(parameter.ParameterValueId)
 						&& !String.Equals(currentValueId, parameter.ParameterValueId, StringComparison.OrdinalIgnoreCase))
 					{
-						throw new InvalidConfigurationException($"Configuration '{parameter.ConfigurationId}' does not reference parameter value '{parameter.ParameterValueId}'.");
+						throw new InvalidConfigurationException($"Configuration for parameter {FormatName(parameterName, "the selected parameter")} does not reference its selected value.", $"Configuration '{parameter.ConfigurationId}' references value '{currentValueId}', not '{parameter.ParameterValueId}'.");
 					}
 				}
 
@@ -228,13 +230,18 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Order
 		{
 			if (!ownedIds.Contains(id))
 			{
-				throw new InvalidConfigurationException($"The requested {kind} '{id}' is not assigned to the target service order item.");
+				throw new InvalidConfigurationException($"The requested {kind} is not assigned to the target service order item.", $"{kind} '{id}'.");
 			}
 
 			if (!exists)
 			{
-				throw new InvalidConfigurationException($"The {kind} '{id}' assigned to the target service order item could not be found.");
+				throw new InvalidConfigurationException($"The requested {kind} assigned to the target service order item could not be found.", $"{kind} '{id}'.");
 			}
+		}
+
+		private static string ParameterName(ServiceConfigurationParameterRequest parameter, ConfigurationParameter definition)
+		{
+			return ConfigurationRequestHelper.ParameterName(parameter?.Label, definition);
 		}
 
 		private void DeleteOwnedConfigurations(IEnumerable<ServiceOrderItemConfigurationValue> configurations, Ownership ownership)
