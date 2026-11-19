@@ -81,6 +81,7 @@ namespace ServiceOrder_StateTranstitions_1
 			// Link the main script dummies to the subscript
 			subScript.SelectScriptParam("DOM ID", orderItem.Identifier);
 			subScript.SelectScriptParam("Action", Defaults.ScriptAction_CreateServiceInventoryItem.AddItemSilent.ToString());
+			subScript.SelectScriptParam("Payload", "[]");
 
 			// Set some more options
 			subScript.Synchronous = true;

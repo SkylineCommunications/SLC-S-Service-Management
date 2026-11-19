@@ -220,6 +220,7 @@ namespace SLC_SM_RT_InvalidServiceTransition.TestCases
 			subScript.ExtendedErrorInfo = true;
 			subScript.SelectScriptParam("DOM ID", OrderItemId);
 			subScript.SelectScriptParam("Action", "AddItemSilent");
+			subScript.SelectScriptParam("Payload", "[]");
 			subScript.StartScript();
 
 			if (subScript.HadError)

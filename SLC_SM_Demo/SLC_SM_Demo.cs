@@ -193,6 +193,7 @@ namespace SLCSMDemo
 			// Link the main script dummies to the subscript
 			subScript.SelectScriptParam("DOM ID", orderItem.ID.ToString());
 			subScript.SelectScriptParam("Action", "AddItemSilent");
+			subScript.SelectScriptParam("Payload", "[]");
 
 			// Set some more options
 			subScript.Synchronous = true;

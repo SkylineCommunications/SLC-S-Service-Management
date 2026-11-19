@@ -27,6 +27,12 @@ namespace SLC_SM_RT_DynamicDeleteSpec.TestCases
 		/// </summary>
 		public const long RemainingNodeId = 1;
 
+		/// <summary>
+		/// A service item that is not linked to the deleted service item; its relationship with
+		/// <see cref="RemainingNodeId"/> has to survive the delete.
+		/// </summary>
+		public const long UnrelatedNodeId = 2;
+
 		private readonly IEngine engine;
 
 		public DynamicDeleteSpecTestData(IEngine engine)
@@ -52,15 +58,22 @@ namespace SLC_SM_RT_DynamicDeleteSpec.TestCases
 					{
 						ServiceItemID = DeletedNodeId,
 						Label = "RT Node A",
-						Type = SlcServicemanagementIds.Enums.ServiceitemtypesEnum.Service,
+						Type = SlcServicemanagementIds.Enums.ServiceItemTypesEnum.Service,
 						DefinitionReference = "RT-A",
 					},
 					new Models.ServiceItem
 					{
 						ServiceItemID = RemainingNodeId,
 						Label = "RT Node B",
-						Type = SlcServicemanagementIds.Enums.ServiceitemtypesEnum.Service,
+						Type = SlcServicemanagementIds.Enums.ServiceItemTypesEnum.Service,
 						DefinitionReference = "RT-B",
+					},
+					new Models.ServiceItem
+					{
+						ServiceItemID = UnrelatedNodeId,
+						Label = "RT Node C",
+						Type = SlcServicemanagementIds.Enums.ServiceItemTypesEnum.Service,
+						DefinitionReference = "RT-C",
 					},
 				},
 				ServiceItemsRelationships = new List<Models.ServiceItemRelationship>
@@ -70,6 +83,13 @@ namespace SLC_SM_RT_DynamicDeleteSpec.TestCases
 						ParentServiceItem = DeletedNodeId.ToString(),
 						ParentServiceItemInterfaceId = String.Empty,
 						ChildServiceItem = RemainingNodeId.ToString(),
+						ChildServiceItemInterfaceId = String.Empty,
+					},
+					new Models.ServiceItemRelationship
+					{
+						ParentServiceItem = RemainingNodeId.ToString(),
+						ParentServiceItemInterfaceId = String.Empty,
+						ChildServiceItem = UnrelatedNodeId.ToString(),
 						ChildServiceItemInterfaceId = String.Empty,
 					},
 				},
@@ -90,8 +110,9 @@ namespace SLC_SM_RT_DynamicDeleteSpec.TestCases
 			subScript.Synchronous = true;
 			subScript.ExtendedErrorInfo = true;
 			subScript.SelectScriptParam("DomId", SpecificationId);
-			subScript.SelectScriptParam("NodeIds", nodeIds);
-			subScript.SelectScriptParam("ConnectionIds", connectionIds);
+			// DataMiner rejects empty script parameters; "[]" is how the app sends an empty value.
+			subScript.SelectScriptParam("NodeIds", String.IsNullOrEmpty(nodeIds) ? "[]" : nodeIds);
+			subScript.SelectScriptParam("ConnectionIds", String.IsNullOrEmpty(connectionIds) ? "[]" : connectionIds);
 			subScript.StartScript();
 
 			if (subScript.HadError)

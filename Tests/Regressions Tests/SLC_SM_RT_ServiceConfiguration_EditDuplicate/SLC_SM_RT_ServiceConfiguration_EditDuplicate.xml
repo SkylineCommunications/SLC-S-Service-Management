@@ -1,7 +1,7 @@
 ﻿<?xml version="1.0" encoding="utf-8" ?>
 <DMSScript options="272" xmlns="http://www.skyline.be/automation">
 	<Name>SLC_SM_RT_ServiceConfiguration_EditDuplicate</Name>
-	<Description>Regression test for editing and duplicating a Service Configuration Version.</Description>
+	<Description>Regression test for editing a Service Configuration Version and duplicating it through service duplication.</Description>
 	<Type>Automation</Type>
 	<Author>SKA</Author>
 	<CheckSets>FALSE</CheckSets>

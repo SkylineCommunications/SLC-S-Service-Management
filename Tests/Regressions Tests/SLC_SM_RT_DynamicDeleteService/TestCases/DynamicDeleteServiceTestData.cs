@@ -1,4 +1,4 @@
-namespace SLC_SM_RT_DynamicDeleteService.TestCases
+﻿namespace SLC_SM_RT_DynamicDeleteService.TestCases
 {
 	using System;
 	using System.Collections.Generic;
@@ -149,7 +149,7 @@ namespace SLC_SM_RT_DynamicDeleteService.TestCases
 			{
 				ServiceItemID = id,
 				Label = label,
-				Type = SlcServicemanagementIds.Enums.ServiceitemtypesEnum.Service,
+				Type = SlcServicemanagementIds.Enums.ServiceItemTypesEnum.Service,
 				DefinitionReference = $"RT-{id}",
 			};
 		}
@@ -178,11 +178,13 @@ namespace SLC_SM_RT_DynamicDeleteService.TestCases
 					NewServiceItem(0, "RT Node A"),
 					NewServiceItem(1, "RT Node B"),
 					NewServiceItem(2, "RT Node C"),
+					NewServiceItem(3, "RT Node D"),
 				},
 				ServiceItemsRelationships = new List<Models.ServiceItemRelationship>
 				{
 					NewRelationship("0", "1"),
 					NewRelationship("1", "2"),
+					NewRelationship("2", "3"),
 				},
 			};
 
@@ -236,42 +238,40 @@ namespace SLC_SM_RT_DynamicDeleteService.TestCases
 			subScript.ExtendedErrorInfo = true;
 			subScript.SelectScriptParam("DOM ID", OrderItemId);
 			subScript.SelectScriptParam("Action", "AddItemSilent");
+
+			// Every declared parameter must be selected: the script throws when a parameter value is null.
+			subScript.SelectScriptParam("Payload", "[]");
 			subScript.StartScript();
 
-			if (subScript.HadError)
-			{
-				throw new InvalidOperationException(
-					$"Could not materialise the service fixture:{Environment.NewLine}{String.Join(Environment.NewLine, subScript.GetErrorMessages() ?? Enumerable.Empty<string>())}");
-			}
-
+			// The silent action ends with ScriptAbortException("OK"), so HadError alone does not mean failure:
+			// the linked service on the order item is the source of truth.
 			Models.ServiceOrderItem persistedOrderItem = Api.ServiceOrder.ServiceOrderItems
 				.Read(Models.ServiceOrderItemExposers.Identifier.Equal(OrderItemId))
 				.FirstOrDefault();
 
-			if (persistedOrderItem?.ServiceInfo == null)
-			{
-				throw new InvalidOperationException("The service order item fixture has no service info.");
-			}
-
-			ServiceId = persistedOrderItem.ServiceInfo.ServiceId.Identifier ?? String.Empty;
+			ServiceId = persistedOrderItem?.ServiceInfo?.ServiceId.Identifier ?? String.Empty;
 
 			if (String.IsNullOrWhiteSpace(ServiceId))
 			{
-				throw new InvalidOperationException("No service was linked to the service order item fixture.");
+				string errors = subScript.HadError
+					? String.Join(Environment.NewLine, subScript.GetErrorMessages() ?? Enumerable.Empty<string>())
+					: String.Empty;
+				throw new InvalidOperationException(
+					$"No service was linked to the service order item fixture.{Environment.NewLine}{errors}");
 			}
 
 			Models.Service service = ReadServiceOrThrow();
 
-			if (service.ServiceItems == null || service.ServiceItems.Count != 3)
+			if (service.ServiceItems == null || service.ServiceItems.Count != 4)
 			{
 				throw new InvalidOperationException(
-					$"Expected the service fixture to have 3 service items, got {service.ServiceItems?.Count ?? 0}.");
+					$"Expected the service fixture to have 4 service items, got {service.ServiceItems?.Count ?? 0}.");
 			}
 
-			if (service.ServiceItemsRelationships == null || service.ServiceItemsRelationships.Count != 2)
+			if (service.ServiceItemsRelationships == null || service.ServiceItemsRelationships.Count != 3)
 			{
 				throw new InvalidOperationException(
-					$"Expected the service fixture to have 2 service item relationships, got {service.ServiceItemsRelationships?.Count ?? 0}.");
+					$"Expected the service fixture to have 3 service item relationships, got {service.ServiceItemsRelationships?.Count ?? 0}.");
 			}
 		}
 

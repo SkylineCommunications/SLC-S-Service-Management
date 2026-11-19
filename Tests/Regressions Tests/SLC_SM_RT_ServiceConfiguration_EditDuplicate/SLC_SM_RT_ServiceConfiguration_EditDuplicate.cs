@@ -28,7 +28,7 @@ namespace SLC_SM_RT_ServiceConfiguration_EditDuplicate
 	{
 		private const string TestArea = "ServiceConfiguration";
 		private const string TestName = "ServiceConfiguration_EditDuplicate";
-		private const string TestDescription = "Verifies a Service Configuration Version can be edited and duplicated, and that the duplicate becomes the active configuration on the service.";
+		private const string TestDescription = "Verifies a Service Configuration Version can be edited, and that duplicating the service copies the edited version, its configuration items and values onto a new '(Copy)' service as the active configuration, without monitoring settings and without changing the source service.";
 
 		/// <summary>
 		/// Entry point.
@@ -76,6 +76,7 @@ namespace SLC_SM_RT_ServiceConfiguration_EditDuplicate
 				new CreateAndLinkServiceConfigurationTestCase(testData),
 				new EditServiceConfigurationTestCase(testData),
 				new DuplicateServiceConfigurationTestCase(testData),
+				new ValidateDuplicatedServiceTestCase(testData),
 				new ValidateServiceConfigurationVersionsTestCase(testData),
 				new ValidateEditedConfigurationVersionTestCase(testData),
 				new ValidateDuplicatedConfigurationVersionTestCase(testData),

@@ -1,0 +1,32 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <PlatformTarget>x86</PlatformTarget>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <IsPackable>false</IsPackable>
+    <MSBuildWarningsAsMessages>MSB3277</MSBuildWarningsAsMessages>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MSTest" Version="4.0.2" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
+    <PackageReference Include="Skyline.DataMiner.CICD.Tools.WinEncryptedKeys.Lib" Version="2.2.0" />
+    <PackageReference Include="Skyline.DataMiner.Core.DataMinerSystem.Common" Version="1.1.3.8" />
+    <PackageReference Include="Skyline.DataMiner.Files.SLNetTypes" Version="10.6.12" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Microsoft.VisualStudio.TestTools.UnitTesting" />
+  </ItemGroup>
+
+  <!-- Harvests the test output into the QAOps Test Package (see its TestHarvesting\TestDiscovery.ps1). -->
+  <Target Name="CopyIntegrationTestOutputToTestPackage" AfterTargets="Build" Condition="Exists('$(MSBuildThisFileDirectory)..\..\SLC-Service-Management-QAOps\SLC-Service-Management-QAOps.csproj')">
+    <ItemGroup>
+      <IntegrationTestOutput Include="$(OutputPath)**\*.*" Exclude="$(OutputPath)TestResults\**" />
+    </ItemGroup>
+    <Copy SourceFiles="@(IntegrationTestOutput)" DestinationFiles="@(IntegrationTestOutput->'$(MSBuildThisFileDirectory)..\..\SLC-Service-Management-QAOps\TestPackageContent\TestHarvesting\postbuild.generated\$(MSBuildProjectName)\%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
+  </Target>
+
+</Project>

@@ -97,6 +97,7 @@ namespace SLC_SM_RT_ServiceOrderCompletion.TestCases
 			subScript.SelectScriptParam("Id", OrderItemId);
 			subScript.SelectScriptParam("PreviousState", previousState);
 			subScript.SelectScriptParam("NextState", nextState);
+			subScript.SelectScriptParam("Skip Confirmation", Boolean.TrueString);
 			subScript.StartScript();
 
 			if (subScript.HadError)

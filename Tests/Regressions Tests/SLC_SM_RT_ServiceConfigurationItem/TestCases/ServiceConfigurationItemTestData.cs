@@ -3,6 +3,8 @@ namespace SLC_SM_RT_ServiceConfigurationItem.TestCases
 	using System;
 	using System.Linq;
 
+	using DomHelpers.SlcConfigurations;
+
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
@@ -26,19 +28,25 @@ namespace SLC_SM_RT_ServiceConfigurationItem.TestCases
 
 		public IServiceManagementApiHelper Api { get; }
 
+		public string ConfigurationParameterId { get; private set; } = String.Empty;
+
 		public string ParameterValueId { get; private set; } = String.Empty;
 
 		public string ServiceConfigurationValueId { get; private set; } = String.Empty;
 
 		/// <summary>
-		/// Creates a Configuration Parameter Value and the Service Configuration Item that refers to it.
+		/// Creates a Configuration Parameter, a Configuration Parameter Value and the Service Configuration Item that refers to it.
 		/// </summary>
 		public void CreateConfigurationItem()
 		{
-			ConfigModels.ConfigurationParameter parameter = Api.ServiceCatalog.ConfigurationParameters
-				.Read(new TRUEFilterElement<ConfigModels.ConfigurationParameter>())
-				.FirstOrDefault()
-				?? throw new InvalidOperationException("No Configuration Parameters exist in Service Catalog.");
+			var parameter = new ConfigModels.ConfigurationParameter
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				Name = $"RT_ServiceConfigItem_Parameter_{Guid.NewGuid()}",
+				Type = SlcConfigurationsIds.Enums.Type.Text,
+			};
+			Api.ServiceCatalog.ConfigurationParameters.Create(parameter);
+			ConfigurationParameterId = parameter.Identifier;
 
 			var parameterValue = new ConfigModels.ConfigurationParameterValue
 			{
@@ -54,7 +62,7 @@ namespace SLC_SM_RT_ServiceConfigurationItem.TestCases
 			{
 				Identifier = Guid.NewGuid().ToString(),
 				Mandatory = false,
-				ConfigurationParameterId = new SdmObjectReference<ConfigModels.ConfigurationParameter>(parameterValue.Identifier),
+				ConfigurationParameterId = new SdmObjectReference<ConfigModels.ConfigurationParameterValue>(parameterValue.Identifier),
 			};
 			Api.ServiceInventory.ServiceConfigurationValues.Create(serviceConfigurationValue);
 			ServiceConfigurationValueId = serviceConfigurationValue.Identifier;
@@ -120,6 +128,24 @@ namespace SLC_SM_RT_ServiceConfigurationItem.TestCases
 					if (value != null)
 					{
 						Api.ServiceCatalog.ConfigurationParameterValues.Delete(value);
+					}
+				});
+
+			TryCleanup(
+				"configuration parameter",
+				() =>
+				{
+					if (String.IsNullOrWhiteSpace(ConfigurationParameterId))
+					{
+						return;
+					}
+
+					ConfigModels.ConfigurationParameter parameter = Api.ServiceCatalog.ConfigurationParameters
+						.Read(ConfigModels.ConfigurationParameterExposers.Identifier.Equal(ConfigurationParameterId))
+						.FirstOrDefault();
+					if (parameter != null)
+					{
+						Api.ServiceCatalog.ConfigurationParameters.Delete(parameter);
 					}
 				});
 		}

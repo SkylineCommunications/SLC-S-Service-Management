@@ -4,6 +4,8 @@ namespace SLC_SM_RT_ServiceConfiguration.TestCases
 	using System.Collections.Generic;
 	using System.Linq;
 
+	using DomHelpers.SlcConfigurations;
+
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
@@ -39,6 +41,8 @@ namespace SLC_SM_RT_ServiceConfiguration.TestCases
 		public string OrderItemId { get; private set; } = String.Empty;
 
 		public string ServiceId { get; private set; } = String.Empty;
+
+		public string ConfigurationParameterId { get; private set; } = String.Empty;
 
 		public string ParameterValueId { get; private set; } = String.Empty;
 
@@ -104,10 +108,7 @@ namespace SLC_SM_RT_ServiceConfiguration.TestCases
 		/// </summary>
 		public void CreateAndLinkServiceConfiguration()
 		{
-			ConfigModels.ConfigurationParameter parameter = InventoryApi.ServiceCatalog.ConfigurationParameters
-				.Read(new TRUEFilterElement<ConfigModels.ConfigurationParameter>())
-				.FirstOrDefault()
-				?? throw new InvalidOperationException("No Configuration Parameters exist in Service Catalog.");
+			ConfigModels.ConfigurationParameter parameter = CreateConfigurationParameter();
 
 			var parameterValue = new ConfigModels.ConfigurationParameterValue
 			{
@@ -116,6 +117,9 @@ namespace SLC_SM_RT_ServiceConfiguration.TestCases
 				Type = parameter.Type,
 				ConfigurationParameterId = new SdmObjectReference<ConfigModels.ConfigurationParameter>(parameter.Identifier),
 			};
+
+			// The item below is mandatory: a configuration version with an empty mandatory value cannot be activated.
+			AssignSampleValue(parameterValue);
 			InventoryApi.ServiceCatalog.ConfigurationParameterValues.Create(parameterValue);
 			ParameterValueId = parameterValue.Identifier;
 
@@ -123,7 +127,7 @@ namespace SLC_SM_RT_ServiceConfiguration.TestCases
 			{
 				Identifier = Guid.NewGuid().ToString(),
 				Mandatory = true,
-				ConfigurationParameterId = new SdmObjectReference<ConfigModels.ConfigurationParameter>(parameterValue.Identifier),
+				ConfigurationParameterId = new SdmObjectReference<ConfigModels.ConfigurationParameterValue>(parameterValue.Identifier),
 			};
 			InventoryApi.ServiceInventory.ServiceConfigurationValues.Create(serviceConfigurationValue);
 			ServiceConfigurationValueId = serviceConfigurationValue.Identifier;
@@ -155,6 +159,35 @@ namespace SLC_SM_RT_ServiceConfiguration.TestCases
 			service.ConfigurationVersions.Add(new SdmObjectReference<Models.ServiceConfigurationVersion>(serviceConfigurationVersion.Identifier));
 			service.ServiceConfigurationId = new SdmObjectReference<Models.ServiceConfigurationVersion>(serviceConfigurationVersion.Identifier);
 			InventoryApi.ServiceInventory.Services.Update(service);
+		}
+
+		/// <summary>
+		/// Indicates whether the configuration parameter value holds a value, using the same rule as the product
+		/// applies before a configuration version is activated.
+		/// </summary>
+		/// <param name="value">The configuration parameter value.</param>
+		/// <returns><c>true</c> when a value is filled in.</returns>
+		public static bool HasValue(ConfigModels.ConfigurationParameterValue value)
+		{
+			if (value == null)
+			{
+				return false;
+			}
+
+			return value.Type == SlcConfigurationsIds.Enums.Type.Number
+				? value.DoubleValue.HasValue
+				: !String.IsNullOrWhiteSpace(value.StringValue);
+		}
+
+		/// <summary>
+		/// Reads a Configuration Parameter Value back from the system.
+		/// </summary>
+		/// <returns>The parameter value, or <c>null</c> when it does not exist.</returns>
+		public ConfigModels.ConfigurationParameterValue ReadParameterValue()
+		{
+			return InventoryApi.ServiceCatalog.ConfigurationParameterValues
+				.Read(ConfigModels.ConfigurationParameterValueExposers.Identifier.Equal(ParameterValueId))
+				.FirstOrDefault();
 		}
 
 		/// <summary>
@@ -324,6 +357,53 @@ namespace SLC_SM_RT_ServiceConfiguration.TestCases
 						InventoryApi.ServiceCatalog.ConfigurationParameterValues.Delete(value);
 					}
 				});
+
+			TryCleanup(
+				"configuration parameter",
+				() =>
+				{
+					if (String.IsNullOrWhiteSpace(ConfigurationParameterId))
+					{
+						return;
+					}
+
+					ConfigModels.ConfigurationParameter parameter = InventoryApi.ServiceCatalog.ConfigurationParameters
+						.Read(ConfigModels.ConfigurationParameterExposers.Identifier.Equal(ConfigurationParameterId))
+						.FirstOrDefault();
+					if (parameter != null)
+					{
+						InventoryApi.ServiceCatalog.ConfigurationParameters.Delete(parameter);
+					}
+				});
+		}
+
+		/// <summary>
+		/// Creates a test-owned Text configuration parameter so the test does not depend on existing catalog data.
+		/// </summary>
+		/// <returns>The created configuration parameter.</returns>
+		private ConfigModels.ConfigurationParameter CreateConfigurationParameter()
+		{
+			var parameter = new ConfigModels.ConfigurationParameter
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				Name = $"RT_ServiceConfig_Parameter_{Guid.NewGuid()}",
+				Type = SlcConfigurationsIds.Enums.Type.Text,
+			};
+			InventoryApi.ServiceCatalog.ConfigurationParameters.Create(parameter);
+			ConfigurationParameterId = parameter.Identifier;
+			return parameter;
+		}
+
+		private static void AssignSampleValue(ConfigModels.ConfigurationParameterValue parameterValue)
+		{
+			if (parameterValue.Type == SlcConfigurationsIds.Enums.Type.Number)
+			{
+				parameterValue.DoubleValue = 1;
+			}
+			else
+			{
+				parameterValue.StringValue = "RT value";
+			}
 		}
 
 		private void MaterialiseService()
@@ -333,6 +413,7 @@ namespace SLC_SM_RT_ServiceConfiguration.TestCases
 			createScript.ExtendedErrorInfo = true;
 			createScript.SelectScriptParam("DOM ID", OrderItemId);
 			createScript.SelectScriptParam("Action", "AddItemSilent");
+			createScript.SelectScriptParam("Payload", "[]");
 			createScript.StartScript();
 
 			if (createScript.HadError)

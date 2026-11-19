@@ -1,7 +1,10 @@
 namespace SLC_SM_RT_ServiceConfigurationItem_EditDuplicate.TestCases
 {
 	using System;
+	using System.Collections.Generic;
 	using System.Linq;
+
+	using DomHelpers.SlcConfigurations;
 
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
@@ -26,6 +29,8 @@ namespace SLC_SM_RT_ServiceConfigurationItem_EditDuplicate.TestCases
 
 		public IServiceManagementApiHelper Api { get; }
 
+		public string ConfigurationParameterId { get; private set; } = String.Empty;
+
 		public string ParameterValueId { get; private set; } = String.Empty;
 
 		public string ServiceConfigurationValueId { get; private set; } = String.Empty;
@@ -35,14 +40,18 @@ namespace SLC_SM_RT_ServiceConfigurationItem_EditDuplicate.TestCases
 		public string DuplicatedServiceConfigurationValueId { get; private set; } = String.Empty;
 
 		/// <summary>
-		/// Creates the Configuration Parameter Value and the Service Configuration Item under test.
+		/// Creates the Configuration Parameter, the Configuration Parameter Value and the Service Configuration Item under test.
 		/// </summary>
 		public void CreateConfigurationItem()
 		{
-			ConfigModels.ConfigurationParameter parameter = Api.ServiceCatalog.ConfigurationParameters
-				.Read(new TRUEFilterElement<ConfigModels.ConfigurationParameter>())
-				.FirstOrDefault()
-				?? throw new InvalidOperationException("No Configuration Parameters exist in Service Catalog.");
+			var parameter = new ConfigModels.ConfigurationParameter
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				Name = $"RT_ServiceCfgItemEditDup_Parameter_{Guid.NewGuid()}",
+				Type = SlcConfigurationsIds.Enums.Type.Text,
+			};
+			Api.ServiceCatalog.ConfigurationParameters.Create(parameter);
+			ConfigurationParameterId = parameter.Identifier;
 
 			var parameterValue = new ConfigModels.ConfigurationParameterValue
 			{
@@ -51,6 +60,17 @@ namespace SLC_SM_RT_ServiceConfigurationItem_EditDuplicate.TestCases
 				Type = parameter.Type,
 				ConfigurationParameterId = new SdmObjectReference<ConfigModels.ConfigurationParameter>(parameter.Identifier),
 			};
+
+			// The item is made mandatory later on; mandatory items need a value before their configuration can be activated.
+			if (parameterValue.Type == SlcConfigurationsIds.Enums.Type.Number)
+			{
+				parameterValue.DoubleValue = 1;
+			}
+			else
+			{
+				parameterValue.StringValue = "RT value";
+			}
+
 			Api.ServiceCatalog.ConfigurationParameterValues.Create(parameterValue);
 			ParameterValueId = parameterValue.Identifier;
 
@@ -58,7 +78,7 @@ namespace SLC_SM_RT_ServiceConfigurationItem_EditDuplicate.TestCases
 			{
 				Identifier = Guid.NewGuid().ToString(),
 				Mandatory = false,
-				ConfigurationParameterId = new SdmObjectReference<ConfigModels.ConfigurationParameter>(parameterValue.Identifier),
+				ConfigurationParameterId = new SdmObjectReference<ConfigModels.ConfigurationParameterValue>(parameterValue.Identifier),
 			};
 			Api.ServiceInventory.ServiceConfigurationValues.Create(serviceConfigurationValue);
 			ServiceConfigurationValueId = serviceConfigurationValue.Identifier;
@@ -77,7 +97,8 @@ namespace SLC_SM_RT_ServiceConfigurationItem_EditDuplicate.TestCases
 		}
 
 		/// <summary>
-		/// Creates a copy of the parameter value and of the edited Service Configuration Item.
+		/// Creates a copy of the parameter value and of the edited Service Configuration Item,
+		/// the same way the product duplicates configuration items (label and value are kept).
 		/// </summary>
 		public void DuplicateConfigurationItem()
 		{
@@ -90,9 +111,18 @@ namespace SLC_SM_RT_ServiceConfigurationItem_EditDuplicate.TestCases
 			var duplicatedParameterValue = new ConfigModels.ConfigurationParameterValue
 			{
 				Identifier = Guid.NewGuid().ToString(),
-				Label = $"{sourceParameterValue.Label}_Copy",
+				Label = sourceParameterValue.Label,
 				Type = sourceParameterValue.Type,
+				DoubleValue = sourceParameterValue.DoubleValue,
+				StringValue = sourceParameterValue.StringValue,
 				ConfigurationParameterId = sourceParameterValue.ConfigurationParameterId,
+				NumberOptionsId = sourceParameterValue.NumberOptionsId,
+				DiscreteOptionsId = sourceParameterValue.DiscreteOptionsId,
+				TextOptionsId = sourceParameterValue.TextOptionsId,
+				ValueFixed = sourceParameterValue.ValueFixed,
+				LinkedConsumers = sourceParameterValue.LinkedConsumers != null ? new List<Guid>(sourceParameterValue.LinkedConsumers) : new List<Guid>(),
+				LinkedScript = sourceParameterValue.LinkedScript,
+				IsLinked = sourceParameterValue.IsLinked,
 			};
 			Api.ServiceCatalog.ConfigurationParameterValues.Create(duplicatedParameterValue);
 			DuplicatedParameterValueId = duplicatedParameterValue.Identifier;
@@ -101,7 +131,7 @@ namespace SLC_SM_RT_ServiceConfigurationItem_EditDuplicate.TestCases
 			{
 				Identifier = Guid.NewGuid().ToString(),
 				Mandatory = sourceServiceConfigurationValue.Mandatory,
-				ConfigurationParameterId = new SdmObjectReference<ConfigModels.ConfigurationParameter>(duplicatedParameterValue.Identifier),
+				ConfigurationParameterId = new SdmObjectReference<ConfigModels.ConfigurationParameterValue>(duplicatedParameterValue.Identifier),
 			};
 			Api.ServiceInventory.ServiceConfigurationValues.Create(duplicatedServiceConfigurationValue);
 			DuplicatedServiceConfigurationValueId = duplicatedServiceConfigurationValue.Identifier;
@@ -151,6 +181,23 @@ namespace SLC_SM_RT_ServiceConfigurationItem_EditDuplicate.TestCases
 			TryCleanup("source service configuration item", () => DeleteServiceConfigurationItem(ServiceConfigurationValueId));
 			TryCleanup("duplicated configuration parameter value", () => DeleteConfigurationParameterValue(DuplicatedParameterValueId));
 			TryCleanup("source configuration parameter value", () => DeleteConfigurationParameterValue(ParameterValueId));
+			TryCleanup("configuration parameter", DeleteConfigurationParameter);
+		}
+
+		private void DeleteConfigurationParameter()
+		{
+			if (String.IsNullOrWhiteSpace(ConfigurationParameterId))
+			{
+				return;
+			}
+
+			ConfigModels.ConfigurationParameter parameter = Api.ServiceCatalog.ConfigurationParameters
+				.Read(ConfigModels.ConfigurationParameterExposers.Identifier.Equal(ConfigurationParameterId))
+				.FirstOrDefault();
+			if (parameter != null)
+			{
+				Api.ServiceCatalog.ConfigurationParameters.Delete(parameter);
+			}
 		}
 
 		private void DeleteServiceConfigurationItem(string identifier)

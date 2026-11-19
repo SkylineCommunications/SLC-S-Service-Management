@@ -28,7 +28,7 @@ namespace SLC_SM_RT_DynamicDeleteService.TestCases
 			{
 				{ "DomId", testData.ServiceId },
 				{ "NodeIds", "0" },
-				{ "ConnectionIds", String.Empty },
+				{ "ConnectionIds", "[]" },
 			};
 
 			TestTools.ExecuteSubScript(this, engine, Script.ScriptUnderTest, scriptParameters);
@@ -40,8 +40,8 @@ namespace SLC_SM_RT_DynamicDeleteService.TestCases
 				"Service item '0' still exists after it was deleted.");
 
 			TestTools.Assert(
-				HasServiceItem(service, 1) && HasServiceItem(service, 2),
-				"Service items '1' and '2' should have survived the deletion of service item '0'.");
+				HasServiceItem(service, 1) && HasServiceItem(service, 2) && HasServiceItem(service, 3),
+				"Service items '1', '2' and '3' should have survived the deletion of service item '0'.");
 
 			bool referencesDeletedNode = (service.ServiceItemsRelationships ?? new List<Models.ServiceItemRelationship>())
 				.Any(relationship => relationship.ParentServiceItem == "0" || relationship.ChildServiceItem == "0");
@@ -51,7 +51,7 @@ namespace SLC_SM_RT_DynamicDeleteService.TestCases
 				"A service item relationship still references the deleted service item '0'.");
 
 			TestTools.AssertEqual(
-				"1",
+				"2",
 				(service.ServiceItemsRelationships?.Count ?? 0).ToString(),
 				"Number of remaining service item relationships");
 		}

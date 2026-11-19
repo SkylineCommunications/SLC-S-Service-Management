@@ -5,10 +5,12 @@ namespace SLC_SM_RT_ServiceConfiguration_EditDuplicate.TestCases
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Utils.ServiceManagement.Testing.Tests;
 
+	using ConfigModels = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.Configurations;
 	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 
 	/// <summary>
-	/// Verifies both the source and duplicated configuration items point to their own parameter value.
+	/// Verifies the source and duplicated configuration items point to their own parameter value,
+	/// and that the duplicated parameter value is a copy of the source value.
 	/// </summary>
 	internal sealed class ValidateConfigurationItemsTestCase : TestCase
 	{
@@ -39,11 +41,27 @@ namespace SLC_SM_RT_ServiceConfiguration_EditDuplicate.TestCases
 			TestTools.Assert(
 				duplicateValue.ConfigurationParameterId != null,
 				"Duplicated configuration item has no linked parameter value.");
+			TestTools.Assert(sourceValue.Mandatory == duplicateValue.Mandatory, "Duplicated configuration item must keep the mandatory flag of the source item.");
+			TestTools.Assert(
+				!String.Equals(testData.ParameterValueId, duplicateValue.ConfigurationParameterId.Identifier, StringComparison.OrdinalIgnoreCase),
+				"Duplicated configuration item must point to a copied parameter value, not the source one.");
 
+			ConfigModels.ConfigurationParameterValue sourceParameterValue = testData.ReadParameterValue(testData.ParameterValueId);
+			ConfigModels.ConfigurationParameterValue duplicateParameterValue = testData.ReadParameterValue(duplicateValue.ConfigurationParameterId.Identifier);
+
+			TestTools.Assert(sourceParameterValue != null, "Source parameter value was not found during validation.");
+			TestTools.Assert(duplicateParameterValue != null, "Duplicated parameter value was not found during validation.");
+			TestTools.AssertEqual(sourceParameterValue.Label, duplicateParameterValue.Label, "Duplicated parameter value label");
+			TestTools.Assert(Equals(sourceParameterValue.Type, duplicateParameterValue.Type), "Duplicated parameter value must keep the type of the source value.");
+			TestTools.AssertEqual(sourceParameterValue.StringValue, duplicateParameterValue.StringValue, "Duplicated parameter string value");
+			TestTools.Assert(Equals(sourceParameterValue.DoubleValue, duplicateParameterValue.DoubleValue), "Duplicated parameter value must keep the double value of the source value.");
 			TestTools.AssertEqual(
-				testData.DuplicatedParameterValueId,
-				duplicateValue.ConfigurationParameterId.Identifier,
-				"Duplicated linked configuration parameter value");
+				sourceParameterValue.ConfigurationParameterId.Identifier,
+				duplicateParameterValue.ConfigurationParameterId.Identifier,
+				"Duplicated parameter value configuration parameter");
+			TestTools.Assert(
+				ServiceConfigurationEditDuplicateTestData.HasValue(duplicateParameterValue),
+				"The mandatory value must be copied so that the duplicated active configuration version stays valid.");
 		}
 
 		public override void PerformCleanup(IEngine engine)

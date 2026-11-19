@@ -10,7 +10,7 @@ namespace SLC_SM_RT_DynamicDeleteService.TestCases
 	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 
 	/// <summary>
-	/// Removes the remaining service item relationship by its identifier and verifies that only the
+	/// Removes one of the remaining service item relationships by its identifier and verifies that only the
 	/// relationship is removed, not the service items it connected.
 	/// This covers the relationship branch of the script under test, which the specification
 	/// regression test does not exercise.
@@ -31,7 +31,7 @@ namespace SLC_SM_RT_DynamicDeleteService.TestCases
 			Models.ServiceItemRelationship relationship = (service.ServiceItemsRelationships ?? new List<Models.ServiceItemRelationship>())
 				.FirstOrDefault();
 
-			TestTools.Assert(relationship != null, "Expected one remaining service item relationship to delete.");
+			TestTools.Assert(relationship != null, "Expected a remaining service item relationship to delete.");
 
 			TestTools.Assert(
 				Guid.TryParse(relationship.Id, out _),
@@ -40,7 +40,7 @@ namespace SLC_SM_RT_DynamicDeleteService.TestCases
 			var scriptParameters = new Dictionary<string, string>
 			{
 				{ "DomId", testData.ServiceId },
-				{ "NodeIds", String.Empty },
+				{ "NodeIds", "[]" },
 				{ "ConnectionIds", relationship.Id },
 			};
 
@@ -48,13 +48,17 @@ namespace SLC_SM_RT_DynamicDeleteService.TestCases
 
 			Models.Service updatedService = testData.ReadServiceOrThrow();
 
-			TestTools.AssertEqual(
-				"0",
+			TestTools.Assert(
+				(updatedService.ServiceItemsRelationships ?? new List<Models.ServiceItemRelationship>()).All(x => x.Id != relationship.Id),
+				$"Service item relationship '{relationship.Id}' still exists after it was deleted.");
+
+				TestTools.AssertEqual(
+				"1",
 				(updatedService.ServiceItemsRelationships?.Count ?? 0).ToString(),
-				"Number of service item relationships after deleting the last relationship");
+				"Number of service item relationships after deleting a relationship");
 
 			TestTools.AssertEqual(
-				"2",
+				"3",
 				(updatedService.ServiceItems?.Count ?? 0).ToString(),
 				"Number of service items after deleting a relationship");
 		}

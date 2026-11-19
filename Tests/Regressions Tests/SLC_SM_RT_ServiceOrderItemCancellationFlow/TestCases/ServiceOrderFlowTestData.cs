@@ -17,6 +17,7 @@ namespace SLC_SM_RT_ServiceOrderItemCancellationFlow.TestCases
 	{
 		private const string OrderItemTransitionScript = "ServiceOrderItem_StateTranstitions";
 		private const string OrderTransitionScript = "ServiceOrder_StateTranstitions";
+		private const string CancellationReason = "Regression test";
 
 		private readonly IEngine engine;
 
@@ -98,6 +99,7 @@ namespace SLC_SM_RT_ServiceOrderItemCancellationFlow.TestCases
 			subScript.SelectScriptParam("Id", OrderItemId);
 			subScript.SelectScriptParam("PreviousState", previousState);
 			subScript.SelectScriptParam("NextState", nextState);
+			subScript.SelectScriptParam("Skip Confirmation", Boolean.TrueString);
 			subScript.StartScript();
 
 			if (subScript.HadError)
@@ -120,6 +122,8 @@ namespace SLC_SM_RT_ServiceOrderItemCancellationFlow.TestCases
 			subScript.SelectScriptParam("ServiceOrderReference", OrderId);
 			subScript.SelectScriptParam("PreviousState", previousState);
 			subScript.SelectScriptParam("NextState", nextState);
+			subScript.SelectScriptParam("Skip Confirmation", Boolean.TrueString);
+			subScript.SelectScriptParam("Cancellation Reason", CancellationReason);
 			subScript.StartScript();
 
 			if (subScript.HadError)

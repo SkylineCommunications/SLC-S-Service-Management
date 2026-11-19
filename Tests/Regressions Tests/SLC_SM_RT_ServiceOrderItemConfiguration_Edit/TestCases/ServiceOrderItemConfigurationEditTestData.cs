@@ -4,6 +4,8 @@ namespace SLC_SM_RT_ServiceOrderItemConfiguration_Edit.TestCases
 	using System.Collections.Generic;
 	using System.Linq;
 
+	using DomHelpers.SlcConfigurations;
+
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
@@ -30,6 +32,8 @@ namespace SLC_SM_RT_ServiceOrderItemConfiguration_Edit.TestCases
 		public string SpecificationId { get; private set; } = String.Empty;
 
 		public string OrderItemId { get; private set; } = String.Empty;
+
+		public string ConfigurationParameterId { get; private set; } = String.Empty;
 
 		public string ParameterValueId { get; private set; } = String.Empty;
 
@@ -75,14 +79,18 @@ namespace SLC_SM_RT_ServiceOrderItemConfiguration_Edit.TestCases
 		}
 
 		/// <summary>
-		/// Creates the parameter value and order item configuration, and links the latter to the order item.
+		/// Creates the parameter, parameter value and order item configuration, and links the latter to the order item.
 		/// </summary>
 		public void CreateAndLinkConfiguration()
 		{
-			ConfigModels.ConfigurationParameter parameter = Api.ServiceCatalog.ConfigurationParameters
-				.Read(new TRUEFilterElement<ConfigModels.ConfigurationParameter>())
-				.FirstOrDefault()
-				?? throw new InvalidOperationException("No Configuration Parameters exist in Service Catalog.");
+			var parameter = new ConfigModels.ConfigurationParameter
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				Name = $"RT_OrderItemCfgEdit_Parameter_{Guid.NewGuid()}",
+				Type = SlcConfigurationsIds.Enums.Type.Text,
+			};
+			Api.ServiceCatalog.ConfigurationParameters.Create(parameter);
+			ConfigurationParameterId = parameter.Identifier;
 
 			var parameterValue = new ConfigModels.ConfigurationParameterValue
 			{
@@ -208,6 +216,7 @@ namespace SLC_SM_RT_ServiceOrderItemConfiguration_Edit.TestCases
 
 			TryCleanup("order item configuration", () => DeleteOrderItemConfiguration(OrderItemConfigurationId));
 			TryCleanup("configuration parameter value", () => DeleteConfigurationParameterValue(ParameterValueId));
+			TryCleanup("configuration parameter", DeleteConfigurationParameter);
 
 			TryCleanup(
 				"order item",
@@ -271,6 +280,22 @@ namespace SLC_SM_RT_ServiceOrderItemConfiguration_Edit.TestCases
 			if (value != null)
 			{
 				Api.ServiceCatalog.ConfigurationParameterValues.Delete(value);
+			}
+		}
+
+		private void DeleteConfigurationParameter()
+		{
+			if (String.IsNullOrWhiteSpace(ConfigurationParameterId))
+			{
+				return;
+			}
+
+			ConfigModels.ConfigurationParameter parameter = Api.ServiceCatalog.ConfigurationParameters
+				.Read(ConfigModels.ConfigurationParameterExposers.Identifier.Equal(ConfigurationParameterId))
+				.FirstOrDefault();
+			if (parameter != null)
+			{
+				Api.ServiceCatalog.ConfigurationParameters.Delete(parameter);
 			}
 		}
 

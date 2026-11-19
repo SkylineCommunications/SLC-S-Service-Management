@@ -36,7 +36,7 @@ namespace SLC_SM_RT_ServiceStateTransition
 
 		private const string TestArea = "ServiceInventory";
 		private const string TestName = "ServiceStateTransition";
-		private const string TestDescription = "Walks a service through New, Designed, Reserved, Active and Terminated.";
+		private const string TestDescription = "Walks a service through New, Designed, Reserved, Active, Terminated and Retired.";
 
 		/// <summary>
 		/// Entry point.
@@ -84,7 +84,8 @@ namespace SLC_SM_RT_ServiceStateTransition
 				new TransitionServiceTestCase(testData, "New", "Designed", Statuses.Designed.ToString()),
 				new TransitionServiceTestCase(testData, "Designed", "Reserved", Statuses.Reserved.ToString()),
 				new TransitionServiceTestCase(testData, "Reserved", "Active", Statuses.Active.ToString()),
-				new TransitionServiceTestCase(testData, "Active", "Terminated", Statuses.Terminated.ToString(), cleanUpAfterwards: true));
+				new TransitionServiceTestCase(testData, "Active", "Terminated", Statuses.Terminated.ToString()),
+				new TransitionServiceTestCase(testData, "Terminated", "Retired", Statuses.Retired.ToString(), cleanUpAfterwards: true));
 
 			test.Run();
 		}

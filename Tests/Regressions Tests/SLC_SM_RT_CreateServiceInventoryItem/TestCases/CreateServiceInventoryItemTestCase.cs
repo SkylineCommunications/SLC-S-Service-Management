@@ -24,6 +24,9 @@ namespace SLC_SM_RT_CreateServiceInventoryItem.TestCases
 			{
 				{ "DOM ID", testData.OrderItemId },
 				{ "Action", "AddItemSilent" },
+
+				// Every declared parameter must be selected; an empty payload selects the classic (non-API) flow.
+				{ "Payload", "[]" },
 			};
 
 			TestTools.ExecuteSubScript(this, engine, Script.ScriptUnderTest, scriptParameters);

@@ -23,7 +23,7 @@ namespace SLC_SM_RT_DynamicDeleteSpec
 
 	/// <summary>
 	/// Regression test for "SLC_SM_AS_DynamicDelete" on Service Specifications.
-	/// Deletes one of two linked service items and verifies the delete cascades to the relationship.
+	/// Deletes one of three chained service items and verifies the delete cascades to its relationship only.
 	/// </summary>
 	public class Script
 	{

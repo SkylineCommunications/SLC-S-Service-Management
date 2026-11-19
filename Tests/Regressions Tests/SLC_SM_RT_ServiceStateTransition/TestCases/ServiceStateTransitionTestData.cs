@@ -211,6 +211,7 @@ namespace SLC_SM_RT_ServiceStateTransition.TestCases
 			createScript.ExtendedErrorInfo = true;
 			createScript.SelectScriptParam("DOM ID", OrderItemId);
 			createScript.SelectScriptParam("Action", "AddItemSilent");
+			createScript.SelectScriptParam("Payload", "[]");
 			createScript.StartScript();
 
 			if (createScript.HadError)

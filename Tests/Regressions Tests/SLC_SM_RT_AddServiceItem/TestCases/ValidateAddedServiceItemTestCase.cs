@@ -1,4 +1,4 @@
-namespace SLC_SM_RT_AddServiceItem.TestCases
+﻿namespace SLC_SM_RT_AddServiceItem.TestCases
 {
 	using System;
 
@@ -30,7 +30,7 @@ namespace SLC_SM_RT_AddServiceItem.TestCases
 				$"No service item with definition reference '{testData.DefinitionReference}' was added.");
 
 			TestTools.AssertEqual(
-				SlcServicemanagementIds.Enums.ServiceitemtypesEnum.Service.ToString(),
+				SlcServicemanagementIds.Enums.ServiceItemTypesEnum.Service.ToString(),
 				addedItem.Type.ToString(),
 				"Added service item type");
 

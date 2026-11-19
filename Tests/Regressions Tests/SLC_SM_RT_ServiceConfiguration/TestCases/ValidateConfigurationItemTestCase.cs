@@ -32,6 +32,10 @@ namespace SLC_SM_RT_ServiceConfiguration.TestCases
 				testData.ParameterValueId,
 				value.ConfigurationParameterId.Identifier,
 				"Linked configuration parameter value");
+
+			TestTools.Assert(
+				!value.Mandatory || ServiceConfigurationTestData.HasValue(testData.ReadParameterValue()),
+				"The active configuration version holds a mandatory item without a value, which the product does not allow to activate.");
 		}
 
 		public override void PerformCleanup(IEngine engine)

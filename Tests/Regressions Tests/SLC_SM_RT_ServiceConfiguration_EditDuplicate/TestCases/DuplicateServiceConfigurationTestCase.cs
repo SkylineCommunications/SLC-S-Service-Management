@@ -6,7 +6,7 @@ namespace SLC_SM_RT_ServiceConfiguration_EditDuplicate.TestCases
 	using Skyline.DataMiner.Utils.ServiceManagement.Testing.Tests;
 
 	/// <summary>
-	/// Copies the whole configuration chain and activates the copied version on the service.
+	/// Duplicates the service through the product script, which copies the whole configuration chain onto a new service.
 	/// </summary>
 	internal sealed class DuplicateServiceConfigurationTestCase : TestCase
 	{

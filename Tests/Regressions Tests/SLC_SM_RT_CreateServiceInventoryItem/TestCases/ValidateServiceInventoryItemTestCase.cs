@@ -26,6 +26,10 @@ namespace SLC_SM_RT_CreateServiceInventoryItem.TestCases
 			TestTools.Assert(service != null, "No service was created and linked to the service order item.");
 			TestTools.AssertEqual(testData.SpecificationId, service.ServiceSpecificationId.Identifier, "Linked service specification");
 			TestTools.AssertEqual(testData.ExpectedServiceName, service.Name, "Linked service name");
+			TestTools.AssertEqual(testData.ExpectedServiceName, service.Description, "Linked service description");
+			TestTools.Assert(
+				service.ServiceID != null && service.ServiceID.StartsWith("SERVICE-", StringComparison.Ordinal),
+				$"Linked service ID '{service.ServiceID}' does not follow the 'SERVICE-nnnnn' format.");
 		}
 
 		public override void PerformCleanup(IEngine engine)

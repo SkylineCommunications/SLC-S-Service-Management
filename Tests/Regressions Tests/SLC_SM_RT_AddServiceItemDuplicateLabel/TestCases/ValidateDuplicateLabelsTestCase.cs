@@ -1,4 +1,4 @@
-namespace SLC_SM_RT_AddServiceItemDuplicateLabel.TestCases
+﻿namespace SLC_SM_RT_AddServiceItemDuplicateLabel.TestCases
 {
 	using System;
 	using System.Collections.Generic;
@@ -41,8 +41,8 @@ namespace SLC_SM_RT_AddServiceItemDuplicateLabel.TestCases
 				$"A service item labelled '{expectedDuplicateLabel}' should exist, but the labels are: {DescribeLabels(addedItems)}.");
 
 			TestTools.Assert(
-				addedItems.All(item => item.Type == SlcServicemanagementIds.Enums.ServiceitemtypesEnum.Service),
-				$"Both added service items should have type '{SlcServicemanagementIds.Enums.ServiceitemtypesEnum.Service}', but the types are: {DescribeTypes(addedItems)}.");
+				addedItems.All(item => item.Type == SlcServicemanagementIds.Enums.ServiceItemTypesEnum.Service),
+				$"Both added service items should have type '{SlcServicemanagementIds.Enums.ServiceItemTypesEnum.Service}', but the types are: {DescribeTypes(addedItems)}.");
 		}
 
 		public override void PerformCleanup(IEngine engine)

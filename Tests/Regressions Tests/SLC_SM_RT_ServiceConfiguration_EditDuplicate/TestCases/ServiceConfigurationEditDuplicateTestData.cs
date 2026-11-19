@@ -4,6 +4,8 @@ namespace SLC_SM_RT_ServiceConfiguration_EditDuplicate.TestCases
 	using System.Collections.Generic;
 	using System.Linq;
 
+	using DomHelpers.SlcConfigurations;
+
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
@@ -20,6 +22,14 @@ namespace SLC_SM_RT_ServiceConfiguration_EditDuplicate.TestCases
 		private const string CreateServiceInventoryScript = "SLC_SM_Create Service Inventory Item";
 
 		private readonly IEngine engine;
+
+		private readonly HashSet<string> duplicatedVersionIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+		private readonly HashSet<string> duplicatedConfigurationValueIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+		private readonly HashSet<string> duplicatedParameterValueIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+		private readonly HashSet<string> duplicatedServiceProfileIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
 		public ServiceConfigurationEditDuplicateTestData(IEngine engine)
 		{
@@ -40,11 +50,17 @@ namespace SLC_SM_RT_ServiceConfiguration_EditDuplicate.TestCases
 
 		public string ServiceId { get; private set; } = String.Empty;
 
+		public string ConfigurationParameterId { get; private set; } = String.Empty;
+
 		public string ParameterValueId { get; private set; } = String.Empty;
 
 		public string ServiceConfigurationValueId { get; private set; } = String.Empty;
 
 		public string ServiceConfigurationVersionId { get; private set; } = String.Empty;
+
+		public string DuplicatedServiceId { get; private set; } = String.Empty;
+
+		public string DuplicatedServiceName { get; private set; } = String.Empty;
 
 		public string DuplicatedParameterValueId { get; private set; } = String.Empty;
 
@@ -107,15 +123,19 @@ namespace SLC_SM_RT_ServiceConfiguration_EditDuplicate.TestCases
 		}
 
 		/// <summary>
-		/// Creates the configuration parameter value, configuration item and configuration version,
+		/// Creates the configuration parameter, configuration parameter value, configuration item and configuration version,
 		/// then links the version to the service and marks it as the active one.
 		/// </summary>
 		public void CreateAndLinkServiceConfiguration()
 		{
-			ConfigModels.ConfigurationParameter parameter = InventoryApi.ServiceCatalog.ConfigurationParameters
-				.Read(new TRUEFilterElement<ConfigModels.ConfigurationParameter>())
-				.FirstOrDefault()
-				?? throw new InvalidOperationException("No Configuration Parameters exist in Service Catalog.");
+			var parameter = new ConfigModels.ConfigurationParameter
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				Name = $"RT_ServiceConfigEditDup_Parameter_{Guid.NewGuid()}",
+				Type = SlcConfigurationsIds.Enums.Type.Text,
+			};
+			InventoryApi.ServiceCatalog.ConfigurationParameters.Create(parameter);
+			ConfigurationParameterId = parameter.Identifier;
 
 			var parameterValue = new ConfigModels.ConfigurationParameterValue
 			{
@@ -124,6 +144,17 @@ namespace SLC_SM_RT_ServiceConfiguration_EditDuplicate.TestCases
 				Type = parameter.Type,
 				ConfigurationParameterId = new SdmObjectReference<ConfigModels.ConfigurationParameter>(parameter.Identifier),
 			};
+
+			// The item below is mandatory: a configuration version with an empty mandatory value cannot be activated.
+			if (parameterValue.Type == SlcConfigurationsIds.Enums.Type.Number)
+			{
+				parameterValue.DoubleValue = 1;
+			}
+			else
+			{
+				parameterValue.StringValue = "RT value";
+			}
+
 			InventoryApi.ServiceCatalog.ConfigurationParameterValues.Create(parameterValue);
 			ParameterValueId = parameterValue.Identifier;
 
@@ -131,7 +162,7 @@ namespace SLC_SM_RT_ServiceConfiguration_EditDuplicate.TestCases
 			{
 				Identifier = Guid.NewGuid().ToString(),
 				Mandatory = true,
-				ConfigurationParameterId = new SdmObjectReference<ConfigModels.ConfigurationParameter>(parameterValue.Identifier),
+				ConfigurationParameterId = new SdmObjectReference<ConfigModels.ConfigurationParameterValue>(parameterValue.Identifier),
 			};
 			InventoryApi.ServiceInventory.ServiceConfigurationValues.Create(serviceConfigurationValue);
 			ServiceConfigurationValueId = serviceConfigurationValue.Identifier;
@@ -170,56 +201,91 @@ namespace SLC_SM_RT_ServiceConfiguration_EditDuplicate.TestCases
 		}
 
 		/// <summary>
-		/// Copies the parameter value, configuration item and configuration version,
-		/// then links the copied version to the service and makes it the active one.
+		/// Duplicates the service through the product script ("Duplicate" action), which copies the whole
+		/// configuration chain onto a new "(Copy)" service and activates the copy of the active version there.
 		/// </summary>
 		public void DuplicateServiceConfiguration()
 		{
-			ConfigModels.ConfigurationParameterValue sourceParameterValue = ReadParameterValue(ParameterValueId)
-				?? throw new InvalidOperationException("Source parameter value was not found for duplication.");
+			Models.Service source = ReadService()
+				?? throw new InvalidOperationException("Source service was not found for duplication.");
 
-			Models.ServiceConfigurationValue sourceServiceConfigurationValue = ReadConfigurationValue(ServiceConfigurationValueId)
-				?? throw new InvalidOperationException("Source service configuration value was not found for duplication.");
+			DuplicatedServiceName = $"{source.Name} (Copy)";
 
-			Models.ServiceConfigurationVersion sourceVersion = ReadConfigurationVersion(ServiceConfigurationVersionId)
-				?? throw new InvalidOperationException("Source service configuration version was not found for duplication.");
+			SubScriptOptions duplicateScript = engine.PrepareSubScript(CreateServiceInventoryScript);
+			duplicateScript.Synchronous = true;
+			duplicateScript.ExtendedErrorInfo = true;
+			duplicateScript.SelectScriptParam("DOM ID", ServiceId);
+			duplicateScript.SelectScriptParam("Action", "Duplicate");
 
-			var duplicatedParameterValue = new ConfigModels.ConfigurationParameterValue
+			// A non-empty payload selects the non-interactive API flow of the script.
+			duplicateScript.SelectScriptParam("Payload", "{}");
+			duplicateScript.StartScript();
+
+			// Resolve the duplicate before failing so that cleanup can remove whatever was created.
+			Models.Service duplicate = ReadDuplicatedService();
+			if (duplicate != null)
 			{
-				Identifier = Guid.NewGuid().ToString(),
-				Label = $"{sourceParameterValue.Label}_Copy",
-				Type = sourceParameterValue.Type,
-				ConfigurationParameterId = sourceParameterValue.ConfigurationParameterId,
-			};
-			InventoryApi.ServiceCatalog.ConfigurationParameterValues.Create(duplicatedParameterValue);
-			DuplicatedParameterValueId = duplicatedParameterValue.Identifier;
+				DuplicatedServiceId = duplicate.Identifier;
+				CollectDuplicatedConfiguration(duplicate);
+			}
 
-			var duplicatedServiceConfigurationValue = new Models.ServiceConfigurationValue
+			if (duplicateScript.HadError)
 			{
-				Identifier = Guid.NewGuid().ToString(),
-				Mandatory = sourceServiceConfigurationValue.Mandatory,
-				ConfigurationParameterId = new SdmObjectReference<ConfigModels.ConfigurationParameter>(duplicatedParameterValue.Identifier),
-			};
-			InventoryApi.ServiceInventory.ServiceConfigurationValues.Create(duplicatedServiceConfigurationValue);
-			DuplicatedServiceConfigurationValueId = duplicatedServiceConfigurationValue.Identifier;
+				throw new InvalidOperationException(
+					$"Subscript '{CreateServiceInventoryScript}' (Duplicate) failed:{Environment.NewLine}{String.Join(Environment.NewLine, duplicateScript.GetErrorMessages() ?? Enumerable.Empty<string>())}");
+			}
 
-			var duplicatedVersion = new Models.ServiceConfigurationVersion
+			if (duplicate == null)
 			{
-				Identifier = Guid.NewGuid().ToString(),
-				VersionName = $"{sourceVersion.VersionName} - Copy",
-				Description = sourceVersion.Description,
-				StartDate = sourceVersion.StartDate,
-				EndDate = sourceVersion.EndDate,
-				Parameters = new List<SdmObjectReference<Models.ServiceConfigurationValue>>
-				{
-					new SdmObjectReference<Models.ServiceConfigurationValue>(duplicatedServiceConfigurationValue.Identifier),
-				},
-				Profiles = new List<SdmObjectReference<Models.ServiceProfile>>(),
-			};
-			InventoryApi.ServiceInventory.ServiceConfigurationVersions.Create(duplicatedVersion);
-			DuplicatedServiceConfigurationVersionId = duplicatedVersion.Identifier;
+				throw new InvalidOperationException($"No duplicated service named '{DuplicatedServiceName}' was created.");
+			}
 
-			ActivateConfigurationVersion(duplicatedVersion.Identifier, "Service was not found while linking duplicated configuration version.");
+			DuplicatedServiceConfigurationVersionId = (duplicate.ServiceConfigurationId != null ? duplicate.ServiceConfigurationId.Identifier : null) ?? String.Empty;
+
+			Models.ServiceConfigurationVersion duplicatedVersion = ReadConfigurationVersion(DuplicatedServiceConfigurationVersionId);
+			DuplicatedServiceConfigurationValueId = duplicatedVersion?.Parameters?.Select(x => x.Identifier).FirstOrDefault() ?? String.Empty;
+			DuplicatedParameterValueId = ReadConfigurationValue(DuplicatedServiceConfigurationValueId)?.ConfigurationParameterId.Identifier ?? String.Empty;
+		}
+
+		/// <summary>
+		/// Reads the duplicated service back from the system.
+		/// </summary>
+		/// <returns>The duplicated service, or <c>null</c> when it does not exist.</returns>
+		public Models.Service ReadDuplicatedService()
+		{
+			if (!String.IsNullOrWhiteSpace(DuplicatedServiceId))
+			{
+				return InventoryApi.ServiceInventory.Services
+					.Read(Models.ServiceExposers.Identifier.Equal(DuplicatedServiceId))
+					.FirstOrDefault();
+			}
+
+			if (String.IsNullOrWhiteSpace(DuplicatedServiceName))
+			{
+				return null;
+			}
+
+			return InventoryApi.ServiceInventory.Services
+				.Read(Models.ServiceExposers.Name.Equal(DuplicatedServiceName))
+				.FirstOrDefault();
+		}
+
+		/// <summary>
+		/// Indicates whether the configuration parameter value holds a value, using the same rule as the product
+		/// applies before a configuration version is activated.
+		/// </summary>
+		/// <param name="value">The configuration parameter value.</param>
+		/// <returns><c>true</c> when a value is filled in.</returns>
+		public static bool HasValue(ConfigModels.ConfigurationParameterValue value)
+		{
+			if (value == null)
+			{
+				return false;
+			}
+
+			return value.Type == SlcConfigurationsIds.Enums.Type.Number
+				? value.DoubleValue.HasValue
+				: !String.IsNullOrWhiteSpace(value.StringValue);
 		}
 
 		/// <summary>
@@ -307,6 +373,18 @@ namespace SLC_SM_RT_ServiceConfiguration_EditDuplicate.TestCases
 		public void CleanUp()
 		{
 			TryCleanup(
+				"duplicated service",
+				() =>
+				{
+					Models.Service duplicate = ReadDuplicatedService();
+					if (duplicate != null)
+					{
+						CollectDuplicatedConfiguration(duplicate);
+						InventoryApi.ServiceInventory.Services.Delete(duplicate);
+					}
+				});
+
+			TryCleanup(
 				"service",
 				() =>
 				{
@@ -369,12 +447,113 @@ namespace SLC_SM_RT_ServiceConfiguration_EditDuplicate.TestCases
 					}
 				});
 
-			TryCleanup("duplicated configuration version", () => DeleteConfigurationVersion(DuplicatedServiceConfigurationVersionId));
+			foreach (string id in duplicatedVersionIds.ToList())
+			{
+				TryCleanup($"duplicated configuration version {id}", () => DeleteConfigurationVersion(id));
+			}
+
 			TryCleanup("source configuration version", () => DeleteConfigurationVersion(ServiceConfigurationVersionId));
-			TryCleanup("duplicated configuration item", () => DeleteConfigurationItem(DuplicatedServiceConfigurationValueId));
+
+			foreach (string id in duplicatedServiceProfileIds.ToList())
+			{
+				TryCleanup($"duplicated service profile {id}", () => DeleteServiceProfile(id));
+			}
+
+			foreach (string id in duplicatedConfigurationValueIds.ToList())
+			{
+				TryCleanup($"duplicated configuration item {id}", () => DeleteConfigurationItem(id));
+			}
+
 			TryCleanup("source configuration item", () => DeleteConfigurationItem(ServiceConfigurationValueId));
-			TryCleanup("duplicated parameter value", () => DeleteParameterValue(DuplicatedParameterValueId));
+
+			foreach (string id in duplicatedParameterValueIds.ToList())
+			{
+				TryCleanup($"duplicated parameter value {id}", () => DeleteParameterValue(id));
+			}
+
 			TryCleanup("source parameter value", () => DeleteParameterValue(ParameterValueId));
+			TryCleanup("configuration parameter", DeleteConfigurationParameter);
+		}
+
+		private void DeleteConfigurationParameter()
+		{
+			if (String.IsNullOrWhiteSpace(ConfigurationParameterId))
+			{
+				return;
+			}
+
+			ConfigModels.ConfigurationParameter parameter = InventoryApi.ServiceCatalog.ConfigurationParameters
+				.Read(ConfigModels.ConfigurationParameterExposers.Identifier.Equal(ConfigurationParameterId))
+				.FirstOrDefault();
+			if (parameter != null)
+			{
+				InventoryApi.ServiceCatalog.ConfigurationParameters.Delete(parameter);
+			}
+		}
+
+		private void CollectDuplicatedConfiguration(Models.Service duplicate)
+		{
+			var versionIds = new List<string>();
+			if (duplicate.ServiceConfigurationId != null)
+			{
+				versionIds.Add(duplicate.ServiceConfigurationId.Identifier);
+			}
+
+			if (duplicate.ConfigurationVersions != null)
+			{
+				versionIds.AddRange(duplicate.ConfigurationVersions.Where(x => x != null).Select(x => x.Identifier));
+			}
+
+			foreach (string versionId in versionIds.Where(id => !String.IsNullOrWhiteSpace(id)))
+			{
+				duplicatedVersionIds.Add(versionId);
+
+				Models.ServiceConfigurationVersion version = ReadConfigurationVersion(versionId);
+				if (version == null)
+				{
+					continue;
+				}
+
+				foreach (var profile in version.Profiles ?? new List<SdmObjectReference<Models.ServiceProfile>>())
+				{
+					if (!String.IsNullOrWhiteSpace(profile.Identifier))
+					{
+						duplicatedServiceProfileIds.Add(profile.Identifier);
+					}
+				}
+
+				foreach (var parameter in version.Parameters ?? new List<SdmObjectReference<Models.ServiceConfigurationValue>>())
+				{
+					if (String.IsNullOrWhiteSpace(parameter.Identifier))
+					{
+						continue;
+					}
+
+					duplicatedConfigurationValueIds.Add(parameter.Identifier);
+
+					string parameterValueId = ReadConfigurationValue(parameter.Identifier)?.ConfigurationParameterId.Identifier;
+					if (!String.IsNullOrWhiteSpace(parameterValueId))
+					{
+						duplicatedParameterValueIds.Add(parameterValueId);
+					}
+				}
+			}
+
+			// Never delete the source objects through the duplicate bookkeeping.
+			duplicatedVersionIds.Remove(ServiceConfigurationVersionId);
+			duplicatedConfigurationValueIds.Remove(ServiceConfigurationValueId);
+			duplicatedParameterValueIds.Remove(ParameterValueId);
+		}
+
+		private void DeleteServiceProfile(string identifier)
+		{
+			Models.ServiceProfile profile = InventoryApi.ServiceInventory.ServiceProfiles
+				.Read(new TRUEFilterElement<Models.ServiceProfile>())
+				.FirstOrDefault(x => String.Equals(x.Identifier, identifier, StringComparison.OrdinalIgnoreCase));
+			if (profile != null)
+			{
+				InventoryApi.ServiceInventory.ServiceProfiles.Delete(profile);
+			}
 		}
 
 		private void ActivateConfigurationVersion(string configurationVersionId, string notFoundMessage)
@@ -399,6 +578,7 @@ namespace SLC_SM_RT_ServiceConfiguration_EditDuplicate.TestCases
 			createScript.ExtendedErrorInfo = true;
 			createScript.SelectScriptParam("DOM ID", OrderItemId);
 			createScript.SelectScriptParam("Action", "AddItemSilent");
+			createScript.SelectScriptParam("Payload", "[]");
 			createScript.StartScript();
 
 			if (createScript.HadError)

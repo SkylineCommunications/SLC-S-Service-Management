@@ -31,12 +31,15 @@ namespace SLC_SM_RT_DynamicDeleteSpec.TestCases
 				!containsDeletedNode,
 				$"Service item '{DynamicDeleteSpecTestData.DeletedNodeId}' should have been deleted, but it still exists.");
 
-			bool containsRemainingNode = specification.ServiceItems
-				.Any(item => item.ServiceItemID.HasValue && item.ServiceItemID.Value == DynamicDeleteSpecTestData.RemainingNodeId);
+			foreach (long remainingNodeId in new[] { DynamicDeleteSpecTestData.RemainingNodeId, DynamicDeleteSpecTestData.UnrelatedNodeId })
+			{
+				bool containsRemainingNode = specification.ServiceItems
+					.Any(item => item.ServiceItemID.HasValue && item.ServiceItemID.Value == remainingNodeId);
 
-			TestTools.Assert(
-				containsRemainingNode,
-				$"Service item '{DynamicDeleteSpecTestData.RemainingNodeId}' should have been left untouched, but it no longer exists.");
+				TestTools.Assert(
+					containsRemainingNode,
+					$"Service item '{remainingNodeId}' should have been left untouched, but it no longer exists.");
+			}
 		}
 
 		public override void PerformCleanup(IEngine engine)

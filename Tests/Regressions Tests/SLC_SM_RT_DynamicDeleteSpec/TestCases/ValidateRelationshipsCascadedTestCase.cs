@@ -1,6 +1,8 @@
 namespace SLC_SM_RT_DynamicDeleteSpec.TestCases
 {
 	using System;
+	using System.Collections.Generic;
+	using System.Linq;
 
 	using Skyline.DataMiner.Automation;
 	using Skyline.DataMiner.Utils.ServiceManagement.Testing.Tests;
@@ -8,7 +10,8 @@ namespace SLC_SM_RT_DynamicDeleteSpec.TestCases
 	using Models = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 
 	/// <summary>
-	/// Verifies that deleting a node also removes the relationships that node took part in.
+	/// Verifies that deleting a node also removes the relationships that node took part in,
+	/// while relationships between the remaining nodes are kept.
 	/// </summary>
 	internal sealed class ValidateRelationshipsCascadedTestCase : TestCase
 	{
@@ -23,12 +26,18 @@ namespace SLC_SM_RT_DynamicDeleteSpec.TestCases
 		{
 			Models.ServiceSpecification specification = testData.ReadSpecification();
 
-			int relationshipCount = specification.ServiceItemsRelationships?.Count ?? 0;
+			List<Models.ServiceItemRelationship> relationships = specification.ServiceItemsRelationships
+				?? new List<Models.ServiceItemRelationship>();
+			string deletedNodeId = DynamicDeleteSpecTestData.DeletedNodeId.ToString();
+
+			TestTools.Assert(
+				!relationships.Any(x => x.ParentServiceItem == deletedNodeId || x.ChildServiceItem == deletedNodeId),
+				$"A relationship still references the deleted service item '{deletedNodeId}'.");
 
 			TestTools.AssertEqual(
-				"0",
-				relationshipCount.ToString(),
-				$"Number of relationships left after deleting service item '{DynamicDeleteSpecTestData.DeletedNodeId}'");
+				"1",
+				relationships.Count.ToString(),
+				$"Number of relationships left after deleting service item '{deletedNodeId}'");
 		}
 
 		public override void PerformCleanup(IEngine engine)
