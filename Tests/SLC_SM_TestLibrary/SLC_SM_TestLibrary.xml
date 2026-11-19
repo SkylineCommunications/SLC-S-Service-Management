@@ -1,0 +1,28 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<DMSScript options="272" xmlns="http://www.skyline.be/automation">
+	<Name>SLC_SM_TestLibrary</Name>
+	<Description>Shared regression test framework for the Service Management solution.</Description>
+	<Type>Automation</Type>
+	<Author>SKA</Author>
+	<CheckSets>FALSE</CheckSets>
+	<Folder>Service Management/Regression Tests</Folder>
+	<Interactivity>Never</Interactivity>
+
+	<Protocols>
+	</Protocols>
+
+	<Memory>
+	</Memory>
+
+	<Parameters>
+	</Parameters>
+
+	<Script>
+		<Exe id="1" type="csharp">
+			<Value><![CDATA[[Project:SLC_SM_TestLibrary]]]></Value>
+			<Param type="preCompile">true</Param>
+			<Param type="libraryName">SLC_SM_TestLibrary</Param>
+			<Message></Message>
+		</Exe>
+	</Script>
+</DMSScript>

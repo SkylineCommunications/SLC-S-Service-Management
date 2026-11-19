@@ -1,0 +1,26 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<DMSScript options="272" xmlns="http://www.skyline.be/automation">
+	<Name>SLC_SM_RT_CreateServiceOrder</Name>
+	<Description>Regression test for creating a Service Order with a Service Order Item.</Description>
+	<Type>Automation</Type>
+	<Author>SKA</Author>
+	<CheckSets>FALSE</CheckSets>
+	<Folder>Service Management/Regression Tests</Folder>
+	
+	<Protocols>
+	</Protocols>
+	
+	<Memory>
+	</Memory>
+	
+	<Parameters>
+	</Parameters>
+	
+	<Script>
+		<Exe id="1" type="csharp">
+			<Value><![CDATA[[Project:SLC_SM_RT_CreateServiceOrder]]]></Value>
+			<Message />
+		</Exe>
+	</Script>
+	
+</DMSScript>

@@ -1,0 +1,8 @@
+# Ignore all directories and files ending with .generated
+*.generated/
+
+# Also ignore any files (not just directories) ending with .generated
+*.generated
+
+# The solution package is copied in at build time by SLC-Service-Management.csproj
+Dependencies/*.dmapp
