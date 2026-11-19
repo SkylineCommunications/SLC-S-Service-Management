@@ -13,6 +13,8 @@
 		<!-- Do NOT fill in the Organization Token here. This points to either an Environment Variable skyline__sdk__dataminertoken holding the organization token or a Visual Studio User Secret holding the token. -->
 		<!--<CatalogPublishKeyName>skyline:sdk:dataminertoken</CatalogPublishKeyName>-->
 		<CatalogDefaultDownloadKeyName>skyline:sdk:dataminertoken</CatalogDefaultDownloadKeyName>
+		<!-- Shares the user secrets (Catalog organization key) of the SLC-Service-Management package project. --><!--
+		<UserSecretsId>c77184c7-44bc-4fa1-bbac-614d79915f0e</UserSecretsId>-->
 	</PropertyGroup>
 
 	<ItemGroup>
