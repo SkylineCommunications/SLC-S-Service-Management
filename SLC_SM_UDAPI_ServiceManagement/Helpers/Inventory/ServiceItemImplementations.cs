@@ -363,7 +363,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 				return String.Empty;
 			}
 
-			return $"{logLocation.Trim().TrimEnd('/')}/{bookingName}.html";
+			return $"{logLocation.Trim().TrimEnd('/')}/{Uri.EscapeDataString(bookingName)}.html";
 		}
 
 		private ServiceItemImplementation DescribeBooking(Guid id, string bookingManagerName)

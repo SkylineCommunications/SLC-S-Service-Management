@@ -13,6 +13,15 @@ namespace SLC_SM_UDAPI_ServiceManagement.Tests.Controllers
 	public class ServiceItemEndpointTests : ServiceInventoryControllerTestBase
 	{
 		// ---- GET /service/{id}/item ----
+		[DataTestMethod]
+		[DataRow("https://dma/logs/", "Backup #1", "https://dma/logs/Backup%20%231.html")]
+		[DataRow("https://dma/logs", "a?b/c", "https://dma/logs/a%3Fb%2Fc.html")]
+		[DataRow("", "Booking", "")]
+		public void BuildBookingLogUrl_EncodesBookingNameAsSinglePathSegment(string location, string name, string expected)
+		{
+			Assert.AreEqual(expected, ServiceItemImplementations.BuildBookingLogUrl(location, name));
+		}
+
 		[TestMethod]
 		public void ListServiceItems_ReturnsItemsSortedByIdWithImplementation()
 		{
