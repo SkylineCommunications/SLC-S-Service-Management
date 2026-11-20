@@ -133,6 +133,11 @@ namespace SLC_SM_IAS_Add_Service_Order_1
 					if (String.IsNullOrWhiteSpace(orderToUpdate.Name))
 					{
 						orderToUpdate.Name = orderToUpdate.OrderId;
+						if (OrderNameExists(api, orderToUpdate.Name))
+						{
+							presenter.ShowDuplicateLabelError();
+							return;
+						}
 					}
 
 					api.ServiceOrder.ServiceOrders.Create(new[] { orderToUpdate });
@@ -247,12 +252,24 @@ namespace SLC_SM_IAS_Add_Service_Order_1
 
 			if (action == Action.Add)
 			{
+				if (String.IsNullOrWhiteSpace(payload.Name) && OrderNameExists(api, serviceOrder.Name))
+				{
+					throw new InvalidOperationException($"{ServiceOrderPresenter.DuplicateLabelError} ('{serviceOrder.Name}')");
+				}
+
 				api.ServiceOrder.ServiceOrders.Create(new[] { serviceOrder });
 			}
 			else
 			{
 				api.ServiceOrder.ServiceOrders.Update(serviceOrder);
 			}
+		}
+
+		// Names generated from the Order ID are checked against a fresh read, because ID uniqueness does not imply name uniqueness.
+		private static bool OrderNameExists(IServiceManagementApiHelper api, string name)
+		{
+			return api.ServiceOrder.ServiceOrders.Read(new TRUEFilterElement<Models.ServiceOrder>())
+				.Any(order => String.Equals(order.Name, name, StringComparison.InvariantCultureIgnoreCase));
 		}
 
 		private static DateTime? ParseOptionalDate(string raw, string fieldName)

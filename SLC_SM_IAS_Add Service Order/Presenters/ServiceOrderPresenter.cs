@@ -19,6 +19,8 @@
 	public class ServiceOrderPresenter
 	{
 		private readonly IEngine engine;
+		internal const string DuplicateLabelError = "Name already exists!";
+
 		private readonly List<string> getServiceOrderItemLabels;
 		private readonly ServiceOrderView view;
 		private Models.ServiceOrder instanceToReturn;
@@ -208,6 +210,11 @@
 				peopleInstances.Where(x => x.Organization.Organization_57695f03 == organizationsInstance.ID.Id).OrderBy(x => x.Name).Select(x => new Option<PeopleInstance>(x.Name, x)));
 		}
 
+		public void ShowDuplicateLabelError()
+		{
+			view.ErrorName.Text = DuplicateLabelError;
+		}
+
 		private bool ValidateLabel(string newValue)
 		{
 			if (String.IsNullOrWhiteSpace(newValue))
@@ -218,7 +225,7 @@
 
 			if (getServiceOrderItemLabels.Contains(newValue, StringComparer.InvariantCultureIgnoreCase))
 			{
-				view.ErrorName.Text = "Name already exists!";
+				ShowDuplicateLabelError();
 				return false;
 			}
 
