@@ -1,0 +1,73 @@
+name: Playwright tests
+
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        type: string
+        default: '22'
+      working-directory:
+        description: Folder containing package.json
+        type: string
+        default: .
+      test-script:
+        description: npm script that runs the Playwright suite
+        type: string
+        required: true
+      report-name:
+        description: Artifact name for the HTML report
+        type: string
+        required: true
+      runs-on:
+        description: JSON runner spec, e.g. '"ubuntu-latest"' or '["self-hosted","windows","dataminer"]'
+        type: string
+        default: '"ubuntu-latest"'
+      environment:
+        description: GitHub environment holding DMA_URL / APP_FOLDER vars and DMA_USERNAME / DMA_PASSWORD secrets. Empty for mock runs.
+        type: string
+        default: ''
+      install-args:
+        description: Arguments for 'npx playwright install'
+        type: string
+        default: --with-deps chromium
+
+permissions:
+  contents: read
+
+jobs:
+  playwright:
+    name: Playwright
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    environment: ${{ inputs.environment || null }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        # pwsh exists on both the hosted Ubuntu and the self-hosted Windows runners.
+        shell: pwsh
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: npm
+          cache-dependency-path: ${{ inputs.working-directory }}/package-lock.json
+      - run: npm ci
+      - run: npx playwright install @($env:INSTALL_ARGS -split '\s+' | Where-Object { $_ })
+        env:
+          INSTALL_ARGS: ${{ inputs.install-args }}
+      - run: npm run $env:TEST_SCRIPT
+        env:
+          TEST_SCRIPT: ${{ inputs.test-script }}
+          DMA_URL: ${{ vars.DMA_URL }}
+          APP_FOLDER: ${{ vars.APP_FOLDER }}
+          DMA_USERNAME: ${{ secrets.DMA_USERNAME }}
+          DMA_PASSWORD: ${{ secrets.DMA_PASSWORD }}
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: ${{ !cancelled() }}
+        with:
+          name: ${{ inputs.report-name }}
+          path: ${{ inputs.working-directory }}/playwright-report/
+          retention-days: 14

@@ -1,0 +1,73 @@
+﻿<Project Sdk="Skyline.DataMiner.Sdk">
+	<PropertyGroup>
+		<TargetFramework>net48</TargetFramework>
+		<GenerateDocumentationFile>true</GenerateDocumentationFile>
+	</PropertyGroup>
+
+	<PropertyGroup>
+		<DataMinerType>TestPackage</DataMinerType>
+		<GenerateDataMinerPackage>True</GenerateDataMinerPackage>
+		<MinimumRequiredDmVersion>10.6.8</MinimumRequiredDmVersion>
+		<Version>1.0.0</Version>
+		<!-- CI passes -p:QAOpsPackageVersion=1.0.<run> so every run submits a uniquely versioned .dmtest. -->
+		<Version Condition="'$(QAOpsPackageVersion)' != ''">$(QAOpsPackageVersion)</Version>
+		<VersionComment>QAOps integration tests for the Service Management solution</VersionComment>
+		<!-- Do NOT fill in the Organization Token here. This points to either an Environment Variable skyline__sdk__dataminertoken holding the organization token or a Visual Studio User Secret holding the token. -->
+		<!--<CatalogPublishKeyName>skyline:sdk:dataminertoken</CatalogPublishKeyName>
+		<CatalogDefaultDownloadKeyName>skyline:sdk:dataminertoken</CatalogDefaultDownloadKeyName>-->
+	</PropertyGroup>
+
+	<ItemGroup>
+		<PackageReference Include="Skyline.DataMiner.Core.AppPackageInstaller" Version="4.4.0" />
+		<PackageReference Include="Skyline.DataMiner.Dev.Automation" Version="10.6.10.1" />
+	</ItemGroup>
+
+	<!-- Build order only: the harvested test output must exist before TestDiscovery.ps1 runs. -->
+	<ItemGroup>
+		<ProjectReference Include="..\SLC-Service-Management.IntegrationTests\SLC-Service-Management.IntegrationTests.csproj" ReferenceOutputAssembly="false" />
+	</ItemGroup>
+
+	<!--
+		The solution under test ships as its own .dmapp (bundled into TestPackageContent\Dependencies by the
+		SLC-Service-Management project and deployed by 1.TestPackageSetup.ps1). A Package project cannot be a
+		ProjectReference of a Test Package, so build it here with an MSBuild task instead.
+	-->
+	<Target Name="BuildSolutionPackageDependency" BeforeTargets="DmappCreation">
+		<!-- No explicit Properties: inheriting the caller's global properties keeps this the same project instance
+		     as the one the solution build already schedules, so MSBuild builds it (and runs npm ci) only once. -->
+		<MSBuild Projects="$(MSBuildThisFileDirectory)..\SLC-Service-Management\SLC-Service-Management.csproj" Targets="Build" />
+		<ItemGroup>
+			<_BundledSolutionPackage Include="$(MSBuildThisFileDirectory)TestPackageContent\Dependencies\SLC-Service-Management.*.dmapp" />
+		</ItemGroup>
+		<Error Condition="'@(_BundledSolutionPackage)' == ''" Text="The Service Management .dmapp was not copied into TestPackageContent\Dependencies. Check the CopyDmappToTestPackage target in SLC-Service-Management.csproj." />
+	</Target>
+
+	<ItemGroup>
+		<PackageReference Include="Skyline.DataMiner.CICD.CSharpAnalysis.Analyzer" Version="2.2.0">
+			<PrivateAssets>all</PrivateAssets>
+			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+		</PackageReference>
+		<PackageReference Include="Skyline.DataMiner.Utils.SecureCoding.Analyzers" Version="3.0.1">
+			<PrivateAssets>all</PrivateAssets>
+			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+		</PackageReference>
+	</ItemGroup>
+
+	<ItemGroup>
+		<Compile Remove="TestPackageContent\Dependencies\**" />
+		<Compile Remove="TestPackageContent\TestHarvesting\**" />
+		<Compile Remove="TestPackageContent\Tests\**" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<Content Include="TestPackageContent\Dependencies\**">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</Content>
+		<Content Include="TestPackageContent\TestHarvesting\**">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</Content>
+		<Content Include="TestPackageContent\Tests\**">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</Content>
+	</ItemGroup>
+</Project>

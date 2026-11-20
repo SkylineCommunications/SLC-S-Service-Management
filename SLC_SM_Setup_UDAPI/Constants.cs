@@ -37,6 +37,7 @@
 			public static readonly ApiDefinitionId ServiceInventory_ById_RelatedOrder_UDAPI_Id = new ApiDefinitionId(Guid.Parse("f284bf0c-fddf-4f7d-b25f-f68569188de1"));
 			public static readonly ApiDefinitionId ServiceInventory_ById_Script_UDAPI_Id = new ApiDefinitionId(Guid.Parse("c821ad77-1746-4e43-a311-449c22478d67"));
 			public static readonly ApiDefinitionId MonitoringService_UDAPI_Id = new ApiDefinitionId(Guid.Parse("e1ae1ffe-c8a4-4fb2-8da8-26227dbc49ce"));
+			public static readonly ApiDefinitionId PlannedChange_UDAPI_Id = new ApiDefinitionId(Guid.Parse("c8d54c84-34ed-4038-a2ec-87711afdac80"));
 
 			// Service Specification
 			public static readonly ApiDefinitionId ServiceSpecification_UDAPI_Id = new ApiDefinitionId(Guid.Parse("f41b17ff-13e6-468a-80cd-2933df07c55a"));

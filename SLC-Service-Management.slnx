@@ -1,7 +1,7 @@
 <Solution>
   <Folder Name="/Apps/">
     <Project Path="Service-Management-App/service-management-app.esproj">
-      <Build Solution="Release|*" />
+      <Build />
       <Deploy Solution="Release|*" />
     </Project>
   </Folder>
@@ -105,6 +105,10 @@
     <Project Path="Service-Management-GQI-CustomOperator-HasValue/Service-Management-GQI-CustomOperator-HasValue.csproj" />
     <Project Path="SLC_SM_CO_GetCharacteristics/SLC_SM_CO_GetCharacteristics.csproj" />
     <Project Path="SLC_SM_CO_GetWorkflowIcon/SLC_SM_CO_GetWorkflowIcon.csproj" />
+  </Folder>
+  <Folder Name="/QAOps/">
+    <Project Path="SLC-Service-Management.IntegrationTests/SLC-Service-Management.IntegrationTests.csproj" />
+    <Project Path="SLC-Service-Management.QAOps/SLC-Service-Management.QAOps.csproj" />
   </Folder>
   <Folder Name="/Tests/">
     <Project Path="SLC_SM_CommonTests/SLC_SM_CommonTests.csproj" />

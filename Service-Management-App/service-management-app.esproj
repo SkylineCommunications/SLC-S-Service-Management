@@ -1,5 +1,6 @@
-<Project Sdk="Microsoft.VisualStudio.JavaScript.Sdk/1.0.5171056">
+﻿<Project Sdk="Microsoft.VisualStudio.JavaScript.Sdk/1.0.5171056">
   <PropertyGroup>
+	<DataMinerType>WebApplication</DataMinerType>
     <IsPublishable>false</IsPublishable>
     <RestoreProjectStyle>None</RestoreProjectStyle>
     <StartupCommand>npm run dev</StartupCommand>
@@ -7,6 +8,6 @@
     <JavaScriptTestFramework>Vitest</JavaScriptTestFramework>
     <!-- The frontend is built by Vite, not MSBuild. -->
     <ShouldRunBuildScript>false</ShouldRunBuildScript>
-    <BuildOutputFolder>$(MSBuildProjectDirectory)\dist</BuildOutputFolder>
+	 <BuildOutputFolder>$(MSBuildProjectDirectory)\build</BuildOutputFolder>
   </PropertyGroup>
 </Project>

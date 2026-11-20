@@ -180,6 +180,13 @@ namespace SLC_SM_Setup_UDAPI
 				name: "Service Category - Service Category By Id",
 				description: "UDAPI to retrieve or delete a service category by id.",
 				route: "serviceCategory/{id}");
+
+
+			InstallEndpoint(
+				apiId: Constants.ApiDefinitions.PlannedChange_UDAPI_Id,
+				name: "Planned Change - List",
+				description: "UDAPI to retrieve the planned configuration changes of services.",
+				route: "plannedChange");
 		}
 
 		private void RemoveDecommissionedEndpoints()

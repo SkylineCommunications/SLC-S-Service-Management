@@ -1,0 +1,90 @@
+name: CI/CD
+
+on:
+  pull_request:
+    branches: ['2.0.X']
+  push:
+    branches: ['2.0.X']
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  unit-tests:
+    name: Unit tests
+    uses: ./.github/workflows/node-unit-tests.yml
+    with:
+      working-directory: Service-Management-App
+
+  playwright-mock:
+    name: Playwright (mock data)
+    uses: ./.github/workflows/playwright-tests.yml
+    with:
+      working-directory: Service-Management-App
+      test-script: test:e2e
+      report-name: playwright-report-mock
+
+  api-contract:
+    name: API contract (oasdiff)
+    uses: ./.github/workflows/api-contract-check.yml
+
+  build:
+    name: Build package
+    needs: [unit-tests, playwright-mock, api-contract]
+    uses: ./.github/workflows/build-package.yml
+    secrets:
+      DATAMINER_TOKEN: ${{ secrets.DATAMINER_TOKEN }}
+
+  qaops:
+    name: QAOps (RC)
+    needs: build
+    # A QAOps run provisions a DataMiner and consumes a token use, so it runs on merges to 2.0.X (pushes), not on PRs.
+    # if: github.ref == 'refs/heads/2.0.X'
+    if: ${{ !cancelled() && needs.build.result == 'success' }}
+    uses: ./.github/workflows/qaops-tests.yml
+    secrets:
+      QAOPS_TOKEN: ${{ secrets.QAOPS_TOKEN }}
+      DATAMINER_TOKEN: ${{ secrets.DATAMINER_TOKEN }}
+
+  deploy-internal:
+    name: Deploy to Internal
+    needs: build
+    # PRs only build; every merge to 2.0.X deploys, independently of the QAOps run.
+    if: ${{ !cancelled() && needs.build.result == 'success' }}
+    uses: ./.github/workflows/deploy-internal.yml
+    with:
+      mode: volatile
+      dmapp-artifact-name: ${{ needs.build.outputs.dmapp-artifact-name }}
+    secrets:
+      DAAS_SYSTEM_TOKEN: ${{ secrets.DAAS_SYSTEM_TOKEN }}
+
+  k6-api:
+    name: k6 (API smoke on Internal)
+    needs: deploy-internal
+    uses: ./.github/workflows/k6-tests.yml
+    secrets: inherit
+
+  k6-load:
+    name: k6 (read load on Internal)
+    needs: [k6-api, playwright-live]
+    uses: ./.github/workflows/k6-tests.yml
+    with:
+      path: tests/k6/load/*.js
+    secrets: inherit
+
+  playwright-live:
+    name: Playwright (live data on Internal)
+    needs: deploy-internal
+    uses: ./.github/workflows/playwright-tests.yml
+    with:
+      working-directory: Service-Management-App
+      test-script: test:e2e:live
+      report-name: playwright-report-live
+      environment: dataminer-ovo-mole
+    secrets: inherit

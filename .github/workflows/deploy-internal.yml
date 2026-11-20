@@ -1,0 +1,101 @@
+name: Deploy to DaaS
+
+# Deploys the Service Management package to a persistent, cloud-connected DataMiner (DaaS) through
+# dataminer.services, so no self-hosted runner or direct network path to the agent is needed.
+#   mode=volatile: uploads a locally built .dmapp (GitHub artifact) with the DaaS System Key and deploys it.
+#   mode=catalog:  deploys an already published Catalog version (release tags).
+
+on:
+  workflow_call:
+    inputs:
+      mode:
+        description: volatile (deploy a built .dmapp artifact) or catalog (deploy a published Catalog version)
+        type: string
+        required: true
+      dmapp-artifact-name:
+        description: GitHub artifact holding the .dmapp (mode=volatile)
+        type: string
+        default: service-management-dmapp
+      catalog-id:
+        description: Catalog ID of the solution (mode=catalog); see SLC-Service-Management/CatalogInformation/manifest.yml
+        type: string
+        default: 97599e37-6da8-4c0a-9c59-11838d130a77
+      catalog-version:
+        description: Catalog version to deploy (mode=catalog)
+        type: string
+        default: ''
+      environment:
+        description: GitHub environment holding DMA_URL and DAAS_AGENT_ID vars and the DAAS_SYSTEM_TOKEN secret
+        type: string
+        default: dataminer-ovo-mole
+      deploy-timeout-seconds:
+        type: number
+        default: 1800
+    secrets:
+      DAAS_SYSTEM_TOKEN:
+        description: System Key of the target DaaS (admin.dataminer.services > system > keys); used for volatile upload + deploy
+        required: false
+      DATAMINER_TOKEN:
+        description: Organization key; used for mode=catalog
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy (${{ inputs.mode }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment:
+      name: ${{ inputs.environment }}
+      url: ${{ vars.DMA_URL }}
+    steps:
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          dotnet-version: 10.0.x
+      - name: Install deployment tools
+        run: |
+          dotnet tool install Skyline.DataMiner.CICD.Tools.DataMinerDeploy --global --add-source https://api.nuget.org/v3/index.json
+          dotnet tool install Skyline.DataMiner.CICD.Tools.CatalogUpload --global --add-source https://api.nuget.org/v3/index.json
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        if: inputs.mode == 'volatile'
+        with:
+          name: ${{ inputs.dmapp-artifact-name }}
+          path: ${{ runner.temp }}/dmapp
+      - name: Upload and deploy the built package
+        if: inputs.mode == 'volatile'
+        env:
+          DATAMINER_CATALOG_TOKEN: ${{ secrets.DAAS_SYSTEM_TOKEN }}
+          DEPLOY_TIMEOUT: ${{ inputs.deploy-timeout-seconds }}
+        run: |
+          set -euo pipefail
+          if [ -z "$DATAMINER_CATALOG_TOKEN" ]; then echo '::error::DAAS_SYSTEM_TOKEN is not set.'; exit 1; fi
+          dmapp=$(find "$RUNNER_TEMP/dmapp" -name '*.dmapp' | head -n 1)
+          if [ -z "$dmapp" ]; then echo '::error::No .dmapp found in the downloaded artifact.'; exit 1; fi
+          echo "Uploading $(basename "$dmapp") as a volatile artifact..."
+          upload_output=$(dataminer-catalog-upload --path-to-artifact "$dmapp" | tee /dev/stderr)
+          artifact_id=$(echo "$upload_output" | grep -Eo '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}' | tail -n 1)
+          if [ -z "$artifact_id" ]; then echo '::error::Could not read the artifact ID from the upload output.'; exit 1; fi
+          echo "Deploying artifact $artifact_id..."
+          dataminer-package-deploy from-volatile --artifact-id "$artifact_id" --deploy-timeout-in-seconds "$DEPLOY_TIMEOUT"
+
+      - name: Deploy the published Catalog version
+        if: inputs.mode == 'catalog'
+        env:
+          DATAMINER_CATALOG_TOKEN: ${{ secrets.DATAMINER_TOKEN }}
+          CATALOG_ID: ${{ inputs.catalog-id }}
+          CATALOG_VERSION: ${{ inputs.catalog-version }}
+          AGENT_ID: ${{ vars.DAAS_AGENT_ID }}
+          DEPLOY_TIMEOUT: ${{ inputs.deploy-timeout-seconds }}
+        run: |
+          set -euo pipefail
+          if [ -z "$DATAMINER_CATALOG_TOKEN" ]; then echo '::error::DATAMINER_TOKEN is not set.'; exit 1; fi
+          if [ -z "$AGENT_ID" ]; then echo '::error::DAAS_AGENT_ID variable is not set (last GUID in the system URL of admin.dataminer.services).'; exit 1; fi
+          if [ -z "$CATALOG_VERSION" ]; then echo '::error::catalog-version input is empty.'; exit 1; fi
+          dataminer-package-deploy from-catalog \
+            --catalog-id "$CATALOG_ID" \
+            --catalog-version "$CATALOG_VERSION" \
+            --agent-destination-id "$AGENT_ID" \
+            --deploy-timeout-in-seconds "$DEPLOY_TIMEOUT"

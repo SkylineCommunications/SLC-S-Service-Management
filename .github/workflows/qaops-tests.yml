@@ -1,0 +1,151 @@
+name: QAOps integration tests
+
+# Builds the QAOps Test Package (which bundles the Service Management .dmapp), runs it on a clean QAOps DaaS
+# with 'dataminer-qaops test-run-and-wait' and fails when the run fails.
+
+on:
+  workflow_call:
+    inputs:
+      test-package-project:
+        description: Path to the DataMiner Test Package project
+        type: string
+        default: SLC-Service-Management.QAOps/SLC-Service-Management.QAOps.csproj
+      node-version:
+        type: string
+        default: '22'
+      configuration-id:
+        description: QAOps configuration (DataMiner target). Default is the latest Release Candidate.
+        type: string
+        default: 01M7SRA4W8KYZEEKGNHY3BBVCZ
+      test-suite-id:
+        type: string
+        default: 01M7SR6SYTGCAPJMMK4801Q9ZT
+      timeout-seconds:
+        description: Maximum time to wait for the QAOps run
+        type: number
+        default: 1800
+    secrets:
+      QAOPS_TOKEN:
+        description: QAOps token with the Run_Scoped_* scope of the chosen configuration
+        required: true
+      DATAMINER_TOKEN:
+        description: dataminer.services organization key; the SDK needs it to download the solution's Catalog references at build time
+        required: true
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  qaops:
+    name: QAOps
+    runs-on: windows-latest
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      PACKAGE_VERSION: 1.0.${{ github.run_number }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: npm
+          cache-dependency-path: Service-Management-App/package-lock.json
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Add Skyline GitHub Packages feed
+        env:
+          GITHUB_PACKAGES_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: dotnet nuget add source https://nuget.pkg.github.com/SkylineCommunications/index.json --name SkylineGitHub --username USERNAME --password $env:GITHUB_PACKAGES_TOKEN --store-password-in-clear-text
+
+      - name: Build Test Package (includes the solution .dmapp)
+        id: build
+        env:
+          TEST_PACKAGE_PROJECT: ${{ inputs.test-package-project }}
+          skyline__sdk__dataminertoken: ${{ secrets.DATAMINER_TOKEN }}
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP 'build.log'
+          # The solution package is built through an MSBuild task, so it is not part of the Test Package's restore graph.
+          dotnet restore SLC-Service-Management/SLC-Service-Management.csproj -nologo
+          if ($LASTEXITCODE -ne 0) { throw "dotnet restore failed with exit code $LASTEXITCODE." }
+          # The Test Package SDK resolves the harvested test assembly from the project's default (Debug) output folder.
+          dotnet build SLC-Service-Management.IntegrationTests/SLC-Service-Management.IntegrationTests.csproj -c Debug -nologo
+          if ($LASTEXITCODE -ne 0) { throw "IntegrationTests Debug build failed with exit code $LASTEXITCODE." }
+          dotnet build $env:TEST_PACKAGE_PROJECT -c Release -nologo "-p:QAOpsPackageVersion=$env:PACKAGE_VERSION" 2>&1 | Tee-Object -FilePath $log
+          if ($LASTEXITCODE -ne 0) { throw "dotnet build failed with exit code $LASTEXITCODE." }
+          # The SDK still emits a .dmtest when a Catalog download fails; treat that as a failed build.
+          if (Select-String -Path $log -Pattern 'Failed to download catalog item|error :' -Quiet) {
+            throw 'The build log contains Catalog download errors; the package is incomplete.'
+          }
+
+          $projectDir = Split-Path $env:TEST_PACKAGE_PROJECT -Parent
+          $projectName = [IO.Path]::GetFileNameWithoutExtension($env:TEST_PACKAGE_PROJECT)
+          $dmtest = Get-ChildItem -Path (Join-Path $projectDir 'bin') -Recurse -Filter "$projectName.$env:PACKAGE_VERSION.dmtest" | Select-Object -First 1
+          if (-not $dmtest) { throw "No $projectName.$env:PACKAGE_VERSION.dmtest was produced." }
+          "dmtest=$($dmtest.FullName)" >> $env:GITHUB_OUTPUT
+          Write-Host "Test package: $($dmtest.FullName)"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: qaops-test-package
+          path: ${{ steps.build.outputs.dmtest }}
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Install QAOps tool
+        run: dotnet tool install Skyline.DataMiner.qaops --global --add-source https://api.nuget.org/v3/index.json
+
+      - name: Run on QAOps
+        id: run
+        env:
+          QAOPS_TOKEN: ${{ secrets.QAOPS_TOKEN }}
+          TEST_SUITE_ID: ${{ inputs.test-suite-id }}
+          CONFIGURATION_ID: ${{ inputs.configuration-id }}
+          TIMEOUT_SECONDS: ${{ inputs.timeout-seconds }}
+          DMTEST: ${{ steps.build.outputs.dmtest }}
+          TAGS: ${{ github.event.repository.name }} ${{ github.ref_name }} run ${{ github.run_number }}
+        run: |
+          $result = Join-Path $env:RUNNER_TEMP 'qaops-result.json'
+          "result=$result" >> $env:GITHUB_OUTPUT
+          dataminer-qaops test-run-and-wait `
+            -t $env:TEST_SUITE_ID `
+            -c $env:CONFIGURATION_ID `
+            --test-packages "$env:DMTEST" `
+            -rf "$result" `
+            -tags "$env:TAGS" `
+            -tim $env:TIMEOUT_SECONDS
+          $exitCode = $LASTEXITCODE
+
+          if (Test-Path $result) {
+            $json = Get-Content $result -Raw | ConvertFrom-Json
+            $rows = @($json.LOG_LINES | Where-Object { $_ -match ' - (Ok|Fail|NotExecuted)' })
+            @(
+              "## QAOps run: $($json.STATUS)"
+              ""
+              "$($json.STATUS_MESSAGE)"
+              ""
+              "- Tags: ``$env:TAGS``"
+              "- Run: $($json.BUILD_URL)"
+              "- Tests passed: $(@($rows | Where-Object { $_ -match ' - Ok' }).Count) / failed: $(@($rows | Where-Object { $_ -match ' - Fail' }).Count) / not executed: $(@($rows | Where-Object { $_ -match ' - NotExecuted' }).Count)"
+              ""
+              '```'
+              ($rows | ForEach-Object { ($_ -split "`n")[0] }) -join "`n"
+              '```'
+            ) | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          }
+
+          if ($exitCode -ne 0) { throw "QAOps run failed (exit code $exitCode)." }
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: ${{ !cancelled() && steps.run.outputs.result != '' }}
+        with:
+          name: qaops-result
+          path: ${{ steps.run.outputs.result }}
+          if-no-files-found: ignore
+          retention-days: 30

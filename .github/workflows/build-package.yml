@@ -1,0 +1,82 @@
+name: Build package
+
+# Builds the Service Management solution package (.dmapp) and uploads it as an artifact for the DaaS deploy.
+
+on:
+  workflow_call:
+    inputs:
+      solution-project:
+        description: Path to the Service Management solution (package) project
+        type: string
+        default: SLC-Service-Management/SLC-Service-Management.csproj
+      node-version:
+        type: string
+        default: '22'
+      dmapp-artifact-name:
+        type: string
+        default: service-management-dmapp
+    outputs:
+      dmapp-artifact-name:
+        description: Name of the uploaded .dmapp artifact
+        value: ${{ inputs.dmapp-artifact-name }}
+    secrets:
+      DATAMINER_TOKEN:
+        description: dataminer.services organization key; the SDK needs it to download the solution's Catalog references at build time
+        required: true
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  build:
+    name: Build
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: npm
+          cache-dependency-path: Service-Management-App/package-lock.json
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Add Skyline GitHub Packages feed
+        env:
+          GITHUB_PACKAGES_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: dotnet nuget add source https://nuget.pkg.github.com/SkylineCommunications/index.json --name SkylineGitHub --username USERNAME --password $env:GITHUB_PACKAGES_TOKEN --store-password-in-clear-text
+
+      - name: Build the solution package
+        id: build
+        env:
+          SOLUTION_PROJECT: ${{ inputs.solution-project }}
+          skyline__sdk__dataminertoken: ${{ secrets.DATAMINER_TOKEN }}
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP 'build.log'
+          dotnet build $env:SOLUTION_PROJECT -c Release -nologo 2>&1 | Tee-Object -FilePath $log
+          if ($LASTEXITCODE -ne 0) { throw "dotnet build failed with exit code $LASTEXITCODE." }
+          # The SDK still emits a package when a Catalog download fails; treat that as a failed build.
+          if (Select-String -Path $log -Pattern 'Failed to download catalog item|error :' -Quiet) {
+            throw 'The build log contains Catalog download errors; the package is incomplete.'
+          }
+
+          $projectDir = Split-Path $env:SOLUTION_PROJECT -Parent
+          $dmapp = Get-ChildItem -Path (Join-Path $projectDir 'bin') -Recurse -Filter '*.dmapp' | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          if (-not $dmapp) { throw 'No .dmapp was produced.' }
+          "dmapp=$($dmapp.FullName)" >> $env:GITHUB_OUTPUT
+          Write-Host "Solution package: $($dmapp.FullName)"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ${{ inputs.dmapp-artifact-name }}
+          path: ${{ steps.build.outputs.dmapp }}
+          if-no-files-found: error
+          retention-days: 7
