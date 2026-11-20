@@ -8,6 +8,7 @@ namespace SLC_ServiceManagement.SolutionInstallerHelper
 	using System.Net.Http;
 	using System.Net.Http.Headers;
 	using System.Text;
+	using System.Text.RegularExpressions;
 	using System.Threading;
 	using global::SolutionInstallerHelper.Models;
 	using Newtonsoft.Json;
@@ -15,6 +16,8 @@ namespace SLC_ServiceManagement.SolutionInstallerHelper
 
 	using Skyline.AppInstaller;
 	using Skyline.DataMiner.Automation;
+	using Skyline.DataMiner.Core.DataMinerSystem.Automation;
+	using Skyline.DataMiner.Core.DataMinerSystem.Common;
 	using Skyline.DataMiner.Net;
 	using Skyline.DataMiner.Net.AppPackages;
 	using Skyline.DataMiner.Net.Exceptions;
@@ -45,6 +48,8 @@ namespace SLC_ServiceManagement.SolutionInstallerHelper
 		private const int AgentPostBindVerifyMaxRetries = 3;
 		private const int ToolRegisterMaxAttempts = 4;
 		private const int ToolRegisterRetryDelayMs = 2000;
+		private const string ProductionVersion = "Production";
+		private static readonly TimeSpan MediationRestartTimeout = TimeSpan.FromMinutes(2);
 
 		private static readonly string[] _contextFolders = { "Skills", "Scripts", "Agents" };
 		private static readonly string[] _solutionAgents = { "57beb7fa-dfe4-49ca-885d-5220e4f28b52" };
@@ -196,6 +201,122 @@ namespace SLC_ServiceManagement.SolutionInstallerHelper
 		public void MigrateLegacyData()
 		{
 			_migration.MigrateExportedData();
+		}
+
+		/// <summary>
+		/// Promotes the shipped Service Management Mediation connector version to Production and, when the
+		/// <see cref="Constants.MediationElementName"/> element runs another explicit version, moves it onto Production.
+		/// An element already on Production follows the promotion. Other elements are never touched.
+		/// </summary>
+		/// <exception cref="InvalidOperationException">The package does not ship the connector, or the shipped version is not installed.</exception>
+		/// <exception cref="DataMinerException">Promoting the connector or updating an element failed.</exception>
+		public void UpdateMediationConnector()
+		{
+			string name = Constants.MediationProtocolName;
+			IDms dms = _engine.GetDms();
+			string version = GetShippedMediationVersion();
+
+			if (!dms.ProtocolExists(name, version))
+			{
+				throw new InvalidOperationException($"Connector '{name}' version '{version}' is not installed.");
+			}
+
+			string productionVersion = dms.ProtocolExists(name, ProductionVersion) ? dms.GetProtocol(name, ProductionVersion).ReferencedVersion : null;
+			bool promoted = !String.Equals(productionVersion, version, StringComparison.OrdinalIgnoreCase);
+			if (promoted)
+			{
+				_installer.Log($"Setting connector '{name}' version '{version}' as Production (was '{productionVersion ?? "none"}')...");
+				_installer.Protocol.SetAsProduction(name, version, copyTemplates: true);
+			}
+			else
+			{
+				_installer.Log($"Connector '{name}' version '{version}' is already the Production version.");
+			}
+
+			string elementName = Constants.MediationElementName;
+			if (!dms.ElementExists(elementName))
+			{
+				_installer.Log($"Element '{elementName}' does not exist yet; counter initialization will create it on Production.");
+				return;
+			}
+
+			IDmsElement element = dms.GetElement(elementName);
+			if (!String.Equals(element.Protocol.Name, name, StringComparison.OrdinalIgnoreCase))
+			{
+				_installer.Log($"Element '{elementName}' runs connector '{element.Protocol.Name}' instead of '{name}'; leaving it untouched.");
+				return;
+			}
+
+			bool switched = !String.Equals(element.Protocol.Version, ProductionVersion, StringComparison.OrdinalIgnoreCase);
+			if (switched)
+			{
+				_installer.Log($"Switching element '{elementName}' ({element.DmsElementId.Value}) from version '{element.Protocol.Version}' to Production...");
+
+				// Same edit message IDmsElement.Update() sends; omitted settings (ports, views...) are kept.
+				_engine.SendSLNetSingleResponseMessage(new AddElementMessage
+				{
+					DataMinerID = element.DmsElementId.AgentId,
+					ElementID = element.DmsElementId.ElementId,
+					ProtocolName = name,
+					ProtocolVersion = ProductionVersion,
+				});
+			}
+
+			if (promoted || switched)
+			{
+				WaitForMediationElement(dms, element.DmsElementId);
+			}
+		}
+
+		private void WaitForMediationElement(IDms dms, DmsElementId elementId)
+		{
+			// Give DataMiner time to begin the restart before polling, so the pre-restart state is not mistaken for ready.
+			Thread.Sleep(TimeSpan.FromSeconds(5));
+
+			var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+			while (stopwatch.Elapsed < MediationRestartTimeout)
+			{
+				if (IsElementRunning(dms, elementId))
+				{
+					_installer.Log($"Element '{Constants.MediationElementName}' is running on the Production version.");
+					return;
+				}
+
+				Thread.Sleep(TimeSpan.FromSeconds(2));
+			}
+
+			_installer.Log($"Element '{Constants.MediationElementName}' did not become active within {MediationRestartTimeout.TotalSeconds} seconds; counter initialization will retry starting it.");
+		}
+
+		private static bool IsElementRunning(IDms dms, DmsElementId elementId)
+		{
+			try
+			{
+				var element = dms.GetElement(elementId);
+				return element.State == Skyline.DataMiner.Core.DataMinerSystem.Common.ElementState.Active && element.IsStartupComplete();
+			}
+			catch (ElementNotFoundException)
+			{
+				return false;
+			}
+		}
+
+		private string GetShippedMediationVersion()
+		{
+			string name = Constants.MediationProtocolName;
+			string protocolsPath = Path.Combine(_context.AppContentPath, "Protocols");
+
+			// The catalog reference is packaged as "<order>.<protocol name>.<version>.dmprotocol".
+			var pattern = new Regex(@"^(?:\d+\.)?" + Regex.Escape(name) + @"\.(?<version>.+)$", RegexOptions.IgnoreCase);
+			var shipped = (Directory.Exists(protocolsPath) ? Directory.GetFiles(protocolsPath, "*.dmprotocol") : Array.Empty<string>())
+				.Select(file => pattern.Match(Path.GetFileNameWithoutExtension(file)))
+				.Where(match => match.Success)
+				.Select(match => match.Groups["version"].Value)
+				.Select(version => new { Version = version, Parsed = Version.TryParse(version, out Version parsed) ? parsed : null })
+				.OrderByDescending(p => p.Parsed)
+				.FirstOrDefault();
+
+			return shipped?.Version ?? throw new InvalidOperationException($"The package does not contain connector '{name}' (expected in '{protocolsPath}').");
 		}
 
 		/// <summary>

@@ -22,6 +22,10 @@
 		internal const string SolutionRegisterScriptName = "SLC_SM_AS_RegisterSolution";
 		internal const string InitializeCountersScriptName = "SLC_SM_InitializeServiceManagementCounters";
 
+		// Must match ProtocolName/CounterElementName in SLC_SM_Common\IdGeneration\ServiceManagementIdGenerator.cs.
+		internal const string MediationProtocolName = "Skyline Service Management Mediation";
+		internal const string MediationElementName = "Service Management Mediation";
+
 		// Registered in SDM as-is: the .dmapp version is converted (2.0.0-preview01 becomes 200.0.46997). Keep in sync with <Version> in the csproj.
 		// TODO: Remove this constant and register _context.AppInfo.Version again once releases no longer use prerelease versions.
 		internal const string SolutionVersion = "2.0.0-preview02";
