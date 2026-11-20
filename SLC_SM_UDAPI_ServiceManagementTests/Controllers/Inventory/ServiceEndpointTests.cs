@@ -5,7 +5,6 @@ namespace SLC_SM_UDAPI_ServiceManagement.Tests.Controllers
 	using Moq;
 	using Newtonsoft.Json.Linq;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 	using Skyline.DataMiner.SDM;
 	using SLDataGateway.API.Types.Querying;

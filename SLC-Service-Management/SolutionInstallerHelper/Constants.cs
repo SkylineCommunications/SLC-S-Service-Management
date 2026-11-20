@@ -7,7 +7,7 @@
 	internal static class Constants
 	{
 		internal const string DllImportFolder = @"C:\Skyline DataMiner\ProtocolScripts\DllImport";
-		internal const string DomImportExportScriptName = "DOM ImportExport";
+		internal const string DomModulesFolderName = "DomModules";
 
 		internal const string MediaOpsCatalogId = "1b67a623-4ca6-4d25-8b3d-ed4e39496a75";
 		internal const string MediaOpsCatalogName = "MediaOps";

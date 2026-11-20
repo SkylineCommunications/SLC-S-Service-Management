@@ -9,8 +9,6 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.Configurations;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 	using Skyline.DataMiner.SDM;
-
-	using SLC_SM_UDAPI_ServiceManagement.Controllers;
 	/// <summary>
 	/// <see cref="IServiceSearchDataSource"/> that filters on the server, in batches of OR-ed filters.
 	/// </summary>
