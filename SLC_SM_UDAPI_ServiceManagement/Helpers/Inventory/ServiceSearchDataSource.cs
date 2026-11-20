@@ -9,8 +9,6 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.Configurations;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 	using Skyline.DataMiner.SDM;
-
-	using SLC_SM_UDAPI_ServiceManagement.Controllers;
 	/// <summary>
 	/// <see cref="IServiceSearchDataSource"/> that filters on the server, in batches of OR-ed filters.
 	/// </summary>
@@ -37,7 +35,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 			filters.AddRange(Distinct(labels).Select(label => ConfigurationParameterValueExposers.Label.Equal(label)));
 			filters.AddRange(Distinct(parameterIds).Select(id => ConfigurationParameterValueExposers.ConfigurationParameterId.Equal(new ConfigurationParameter { Identifier = id })));
 
-			return Read(filters, f => serviceManagement.ServiceCatalog.ConfigurationParameterValues.Read(f), v => v.Identifier);
+			return Read(filters, serviceManagement.ServiceCatalog.ConfigurationParameterValues, v => v.Identifier);
 		}
 
 		/// <inheritdoc/>
@@ -71,7 +69,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 		public IReadOnlyList<Profile> GetProfiles(IReadOnlyCollection<string> ids)
 		{
 			var filters = Distinct(ids).Select(id => ProfileExposers.Identifier.Equal(id)).ToList();
-			return Read(filters, f => serviceManagement.ServiceCatalog.Profiles.Read(f), p => p.Identifier);
+			return Read(filters, serviceManagement.ServiceCatalog.Profiles, p => p.Identifier);
 		}
 
 		/// <inheritdoc/>
@@ -81,7 +79,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 				.Select(id => ServiceConfigurationValueExposers.ConfigurationParameterId.Equal(new ConfigurationParameterValue { Identifier = id }))
 				.ToList();
 
-			return Read(filters, f => serviceManagement.ServiceInventory.ServiceConfigurationValues.Read(f), v => v.Identifier)
+			return Read(filters, serviceManagement.ServiceInventory.ServiceConfigurationValues, v => v.Identifier)
 				.Select(v => v.Identifier)
 				.ToList();
 		}
@@ -95,7 +93,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 			filters.AddRange(Distinct(serviceConfigurationValueIds)
 				.Select(id => ServiceConfigurationVersionExposers.Parameters.Contains((SdmObjectReference<ServiceConfigurationValue>)new ServiceConfigurationValue { Identifier = id })));
 
-			return Read(filters, f => serviceManagement.ServiceInventory.ServiceConfigurationVersions.Read(f), v => v.Identifier)
+			return Read(filters, serviceManagement.ServiceInventory.ServiceConfigurationVersions, v => v.Identifier)
 				.Select(v => v.Identifier)
 				.ToList();
 		}
@@ -104,7 +102,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 		public IReadOnlyList<ServiceConfigurationVersion> GetServiceConfigurationVersions(IReadOnlyCollection<string> ids)
 		{
 			var filters = Distinct(ids).Select(id => ServiceConfigurationVersionExposers.Identifier.Equal(id)).ToList();
-			return Read(filters, f => serviceManagement.ServiceInventory.ServiceConfigurationVersions.Read(f), v => v.Identifier);
+			return Read(filters, serviceManagement.ServiceInventory.ServiceConfigurationVersions, v => v.Identifier);
 		}
 
 		/// <inheritdoc/>
@@ -114,7 +112,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 				.Select(id => ServiceProfileExposers.ProfileId.Equal(new Profile { Identifier = id }))
 				.ToList();
 
-			return Read(filters, f => serviceManagement.ServiceInventory.ServiceProfiles.Read(f), p => p.Identifier)
+			return Read(filters, serviceManagement.ServiceInventory.ServiceProfiles, p => p.Identifier)
 				.Select(p => p.Identifier)
 				.ToList();
 		}
@@ -123,7 +121,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 		public IReadOnlyList<ServiceProfile> GetServiceProfiles(IReadOnlyCollection<string> ids)
 		{
 			var filters = Distinct(ids).Select(id => ServiceProfileExposers.Identifier.Equal(id)).ToList();
-			return Read(filters, f => serviceManagement.ServiceInventory.ServiceProfiles.Read(f), p => p.Identifier);
+			return Read(filters, serviceManagement.ServiceInventory.ServiceProfiles, p => p.Identifier);
 		}
 
 		/// <inheritdoc/>
@@ -139,7 +137,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 				.Select(id => ServiceExposers.ServiceConfigurationId.Equal(new ServiceConfigurationVersion { Identifier = id }))
 				.ToList();
 
-			return Read(filters, f => serviceManagement.ServiceInventory.Services.Read(f), s => s.Identifier);
+			return Read(filters, serviceManagement.ServiceInventory.Services, s => s.Identifier);
 		}
 
 		private static IEnumerable<string> Distinct(IEnumerable<string> ids)
@@ -151,8 +149,9 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 
 		private static List<T> Read<T>(
 			IReadOnlyList<FilterElement<T>> filters,
-			Func<FilterElement<T>, IEnumerable<T>> read,
+			IReadableRepository<T> repository,
 			Func<T, string> identifier)
+			where T : SdmObject<T>
 		{
 			var result = new List<T>();
 			var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -165,7 +164,8 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 					batchFilter = batchFilter.OR(filter);
 				}
 
-				foreach (var item in read(batchFilter))
+				// Paged: a single read is capped (500 items), which silently dropped matches and made results vary per call.
+				foreach (var item in PagedRead.All(repository, batchFilter))
 				{
 					if (item != null && seen.Add(identifier(item)))
 					{
@@ -179,7 +179,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 
 		private List<string> ReadProfileIds(IEnumerable<FilterElement<Profile>> filters)
 		{
-			return Read(filters.ToList(), f => serviceManagement.ServiceCatalog.Profiles.Read(f), p => p.Identifier)
+			return Read(filters.ToList(), serviceManagement.ServiceCatalog.Profiles, p => p.Identifier)
 				.Select(p => p.Identifier)
 				.ToList();
 		}

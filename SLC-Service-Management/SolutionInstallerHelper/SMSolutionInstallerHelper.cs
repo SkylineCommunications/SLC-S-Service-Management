@@ -8,6 +8,7 @@ namespace SLC_ServiceManagement.SolutionInstallerHelper
 	using System.Net.Http;
 	using System.Net.Http.Headers;
 	using System.Text;
+	using System.Text.RegularExpressions;
 	using System.Threading;
 	using global::SolutionInstallerHelper.Models;
 	using Newtonsoft.Json;
@@ -15,6 +16,8 @@ namespace SLC_ServiceManagement.SolutionInstallerHelper
 
 	using Skyline.AppInstaller;
 	using Skyline.DataMiner.Automation;
+	using Skyline.DataMiner.Core.DataMinerSystem.Automation;
+	using Skyline.DataMiner.Core.DataMinerSystem.Common;
 	using Skyline.DataMiner.Net;
 	using Skyline.DataMiner.Net.AppPackages;
 	using Skyline.DataMiner.Net.Exceptions;
@@ -24,10 +27,11 @@ namespace SLC_ServiceManagement.SolutionInstallerHelper
 	using Skyline.DataMiner.Utils.AppInstallerHelper;
 	using Skyline.DataMiner.Utils.SecureCoding.SecureIO;
 	using Skyline.DataMiner.Utils.SecureCoding.SecureSerialization.Json.Newtonsoft;
+	using SLC_ServiceManagement.SolutionInstallerHelper.Dom;
 	using SLC_ServiceManagement.SolutionInstallerHelper.Models;
 
 	/// <summary>
-	/// Performs the installation steps of the Service Management package: default content, DOM import,
+	/// Performs the installation steps of the Service Management package: default content, DOM modules,
 	/// SDM registration, MediaOps fallback dependencies, the DataMiner app, and the DataMiner Assistant
 	/// custom agent shipped under <c>SetupContent\Agents\{Agents,Skills,Scripts}</c>.
 	/// The Assistant part is adapted from the SLC-S-InfraOps SolutionInstaller.
@@ -44,6 +48,8 @@ namespace SLC_ServiceManagement.SolutionInstallerHelper
 		private const int AgentPostBindVerifyMaxRetries = 3;
 		private const int ToolRegisterMaxAttempts = 4;
 		private const int ToolRegisterRetryDelayMs = 2000;
+		private const string ProductionVersion = "Production";
+		private static readonly TimeSpan MediationRestartTimeout = TimeSpan.FromMinutes(2);
 
 		private static readonly string[] _contextFolders = { "Skills", "Scripts", "Agents" };
 		private static readonly string[] _solutionAgents = { "57beb7fa-dfe4-49ca-885d-5220e4f28b52" };
@@ -164,23 +170,21 @@ namespace SLC_ServiceManagement.SolutionInstallerHelper
 		}
 
 		/// <summary>
-		/// Imports the DOM definitions from <c>SetupContent\DOMImportExport</c> by running the DOM ImportExport subscript.
+		/// Creates or updates the DOM modules shipped in <c>SetupContent\DomModules</c> directly through SLNet, so no external
+		/// tool (such as the DOM ImportExport package) is needed. Up-to-date objects are left untouched and nothing is deleted.
 		/// </summary>
-		/// <exception cref="DirectoryNotFoundException">The DOM import folder does not exist.</exception>
-		/// <exception cref="InvalidOperationException">The DOM ImportExport subscript reported an error.</exception>
-		public void ImportSolutionDom()
+		/// <exception cref="DirectoryNotFoundException">The DOM modules folder does not exist.</exception>
+		/// <exception cref="InvalidDataException">The shipped DOM module files are invalid.</exception>
+		/// <exception cref="InvalidOperationException">Creating or updating a DOM configuration object failed.</exception>
+		public void InstallSolutionDom()
 		{
-			_installer.Log("Importing DOM...");
-			var path = SecurePath.ConstructSecurePath(_setupContentPath, "DOMImportExport");
-			_engine.GenerateInformation($"setupContentPath for DOM: {path}");
+			_installer.Log("Installing DOM modules...");
+			var path = SecurePath.ConstructSecurePath(_setupContentPath, Constants.DomModulesFolderName);
 
-			if (!Directory.Exists(path))
-			{
-				throw new DirectoryNotFoundException($"DOM import folder was not found: '{path}'.");
-			}
+			var modules = DomModuleDefinition.LoadAll(path);
+			var result = new DomModuleInstaller(new DomHelperConfigurationStore(_engine.SendSLNetMessages), _installer.Log).Install(modules);
 
-			RunDomImportSubScript(_engine, path);
-			_installer.Log("DOM import completed successfully.");
+			_installer.Log($"DOM modules {String.Join(", ", modules.Select(m => $"'{m.ModuleId}'"))} are up to date ({result}).");
 		}
 
 		/// <summary>
@@ -197,6 +201,139 @@ namespace SLC_ServiceManagement.SolutionInstallerHelper
 		public void MigrateLegacyData()
 		{
 			_migration.MigrateExportedData();
+		}
+
+		/// <summary>
+		/// Promotes the shipped Service Management Mediation connector version to Production and, when the
+		/// <see cref="Constants.MediationElementName"/> element runs another explicit version, moves it onto Production.
+		/// An element already on Production follows the promotion. Other elements are never touched.
+		/// </summary>
+		/// <exception cref="InvalidOperationException">The package does not ship the connector, or the shipped version is not installed.</exception>
+		/// <exception cref="DataMinerException">Promoting the connector or updating an element failed.</exception>
+		public void UpdateMediationConnector()
+		{
+			string name = Constants.MediationProtocolName;
+			IDms dms = _engine.GetDms();
+			string version = GetShippedMediationVersion();
+
+			if (!dms.ProtocolExists(name, version))
+			{
+				throw new InvalidOperationException($"Connector '{name}' version '{version}' is not installed.");
+			}
+
+			string productionVersion = dms.ProtocolExists(name, ProductionVersion) ? dms.GetProtocol(name, ProductionVersion).ReferencedVersion : null;
+			bool promoted = !String.Equals(productionVersion, version, StringComparison.OrdinalIgnoreCase);
+			if (promoted)
+			{
+				_installer.Log($"Setting connector '{name}' version '{version}' as Production (was '{productionVersion ?? "none"}')...");
+				_installer.Protocol.SetAsProduction(name, version, copyTemplates: true);
+			}
+			else
+			{
+				_installer.Log($"Connector '{name}' version '{version}' is already the Production version.");
+			}
+
+			string elementName = Constants.MediationElementName;
+			if (!dms.ElementExists(elementName))
+			{
+				_installer.Log($"Element '{elementName}' does not exist yet; counter initialization will create it on Production.");
+				return;
+			}
+
+			IDmsElement element = dms.GetElement(elementName);
+			if (!String.Equals(element.Protocol.Name, name, StringComparison.OrdinalIgnoreCase))
+			{
+				_installer.Log($"Element '{elementName}' runs connector '{element.Protocol.Name}' instead of '{name}'; leaving it untouched.");
+				return;
+			}
+
+			bool switched = !String.Equals(element.Protocol.Version, ProductionVersion, StringComparison.OrdinalIgnoreCase);
+			if (switched)
+			{
+				_installer.Log($"Switching element '{elementName}' ({element.DmsElementId.Value}) from version '{element.Protocol.Version}' to Production...");
+
+				// Same edit message IDmsElement.Update() sends; omitted settings (ports, views...) are kept.
+				_engine.SendSLNetSingleResponseMessage(new AddElementMessage
+				{
+					DataMinerID = element.DmsElementId.AgentId,
+					ElementID = element.DmsElementId.ElementId,
+					ProtocolName = name,
+					ProtocolVersion = ProductionVersion,
+				});
+			}
+
+			if (promoted || switched)
+			{
+				WaitForMediationElement(dms, element.DmsElementId);
+			}
+		}
+
+		private void WaitForMediationElement(IDms dms, DmsElementId elementId)
+		{
+			// Give DataMiner time to begin the restart before polling, so the pre-restart state is not mistaken for ready.
+			Thread.Sleep(TimeSpan.FromSeconds(5));
+
+			var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+			while (stopwatch.Elapsed < MediationRestartTimeout)
+			{
+				if (IsElementRunning(dms, elementId))
+				{
+					_installer.Log($"Element '{Constants.MediationElementName}' is running on the Production version.");
+					return;
+				}
+
+				Thread.Sleep(TimeSpan.FromSeconds(2));
+			}
+
+			_installer.Log($"Element '{Constants.MediationElementName}' did not become active within {MediationRestartTimeout.TotalSeconds} seconds; counter initialization will retry starting it.");
+		}
+
+		private static bool IsElementRunning(IDms dms, DmsElementId elementId)
+		{
+			try
+			{
+				var element = dms.GetElement(elementId);
+				return element.State == Skyline.DataMiner.Core.DataMinerSystem.Common.ElementState.Active && element.IsStartupComplete();
+			}
+			catch (ElementNotFoundException)
+			{
+				return false;
+			}
+		}
+
+		private string GetShippedMediationVersion()
+		{
+			string name = Constants.MediationProtocolName;
+			string protocolsPath = Path.Combine(_context.AppContentPath, "Protocols");
+
+			// The catalog reference is packaged as "<order>.<protocol name>.<version>.dmprotocol".
+			var pattern = new Regex(@"^(?:\d+\.)?" + Regex.Escape(name) + @"\.(?<version>.+)$", RegexOptions.IgnoreCase);
+			var shipped = (Directory.Exists(protocolsPath) ? Directory.GetFiles(protocolsPath, "*.dmprotocol") : Array.Empty<string>())
+				.Select(file => pattern.Match(Path.GetFileNameWithoutExtension(file)))
+				.Where(match => match.Success)
+				.Select(match => match.Groups["version"].Value)
+				.Select(version => new { Version = version, Parsed = Version.TryParse(version, out Version parsed) ? parsed : null })
+				.OrderByDescending(p => p.Parsed)
+				.FirstOrDefault();
+
+			return shipped?.Version ?? throw new InvalidOperationException($"The package does not contain connector '{name}' (expected in '{protocolsPath}').");
+		}
+
+		/// <summary>
+		/// Initializes the Service Management ID counters from current DOM records.
+		/// </summary>
+		/// <exception cref="InvalidOperationException">The counter-initialization subscript reported an error.</exception>
+		public void InitializeServiceManagementCounters()
+		{
+			var subscript = _engine.PrepareSubScript(Constants.InitializeCountersScriptName);
+			subscript.Synchronous = true;
+			subscript.ExtendedErrorInfo = true;
+			subscript.StartScript();
+
+			if (subscript.HadError)
+			{
+				throw new InvalidOperationException($"Run Subscript '{Constants.InitializeCountersScriptName}' failed: {String.Join(" -> ", subscript.GetErrorMessages())}");
+			}
 		}
 
 		/// <summary>
@@ -256,17 +393,17 @@ namespace SLC_ServiceManagement.SolutionInstallerHelper
 		}
 
 		/// <summary>
-		/// Registers the solution, with the version of the package being installed, in the SDM registry.
+		/// Registers the solution in the SDM registry with <see cref="Constants.SolutionVersion"/>, not the converted .dmapp version.
 		/// </summary>
 		/// <exception cref="InvalidOperationException">The registration subscript reported an error.</exception>
 		public void RegisterSolution()
 		{
-			_installer.Log($"Registering Solution {Constants.SolutionDisplayName} [{Constants.SolutionCatalogId}] with version {_context.AppInfo.Version} in SDM...");
+			_installer.Log($"Registering Solution {Constants.SolutionDisplayName} [{Constants.SolutionCatalogId}] with version {Constants.SolutionVersion} in SDM...");
 
 			var subscript = _engine.PrepareSubScript(Constants.SolutionRegisterScriptName);
 			subscript.SelectScriptParam("Id", Constants.SolutionCatalogId);
 			subscript.SelectScriptParam("DisplayName", Constants.SolutionDisplayName);
-			subscript.SelectScriptParam("Version", _context.AppInfo.Version);
+			subscript.SelectScriptParam("Version", Constants.SolutionVersion);
 
 			subscript.Synchronous = true;
 			subscript.ExtendedErrorInfo = true;
@@ -586,22 +723,6 @@ namespace SLC_ServiceManagement.SolutionInstallerHelper
 				}
 
 				return SecureNewtonsoftDeserialization.DeserializeObject<TResponse>(body);
-			}
-		}
-
-		private static void RunDomImportSubScript(IEngine engine, string path)
-		{
-			var subScript = engine.PrepareSubScript(Constants.DomImportExportScriptName);
-			subScript.ExtendedErrorInfo = true;
-			subScript.SelectScriptParam("Action", "Import");
-			subScript.SelectScriptParam("Path", path);
-			subScript.SelectScriptParam("ModuleNames", "-1");
-			subScript.Synchronous = true;
-			subScript.StartScript();
-
-			if (subScript.HadError)
-			{
-				throw new InvalidOperationException($"Run Subscript 'DOM ImportExport' failed: {String.Join(" -> ", subScript.GetErrorMessages())}");
 			}
 		}
 

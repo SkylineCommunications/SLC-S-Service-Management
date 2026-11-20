@@ -50,7 +50,8 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 				_api.ServiceCatalog.Profiles.Read(ProfileExposers.IsReusable.Equal(true)),
 				profile => profile.Identifier);
 			var reusableProfileIds = new HashSet<string>(reusableProfiles.Keys, StringComparer.OrdinalIgnoreCase);
-			LoadOptions(parameters.Values, versions.SelectMany(GetValues));
+			var template = BuildSpecificationTemplate(service, definitions, out var templateParameterIds);
+			LoadOptions(parameters.Values, (template == null ? versions : versions.Append(template)).SelectMany(GetValues));
 
 			foreach (var parameter in parameters.Values)
 			{
@@ -71,61 +72,219 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 			foreach (var version in versions)
 			{
 				bool isActive = String.Equals(version.Identifier, service.ServiceConfigurationId.Identifier, StringComparison.OrdinalIgnoreCase);
-				var versionParameters = version.Parameters ?? new List<FullServiceConfigurationValue>();
-				if (versionParameters.Count == 0)
-				{
-					records.Add(BuildVersionRecord(version, isActive));
-				}
+				AddVersionRecords(records, version, isActive, parameters, definitions, reusableProfileIds, null);
+			}
 
-				foreach (var configuration in versionParameters)
-				{
-					var value = configuration?.ConfigurationParameter;
-					parameters.TryGetValue(value == null ? String.Empty : value.ConfigurationParameterId.Identifier ?? String.Empty, out var definition);
-					records.Add(BuildParameterRecord(
-						version,
-						isActive,
-						"Parameter",
-						configuration?.Identifier,
-						null,
-						null,
-						null,
-						false,
-						false,
-						configuration?.Mandatory ?? false,
-						definition,
-						value));
-				}
-
-				foreach (var serviceProfile in version.Profiles ?? new List<FullServiceProfile>())
-				{
-					var profile = serviceProfile?.Profile;
-					if (profile == null)
-					{
-						continue;
-					}
-
-					definitions.TryGetValue(profile.ProfileDefinitionId ?? String.Empty, out var profileDefinition);
-					if (profileDefinition == null)
-					{
-						profileDefinition = serviceProfile.ProfileDefinition;
-					}
-
-					AddProfileRecords(
-						records,
-						version,
-						isActive,
-						serviceProfile.Identifier,
-						profile,
-						profileDefinition,
-						serviceProfile.Mandatory ?? false,
-						parameters,
-						definitions,
-						reusableProfileIds,
-						new HashSet<string>(StringComparer.OrdinalIgnoreCase));
-				}
+			if (template != null)
+			{
+				AddVersionRecords(records, template, false, parameters, definitions, reusableProfileIds, templateParameterIds);
 			}
 
 			return records;
+		}
+
+		private void AddVersionRecords(
+			List<ConfigurationRecord> records,
+			FullServiceConfigurationVersion version,
+			bool isActive,
+			IReadOnlyDictionary<string, ConfigurationParameter> parameters,
+			IReadOnlyDictionary<string, ProfileDefinition> definitions,
+			ISet<string> reusableProfileIds,
+			IReadOnlyDictionary<string, string> parameterIdsWithoutValue)
+		{
+			var versionParameters = version.Parameters ?? new List<FullServiceConfigurationValue>();
+			if (versionParameters.Count == 0)
+			{
+				records.Add(BuildVersionRecord(version, isActive));
+			}
+
+			foreach (var configuration in versionParameters)
+			{
+				var value = configuration?.ConfigurationParameter;
+				string parameterId = value?.ConfigurationParameterId.Identifier;
+				if (value == null && parameterIdsWithoutValue != null)
+				{
+					parameterIdsWithoutValue.TryGetValue(configuration?.Identifier ?? String.Empty, out parameterId);
+				}
+
+				parameters.TryGetValue(parameterId ?? String.Empty, out var definition);
+				records.Add(BuildParameterRecord(
+					version,
+					isActive,
+					"Parameter",
+					configuration?.Identifier,
+					null,
+					null,
+					null,
+					false,
+					false,
+					configuration?.Mandatory ?? false,
+					definition,
+					value));
+			}
+
+			foreach (var serviceProfile in version.Profiles ?? new List<FullServiceProfile>())
+			{
+				var profile = serviceProfile?.Profile;
+				if (profile == null)
+				{
+					continue;
+				}
+
+				definitions.TryGetValue(profile.ProfileDefinitionId ?? String.Empty, out var profileDefinition);
+				if (profileDefinition == null)
+				{
+					profileDefinition = serviceProfile.ProfileDefinition;
+				}
+
+				AddProfileRecords(
+					records,
+					version,
+					isActive,
+					serviceProfile.Identifier,
+					profile,
+					profileDefinition,
+					serviceProfile.Mandatory ?? false,
+					parameters,
+					definitions,
+					reusableProfileIds,
+					new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+			}
+		}
+
+		/// <summary>
+		/// Builds an unsaved version with the parameters and profiles of the service's specification, which the editor uses to
+		/// prefill a new configuration version. Top-level profiles use their specification assignment ID and keep their catalog
+		/// profile ID separately, so reusable profiles can be referenced without colliding with nested assignments.
+		/// </summary>
+		private FullServiceConfigurationVersion BuildSpecificationTemplate(
+			Service service,
+			IReadOnlyDictionary<string, ProfileDefinition> definitions,
+			out Dictionary<string, string> parameterIdsWithoutValue)
+		{
+			parameterIdsWithoutValue = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+			string specificationId = service.ServiceSpecificationId.Identifier;
+			var specification = String.IsNullOrWhiteSpace(specificationId)
+				? null
+				: _api.ServiceCatalog.ServiceSpecifications.Read(ServiceSpecificationExposers.Identifier.Equal(specificationId)).FirstOrDefault();
+			if (specification == null)
+			{
+				return null;
+			}
+
+			var configurationIds = ReferenceIds(specification.ConfigurationParameters);
+			var configurations = FullServiceBuilder.ReadById(
+				configurationIds,
+				id => ServiceSpecificationConfigurationValueExposers.Identifier.Equal(id),
+				filter => _api.ServiceCatalog.ServiceSpecificationConfigurationValues.Read(filter),
+				configuration => configuration.Identifier);
+			var profileIds = ReferenceIds(specification.ConfigurationProfiles);
+			var specificationProfiles = FullServiceBuilder.ReadById(
+				profileIds,
+				id => ServiceSpecificationProfileExposers.Identifier.Equal(id),
+				filter => _api.ServiceCatalog.ServiceSpecificationProfiles.Read(filter),
+				profile => profile.Identifier);
+			var profiles = FullServiceBuilder.ReadProfileTree(_api, specificationProfiles.Values.Select(profile => profile.ProfileId.Identifier));
+			var values = FullServiceBuilder.ReadById(
+				configurations.Values
+					.Select(configuration => configuration.ConfigurationParameterId.Identifier)
+					.Concat(profiles.Values.SelectMany(profile => ReferenceIds(profile.ConfigurationParameterValues))),
+				id => ConfigurationParameterValueExposers.Identifier.Equal(id),
+				filter => _api.ServiceCatalog.ConfigurationParameterValues.Read(filter),
+				value => value.Identifier);
+
+			var template = new FullServiceConfigurationVersion
+			{
+				Identifier = ConfigurationRecord.SpecificationTemplateVersionId,
+				VersionName = specification.Name,
+			};
+			foreach (string id in configurationIds)
+			{
+				if (!configurations.TryGetValue(id, out var configuration) || String.IsNullOrWhiteSpace(configuration.ConfigurationParameterId.Identifier))
+				{
+					continue;
+				}
+
+				// A specification reference holds a parameter value ID or, without a default, a parameter ID.
+				string reference = configuration.ConfigurationParameterId.Identifier;
+				values.TryGetValue(reference, out var value);
+				if (value == null)
+				{
+					parameterIdsWithoutValue[configuration.Identifier] = reference;
+				}
+
+				template.Parameters.Add(new FullServiceConfigurationValue
+				{
+					Identifier = configuration.Identifier,
+					Mandatory = configuration.MandatoryAtService,
+					ConfigurationParameter = value,
+				});
+			}
+
+			foreach (string id in profileIds)
+			{
+				if (!specificationProfiles.TryGetValue(id, out var specificationProfile))
+				{
+					continue;
+				}
+
+				var profile = BuildTemplateProfile(specificationProfile.ProfileId.Identifier, profiles, values, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+				if (profile == null)
+				{
+					continue;
+				}
+
+				definitions.TryGetValue(specificationProfile.ProfileDefinitionId.Identifier ?? String.Empty, out var definition);
+				template.Profiles.Add(new FullServiceProfile
+				{
+					Identifier = specificationProfile.Identifier,
+					Mandatory = specificationProfile.MandatoryAtService,
+					ProfileDefinition = definition,
+					Profile = profile,
+				});
+			}
+
+			return template;
+		}
+
+		private static FullProfile BuildTemplateProfile(
+			string id,
+			IReadOnlyDictionary<string, Profile> profiles,
+			IReadOnlyDictionary<string, ConfigurationParameterValue> values,
+			HashSet<string> path)
+		{
+			if (String.IsNullOrWhiteSpace(id) || !profiles.TryGetValue(id, out var profile) || !path.Add(id))
+			{
+				return null;
+			}
+
+			var result = new FullProfile
+			{
+				Identifier = profile.Identifier,
+				Name = profile.Name,
+				ProfileDefinitionId = profile.ProfileDefinitionId.Identifier,
+				IsReusable = profile.IsReusable,
+				ConfigurationParameterValues = ReferenceIds(profile.ConfigurationParameterValues)
+					.Where(values.ContainsKey)
+					.Select(valueId => values[valueId])
+					.ToList(),
+				Profiles = ReferenceIds(profile.Profiles)
+					.Select(childId => BuildTemplateProfile(childId, profiles, values, path))
+					.Where(child => child != null)
+					.ToList(),
+			};
+			path.Remove(id);
+			return result;
+		}
+
+		private static List<string> ReferenceIds<T>(IEnumerable<SdmObjectReference<T>> references)
+			where T : SdmObject<T>
+		{
+			return (references ?? Enumerable.Empty<SdmObjectReference<T>>())
+				.Select(reference => reference.Identifier)
+				.Where(id => !String.IsNullOrWhiteSpace(id))
+				.Distinct(StringComparer.OrdinalIgnoreCase)
+				.ToList();
 		}
 
 		public List<ConfigurationRecord> ReadOrderItem(ServiceOrderItem item)
@@ -268,7 +427,8 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 					mandatory,
 					mandatory,
 					parameter,
-					value));
+					value,
+					profile.Identifier));
 			}
 
 			foreach (var nested in profile.Profiles ?? new List<FullProfile>())
@@ -354,7 +514,9 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 			ProfileDefinition definition,
 			bool mandatory)
 		{
-			return NewRecord(version, isActive, "Profile", serviceProfileId, profile.Name, definition?.Identifier, definition?.Name, profile.IsReusable ?? false, mandatory);
+			var row = NewRecord(version, isActive, "Profile", serviceProfileId, profile.Name, definition?.Identifier, definition?.Name, profile.IsReusable ?? false, mandatory);
+			row.ProfileReferenceId = profile.Identifier ?? String.Empty;
+			return row;
 		}
 
 		private static ConfigurationRecord BuildNestedProfileRecord(
@@ -366,7 +528,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 			FullProfile nested,
 			ProfileDefinition nestedDefinition)
 		{
-			return NewRecord(
+			var row = NewRecord(
 				version,
 				isActive,
 				"NestedProfile",
@@ -380,6 +542,8 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 				nested.Name,
 				nestedDefinition?.Identifier,
 				nestedDefinition?.Name);
+			row.ProfileReferenceId = parent.Identifier ?? String.Empty;
+			return row;
 		}
 
 		private ConfigurationRecord BuildNestedProfileParameterRecord(
@@ -413,9 +577,11 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 			bool profileMandatory,
 			bool mandatory,
 			ConfigurationParameter parameter,
-			ConfigurationParameterValue value)
+			ConfigurationParameterValue value,
+			string profileReferenceId = null)
 		{
 			var row = NewRecord(version, isActive, recordType, profileId, profileName, profileDefinition?.Identifier, profileDefinition?.Name, profileReusable, profileMandatory);
+			row.ProfileReferenceId = profileReferenceId ?? String.Empty;
 			row.ConfigurationId = configurationId ?? String.Empty;
 			row.Mandatory = mandatory;
 			ApplyParameter(row, parameter, value, mandatory);
@@ -447,6 +613,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 				IsActive = isActive,
 				RecordType = recordType,
 				ProfileId = profileId ?? String.Empty,
+				ProfileReferenceId = String.Empty,
 				ProfileName = profileName ?? String.Empty,
 				ProfileDefinitionId = profileDefinitionId ?? String.Empty,
 				ProfileDefinitionName = profileDefinitionName ?? String.Empty,

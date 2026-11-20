@@ -1,4 +1,4 @@
-﻿namespace SLC_SM_UDAPI_ServiceManagement.Controllers
+namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 {
 	using System;
 	using System.Collections.Generic;
@@ -15,6 +15,7 @@
 	using Skyline.DataMiner.SDM;
 	using Skyline.DataMiner.SDM.OData;
 	using Skyline.DataMiner.Utils.UserDefinedApiToolkit;
+	using SLC_SM_Common.IdGeneration;
 	using SLC_SM_UDAPI_ServiceManagement.Exceptions;
 	using SLC_SM_UDAPI_ServiceManagement.Helpers;
 	using SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory;
@@ -60,6 +61,7 @@
 		private readonly IMonitoringServiceManager monitoringServices;
 		private readonly IServiceOrganizationRepository organizations;
 		private readonly IServiceManagementApiHelper serviceManagementApiHelper;
+		private readonly IServiceManagementIdGenerator idGenerator;
 
 		private sealed class ServiceFieldSelector
 		{
@@ -80,7 +82,8 @@
 			IAccessor<IEngine> engineAccessor,
 			IMonitoringServiceManager monitoringServices,
 			IServiceOrganizationRepository organizations,
-			IServiceItemImplementations itemImplementations)
+			IServiceItemImplementations itemImplementations,
+			IServiceManagementIdGenerator idGenerator = null)
 		{
 			_logger = logger ?? throw new ArgumentNullException(nameof(logger));
 			this.serviceManagementApiHelper = serviceManagementApiHelper ?? throw new ArgumentNullException(nameof(serviceManagementApiHelper));
@@ -88,120 +91,8 @@
 			this.monitoringServices = monitoringServices ?? throw new ArgumentNullException(nameof(monitoringServices));
 			this.organizations = organizations ?? throw new ArgumentNullException(nameof(organizations));
 			this.itemImplementations = itemImplementations ?? throw new ArgumentNullException(nameof(itemImplementations));
+			this.idGenerator = idGenerator ?? new ServiceManagementIdGenerator();
 			_translator = new ODataSdmTranslator<Service>();
-		}
-
-		[HttpPost("{id}/configurationVersion")]
-		[Consumes("application/json")]
-		public IApiResult CreateConfigurationVersion(
-			[FromRoute] string id,
-			[FromBody] CreateConfigurationVersionRequest request,
-			[FromQuery] bool activate = false)
-		{
-			/* TODO
-			 * Partial writes on a server failure. If a write fails after some records were created, those records aren't removed.
-			 * No createdAt, and different field names. As with the list endpoint, there's no stored creation time, and the response uses the existing model's names, for example Identifier instead of id.
-			 */
-			_logger.LogInformation("CreateConfigurationVersion called with id={Id}, activate={Activate}, versionName={VersionName}", id, activate, request?.VersionName);
-
-			try
-			{
-				var service = FindService(id);
-				if (service == null)
-				{
-					return NotFound(CreateError("Not found", $"Service '{id?.Trim()}' does not exist.", 404));
-				}
-
-				if (request == null)
-				{
-					throw new InvalidQueryException("A request body is required.");
-				}
-
-				if (request.StartDate.HasValue && request.EndDate.HasValue && request.EndDate.Value < request.StartDate.Value)
-				{
-					throw new InvalidQueryException("'endDate' must be later than 'startDate'.");
-				}
-
-				var catalog = serviceManagementApiHelper.ServiceCatalog;
-				var inventory = serviceManagementApiHelper.ServiceInventory;
-
-				// Validate and prepare everything before writing, so an invalid request leaves nothing behind.
-				var parameterValues = new List<Cfg.ConfigurationParameterValue>();
-				var configurationValues = new List<ServiceConfigurationValue>();
-				var parameterRequests = request.Parameters ?? new List<ServiceConfigurationValueRequest>();
-				for (int i = 0; i < parameterRequests.Count; i++)
-				{
-					var parameterValue = BuildParameterValue(parameterRequests[i], i);
-					parameterValues.Add(parameterValue);
-					configurationValues.Add(new ServiceConfigurationValue
-					{
-						Identifier = Guid.NewGuid().ToString(),
-						Mandatory = parameterRequests[i].Mandatory ?? false,
-						ConfigurationParameterId = new SdmObjectReference<Cfg.ConfigurationParameterValue>(parameterValue.Identifier),
-					});
-				}
-
-				var serviceProfiles = new List<ServiceProfile>();
-				var profileRequests = request.Profiles ?? new List<ServiceProfileRequest>();
-				for (int i = 0; i < profileRequests.Count; i++)
-				{
-					serviceProfiles.Add(BuildServiceProfile(profileRequests[i], i));
-				}
-
-				foreach (var value in parameterValues)
-				{
-					catalog.ConfigurationParameterValues.Create(value);
-				}
-
-				foreach (var value in configurationValues)
-				{
-					inventory.ServiceConfigurationValues.Create(value);
-				}
-
-				foreach (var profile in serviceProfiles)
-				{
-					inventory.ServiceProfiles.Create(profile);
-				}
-
-				var version = new ServiceConfigurationVersion
-				{
-					Identifier = Guid.NewGuid().ToString(),
-					VersionName = String.IsNullOrWhiteSpace(request.VersionName) ? "New Version" : request.VersionName.Trim(),
-					Description = request.Description ?? String.Empty,
-					StartDate = request.StartDate?.ToUniversalTime(),
-					EndDate = request.EndDate?.ToUniversalTime(),
-					Parameters = configurationValues.Select(v => new SdmObjectReference<ServiceConfigurationValue>(v.Identifier)).ToList(),
-					Profiles = serviceProfiles.Select(p => new SdmObjectReference<ServiceProfile>(p.Identifier)).ToList(),
-				};
-
-				inventory.ServiceConfigurationVersions.Create(version);
-
-				service.ConfigurationVersions = service.ConfigurationVersions ?? new List<SdmObjectReference<ServiceConfigurationVersion>>();
-				service.ConfigurationVersions.Add(new SdmObjectReference<ServiceConfigurationVersion>(version.Identifier));
-				if (activate)
-				{
-					service.ServiceConfigurationId = new SdmObjectReference<ServiceConfigurationVersion>(version.Identifier);
-				}
-
-				inventory.Services.Update(service);
-
-				var refreshed = FindService(service.ServiceID) ?? service;
-				var created = new FullServiceBuilder(serviceManagementApiHelper).Build(new[] { refreshed }).First()
-					.ConfigurationVersions
-					.FirstOrDefault(v => String.Equals(v.Identifier, version.Identifier, StringComparison.OrdinalIgnoreCase));
-
-				return Created((object)created ?? version);
-			}
-			catch (InvalidQueryException ex)
-			{
-				_logger.LogWarning(ex, "Invalid CreateConfigurationVersion request: {Message}", ex.Message);
-				return BadRequest(CreateError("Invalid request", ex.Message, 400));
-			}
-			catch (Exception ex)
-			{
-				_logger.LogError(ex, "CreateConfigurationVersion failed: {Message}", ex.Message);
-				return InternalServerError(CreateError("Internal server error", "An unexpected error occurred while creating the configuration version.", 500));
-			}
 		}
 
 		[HttpPost]
@@ -210,7 +101,6 @@
 		{
 			/* TODO:
 			 * 1.Status isn't set explicitly. I assumed DOM starts new services as new; this needs checking on a live system.
-			 * 2.400 for a missing mandatory configuration parameter isn't covered. Configuration versions start empty.
 			*/
 
 			_logger.LogInformation("CreateService called with name={Name}", request?.Name);
@@ -218,6 +108,10 @@
 			try
 			{
 				ValidateCreateRequest(request);
+				if (!String.IsNullOrWhiteSpace(request.ServiceId))
+				{
+					return BadRequest(CreateError("Invalid request", "Service ID is assigned automatically and cannot be supplied.", 400));
+				}
 
 				var catalog = serviceManagementApiHelper.ServiceCatalog;
 
@@ -234,8 +128,15 @@
 				ValidateOrganization(request.OrganizationId);
 
 				var services = serviceManagementApiHelper.ServiceInventory.Services;
-				string name = request.Name.Trim();
-				if (services.Read(ServiceExposers.Name.Equal(name)).Any())
+				string requestedName = request.Name?.Trim();
+				if (!String.IsNullOrEmpty(requestedName) && services.Read(ServiceExposers.Name.Equal(requestedName)).Any())
+				{
+					return Conflict(CreateError("Conflict", $"A service with name '{requestedName}' already exists.", 409));
+				}
+
+				string serviceId = idGenerator.AllocateServiceId(engineAccessor.Value);
+				string name = String.IsNullOrEmpty(requestedName) ? serviceId : requestedName;
+				if (String.IsNullOrEmpty(requestedName) && services.Read(ServiceExposers.Name.Equal(name)).Any())
 				{
 					return Conflict(CreateError("Conflict", $"A service with name '{name}' already exists.", 409));
 				}
@@ -262,17 +163,12 @@
 						: CopySpecificationItems(specification),
 					ServiceItemsRelationships = request.ServiceItemRelationships != null
 						? request.ServiceItemRelationships.Select(ToRelationship).ToList()
-						: specification?.ServiceItemsRelationships?.ToList() ?? new List<ServiceItemRelationship>(),
+						: specification.GetRealServiceItemRelationships(),
 					ConfigurationVersions = new List<SdmObjectReference<ServiceConfigurationVersion>>(),
 				};
 
-				if (!String.IsNullOrWhiteSpace(request.ServiceId) && ServiceIdGenerator.IsTaken(services, request.ServiceId.Trim()))
-				{
-					return Conflict(CreateError("Conflict", $"A service with ID '{request.ServiceId.Trim()}' already exists.", 409));
-				}
-
 				service.Identifier = Guid.NewGuid().ToString();
-				service.ServiceID = String.IsNullOrWhiteSpace(request.ServiceId) ? ServiceIdGenerator.NextFree(services) : request.ServiceId.Trim();
+				service.ServiceID = serviceId;
 				services.Create(service);
 
 				// Resolve the monitoring service before the organization association.
@@ -378,54 +274,6 @@
 			}
 		}
 
-		[HttpGet("{id}/configurationVersion/{versionId}")]
-		public IApiResult GetConfigurationVersion([FromRoute] string id, [FromRoute] string versionId)
-		{
-			/* TODO
-			 * No createdAt, and different field names. As with the list endpoint, there's no stored creation time, and the response uses the existing model's names, for example Identifier instead of id.
-			 */
-			_logger.LogInformation("GetConfigurationVersion called with id={Id}, versionId={VersionId}", id, versionId);
-
-			try
-			{
-				var service = FindService(id);
-				if (service == null)
-				{
-					return NotFound(CreateError("Not found", $"Service '{id?.Trim()}' does not exist.", 404));
-				}
-
-				if (String.IsNullOrWhiteSpace(versionId) || !Guid.TryParse(versionId.Trim(), out var versionGuid))
-				{
-					return NotFound(CreateError("Not found", $"Configuration version '{versionId?.Trim()}' does not exist.", 404));
-				}
-
-				// Ownership check on the references already loaded with the service, then read only that version.
-				bool belongsToService = (service.ConfigurationVersions ?? Enumerable.Empty<SdmObjectReference<ServiceConfigurationVersion>>())
-					.Select(r => r.Identifier)
-					.Concat(new[] { service.ServiceConfigurationId.Identifier })
-					.Any(i => Guid.TryParse(i, out var g) && g == versionGuid);
-
-				var version = belongsToService
-					? new FullServiceBuilder(serviceManagementApiHelper).BuildVersion(
-						serviceManagementApiHelper.ServiceInventory.ServiceConfigurationVersions
-							.Read(ServiceConfigurationVersionExposers.Identifier.Equal(versionGuid.ToString()))
-							.FirstOrDefault())
-					: null;
-
-				if (version == null)
-				{
-					return NotFound(CreateError("Not found", $"Configuration version '{versionGuid}' does not exist for service '{service.ServiceID}'.", 404));
-				}
-
-				return Ok(version);
-			}
-			catch (Exception ex)
-			{
-				_logger.LogError(ex, "GetConfigurationVersion failed: {Message}", ex.Message);
-				return InternalServerError(CreateError("Internal server error", "An unexpected error occurred while retrieving the configuration version.", 500));
-			}
-		}
-
 		[HttpGet("{id}")]
 		public IApiResult GetService(
 			[FromRoute] string id,
@@ -509,51 +357,6 @@
 			{
 				_logger.LogError(ex, "GetServiceTransitions failed: {Message}", ex.Message);
 				return InternalServerError(CreateError("Internal server error", "An unexpected error occurred while retrieving the service transitions.", 500));
-			}
-		}
-
-		[HttpGet("{id}/configurationVersion")]
-		public IApiResult ListConfigurationVersions([FromRoute] string id)
-		{
-			/* TODO:
-			 * No createdAt. The SDM version model has no creation time, so the field isn't returned and can't be used to sort. The older API model does have a CreatedAt; if the date is stored somewhere, I can switch to it.
-			 */
-			_logger.LogInformation("ListConfigurationVersions called with id={Id}", id);
-
-			try
-			{
-				var service = FindService(id);
-				if (service == null)
-				{
-					return NotFound(CreateError("Not found", $"Service '{id?.Trim()}' does not exist.", 404));
-				}
-
-				var fullService = new FullServiceBuilder(serviceManagementApiHelper).Build(new[] { service }).First();
-				var versions = fullService.ConfigurationVersions ?? new List<FullServiceConfigurationVersion>();
-
-				// Include the active version if it is not part of the version list.
-				if (fullService.ServiceConfiguration != null
-					&& !versions.Any(v => String.Equals(v.Identifier, fullService.ServiceConfiguration.Identifier, StringComparison.OrdinalIgnoreCase)))
-				{
-					versions.Add(fullService.ServiceConfiguration);
-				}
-
-				// Newest first: latest start date first; versions without a start date last.
-				// The SDM model has no creation timestamp, so ties keep reverse storage order (last added first).
-				var ordered = versions
-					.Select((version, index) => new { Version = version, Index = index })
-					.OrderByDescending(x => x.Version.StartDate.HasValue)
-					.ThenByDescending(x => x.Version.StartDate)
-					.ThenByDescending(x => x.Index)
-					.Select(x => x.Version)
-					.ToList();
-
-				return Ok(ordered);
-			}
-			catch (Exception ex)
-			{
-				_logger.LogError(ex, "ListConfigurationVersions failed: {Message}", ex.Message);
-				return InternalServerError(CreateError("Internal server error", "An unexpected error occurred while retrieving the configuration versions.", 500));
 			}
 		}
 
@@ -760,51 +563,6 @@
 			filters.AddRange(specificationIds.Select(id => ServiceExposers.ServiceSpecificationId.Equal((SdmObjectReference<ServiceSpecification>)new ServiceSpecification { Identifier = id })));
 
 			return CursorListFilter.Any(filters);
-		}
-
-		[HttpGet("overview")]
-		public IApiResult GetServiceOverview([FromQuery] int limit = 6)
-		{
-			if (limit < 1 || limit > 50)
-			{
-				return BadRequest(CreateError("Invalid request", "'limit' must be between 1 and 50.", 400));
-			}
-
-			try
-			{
-				var repository = serviceManagementApiHelper.ServiceInventory.Services as IReadableRepository<Service>;
-				if (repository == null)
-				{
-					return InternalServerError(CreateError("Internal server error", "The service repository does not support overview reads.", 500));
-				}
-
-				var page = repository.ReadCursorPage(
-					ServiceExposers.ServiceID,
-					service => service.ServiceID ?? String.Empty,
-					CursorKeySerialization.SerializeString,
-					CursorKeySerialization.DeserializeString,
-					ServiceExposers.Identifier,
-					service => service.Identifier,
-					CursorKeySerialization.SerializeString,
-					CursorKeySerialization.DeserializeString,
-					limit: limit,
-					descending: true,
-					secondaryDescending: true);
-				var overview = serviceManagementApiHelper.Overview.ReadServices();
-
-				return Ok(new ServiceOverviewResponse
-				{
-					Items = ToServiceOverviewResponses(page.Items),
-					TotalCount = overview.TotalCount,
-					ActiveCount = overview.ActiveCount,
-					RetiredCount = overview.RetiredCount,
-				});
-			}
-			catch (Exception ex)
-			{
-				_logger.LogError(ex, "GetServiceOverview failed: {Message}", ex.Message);
-				return InternalServerError(CreateError("Internal server error", "An unexpected error occurred while retrieving the service overview.", 500));
-			}
 		}
 
 		[HttpPost("{id}/transition")]
@@ -1090,8 +848,7 @@
 		{
 			// The optional item type is left empty,
 			// because setting it can fail with DomInstanceSectionInvalidFieldValueTypes on some systems.
-			return specification?.ServiceItems?
-				.Where(item => item != null)
+			return specification.GetRealServiceItems()
 				.Select(item => new ServiceItem
 				{
 					ServiceItemID = item.ServiceItemID,
@@ -1102,13 +859,30 @@
 					Type = null,
 					Icon = item.Icon,
 				})
-				.ToList()
-				?? new List<ServiceItem>();
+				.ToList();
 		}
 
 		private static bool Has(JObject patch, string property)
 		{
 			return patch.TryGetValue(property, StringComparison.OrdinalIgnoreCase, out _);
+		}
+
+		/// <summary>Gets a readable name for a service configuration value: its label, else the parameter's name, else its ID.</summary>
+		private string GetParameterDisplayName(FullServiceConfigurationValue configuration)
+		{
+			var value = configuration.ConfigurationParameter;
+			if (!String.IsNullOrWhiteSpace(value?.Label))
+			{
+				return value.Label;
+			}
+
+			string parameterId = value?.ConfigurationParameterId.Identifier;
+			string name = String.IsNullOrWhiteSpace(parameterId)
+				? null
+				: serviceManagementApiHelper.ServiceCatalog.ConfigurationParameters
+					.Read(Cfg.ConfigurationParameterExposers.Identifier.Equal(parameterId))
+					.FirstOrDefault()?.Name;
+			return String.IsNullOrWhiteSpace(name) ? configuration.Identifier : name;
 		}
 
 		private static bool HasValue(Cfg.ConfigurationParameterValue value)
@@ -1238,88 +1012,10 @@
 				throw new InvalidQueryException("A request body is required.");
 			}
 
-			if (String.IsNullOrWhiteSpace(request.Name))
-			{
-				throw new InvalidQueryException("'name' is required.");
-			}
-
-			if (!String.IsNullOrWhiteSpace(request.ServiceId) && !ServiceIdPattern.IsMatch(request.ServiceId.Trim()))
-			{
-				throw new InvalidQueryException("'serviceId' must use the format SERVICE-<number>.");
-			}
-
 			if (request.StartTime.HasValue && request.EndTime.HasValue && request.EndTime.Value < request.StartTime.Value)
 			{
 				throw new InvalidQueryException("'endTime' must be later than 'startTime'.");
 			}
-		}
-
-		private Cfg.ConfigurationParameterValue BuildParameterValue(ServiceConfigurationValueRequest request, int index)
-		{
-			var value = request?.ConfigurationParameter;
-			if (value?.ConfigurationParameterId == null)
-			{
-				throw new InvalidQueryException($"'parameters[{index}].configurationParameter.configurationParameterId' is required.");
-			}
-
-			var parameter = serviceManagementApiHelper.ServiceCatalog.ConfigurationParameters
-				.Read(Cfg.ConfigurationParameterExposers.Identifier.Equal(value.ConfigurationParameterId.Value.ToString()))
-				.FirstOrDefault()
-				?? throw new InvalidQueryException($"Configuration parameter '{value.ConfigurationParameterId}' does not exist.");
-
-			var type = parameter.Type;
-			if (!String.IsNullOrWhiteSpace(value.Type))
-			{
-				if (!Enum.TryParse(value.Type.Trim(), true, out type) || !Enum.IsDefined(typeof(DomHelpers.SlcConfigurations.SlcConfigurationsIds.Enums.Type), type))
-				{
-					throw new InvalidQueryException($"'parameters[{index}].configurationParameter.type' must be one of: number, discrete, text.");
-				}
-			}
-
-			bool isNumber = type == DomHelpers.SlcConfigurations.SlcConfigurationsIds.Enums.Type.Number;
-			if ((request.Mandatory ?? false) && (isNumber ? !value.DoubleValue.HasValue : String.IsNullOrWhiteSpace(value.StringValue)))
-			{
-				throw new InvalidQueryException($"Mandatory parameter '{parameter.Name}' has no value.");
-			}
-
-			return new Cfg.ConfigurationParameterValue
-			{
-				Identifier = Guid.NewGuid().ToString(),
-				Label = String.IsNullOrWhiteSpace(value.Label) ? parameter.Name : value.Label,
-				Type = type,
-				DoubleValue = isNumber ? value.DoubleValue : null,
-				StringValue = isNumber ? null : value.StringValue,
-				ConfigurationParameterId = new SdmObjectReference<Cfg.ConfigurationParameter>(parameter.Identifier),
-				ValueFixed = value.ValueFixed ?? false,
-				LinkedConsumers = new List<Guid>(),
-			};
-		}
-
-		private ServiceProfile BuildServiceProfile(ServiceProfileRequest request, int index)
-		{
-			if (request?.ProfileDefinitionId == null || request.ProfileId == null)
-			{
-				throw new InvalidQueryException($"'profiles[{index}]' requires 'profileDefinitionId' and 'profileId'.");
-			}
-
-			var catalog = serviceManagementApiHelper.ServiceCatalog;
-			if (!catalog.ProfileDefinitions.Read(Cfg.ProfileDefinitionExposers.Identifier.Equal(request.ProfileDefinitionId.Value.ToString())).Any())
-			{
-				throw new InvalidQueryException($"Profile definition '{request.ProfileDefinitionId}' does not exist.");
-			}
-
-			if (!catalog.Profiles.Read(Cfg.ProfileExposers.Identifier.Equal(request.ProfileId.Value.ToString())).Any())
-			{
-				throw new InvalidQueryException($"Profile '{request.ProfileId}' does not exist.");
-			}
-
-			return new ServiceProfile
-			{
-				Identifier = Guid.NewGuid().ToString(),
-				Mandatory = request.Mandatory ?? false,
-				ProfileDefinitionId = new SdmObjectReference<Cfg.ProfileDefinition>(request.ProfileDefinitionId.Value.ToString()),
-				ProfileId = new SdmObjectReference<Cfg.Profile>(request.ProfileId.Value.ToString()),
-			};
 		}
 
 		/// <summary>
@@ -1536,16 +1232,21 @@
 				throw new InvalidQueryException($"Configuration version '{versionGuid}' does not belong to service '{service.ServiceID}'.");
 			}
 
-			var missing = (version.Parameters ?? new List<FullServiceConfigurationValue>())
+			ValidateConfigurationVersion(version);
+			return version.Identifier;
+		}
+
+		private void ValidateConfigurationVersion(FullServiceConfigurationVersion version)
+		{
+			var missing = (version?.Parameters ?? new List<FullServiceConfigurationValue>())
 				.Where(p => p.Mandatory == true && !HasValue(p.ConfigurationParameter))
-				.Select(p => String.IsNullOrWhiteSpace(p.ConfigurationParameter?.Label) ? p.Identifier : p.ConfigurationParameter.Label)
+				.Select(p => GetParameterDisplayName(p))
 				.ToList();
+
 			if (missing.Count > 0)
 			{
-				throw new InvalidQueryException($"Configuration version '{versionGuid}' cannot be activated. Mandatory parameters without a value: {String.Join(", ", missing)}.");
+				throw new InvalidQueryException($"Configuration version '{version?.Identifier}' cannot be activated. Mandatory parameters without a value: {String.Join(", ", missing)}.");
 			}
-
-			return version.Identifier;
 		}
 
 		private void TryDelete(string kind, string id, Action delete)
@@ -1593,47 +1294,6 @@
 			}
 		}
 
-		private List<JObject> ToServiceOverviewResponses(IEnumerable<Service> services)
-		{
-			var list = services.ToList();
-			var specificationNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-			FilterElement<ServiceSpecification> specificationFilter = null;
-			foreach (var specificationId in list
-				.Select(service => service.ServiceSpecificationId.Identifier)
-				.Where(id => !String.IsNullOrWhiteSpace(id))
-				.Distinct(StringComparer.OrdinalIgnoreCase))
-			{
-				var current = ServiceSpecificationExposers.Identifier.Equal(specificationId);
-				specificationFilter = specificationFilter == null ? current : specificationFilter.OR(current);
-			}
-
-			if (specificationFilter != null)
-			{
-				foreach (var specification in serviceManagementApiHelper.ServiceCatalog.ServiceSpecifications.Read(specificationFilter) ?? Enumerable.Empty<ServiceSpecification>())
-				{
-					specificationNames[specification.Identifier] = specification.Name;
-				}
-			}
-
-			return list.Select(service =>
-			{
-				var response = new JObject
-				{
-					["Identifier"] = service.Identifier,
-					["ServiceID"] = service.ServiceID,
-					["Name"] = service.Name,
-					["StatusName"] = ToApiStatus(service.Status.ToString()),
-				};
-				var specificationId = service.ServiceSpecificationId.Identifier;
-				if (specificationId != null && specificationNames.TryGetValue(specificationId, out var specificationName))
-				{
-					response["ServiceSpecificationName"] = specificationName;
-				}
-
-				return response;
-			}).ToList();
-		}
-
 		/// <summary>
 		/// Projects requested service fields and adds catalog and organization metadata only when needed.
 		/// </summary>
@@ -1662,9 +1322,12 @@
 					.GroupBy(c => c.Identifier, StringComparer.OrdinalIgnoreCase)
 					.ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase))
 				: new Dictionary<string, ServiceCategory>(StringComparer.OrdinalIgnoreCase);
-			var specifications = includeSpecificationMetadata
+			var specificationIds = includeSpecificationMetadata
+				? list.Select(s => s.ServiceSpecificationId.Identifier).Where(id => !String.IsNullOrWhiteSpace(id)).Distinct(StringComparer.OrdinalIgnoreCase).ToList()
+				: new List<string>();
+			var specifications = specificationIds.Count > 0
 				? ReadOrEmpty("service specifications", () => serviceManagementApiHelper.ServiceCatalog.ServiceSpecifications
-					.Read(new TRUEFilterElement<ServiceSpecification>())
+					.Read(CursorListFilter.Any(specificationIds.Select(id => ServiceSpecificationExposers.Identifier.Equal(id))))
 					.GroupBy(s => s.Identifier, StringComparer.OrdinalIgnoreCase)
 					.ToDictionary(g => g.Key, g => g.First().Name, StringComparer.OrdinalIgnoreCase))
 				: new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);

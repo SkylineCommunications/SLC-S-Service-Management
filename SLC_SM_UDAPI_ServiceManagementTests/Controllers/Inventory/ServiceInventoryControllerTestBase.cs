@@ -11,6 +11,7 @@
 	using SLDataGateway.API.Types.Querying;
 	using SLC_SM_UDAPI_ServiceManagement.Controllers;
 	using SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory;
+	using SLC_SM_Common.IdGeneration;
 
 	using Cfg = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.Configurations;
 	using ServiceStatus = DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Service_Behavior.StatusesEnum;
@@ -29,6 +30,10 @@
 		protected List<ServiceCategory> StoredCategories { get; private set; }
 
 		protected List<ServiceSpecification> StoredSpecifications { get; private set; }
+
+		protected List<ServiceSpecificationConfigurationValue> StoredSpecificationConfigurations { get; private set; }
+
+		protected List<ServiceSpecificationProfile> StoredSpecificationProfiles { get; private set; }
 
 		protected List<ServiceConfigurationVersion> StoredVersions { get; private set; }
 
@@ -64,6 +69,8 @@
 
 		protected Mock<ILogger<ServiceInventoryController>> ControllerLogger { get; private set; }
 
+		protected Mock<IServiceManagementIdGenerator> IdGenerator { get; private set; }
+
 		protected Dictionary<Guid, string> OrganizationNames { get; private set; }
 
 		protected Dictionary<Guid, Guid> ServiceOrganizations { get; private set; }
@@ -78,6 +85,8 @@
 			StoredServices = new List<Service>();
 			StoredCategories = new List<ServiceCategory>();
 			StoredSpecifications = new List<ServiceSpecification>();
+			StoredSpecificationConfigurations = new List<ServiceSpecificationConfigurationValue>();
+			StoredSpecificationProfiles = new List<ServiceSpecificationProfile>();
 			StoredVersions = new List<ServiceConfigurationVersion>();
 			StoredConfigurationValues = new List<ServiceConfigurationValue>();
 			StoredServiceProfiles = new List<ServiceProfile>();
@@ -110,6 +119,8 @@
 			var catalog = Catalog = new Mock<IServiceCatalogApi>();
 			catalog.SetupGet(a => a.ServiceCategories).Returns(Repository(StoredCategories));
 			catalog.SetupGet(a => a.ServiceSpecifications).Returns(Repository(StoredSpecifications));
+			catalog.SetupGet(a => a.ServiceSpecificationConfigurationValues).Returns(Repository(StoredSpecificationConfigurations));
+			catalog.SetupGet(a => a.ServiceSpecificationProfiles).Returns(Repository(StoredSpecificationProfiles));
 			catalog.SetupGet(a => a.ConfigurationParameters).Returns(Repository(StoredParameters));
 			catalog.SetupGet(a => a.ConfigurationParameterValues).Returns(Repository(StoredParameterValues));
 			catalog.SetupGet(a => a.Profiles).Returns(Repository(StoredProfiles));
@@ -139,6 +150,10 @@
 
 			ItemImplementations = new Mock<IServiceItemImplementations>();
 			ControllerLogger = new Mock<ILogger<ServiceInventoryController>>();
+			IdGenerator = new Mock<IServiceManagementIdGenerator>();
+			int serviceNumber = 0;
+			IdGenerator.Setup(generator => generator.AllocateServiceId(It.IsAny<Skyline.DataMiner.Automation.IEngine>()))
+				.Returns(() => $"SERVICE-{++serviceNumber:00000}");
 
 			// No live engine in unit tests; endpoints that need it (TransitionService side effects) are covered by integration tests.
 			Controller = new ServiceInventoryController(
@@ -147,7 +162,8 @@
 				Mock.Of<IAccessor<Skyline.DataMiner.Automation.IEngine>>(a => a.Value == Mock.Of<Skyline.DataMiner.Automation.IEngine>()),
 				MonitoringServices.Object,
 				Organizations.Object,
-				ItemImplementations.Object);
+				ItemImplementations.Object,
+				IdGenerator.Object);
 
 			AttachContext(Controller);
 		}
@@ -208,6 +224,7 @@
 						}
 					}
 				});
+			repository.Setup(r => r.Delete(It.IsAny<T>())).Callback<T>(item => store.Remove(item));
 			return repository.Object;
 		}
 

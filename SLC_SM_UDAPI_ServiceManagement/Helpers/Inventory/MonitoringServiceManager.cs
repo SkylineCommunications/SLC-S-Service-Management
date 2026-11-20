@@ -1,7 +1,6 @@
 namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 {
 	using System;
-	using System.Collections.Generic;
 	using System.Diagnostics;
 	using System.Linq;
 	using System.Threading;
@@ -23,20 +22,6 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 		public MonitoringServiceManager(IEngine engine)
 		{
 			this.engine = engine ?? throw new ArgumentNullException(nameof(engine));
-		}
-
-		/// <inheritdoc/>
-		public IReadOnlyList<MonitoringServiceInfo> List()
-		{
-			return engine.GetDms().GetServices()
-				.Where(service => service != null && !String.IsNullOrWhiteSpace(service.Name))
-				.OrderBy(service => service.Name, StringComparer.OrdinalIgnoreCase)
-				.Select(service => new MonitoringServiceInfo
-				{
-					Id = service.DmsServiceId.Value,
-					Name = service.Name,
-				})
-				.ToList();
 		}
 
 		/// <inheritdoc/>

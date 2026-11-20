@@ -1,17 +1,17 @@
-﻿namespace SLC_SM_UDAPI_ServiceManagement.Tests.Controllers
+namespace SLC_SM_UDAPI_ServiceManagement.Tests.Controllers
 {
 	using System.Collections.Generic;
 	using Microsoft.Extensions.Logging;
 	using Moq;
 	using Newtonsoft.Json.Linq;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
-	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 	using Skyline.DataMiner.SDM;
 	using SLDataGateway.API.Types.Querying;
 	using SLC_SM_UDAPI_ServiceManagement.Models;
 	using SLC_SM_UDAPI_ServiceManagement.Models.Inventory;
 
+	using Cfg = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.Configurations;
 	using ServiceStatus = DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Service_Behavior.StatusesEnum;
 	using ServiceTransition = DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Service_Behavior.TransitionsEnum;
 
@@ -175,7 +175,7 @@
 
 		// ---- POST /service ----
 		[TestMethod]
-		public void CreateService_Valid_StoresServiceWithNextIdAndReturns201()
+		public void CreateService_Valid_UsesCentralCounterAndReturns201()
 		{
 			AddService("Existing", number: 7);
 
@@ -183,7 +183,7 @@
 
 			Assert.AreEqual(201, StatusCode(result));
 			var created = StoredServices.Single(s => s.Name == "New");
-			Assert.AreEqual("SERVICE-00008", created.ServiceID);
+			Assert.AreEqual("SERVICE-00001", created.ServiceID);
 			Assert.AreEqual("d", created.Description);
 			Services.Verify(r => r.Create(It.IsAny<Service>()), Times.Once);
 		}
@@ -197,11 +197,12 @@
 		[DataTestMethod]
 		[DataRow(null)]
 		[DataRow("  ")]
-		public void CreateService_MissingName_Returns400(string name)
+		public void CreateService_MissingName_UsesAllocatedServiceIdAsName(string name)
 		{
 			var result = Controller.CreateService(new CreateServiceRequest { Name = name });
-			Assert.AreEqual(400, StatusCode(result));
-			StringAssert.Contains(ErrorDetail(result), "'name'");
+			Assert.AreEqual(201, StatusCode(result));
+			Assert.AreEqual("SERVICE-00001", StoredServices.Single().Name);
+			Assert.AreEqual("SERVICE-00001", StoredServices.Single().ServiceID);
 		}
 
 		[TestMethod]
@@ -217,6 +218,25 @@
 			AddService("Dup");
 			Assert.AreEqual(409, StatusCode(Controller.CreateService(new CreateServiceRequest { Name = "Dup" })));
 			Services.Verify(r => r.Create(It.IsAny<Service>()), Times.Never);
+		}
+
+		[DataTestMethod]
+		[DataRow(null)]
+		[DataRow("")]
+		[DataRow("  ")]
+		public void CreateService_DefaultNameAlreadyExists_Returns409WithoutCreatingService(string name)
+		{
+			var existing = AddService("SERVICE-00002", number: 1);
+			IdGenerator.Setup(generator => generator.AllocateServiceId(It.IsAny<Skyline.DataMiner.Automation.IEngine>()))
+				.Returns("SERVICE-00002");
+
+			var result = Controller.CreateService(new CreateServiceRequest { Name = name, GenerateMonitoringService = true });
+
+			Assert.AreEqual(409, StatusCode(result));
+			Assert.AreSame(existing, StoredServices.Single());
+			Services.Verify(repository => repository.Create(It.IsAny<Service>()), Times.Never);
+			MonitoringServices.Verify(manager => manager.Exists(It.IsAny<string>()), Times.Never);
+			MonitoringServices.Verify(manager => manager.Create(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
 		}
 
 		[TestMethod]
@@ -256,20 +276,6 @@
 		{
 			Services.Setup(r => r.Create(It.IsAny<Service>())).Throws(new InvalidOperationException());
 			Assert.AreEqual(500, StatusCode(Controller.CreateService(new CreateServiceRequest { Name = "x" })));
-		}
-
-		[TestMethod]
-		public void CreateService_NextIdCreatedAfterFetch_SkipsToFreeId()
-		{
-			AddService("Existing", number: 7);
-			var fetched = StoredServices.ToList();
-			Services.Setup(r => r.ReadPaged(It.IsAny<IQuery<Service>>(), It.IsAny<int>())).Returns<IQuery<Service>, int>((q, size) => OnePage(fetched, q));
-			AddService("Created meanwhile", number: 8);
-
-			var result = Controller.CreateService(new CreateServiceRequest { Name = "New" });
-
-			Assert.AreEqual(201, StatusCode(result));
-			Assert.AreEqual("SERVICE-00009", StoredServices.Single(s => s.Name == "New").ServiceID);
 		}
 
 		// ---- PATCH /service/{id} ----
@@ -477,26 +483,30 @@
 
 		// ---- POST /service: script parity ----
 		[TestMethod]
-		public void CreateService_CustomServiceId_UsesIt()
+		public void CreateService_AssignsServiceIdFromCounter()
 		{
 			AddService("Existing", number: 7);
-			Assert.AreEqual(201, StatusCode(Controller.CreateService(new CreateServiceRequest { Name = "New", ServiceId = " SERVICE-00100 " })));
+			IdGenerator.Setup(generator => generator.AllocateServiceId(It.IsAny<Skyline.DataMiner.Automation.IEngine>()))
+				.Returns("SERVICE-00100");
+
+			Assert.AreEqual(201, StatusCode(Controller.CreateService(new CreateServiceRequest { Name = "New" })));
 			Assert.AreEqual("SERVICE-00100", StoredServices.Single(s => s.Name == "New").ServiceID);
 		}
 
 		[TestMethod]
-		public void CreateService_InvalidServiceId_Returns400()
+		public void CreateService_RejectsCallerSuppliedServiceId()
 		{
 			var result = Controller.CreateService(new CreateServiceRequest { Name = "New", ServiceId = "SVC-1" });
 			Assert.AreEqual(400, StatusCode(result));
-			StringAssert.Contains(ErrorDetail(result), "'serviceId'");
+			StringAssert.Contains(ErrorDetail(result), "assigned automatically");
+			Services.Verify(r => r.Create(It.IsAny<Service>()), Times.Never);
 		}
 
 		[TestMethod]
-		public void CreateService_ServiceIdInUse_Returns409()
+		public void CreateService_RejectsCallerSuppliedExistingServiceId()
 		{
 			var existing = AddService("Existing", number: 3);
-			Assert.AreEqual(409, StatusCode(Controller.CreateService(new CreateServiceRequest { Name = "New", ServiceId = existing.ServiceID })));
+			Assert.AreEqual(400, StatusCode(Controller.CreateService(new CreateServiceRequest { Name = "New", ServiceId = existing.ServiceID })));
 			Services.Verify(r => r.Create(It.IsAny<Service>()), Times.Never);
 		}
 
@@ -571,9 +581,10 @@
 				Description = "From spec",
 				ServiceItems = new List<ServiceItem>
 				{
+					new ServiceItem(),
 					new ServiceItem { ServiceItemID = 1, Label = "Item", Type = Enum.GetValues(typeof(DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Enums.ServiceItemTypesEnum)).Cast<DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Enums.ServiceItemTypesEnum>().First() },
 				},
-				ServiceItemsRelationships = new List<ServiceItemRelationship>(),
+				ServiceItemsRelationships = new List<ServiceItemRelationship> { new ServiceItemRelationship() },
 			};
 			StoredSpecifications.Add(specification);
 
@@ -582,8 +593,266 @@
 
 			var created = StoredServices.Single(s => s.Name == "New");
 			Assert.AreEqual("From spec", created.Description);
-			Assert.AreEqual("Item", created.ServiceItems.Single().Label);
+			Assert.AreEqual("Item", created.ServiceItems.Single().Label, "The specification's empty placeholder item is not copied.");
 			Assert.IsNull(created.ServiceItems.Single().Type);
+			Assert.AreEqual(0, created.ServiceItemsRelationships.Count, "The specification's empty placeholder relationship is not copied.");
+			Assert.AreEqual(0, StoredVersions.Count, "A specification without configuration gives no configuration version.");
+		}
+
+		[TestMethod]
+		public void CreateService_FromSpecificationWithConfiguration_CreatesNoConfigurationVersion()
+		{
+			var specification = AddSpecificationWithConfiguration(out _, out _, out _);
+
+			var request = new CreateServiceRequest { Name = "New", ServiceSpecificationId = Guid.Parse(specification.Identifier) };
+			Assert.AreEqual(201, StatusCode(Controller.CreateService(request)));
+
+			var created = StoredServices.Single(s => s.Name == "New");
+			Assert.AreEqual(0, StoredVersions.Count);
+			Assert.AreEqual(0, created.ConfigurationVersions.Count);
+			Assert.IsTrue(String.IsNullOrEmpty(created.ServiceConfigurationId.Identifier));
+		}
+
+		[TestMethod]
+		public void UpdateService_NewSpecification_CreatesNoConfigurationVersion()
+		{
+			var service = AddService();
+			var specification = AddSpecificationWithConfiguration(out _, out _, out _);
+
+			var patch = new JObject { ["serviceSpecificationId"] = specification.Identifier };
+			Assert.AreEqual(200, StatusCode(Controller.UpdateService(service.ServiceID, patch)));
+
+			Assert.AreEqual(specification.Identifier, service.ServiceSpecificationId.Identifier);
+			Assert.AreEqual(0, StoredVersions.Count);
+		}
+
+		[TestMethod]
+		public void GetServiceConfiguration_WithSpecification_ReturnsTemplateWithoutSaving()
+		{
+			var specification = AddSpecificationWithConfiguration(out var defaultValue, out var parameterWithoutDefault, out var profile);
+			var service = AddConfigurableService(specification);
+			int valueCount = StoredParameterValues.Count;
+			int profileCount = StoredProfiles.Count;
+
+			var result = Controller.GetServiceConfiguration(service.ServiceID);
+
+			Assert.AreEqual(200, StatusCode(result));
+			var template = Value<List<ConfigurationRecord>>(result).Where(row => row.VersionId == ConfigurationRecord.SpecificationTemplateVersionId).ToList();
+			var parameters = template.Where(row => row.RecordType == "Parameter").ToList();
+			Assert.AreEqual(2, parameters.Count);
+			Assert.AreEqual(defaultValue.Identifier, parameters[0].ParameterValueId);
+			Assert.AreEqual("SRT", parameters[0].ParameterValue);
+			Assert.IsTrue(parameters[0].Mandatory);
+			Assert.AreEqual(parameterWithoutDefault.Identifier, parameters[1].ParameterId);
+			Assert.AreEqual(String.Empty, parameters[1].ParameterValueId);
+			Assert.IsFalse(parameters[1].Mandatory);
+			var profileRow = template.Single(row => row.RecordType == "ProfileParameter");
+			Assert.AreEqual(StoredSpecificationProfiles.Single().Identifier, profileRow.ProfileId);
+			Assert.AreEqual(profile.Identifier, profileRow.ProfileReferenceId);
+			Assert.IsTrue(profileRow.ProfileMandatory);
+			Assert.IsFalse(template.Any(row => row.IsActive));
+
+			Assert.AreEqual(0, StoredVersions.Count);
+			Assert.AreEqual(0, StoredConfigurationValues.Count);
+			Assert.AreEqual(0, StoredServiceProfiles.Count);
+			Assert.AreEqual(valueCount, StoredParameterValues.Count);
+			Assert.AreEqual(profileCount, StoredProfiles.Count);
+		}
+
+		[TestMethod]
+		public void GetServiceConfiguration_WithReusableProfileAtTopLevelAndNested_PreservesBothAssignments()
+		{
+			var definition = new Cfg.ProfileDefinition { Identifier = Guid.NewGuid().ToString(), Name = "Transport" };
+			StoredProfileDefinitions.Add(definition);
+
+			var reusable = new Cfg.Profile
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				Name = "Shared",
+				IsReusable = true,
+				ProfileDefinitionId = new SdmObjectReference<Cfg.ProfileDefinition>(definition.Identifier),
+				Profiles = new List<SdmObjectReference<Cfg.Profile>>(),
+			};
+			var parent = new Cfg.Profile
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				Name = "Parent",
+				ProfileDefinitionId = new SdmObjectReference<Cfg.ProfileDefinition>(definition.Identifier),
+				Profiles = new List<SdmObjectReference<Cfg.Profile>> { new SdmObjectReference<Cfg.Profile>(reusable.Identifier) },
+			};
+			StoredProfiles.Add(parent);
+			StoredProfiles.Add(reusable);
+
+			var nestedAssignment = new ServiceSpecificationProfile
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				ProfileId = new SdmObjectReference<Cfg.Profile>(parent.Identifier),
+			};
+			var topLevelAssignment = new ServiceSpecificationProfile
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				ProfileId = new SdmObjectReference<Cfg.Profile>(reusable.Identifier),
+			};
+			StoredSpecificationProfiles.Add(nestedAssignment);
+			StoredSpecificationProfiles.Add(topLevelAssignment);
+			var specification = new ServiceSpecification
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				Name = "Reusable collision spec",
+				ConfigurationProfiles = new List<SdmObjectReference<ServiceSpecificationProfile>>
+				{
+					new SdmObjectReference<ServiceSpecificationProfile>(nestedAssignment.Identifier),
+					new SdmObjectReference<ServiceSpecificationProfile>(topLevelAssignment.Identifier),
+				},
+			};
+			StoredSpecifications.Add(specification);
+			var service = AddConfigurableService(specification);
+
+			var result = Controller.GetServiceConfiguration(service.ServiceID);
+
+			Assert.AreEqual(200, StatusCode(result));
+			var template = Value<List<ConfigurationRecord>>(result)
+				.Where(row => row.VersionId == ConfigurationRecord.SpecificationTemplateVersionId)
+				.ToList();
+			Assert.IsTrue(template.Any(row => row.RecordType == "Profile"
+				&& row.ProfileId == topLevelAssignment.Identifier
+				&& row.ProfileReferenceId == reusable.Identifier));
+			Assert.IsTrue(template.Any(row => row.RecordType == "NestedProfile"
+				&& row.ProfileId == nestedAssignment.Identifier
+				&& row.NestedProfileId == reusable.Identifier));
+		}
+
+		[TestMethod]
+		public void SaveServiceConfiguration_NewReusableProfile_IsReferencedNotModified()
+		{
+			var service = AddConfigurableService(AddSpecificationWithConfiguration(out _, out _, out var profile));
+			var definition = new Cfg.ProfileDefinition { Identifier = Guid.NewGuid().ToString(), Name = "Transport" };
+			StoredProfileDefinitions.Add(definition);
+			profile.IsReusable = true;
+			profile.ProfileDefinitionId = new SdmObjectReference<Cfg.ProfileDefinition>(definition.Identifier);
+			var request = new ServiceConfigurationRequest
+			{
+				VersionName = "Initial version",
+				ActivateVersion = true,
+				Profiles = new List<ServiceConfigurationProfileRequest>
+				{
+					new ServiceConfigurationProfileRequest { Id = profile.Identifier, Name = "Renamed", DefinitionId = definition.Identifier, Reusable = true, Mandatory = true },
+				},
+			};
+
+			var result = Controller.SaveServiceConfiguration(service.ServiceID, JObject.FromObject(request));
+
+			int statusCode = StatusCode(result);
+			Assert.AreEqual(200, statusCode, statusCode == 200 ? String.Empty : ErrorDetail(result));
+			var serviceProfile = StoredServiceProfiles.Single();
+			Assert.AreEqual(serviceProfile.Identifier, StoredVersions.Single().Profiles.Single().Identifier);
+			Assert.AreEqual(profile.Identifier, serviceProfile.ProfileId.Identifier);
+			Assert.IsTrue(serviceProfile.Mandatory);
+			Assert.AreSame(profile, StoredProfiles.Single());
+			Assert.AreEqual("Transport", profile.Name);
+		}
+
+		[TestMethod]
+		public void SaveServiceConfiguration_ProfileOwnershipError_UsesProfileNameWithoutGuid()
+		{
+			var service = AddConfigurableService(AddSpecificationWithConfiguration(out _, out _, out _));
+			string invalidProfileId = Guid.NewGuid().ToString();
+			var request = new ServiceConfigurationRequest
+			{
+				Profiles = new List<ServiceConfigurationProfileRequest>
+				{
+					new ServiceConfigurationProfileRequest
+					{
+						Id = invalidProfileId,
+						Name = "Shared transport",
+						DefinitionId = Guid.NewGuid().ToString(),
+					},
+				},
+			};
+
+			var result = Controller.SaveServiceConfiguration(service.ServiceID, JObject.FromObject(request));
+
+			Assert.AreEqual(400, StatusCode(result));
+			StringAssert.Contains(ErrorDetail(result), "Shared transport");
+			Assert.IsFalse(ErrorDetail(result).Contains(invalidProfileId));
+		}
+
+		private Service AddConfigurableService(ServiceSpecification specification)
+		{
+			var service = AddService();
+
+			// FullServiceBuilder dereferences these references, so give them identifiers.
+			service.CategoryId = new SdmObjectReference<ServiceCategory>(Guid.NewGuid().ToString());
+			service.ServiceSpecificationId = new SdmObjectReference<ServiceSpecification>(specification.Identifier);
+			service.ServiceConfigurationId = new SdmObjectReference<ServiceConfigurationVersion>(Guid.NewGuid().ToString());
+			return service;
+		}
+
+		/// <summary>
+		/// Adds a specification with a "Protocol" parameter (default "SRT", mandatory at service), a "Bitrate" parameter without
+		/// a default and a profile holding the value "Main" (mandatory at service).
+		/// </summary>
+		private ServiceSpecification AddSpecificationWithConfiguration(out Cfg.ConfigurationParameterValue defaultValue, out Cfg.ConfigurationParameter parameterWithoutDefault, out Cfg.Profile profile)
+		{
+			var protocol = new Cfg.ConfigurationParameter { Identifier = Guid.NewGuid().ToString(), Name = "Protocol" };
+			parameterWithoutDefault = new Cfg.ConfigurationParameter { Identifier = Guid.NewGuid().ToString(), Name = "Bitrate" };
+			StoredParameters.Add(protocol);
+			StoredParameters.Add(parameterWithoutDefault);
+			defaultValue = new Cfg.ConfigurationParameterValue
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				ConfigurationParameterId = new SdmObjectReference<Cfg.ConfigurationParameter>(protocol.Identifier),
+				StringValue = "SRT",
+			};
+			var profileValue = new Cfg.ConfigurationParameterValue { Identifier = Guid.NewGuid().ToString(), StringValue = "Main" };
+			StoredParameterValues.Add(defaultValue);
+			StoredParameterValues.Add(profileValue);
+			profile = new Cfg.Profile
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				Name = "Transport",
+				Profiles = new List<SdmObjectReference<Cfg.Profile>>(),
+				ConfigurationParameterValues = new List<SdmObjectReference<Cfg.ConfigurationParameterValue>> { new SdmObjectReference<Cfg.ConfigurationParameterValue>(profileValue.Identifier) },
+			};
+			StoredProfiles.Add(profile);
+
+			var withDefault = new ServiceSpecificationConfigurationValue
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				ConfigurationParameterId = new SdmObjectReference<Cfg.ConfigurationParameter>(defaultValue.Identifier),
+				MandatoryAtService = true,
+			};
+			var withoutDefault = new ServiceSpecificationConfigurationValue
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				ConfigurationParameterId = new SdmObjectReference<Cfg.ConfigurationParameter>(parameterWithoutDefault.Identifier),
+			};
+			var specificationProfile = new ServiceSpecificationProfile
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				ProfileId = new SdmObjectReference<Cfg.Profile>(profile.Identifier),
+				MandatoryAtService = true,
+			};
+			StoredSpecificationConfigurations.Add(withDefault);
+			StoredSpecificationConfigurations.Add(withoutDefault);
+			StoredSpecificationProfiles.Add(specificationProfile);
+
+			var specification = new ServiceSpecification
+			{
+				Identifier = Guid.NewGuid().ToString(),
+				Name = "Configured spec",
+				ConfigurationParameters = new List<SdmObjectReference<ServiceSpecificationConfigurationValue>>
+				{
+					new SdmObjectReference<ServiceSpecificationConfigurationValue>(withDefault.Identifier),
+					new SdmObjectReference<ServiceSpecificationConfigurationValue>(withoutDefault.Identifier),
+				},
+				ConfigurationProfiles = new List<SdmObjectReference<ServiceSpecificationProfile>>
+				{
+					new SdmObjectReference<ServiceSpecificationProfile>(specificationProfile.Identifier),
+				},
+			};
+			StoredSpecifications.Add(specification);
+			return specification;
 		}
 
 		// ---- PATCH /service/{id}: script parity ----

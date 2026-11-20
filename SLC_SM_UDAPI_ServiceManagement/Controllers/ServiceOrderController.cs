@@ -2,8 +2,10 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 {
 	using System;
 	using System.Collections.Generic;
+	using System.Globalization;
 	using System.Linq;
 	using DomHelpers.SlcServicemanagement;
+	using Library.Dom;
 	using Microsoft.Extensions.Logging;
 	using Newtonsoft.Json.Linq;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
@@ -11,6 +13,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 	using Skyline.DataMiner.SDM;
 	using Skyline.DataMiner.Utils.UserDefinedApiToolkit;
+	using SLC_SM_Common.IdGeneration;
 	using SLC_SM_UDAPI_ServiceManagement.Models.Order;
 	using SLC_SM_UDAPI_ServiceManagement.Exceptions;
 	using SLC_SM_UDAPI_ServiceManagement.Helpers;
@@ -64,6 +67,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 		private readonly ILogger<ServiceOrderController> _logger;
 		private readonly IServiceManagementApiHelper _serviceManagementApiHelper;
 		private readonly IAccessor<IEngine> _engineAccessor;
+		private readonly IServiceManagementIdGenerator _idGenerator;
 
 		/// <summary>
 		/// Initializes a new instance of the <see cref="ServiceOrderController"/> class.
@@ -72,11 +76,16 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 		/// <param name="serviceManagementApiHelper">Access to the service order and service catalog repositories.</param>
 		/// <param name="engineAccessor">Access to the engine, used to read the DOM metadata (created) and the organizations.</param>
 		/// <exception cref="ArgumentNullException">An argument is <see langword="null"/>.</exception>
-		public ServiceOrderController(ILogger<ServiceOrderController> logger, IServiceManagementApiHelper serviceManagementApiHelper, IAccessor<IEngine> engineAccessor)
+		public ServiceOrderController(
+			ILogger<ServiceOrderController> logger,
+			IServiceManagementApiHelper serviceManagementApiHelper,
+			IAccessor<IEngine> engineAccessor,
+			IServiceManagementIdGenerator idGenerator = null)
 		{
 			_logger = logger ?? throw new ArgumentNullException(nameof(logger));
 			_serviceManagementApiHelper = serviceManagementApiHelper ?? throw new ArgumentNullException(nameof(serviceManagementApiHelper));
 			_engineAccessor = engineAccessor ?? throw new ArgumentNullException(nameof(engineAccessor));
+			_idGenerator = idGenerator ?? new ServiceManagementIdGenerator();
 		}
 
 		/// <summary>
@@ -139,7 +148,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 			}
 			catch (InvalidConfigurationException ex)
 			{
-				_logger.LogWarning(ex, "Invalid SaveServiceOrderItemConfiguration request: {Message}", ex.Message);
+				_logger.LogWarning(ex, "Invalid SaveServiceOrderItemConfiguration request: {Message} {Details}", ex.Message, ex.TechnicalDetails);
 				return BadRequest(CreateError("Invalid request", ex.Message, 400));
 			}
 			catch (Exception ex)
@@ -152,8 +161,10 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 		/// <summary>
 		/// Creates a service from an order item's specification and links the service back to the order item.
 		/// </summary>
-		/// <remarks>Copies the item's description, dates and category. Configuration values are copied independently by default;
-		/// set <c>copyConfiguration</c> to false to omit them. An already-linked service is returned without modification.</remarks>
+		/// <remarks>Copies the item's description, dates and category. The item's standalone configuration parameters are copied
+		/// independently by default; the specification's profiles are not copied. Set <c>copyConfiguration</c> to false to omit the
+		/// parameters. When copying, every mandatory configuration parameter of the item must have a value. An already-linked service
+		/// is returned without modification.</remarks>
 		[HttpPost("{id}/item/{itemId}/initializeService")]
 		public IApiResult InitializeServiceFromOrderItem(string id, string itemId, [FromBody] InitializeServiceRequest request = null)
 		{
@@ -170,7 +181,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 			}
 			catch (InvalidConfigurationException ex)
 			{
-				_logger.LogWarning(ex, "Invalid configuration while initializing service for order {OrderId}, item {ItemId}.", id, itemId);
+				_logger.LogWarning(ex, "Invalid configuration while initializing service for order {OrderId}, item {ItemId}: {Message} {Details}", id, itemId, ex.Message, ex.TechnicalDetails);
 				return BadRequest(CreateError("Invalid request", ex.Message, 400));
 			}
 			catch (Exception ex)
@@ -196,7 +207,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 				: item.ServiceInfo.SpecificationId;
 			if (!specificationReference.HasValue || String.IsNullOrWhiteSpace(specificationReference.Value.Identifier))
 			{
-				throw new InvalidConfigurationException("A service specification must be assigned before initializing a service.");
+				throw new InvalidConfigurationException("A service specification must be assigned before initializing a service.", $"Order item '{item.Identifier}'.");
 			}
 
 			var specification = _serviceManagementApiHelper.ServiceCatalog.ServiceSpecifications
@@ -204,7 +215,16 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 				.FirstOrDefault();
 			if (specification == null)
 			{
-				throw new InvalidConfigurationException("The service specification assigned to this order item could not be found.");
+				throw new InvalidConfigurationException("The service specification assigned to this order item could not be found.", $"Order item '{item.Identifier}', specification '{specificationReference.Value.Identifier}'.");
+			}
+
+			if (copyConfiguration)
+			{
+				var missing = FindMissingMandatoryValues(item, specification);
+				if (missing.Count > 0)
+				{
+					throw new InvalidConfigurationException($"Mandatory configuration parameter(s) without a value: {String.Join(", ", missing)}. Fill them in before initializing the service.");
+				}
 			}
 
 			var categoryReference = item.ServiceInfo.ServiceCategoryId;
@@ -223,8 +243,8 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 				ServiceSpecificationId = specificationReference.Value,
 				CategoryId = categoryReference,
 				Icon = category?.Icon ?? String.Empty,
-				ServiceItems = specification.ServiceItems?.ToList() ?? new List<ServiceItem>(),
-				ServiceItemsRelationships = specification.ServiceItemsRelationships?.ToList() ?? new List<ServiceItemRelationship>(),
+				ServiceItems = specification.GetRealServiceItems(),
+				ServiceItemsRelationships = specification.GetRealServiceItemRelationships(),
 			};
 
 			var cleanup = new Stack<Action>();
@@ -233,11 +253,11 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 			{
 				var latestServices = PagedRead.All<Service>(services);
 				service.Identifier = Guid.NewGuid().ToString();
-				service.ServiceID = ServiceIdGenerator.NextFree(services, latestServices.Select(candidate => candidate.ServiceID));
+				service.ServiceID = _idGenerator.AllocateServiceId(_engineAccessor.Value);
 				service.Name = GenerateUniqueServiceName(item.Name, latestServices.Select(candidate => candidate.Name));
 				if (copyConfiguration)
 				{
-					new ServiceDuplicator(_serviceManagementApiHelper).CopyOrderItemConfiguration(item, specification, service, cleanup);
+					new ServiceDuplicator(_serviceManagementApiHelper, _logger).CopyOrderItemConfiguration(item, specification, service, cleanup);
 				}
 
 				cleanup.Push(() => services.Delete(service));
@@ -326,7 +346,8 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 		/// <para>When <c>priority</c> is omitted, the item's position in the order is used.</para>
 		/// <para>
 		/// The item gets its configuration as in <see cref="CreateServiceOrder"/>: the specification values are copied, values in
-		/// <c>configurationValues</c> replace them, and parameters that are mandatory at service order must have a value.
+		/// <c>configurationValues</c> replace them. Parameters that are mandatory at service order and have no value are created
+		/// empty (flagged mandatory) so they can be filled in afterwards through <c>PUT {id}/item/{itemId}/configuration</c>.
 		/// If the request fails before the order is saved, the item and configuration objects created so far are deleted.
 		/// </para>
 		/// </remarks>
@@ -377,8 +398,8 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 
 				var index = order.OrderItems.Count(e => e != null);
 
-				// Resolve and check the specification configuration before anything is created.
-				var plan = BuildConfigurationPlans(new List<CreateServiceOrderItemRequest> { request })[0];
+				// Resolve and check the specification configuration before anything is created. Mandatory values can be filled in afterwards.
+				var plan = BuildConfigurationPlans(new List<CreateServiceOrderItemRequest> { request }, enforceMandatory: false)[0];
 
 				var item = BuildOrderItem(request, index);
 				item.ServiceInfo.Configurations = CreateItemConfigurations(plan, createdConfigurations, createdParameterValues);
@@ -421,7 +442,8 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 		/// Creates a service order with its items.
 		/// </summary>
 		/// <remarks>
-		/// <para><c>POST service-management/v1/serviceOrder</c>. The order ID is generated as <c>ORDER-nnnnnn</c>, one above the highest existing number.</para>
+		/// <para><c>POST service-management/v1/serviceOrder</c>. The order ID is allocated as <c>ORDER-nnnnnn</c> from the central Service Management Mediation counter.
+		/// When <c>name</c> is empty, the allocated order ID is used as the name.</para>
 		/// <para>
 		/// For each item with a <c>serviceSpecificationId</c>, the specification's configuration values are copied to the item.
 		/// Values in the item's <c>configurationValues</c> replace the specification values for the same parameter. Every
@@ -429,7 +451,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 		/// </para>
 		/// <para>If the request fails before the order is created, the items and configuration objects created so far are deleted.</para>
 		/// </remarks>
-		/// <param name="request">The order to create. <c>name</c> is required; items can be added after creating an empty order.</param>
+		/// <param name="request">The order to create. When <c>name</c> is empty, the generated order ID is used as name; items can be added after creating an empty order.</param>
 		/// <returns>
 		/// 201 with the created order; 400 when the request is invalid, a specification does not exist, a supplied parameter is
 		/// not part of its specification, or a parameter that is mandatory at service order has no value; 500 on an unexpected error.
@@ -439,7 +461,6 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 		public IApiResult CreateServiceOrder([FromBody] CreateServiceOrderRequest request)
 		{
 			/* TODO:
-			 * Order ID race: two requests arriving at the same moment could get the same order ID.
 			 * Response format: validate with definition.
 			 */
 			_logger.LogInformation("CreateServiceOrder called with name={Name}", request?.Name);
@@ -457,8 +478,6 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 				var configurationPlans = BuildConfigurationPlans(request.OrderItems);
 
 				var orders = _serviceManagementApiHelper.ServiceOrder.ServiceOrders;
-				var existingOrderIds = PagedRead.All<ServiceOrder>(orders).Select(o => o.OrderId).ToList();
-
 				var items = new List<ServiceOrderItem>();
 				var entries = new List<ServiceOrderEntry>();
 				for (int i = 0; i < request.OrderItems.Count; i++)
@@ -486,11 +505,12 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 					entries.Add(new ServiceOrderEntry { ServiceOrderItemId = item, Priority = itemRequest.Priority ?? i });
 				}
 
+				string orderId = _idGenerator.AllocateServiceOrderId(_engineAccessor.Value);
 				var order = new ServiceOrder
 				{
 					Identifier = Guid.NewGuid().ToString(),
-					OrderId = GenerateOrderId(existingOrderIds),
-					Name = request.Name.Trim(),
+					OrderId = orderId,
+					Name = String.IsNullOrWhiteSpace(request.Name) ? orderId : request.Name.Trim(),
 					ExternalID = request.ExternalId,
 					Priority = ParsePriority(request.Priority),
 					Description = request.Description,
@@ -1092,57 +1112,6 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 			return CursorListFilter.Any(filters);
 		}
 
-		[HttpGet("overview")]
-		public IApiResult GetServiceOrderOverview([FromQuery] int limit = 6)
-		{
-			if (limit < 1 || limit > 50)
-			{
-				return BadRequest(CreateError("Invalid request", "'limit' must be between 1 and 50.", 400));
-			}
-
-			try
-			{
-				var repository = _serviceManagementApiHelper.ServiceOrder.ServiceOrders as IReadableRepository<ServiceOrder>;
-				if (repository == null)
-				{
-					return InternalServerError(CreateError("Internal server error", "The service-order repository does not support overview reads.", 500));
-				}
-
-				var recentOrders = ReadRecentServiceOrders(repository, limit);
-				var overview = _serviceManagementApiHelper.Overview.ReadServiceOrders();
-
-				return Ok(new ServiceOrderOverviewResponse
-				{
-					Items = ToOrderResponses(recentOrders),
-					TotalCount = overview.TotalCount,
-					OpenCount = overview.OpenCount,
-					AttentionCount = overview.AttentionCount,
-					CompletedCount = overview.CompletedCount,
-				});
-			}
-			catch (Exception ex)
-			{
-				_logger.LogError(ex, "GetServiceOrderOverview failed: {Message}", ex.Message);
-				return InternalServerError(CreateError("Internal server error", "An unexpected error occurred while retrieving the service-order overview.", 500));
-			}
-		}
-
-		private IReadOnlyList<ServiceOrder> ReadRecentServiceOrders(IReadableRepository<ServiceOrder> repository, int limit)
-		{
-			return repository.ReadCursorPage(
-				ServiceOrderExposers.OrderId,
-				order => order.OrderId ?? String.Empty,
-				CursorKeySerialization.SerializeString,
-				CursorKeySerialization.DeserializeString,
-				ServiceOrderExposers.Identifier,
-				order => order.Identifier,
-				CursorKeySerialization.SerializeString,
-				CursorKeySerialization.DeserializeString,
-				limit: limit,
-				descending: true,
-				secondaryDescending: true).Items;
-		}
-
 		/// <summary>
 		/// Moves a service order to another status.
 		/// </summary>
@@ -1155,7 +1124,8 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 		/// <para>
 		/// The order's items follow the order: <c>acknowledged</c> acknowledges new items; <c>rejected</c> rejects every item and
 		/// retires terminated linked services; <c>inProgress</c> (from <c>acknowledged</c>) starts acknowledged and pending items
-		/// and initializes a service for each. <c>completed</c> requires all items to be completed or cancelled, and
+		/// and initializes a service for each; those items need a specification and a value for every mandatory configuration parameter.
+		/// <c>completed</c> requires all items to be completed or cancelled, and
 		/// <c>cancelled</c> requires all items to be cancelled. Items are checked before anything changes and moved before the order.
 		/// </para>
 		/// </remarks>
@@ -1521,7 +1491,8 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 		/// <para>
 		/// The configuration is rebuilt only when <c>serviceSpecificationId</c> or <c>configurationValues</c> is present. With a
 		/// new specification, it is built from that specification plus the supplied values. With the same specification,
-		/// parameters not in the request keep the item's current values. Mandatory parameters are checked in both cases.
+		/// parameters not in the request keep the item's current values. Mandatory parameters without a value are created empty
+		/// (flagged mandatory) so they can be filled in through the item configuration.
 		/// The previous configuration is deleted after the item is saved; if saving fails, the new configuration is deleted.
 		/// </para>
 		/// <para><c>priority</c> is saved on the order after the item; if that fails, the item changes are kept.</para>
@@ -1667,7 +1638,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 					ServiceId = ToGuid(item.ServiceInfo.ServiceId.Identifier),
 				});
 
-				// Rebuild the configuration when the specification or the values change; mandatory parameters are checked here.
+				// Rebuild the configuration when the specification or the values change; mandatory values can be filled in afterwards.
 				var oldConfigurationIds = new List<string>();
 				if (Has(patch, "serviceSpecificationId") || Has(patch, "configurationValues"))
 				{
@@ -1687,7 +1658,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 					var plan = BuildConfigurationPlans(new List<CreateServiceOrderItemRequest>
 					{
 						new CreateServiceOrderItemRequest { ServiceSpecificationId = mergedSpecificationId, ConfigurationValues = suppliedValues },
-					})[0];
+					}, enforceMandatory: false)[0];
 
 					item.ServiceInfo.Configurations = CreateItemConfigurations(plan, createdConfigurations, createdParameterValues);
 				}
@@ -1793,20 +1764,6 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 			return response;
 		}
 
-		/// <summary>Generates the next order ID as <c>ORDER-nnnnnn</c>, one above the highest existing number.</summary>
-		/// <param name="existingOrderIds">The existing order IDs.</param>
-		/// <returns>The new order ID. Not safe against concurrent requests.</returns>
-		private static string GenerateOrderId(IEnumerable<string> existingOrderIds)
-		{
-			int max = existingOrderIds
-				.Where(id => !String.IsNullOrEmpty(id))
-				.Select(id => Int32.TryParse(id.Split('-').Last(), out int number) ? number : 0)
-				.DefaultIfEmpty(0)
-				.Max();
-
-			return $"ORDER-{max + 1:000000}";
-		}
-
 		private static string GenerateUniqueServiceName(string requestedName, IEnumerable<string> existingServiceNames)
 		{
 			string baseName = String.IsNullOrWhiteSpace(requestedName) ? "Service" : requestedName.Trim();
@@ -1838,12 +1795,142 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 			return patch.TryGetValue(property, StringComparison.OrdinalIgnoreCase, out _);
 		}
 
-		/// <summary>Checks whether a configuration parameter value holds a text or numeric value.</summary>
-		/// <param name="value">The value, or <see langword="null"/>.</param>
-		/// <returns><see langword="true"/> when a value is present.</returns>
-		private static bool HasValue(ConfigurationModels.ConfigurationParameterValue value)
+		/// <summary>Gets a readable name for a configuration parameter: the value's label, else the parameter's name, else the parameter ID.</summary>
+		private string GetParameterDisplayName(string parameterId, ConfigurationModels.ConfigurationParameterValue value)
 		{
-			return value != null && (!String.IsNullOrWhiteSpace(value.StringValue) || value.DoubleValue != null);
+			if (!String.IsNullOrWhiteSpace(value?.Label))
+			{
+				return value.Label;
+			}
+
+			string name = String.IsNullOrWhiteSpace(parameterId)
+				? null
+				: _serviceManagementApiHelper.ServiceCatalog.ConfigurationParameters
+					.Read(ConfigurationModels.ConfigurationParameterExposers.Identifier.Equal(parameterId))
+					.FirstOrDefault()?.Name;
+			return String.IsNullOrWhiteSpace(name) ? parameterId : name;
+		}
+
+		/// <summary>Gets the names of the item's order- or service-stage mandatory configuration parameters that have no value.</summary>
+		/// <param name="item">The order item.</param>
+		/// <param name="specification">The item's service specification, or <see langword="null"/>.</param>
+		/// <param name="cache">Optional cache of specification parameter instances per specification ID, shared across items.</param>
+		private List<string> FindMissingMandatoryValues(
+			ServiceOrderItem item,
+			ServiceSpecification specification,
+			IDictionary<string, List<SpecificationParameterInstance>> cache = null)
+		{
+			var missing = new List<string>();
+			var availableSpecificationInstances = GetSpecificationParameterInstances(specification, cache).ToList();
+			var configurationIds = (item?.ServiceInfo?.Configurations ?? new List<SdmObjectReference<ServiceOrderItemConfigurationValue>>())
+				.Select(reference => reference.Identifier)
+				.Where(id => !String.IsNullOrWhiteSpace(id))
+				.Distinct(StringComparer.OrdinalIgnoreCase)
+				.ToList();
+
+			var configurations = FullServiceBuilder.ReadById(
+				configurationIds,
+				id => ServiceOrderItemConfigurationValueExposers.Identifier.Equal(id),
+				filter => _serviceManagementApiHelper.ServiceOrder.ServiceOrderItemConfigurationValues.Read(filter),
+				configuration => configuration.Identifier);
+			var values = ReadParameterValues(configurations.Values.Select(configuration => configuration.ConfigurationParameterValueId.Identifier));
+
+			// Configurations that cannot be read are skipped here; initializing the service reports them.
+			var itemConfigurations = configurationIds
+				.Where(configurations.ContainsKey)
+				.Select(id => configurations[id])
+				.ToList();
+			var itemValues = itemConfigurations
+				.Select(configuration =>
+				{
+					string valueId = configuration.ConfigurationParameterValueId.Identifier;
+					return !String.IsNullOrWhiteSpace(valueId) && values.TryGetValue(valueId, out var found) ? found : null;
+				})
+				.ToList();
+			var matches = SpecificationParameterInstanceMatcher.MatchAll(itemValues, availableSpecificationInstances);
+
+			for (int i = 0; i < itemConfigurations.Count; i++)
+			{
+				var value = itemValues[i];
+				var specificationInstance = matches[i];
+				bool mandatory = itemConfigurations[i].Mandatory || specificationInstance?.MandatoryAtService == true;
+				if (mandatory && !SpecificationParameterInstance.HasValue(value))
+				{
+					missing.Add(GetMissingParameterName(value?.ConfigurationParameterId.Identifier ?? specificationInstance?.ParameterId, value?.Label, specificationInstance?.Label));
+				}
+			}
+
+			// A parameter that is not on the item but has a specification default is copied with that default when the service is initialized.
+			foreach (var instance in availableSpecificationInstances.Where(instance => instance.MandatoryAtService && !instance.HasDefault))
+			{
+				missing.Add(GetMissingParameterName(instance.ParameterId, instance.Label, null));
+			}
+
+			return missing.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+		}
+
+		/// <summary>Gets a user-facing name for a missing parameter: a label, else the parameter's name, without exposing record IDs.</summary>
+		private string GetMissingParameterName(string parameterId, string valueLabel, string specificationLabel)
+		{
+			string label = ConfigurationRequestHelper.FirstNonEmpty(valueLabel, specificationLabel);
+			if (!String.IsNullOrWhiteSpace(label))
+			{
+				return label;
+			}
+
+			return GetParameterDisplayName(parameterId, null) ?? "Unnamed parameter";
+		}
+
+		private List<SpecificationParameterInstance> GetSpecificationParameterInstances(
+			ServiceSpecification specification,
+			IDictionary<string, List<SpecificationParameterInstance>> cache)
+		{
+			string key = specification?.Identifier;
+			if (cache != null && !String.IsNullOrWhiteSpace(key) && cache.TryGetValue(key, out var cached))
+			{
+				return cached;
+			}
+
+			var result = ReadSpecificationParameterInstances(specification);
+			if (cache != null && !String.IsNullOrWhiteSpace(key))
+			{
+				cache[key] = result;
+			}
+
+			return result;
+		}
+
+		/// <summary>Reads all specification parameter instances, preserving their order and service-stage flags.</summary>
+		private List<SpecificationParameterInstance> ReadSpecificationParameterInstances(ServiceSpecification specification)
+		{
+			var configurationIds = (specification?.ConfigurationParameters ?? new List<SdmObjectReference<ServiceSpecificationConfigurationValue>>())
+				.Select(reference => reference.Identifier)
+				.Where(id => !String.IsNullOrWhiteSpace(id))
+				.Distinct(StringComparer.OrdinalIgnoreCase)
+				.ToList();
+			var configurations = FullServiceBuilder.ReadById(
+				configurationIds,
+				id => ServiceSpecificationConfigurationValueExposers.Identifier.Equal(id),
+				filter => _serviceManagementApiHelper.ServiceCatalog.ServiceSpecificationConfigurationValues.Read(filter),
+				configuration => configuration.Identifier);
+
+			// The reference holds a parameter value ID, or the parameter ID itself when the specification has no default.
+			var values = ReadParameterValues(
+				configurations.Values
+					.Select(configuration => configuration.ConfigurationParameterId.Identifier)
+					.Where(id => !String.IsNullOrWhiteSpace(id)));
+			return SpecificationParameterInstance.Create(
+				configurationIds.Where(configurations.ContainsKey).Select(id => configurations[id]),
+				values);
+		}
+
+		private Dictionary<string, ConfigurationModels.ConfigurationParameterValue> ReadParameterValues(IEnumerable<string> ids)
+		{
+			return FullServiceBuilder.ReadById(
+				ids,
+				id => ConfigurationModels.ConfigurationParameterValueExposers.Identifier.Equal(id),
+				filter => _serviceManagementApiHelper.ServiceCatalog.ConfigurationParameterValues.Read(filter),
+				value => value.Identifier);
 		}
 
 		/// <summary>Indexes the configuration values supplied for one order item by configuration parameter ID.</summary>
@@ -2122,8 +2209,25 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 					return blocking.Count == 0 ? null : $"The order can only be rejected while all order items are new or acknowledged and their linked services, if any, are terminated or retired. Blocking items: {ItemNames(blocking)}.";
 
 				case OrderTransition.Acknowledged_To_Inprogress:
-					blocking = items.Where(item => IsStartableItem(item) && FindLinkedService(item) == null && !HasExistingSpecification(item)).ToList();
-					return blocking.Count == 0 ? null : $"A service specification must be assigned to every order item before the order can be started. Missing for: {ItemNames(blocking)}.";
+					var unlinked = items.Where(item => IsStartableItem(item) && FindLinkedService(item) == null).ToList();
+					var specifications = FullServiceBuilder.ReadById(
+						unlinked.Select(SpecificationIdOf),
+						id => ServiceSpecificationExposers.Identifier.Equal(id),
+						filter => _serviceManagementApiHelper.ServiceCatalog.ServiceSpecifications.Read(filter),
+						specification => specification.Identifier);
+					blocking = unlinked.Where(item => !specifications.ContainsKey(SpecificationIdOf(item) ?? String.Empty)).ToList();
+					if (blocking.Count > 0)
+					{
+						return $"A service specification must be assigned to every order item before the order can be started. Missing for: {ItemNames(blocking)}.";
+					}
+
+					var mandatoryCache = new Dictionary<string, List<SpecificationParameterInstance>>(StringComparer.OrdinalIgnoreCase);
+					var incomplete = unlinked
+						.Select(item => new { Item = item, Missing = FindMissingMandatoryValues(item, specifications[SpecificationIdOf(item)], mandatoryCache) })
+						.Where(entry => entry.Missing.Count > 0)
+						.Select(entry => $"{ItemNames(new[] { entry.Item })} ({String.Join(", ", entry.Missing)})")
+						.ToList();
+					return incomplete.Count == 0 ? null : $"Mandatory configuration parameters must have a value before the order can be started. Missing for: {String.Join("; ", incomplete)}.";
 
 				case OrderTransition.Inprogress_To_Completed:
 					blocking = items.Where(item => item.Status != ItemStatus.Completed && item.Status != ItemStatus.Cancelled).ToList();
@@ -2189,13 +2293,9 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 				|| linkedService.Status == ServiceStatus.Retired;
 		}
 
-		private bool HasExistingSpecification(ServiceOrderItem item)
+		private static string SpecificationIdOf(ServiceOrderItem item)
 		{
-			string specificationId = item.ServiceInfo == null ? null : item.ServiceInfo.SpecificationId.Identifier;
-			return !String.IsNullOrWhiteSpace(specificationId)
-				&& _serviceManagementApiHelper.ServiceCatalog.ServiceSpecifications
-					.Read(ServiceSpecificationExposers.Identifier.Equal(specificationId))
-					.Any();
+			return item?.ServiceInfo == null ? null : item.ServiceInfo.SpecificationId.Identifier;
 		}
 
 		private static bool IsStartableItem(ServiceOrderItem item)
@@ -2241,17 +2341,12 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 
 		/// <summary>Validates the order-level fields of a create request.</summary>
 		/// <param name="request">The request.</param>
-		/// <exception cref="InvalidQueryException">The body, <c>name</c> or items are missing, or <c>priority</c> is invalid.</exception>
+		/// <exception cref="InvalidQueryException">The body is missing, items contain null, or <c>priority</c> is invalid.</exception>
 		private static void ValidateCreateRequest(CreateServiceOrderRequest request)
 		{
 			if (request == null)
 			{
 				throw new InvalidQueryException("A request body is required.");
-			}
-
-			if (String.IsNullOrWhiteSpace(request.Name))
-			{
-				throw new InvalidQueryException("'name' is required.");
 			}
 
 			request.OrderItems = request.OrderItems ?? new List<CreateServiceOrderItemRequest>();
@@ -2305,12 +2400,16 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 		/// </summary>
 		/// <remarks>Only the referenced specifications and values are read, each once per call.</remarks>
 		/// <param name="itemRequests">The order items in the request.</param>
+		/// <param name="enforceMandatory">
+		/// When <see langword="true"/>, a parameter that is mandatory at service order must have a value. When <see langword="false"/>,
+		/// such a parameter is planned without a value (still flagged mandatory) so it can be filled in on the created item.
+		/// </param>
 		/// <returns>One list of configuration entries per order item, in request order.</returns>
 		/// <exception cref="InvalidQueryException">
 		/// A specification does not exist; values are supplied without a specification; a supplied value is invalid, duplicated or
-		/// not part of the specification; or a parameter that is mandatory at service order has no value.
+		/// not part of the specification; or, with <paramref name="enforceMandatory"/>, a parameter that is mandatory at service order has no value.
 		/// </exception>
-		private List<List<ConfigurationPlanEntry>> BuildConfigurationPlans(IList<CreateServiceOrderItemRequest> itemRequests)
+		private List<List<ConfigurationPlanEntry>> BuildConfigurationPlans(IList<CreateServiceOrderItemRequest> itemRequests, bool enforceMandatory = true)
 		{
 			var plans = new List<List<ConfigurationPlanEntry>>();
 			if (itemRequests.All(r => r.ServiceSpecificationId == null && (r.ConfigurationValues == null || r.ConfigurationValues.Count == 0)))
@@ -2325,6 +2424,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 			var specificationCache = new Dictionary<Guid, ServiceSpecification>();
 			var specificationConfigurationCache = new Dictionary<string, ServiceSpecificationConfigurationValue>(StringComparer.OrdinalIgnoreCase);
 			var parameterValueCache = new Dictionary<string, ConfigurationModels.ConfigurationParameterValue>(StringComparer.OrdinalIgnoreCase);
+			var parameterValueByIdCache = new Dictionary<string, ConfigurationModels.ConfigurationParameterValue>(StringComparer.OrdinalIgnoreCase);
 
 			ServiceSpecification GetSpecification(Guid id)
 			{
@@ -2362,6 +2462,19 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 							v => String.Equals(v.ConfigurationParameterId.Identifier, parameterId, StringComparison.OrdinalIgnoreCase)))
 						.FirstOrDefault();
 					parameterValueCache[parameterId] = value;
+				}
+
+				return value;
+			}
+
+			ConfigurationModels.ConfigurationParameterValue GetParameterValueById(string valueId)
+			{
+				if (!parameterValueByIdCache.TryGetValue(valueId, out var value))
+				{
+					value = catalog.ConfigurationParameterValues
+						.Read(ConfigurationModels.ConfigurationParameterValueExposers.Identifier.Equal(valueId))
+						.FirstOrDefault();
+					parameterValueByIdCache[valueId] = value;
 				}
 
 				return value;
@@ -2407,8 +2520,15 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 						continue;
 					}
 
-					string parameterId = specificationConfiguration.ConfigurationParameterId.Identifier;
-					var sourceValue = GetParameterValue(parameterId);
+					// The reference holds either the specification's parameter value ID or a configuration parameter ID.
+					string referenceId = specificationConfiguration.ConfigurationParameterId.Identifier;
+					var sourceValue = GetParameterValueById(referenceId);
+					string parameterId = sourceValue?.ConfigurationParameterId.Identifier;
+					if (String.IsNullOrEmpty(parameterId))
+					{
+						parameterId = referenceId;
+						sourceValue = GetParameterValue(parameterId);
+					}
 
 					supplied.TryGetValue(parameterId, out var suppliedValue);
 					if (suppliedValue != null)
@@ -2418,14 +2538,14 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 
 					bool hasValue = suppliedValue != null
 						? !String.IsNullOrWhiteSpace(suppliedValue.StringValue) || suppliedValue.DoubleValue != null
-						: HasValue(sourceValue);
-					if (specificationConfiguration.MandatoryAtServiceOrder && !hasValue)
+						: SpecificationParameterInstance.HasValue(sourceValue);
+					if (enforceMandatory && specificationConfiguration.MandatoryAtServiceOrder && !hasValue)
 					{
-						missing.Add(sourceValue?.Label ?? parameterId);
+						missing.Add(GetParameterDisplayName(parameterId, sourceValue));
 						continue;
 					}
 
-					if (sourceValue != null || suppliedValue != null)
+					if (sourceValue != null || suppliedValue != null || specificationConfiguration.MandatoryAtServiceOrder)
 					{
 						plan.Add(new ConfigurationPlanEntry
 						{

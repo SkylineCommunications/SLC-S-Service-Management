@@ -10,6 +10,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 	using Skyline.DataMiner.SDM;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
 	using Skyline.DataMiner.Utils.UserDefinedApiToolkit;
+	using SLC_SM_Common.IdGeneration;
 	using SLC_SM_UDAPI_ServiceManagement.Exceptions;
 	using SLC_SM_UDAPI_ServiceManagement.Helpers;
 	using SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory;
@@ -140,7 +141,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 			}
 			catch (InvalidConfigurationException ex)
 			{
-				_logger.LogWarning(ex, "Invalid SaveServiceConfiguration request: {Message}", ex.Message);
+				_logger.LogWarning(ex, "Invalid SaveServiceConfiguration request: {Message}", ex);
 				return BadRequest(CreateError("Invalid request", ex.Message, 400));
 			}
 			catch (Exception ex)
@@ -168,8 +169,9 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 					return NotFound(CreateError("Not found", $"Service '{id?.Trim()}' does not exist.", 404));
 				}
 
-				var services = serviceManagementApiHelper.ServiceInventory.Services;
-				var duplicate = new ServiceDuplicator(serviceManagementApiHelper).Duplicate(source, ServiceIdGenerator.NextFree(services));
+				string serviceId = idGenerator.AllocateServiceId(engineAccessor.Value);
+				var duplicate = new ServiceDuplicator(serviceManagementApiHelper)
+					.Duplicate(source, serviceId);
 				return Created(duplicate);
 			}
 			catch (Exception ex)
@@ -182,7 +184,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 		/// <summary>
 		/// Duplicates a single configuration version of a service as a new, inactive version.
 		/// </summary>
-		[HttpPost("{id}/configurationVersion/{versionId}/duplicate")]
+		[HttpPost("{id}/configuration/{versionId}/duplicate")]
 		public IApiResult DuplicateConfigurationVersion([FromRoute] string id, [FromRoute] string versionId)
 		{
 			try

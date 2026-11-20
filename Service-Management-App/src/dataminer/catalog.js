@@ -12,7 +12,8 @@ import {
     fetchCatalogSpecification,
     fetchCatalogSpecificationConfiguration,
     fetchCatalogSpecificationCursorPage,
-    fetchCatalogSpecificationOverview,
+    OVERVIEW_PAGE,
+    toOverview,
     fetchCatalogSpecificationList,
     saveCatalogSpecificationConfiguration,
     updateCatalogCategory,
@@ -64,8 +65,8 @@ export async function fetchServiceSpecificationPage(options = {}) {
     };
 }
 
-export async function fetchServiceSpecificationOverview(options = {}) {
-    const overview = await fetchCatalogSpecificationOverview(options);
+export async function fetchServiceSpecificationOverview() {
+    const overview = toOverview(await fetchCatalogSpecificationCursorPage(OVERVIEW_PAGE));
     return {
         ...overview,
         items: overview.items.map(mapUdapiSpecification),

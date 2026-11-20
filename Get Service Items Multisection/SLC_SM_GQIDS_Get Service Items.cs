@@ -158,13 +158,18 @@ namespace SLC_SM_GQIDS_Get_Service_Items
 
 		private ImplementationItemInfo GetImplementationDetails(SlcServicemanagementIds.Enums.ServiceItemTypesEnum type, string referenceId, string definitionReference)
 		{
-			if (String.IsNullOrEmpty(referenceId) || !Guid.TryParse(referenceId, out Guid id) || !_dms.DomModelExists(SlcWorkflowIds.ModuleId))
+			if (String.IsNullOrEmpty(referenceId) || !Guid.TryParse(referenceId, out Guid id))
 			{
 				return new ImplementationItemInfo();
 			}
 
 			if (type == SlcServicemanagementIds.Enums.ServiceItemTypesEnum.Workflow)
 			{
+				if (!_dms.DomModelExists(SlcWorkflowIds.ModuleId))
+				{
+					return new ImplementationItemInfo();
+				}
+
 				var inst = new DomHelper(_dms.SendMessages, SlcWorkflowIds.ModuleId).DomInstances.Read(DomInstanceExposers.Id.Equal(id)).FirstOrDefault();
 				if (inst == null)
 				{

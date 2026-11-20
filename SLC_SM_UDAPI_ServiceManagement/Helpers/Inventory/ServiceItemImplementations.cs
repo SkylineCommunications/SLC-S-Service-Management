@@ -30,6 +30,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 		private const string BookingScriptDescription = "Booking Manager Element Info";
 		private const int BookingManagerScriptPid = 195;
 		private readonly IEngine engine;
+		private readonly Dictionary<string, BookingManagerLinks> bookingManagerLinks = new Dictionary<string, BookingManagerLinks>(StringComparer.OrdinalIgnoreCase);
 		private bool? workflowModelExists;
 		private bool? relationshipModelExists;
 
@@ -52,7 +53,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 					return DescribeJob(id);
 
 				case SlcServicemanagementIds.Enums.ServiceItemTypesEnum.SRMBooking:
-					return DescribeBooking(id);
+					return DescribeBooking(id, item.DefinitionReference);
 
 				default:
 					return null;
@@ -327,7 +328,45 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 				.FirstOrDefault();
 		}
 
-		private ServiceItemImplementation DescribeBooking(Guid id)
+		private BookingManagerLinks ReadBookingManagerLinks(string bookingManagerName)
+		{
+			if (String.IsNullOrWhiteSpace(bookingManagerName))
+			{
+				return BookingManagerLinks.Empty;
+			}
+
+			if (!bookingManagerLinks.TryGetValue(bookingManagerName, out BookingManagerLinks links))
+			{
+				try
+				{
+					var element = engine.SendSLNetSingleResponseMessage(new GetElementByNameMessage(bookingManagerName)) as ElementInfoEventMessage;
+					links = new BookingManagerLinks(
+						element?.GetPropertyValue("App Link")?.Trim() ?? String.Empty,
+						element?.GetPropertyValue("Booking Log Location")?.Trim() ?? String.Empty);
+				}
+				catch
+				{
+					links = BookingManagerLinks.Empty;
+				}
+
+				bookingManagerLinks[bookingManagerName] = links;
+			}
+
+			return links;
+		}
+
+		// Same format as the Get Service Items data source: {Booking Log Location}/{booking name}.html.
+		internal static string BuildBookingLogUrl(string logLocation, string bookingName)
+		{
+			if (String.IsNullOrWhiteSpace(logLocation) || String.IsNullOrWhiteSpace(bookingName))
+			{
+				return String.Empty;
+			}
+
+			return $"{logLocation.Trim().TrimEnd('/')}/{Uri.EscapeDataString(bookingName)}.html";
+		}
+
+		private ServiceItemImplementation DescribeBooking(Guid id, string bookingManagerName)
 		{
 			var reservation = ReadReservation(id) as ServiceReservationInstance;
 			if (reservation == null)
@@ -341,11 +380,15 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 				ServiceID = reservation.ServiceID.SID,
 			}) as ServiceStateEventMessage;
 
+			var links = ReadBookingManagerLinks(bookingManagerName);
 			return new ServiceItemImplementation
 			{
 				Name = reservation.Name,
 				State = reservation.Status.ToString(),
 				MonitoringServiceState = serviceState?.Level.ToString(),
+				MonitoringServiceId = serviceState != null ? $"{serviceState.DataMinerID}/{serviceState.ServiceID}" : String.Empty,
+				BookingUrl = links.AppLink,
+				BookingLogUrl = BuildBookingLogUrl(links.LogLocation, reservation.Name),
 			};
 		}
 

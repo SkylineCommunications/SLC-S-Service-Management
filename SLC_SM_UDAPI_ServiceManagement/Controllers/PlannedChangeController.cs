@@ -23,7 +23,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 	/// Kept in its own controller so the route cannot clash with <c>service-management/v1/service/{id}</c>.
 	/// </remarks>
 	[ApiController]
-	[Route("service-management/v1/plannedChange")]
+	[Route("service-management/v1/service/plannedChange")]
 	public sealed class PlannedChangeController : ControllerBase
 	{
 		private const int MaxLimit = 500;
@@ -216,7 +216,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 		private List<PlannedChange> BuildPlannedChanges(IEnumerable<Service> candidates, DateTime referenceDate, bool full)
 		{
 			var services = (candidates ?? Enumerable.Empty<Service>())
-				.Where(s => s != null && (!s.EndTime.HasValue || s.EndTime.Value.ToUniversalTime() > referenceDate))
+				// .Where(s => s != null && (!s.EndTime.HasValue || s.EndTime.Value.ToUniversalTime() > referenceDate))
 				.Where(s => s != null && s.ServiceConfigurationId != null && s.ServiceConfigurationId.Identifier != null && s.ConfigurationVersions != null && s.ConfigurationVersions.Count > 1)
 				.Where(s => s.Status != DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Service_Behavior.StatusesEnum.Terminated
  					&& s.Status != DomHelpers.SlcServicemanagement.SlcServicemanagementIds.Behaviors.Service_Behavior.StatusesEnum.Retired)

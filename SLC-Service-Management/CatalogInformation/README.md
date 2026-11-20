@@ -46,7 +46,7 @@ Every capability in the app is also available through the **Service Management u
 ## Prerequisites
 
 - [Standard Data Model Registration](https://catalog.dataminer.services/details/52173e49-9185-4772-9b60-c186ee365a81) (version 2.x)
-- [DOM ImportExport](https://catalog.dataminer.services/details/8ce7d7af-62f6-4cfd-8687-663e24f3c5be) (version 1.0.x)
+- [Skyline Service Management Mediation](https://catalog.dataminer.services/details/c0aac375-1dbf-4119-9172-1e34d531afac) (version 1.0.0.x)
 - *Optional:* [MediaOps](https://catalog.dataminer.services/details/1b67a623-4ca6-4d25-8b3d-ed4e39496a75), only needed to automate service items as MediaOps jobs.
 - *Optional:* DataMiner SRM license, only needed to automate service items as SRM bookings.
 
