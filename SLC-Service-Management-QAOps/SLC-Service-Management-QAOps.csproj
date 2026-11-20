@@ -45,8 +45,9 @@
 	</ItemGroup>
 
 	<!-- A ProjectReference to a Package project is reinterpreted by the SDK as a script reference, so the solution
-	     package is built with an MSBuild task; its own CopyDmappToQaOpsTestPackage target bundles the .dmapp here. -->
-	<Target Name="EnsureSolutionPackageBundled" BeforeTargets="DmappCreation">
+	     package is built with an MSBuild task; its own CopyDmappToQaOpsTestPackage target bundles the .dmapp here.
+	     BeforeTargets hooks run even when DmappCreation is skipped, so CI validation builds (GenerateDataMinerPackage=false) must skip this too. -->
+	<Target Name="EnsureSolutionPackageBundled" BeforeTargets="DmappCreation" Condition="'$(GenerateDataMinerPackage)' == 'true'">
 		<MSBuild Projects="$(MSBuildThisFileDirectory)..\SLC-Service-Management\SLC-Service-Management.csproj" Targets="Build" Properties="Configuration=$(Configuration)" />
 		<ItemGroup>
 			<_BundledSolutionDmapp Include="$(MSBuildThisFileDirectory)TestPackageContent\Dependencies\SLC-Service-Management.*.dmapp" />
