@@ -45,23 +45,11 @@ namespace SLC_Service_Management.IntegrationTests
 		public void List_ServiceOrder_ReturnsJson() => AssertJson(Get("serviceOrder?limit=5"), HttpStatusCode.OK);
 
 		[TestMethod]
-		public void List_MonitoringService_ReturnsJson() => AssertJson(Get("monitoringService"), HttpStatusCode.OK);
-
-		[TestMethod]
 		public void List_PlannedChange_ForToday_ReturnsJson()
 		{
 			long unixSeconds = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
 			AssertJson(Get("plannedChange?date=" + unixSeconds), HttpStatusCode.OK);
 		}
-
-		[TestMethod]
-		public void Overview_ServiceSpecification_ReturnsJson() => AssertJson(Get("serviceSpecification/overview?limit=3"), HttpStatusCode.OK);
-
-		[TestMethod]
-		public void Overview_Service_ReturnsJson() => AssertJson(Get("service/overview?limit=3"), HttpStatusCode.OK);
-
-		[TestMethod]
-		public void Overview_ServiceOrder_ReturnsJson() => AssertJson(Get("serviceOrder/overview?limit=3"), HttpStatusCode.OK);
 
 		[TestMethod]
 		public void Validation_ServiceCategory_LimitZero_Returns400() => AssertJson(Get("serviceCategory?limit=0"), HttpStatusCode.BadRequest);

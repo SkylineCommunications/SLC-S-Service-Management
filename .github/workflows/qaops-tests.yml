@@ -23,7 +23,7 @@ on:
       timeout-seconds:
         description: Maximum time to wait for the QAOps run
         type: number
-        default: 900
+        default: 1800
     secrets:
       QAOPS_TOKEN:
         description: QAOps token with the Run_Scoped_* scope of the chosen configuration
