@@ -6,7 +6,7 @@
 
 	<PropertyGroup>
 		<DataMinerType>TestPackage</DataMinerType>
-		<GenerateDataMinerPackage>True</GenerateDataMinerPackage>
+		<GenerateDataMinerPackage>False</GenerateDataMinerPackage>
 		<MinimumRequiredDmVersion>10.6.8</MinimumRequiredDmVersion>
 		<Version>1.0.0</Version>
 		<VersionComment>Service Management regression tests</VersionComment>
