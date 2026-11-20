@@ -221,6 +221,25 @@ namespace SLC_SM_UDAPI_ServiceManagement.Tests.Controllers
 			Services.Verify(r => r.Create(It.IsAny<Service>()), Times.Never);
 		}
 
+		[DataTestMethod]
+		[DataRow(null)]
+		[DataRow("")]
+		[DataRow("  ")]
+		public void CreateService_DefaultNameAlreadyExists_Returns409WithoutCreatingService(string name)
+		{
+			var existing = AddService("SERVICE-00002", number: 1);
+			IdGenerator.Setup(generator => generator.AllocateServiceId(It.IsAny<Skyline.DataMiner.Automation.IEngine>()))
+				.Returns("SERVICE-00002");
+
+			var result = Controller.CreateService(new CreateServiceRequest { Name = name, GenerateMonitoringService = true });
+
+			Assert.AreEqual(409, StatusCode(result));
+			Assert.AreSame(existing, StoredServices.Single());
+			Services.Verify(repository => repository.Create(It.IsAny<Service>()), Times.Never);
+			MonitoringServices.Verify(manager => manager.Exists(It.IsAny<string>()), Times.Never);
+			MonitoringServices.Verify(manager => manager.Create(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+		}
+
 		[TestMethod]
 		public void CreateService_UnknownSpecification_Returns400()
 		{

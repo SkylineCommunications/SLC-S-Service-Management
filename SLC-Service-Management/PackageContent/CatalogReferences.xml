@@ -1,6 +1,5 @@
 <CatalogReferences xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns="http://www.skyline.be/catalogReferences">
 
-	<!-- TODO: Add the Service Management Mediation catalog reference once its Catalog ID is provided. -->
 	<CatalogReference id="52173e49-9185-4772-9b60-c186ee365a81">
 		<Name>1.Standard Data Model Registration</Name>
 		<Selection>
@@ -10,6 +9,13 @@
 
 	<CatalogReference id="8ce7d7af-62f6-4cfd-8687-663e24f3c5be">
 		<Name>2.DOM ImportExport</Name>
+		<Selection>
+			<Range>1.0.0</Range>
+		</Selection>
+	</CatalogReference>
+
+	<CatalogReference id="c0aac375-1dbf-4119-9172-1e34d531afac">
+		<Name>3.Skyline Service Management Mediation</Name>
 		<Selection>
 			<Range>1.0.0</Range>
 		</Selection>

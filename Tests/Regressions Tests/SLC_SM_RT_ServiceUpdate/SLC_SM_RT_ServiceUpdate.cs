@@ -39,7 +39,7 @@ namespace SLC_SM_RT_ServiceUpdate
 
 		private const string TestArea = "ServiceInventory";
 		private const string TestName = "ServiceUpdate";
-		private const string TestDescription = "Edits an active service (identifier, name, category, timing and indefinite runtime) and verifies the update persists without affecting its links, state and configuration.";
+		private const string TestDescription = "Edits an active service (name, category, timing and indefinite runtime), preserves its ID, links, state and configuration, and verifies ID changes are rejected without modifying the service.";
 
 		/// <summary>
 		/// Entry point.
@@ -87,6 +87,7 @@ namespace SLC_SM_RT_ServiceUpdate
 				new ActivateServiceTestCase(testData),
 				new EditServiceTestCase(testData, "FixedEnd", indefiniteRuntime: false),
 				new ValidateServiceUpdateTestCase(testData, "FixedEnd"),
+				new RefusedServiceIdChangeTestCase(testData),
 				new EditServiceTestCase(testData, "Indefinite", indefiniteRuntime: true),
 				new ValidateServiceUpdateTestCase(testData, "Indefinite", cleanUpAfterwards: true));
 

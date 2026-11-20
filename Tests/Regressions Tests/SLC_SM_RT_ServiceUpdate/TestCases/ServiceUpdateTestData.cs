@@ -66,8 +66,6 @@ namespace SLC_SM_RT_ServiceUpdate.TestCases
 		/// </summary>
 		public ServiceSnapshot Baseline { get; private set; }
 
-		public string ExpectedServiceIdentifier { get; private set; } = String.Empty;
-
 		public string ExpectedName { get; private set; } = String.Empty;
 
 		public DateTime? ExpectedStartTime { get; private set; }
@@ -207,14 +205,18 @@ namespace SLC_SM_RT_ServiceUpdate.TestCases
 			DateTime start = new DateTime(now.Year, now.Month, now.Day, now.Hour, now.Minute, now.Second, DateTimeKind.Utc).AddDays(1);
 			DateTime end = start.AddDays(30);
 
-			ExpectedServiceIdentifier = $"RT-SVC-{stage}-{Guid.NewGuid()}";
+			if (Baseline == null)
+			{
+				throw new InvalidOperationException("A service baseline must be recorded before building an edit payload.");
+			}
+
 			ExpectedName = $"RT_ServiceUpdate_{stage}_{Guid.NewGuid()}";
 			ExpectedStartTime = start;
 			ExpectedEndTime = indefiniteRuntime ? (DateTime?)null : end;
 
 			var payload = new
 			{
-				ServiceID = ExpectedServiceIdentifier,
+				ServiceID = Baseline.ServiceIdentifier,
 				Name = ExpectedName,
 				Category = CategoryName,
 				Specification = SpecificationName,

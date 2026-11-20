@@ -21,6 +21,7 @@ namespace SLC_SM_RT_ServiceUpdate.TestCases
 			}
 
 			Identifier = service.Identifier;
+			ServiceIdentifier = service.ServiceID;
 			Status = service.Status.ToString();
 			Description = service.Description ?? String.Empty;
 			SpecificationId = service.ServiceSpecificationId != null ? service.ServiceSpecificationId.Identifier ?? String.Empty : String.Empty;
@@ -39,6 +40,8 @@ namespace SLC_SM_RT_ServiceUpdate.TestCases
 		}
 
 		public string Identifier { get; }
+
+		public string ServiceIdentifier { get; }
 
 		public string Status { get; }
 

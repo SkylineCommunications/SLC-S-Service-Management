@@ -136,6 +136,10 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 
 				string serviceId = idGenerator.AllocateServiceId(engineAccessor.Value);
 				string name = String.IsNullOrEmpty(requestedName) ? serviceId : requestedName;
+				if (String.IsNullOrEmpty(requestedName) && services.Read(ServiceExposers.Name.Equal(name)).Any())
+				{
+					return Conflict(CreateError("Conflict", $"A service with name '{name}' already exists.", 409));
+				}
 
 				bool generateMonitoringService = request.GenerateMonitoringService ?? false;
 				if (generateMonitoringService && monitoringServices.Exists(name))

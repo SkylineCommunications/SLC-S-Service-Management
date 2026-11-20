@@ -12,6 +12,7 @@ namespace SLC_SM_Common.IdGeneration
 	using Skyline.DataMiner.Core.DataMinerSystem.Common;
 	using Skyline.DataMiner.Core.InterAppCalls.Common.CallBulk;
 	using Skyline.DataMiner.Core.InterAppCalls.Common.Shared;
+	using Skyline.DataMiner.Net.Exceptions;
 	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
@@ -119,12 +120,14 @@ namespace SLC_SM_Common.IdGeneration
 			var inventory = connection.GetServiceManagementApiHelper("Service Inventory");
 			var ordering = connection.GetServiceManagementApiHelper("Service Ordering");
 
-			int highestServiceId = HighestExistingServiceSuffix(inventory);
-			int highestServiceOrderId = HighestExistingServiceOrderSuffix(ordering);
+			long highestServiceId = HighestExistingServiceSuffix(inventory);
+			long highestServiceOrderId = HighestExistingServiceOrderSuffix(ordering);
+			long serviceFloor = checked(highestServiceId + 1L);
+			long serviceOrderFloor = checked(highestServiceOrderId + 1L);
 
 			IDmsElement element = GetCounterElement(engine);
-			long nextServiceId = Reserve(engine, element, ServiceCounter, highestServiceId + 1L, allocate: false);
-			long nextServiceOrderId = Reserve(engine, element, ServiceOrderCounter, highestServiceOrderId + 1L, allocate: false);
+			long nextServiceId = Reserve(engine, element, ServiceCounter, serviceFloor, allocate: false);
+			long nextServiceOrderId = Reserve(engine, element, ServiceOrderCounter, serviceOrderFloor, allocate: false);
 
 			engine.Log(
 				$"SynchronizeCounters|Highest existing Service suffix: {highestServiceId}, next: {nextServiceId}. " +
@@ -137,10 +140,83 @@ namespace SLC_SM_Common.IdGeneration
 			SynchronizeCounters(engine);
 		}
 
-		private static string Allocate(IEngine engine, Counter counter, Func<string, bool> idExists, Func<int> highestExistingSuffix)
+		/// <summary>Returns the initial reservation floor, recovering missing or reset counters from existing records.</summary>
+		/// <param name="next">The counter's current next value, if available.</param>
+		/// <param name="highestExistingSuffix">Reads the highest suffix currently stored.</param>
+		/// <returns>The minimum number the first atomic reservation may issue.</returns>
+		internal static long GetInitialReservationFloor(long? next, Func<long> highestExistingSuffix)
+		{
+			// Seed a missing/reset counter before reserving, even when its first ID was deleted.
+			return !next.HasValue || next.Value <= 1
+				? Math.Max(1L, checked(highestExistingSuffix() + 1L))
+				: 1L;
+		}
+
+		/// <summary>Finds the highest Int64 suffix among IDs with the specified prefix.</summary>
+		/// <param name="ids">The existing IDs.</param>
+		/// <param name="prefix">The ID prefix to match.</param>
+		/// <returns>The highest valid suffix, or zero when none exists.</returns>
+		internal static long HighestSuffix(IEnumerable<string> ids, string prefix)
+		{
+			return (ids ?? Enumerable.Empty<string>())
+				.Where(id => !String.IsNullOrWhiteSpace(id)
+					&& id.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+				.Select(id => Int64.TryParse(id.Substring(prefix.Length), NumberStyles.None, CultureInfo.InvariantCulture, out long value) ? value : 0L)
+				.DefaultIfEmpty(0L)
+				.Max();
+		}
+
+		/// <summary>Discovers the counter or creates it on the lowest-ID Agent, recovering a competing creation.</summary>
+		/// <param name="dms">The system containing the counter.</param>
+		/// <param name="log">Writes recovery diagnostics.</param>
+		/// <param name="creationTimeout">The maximum time to discover the created element.</param>
+		/// <returns>The running counter element.</returns>
+		internal static IDmsElement FindOrCreateCounterElement(IDms dms, Action<string> log, TimeSpan creationTimeout)
+		{
+			var protocol = dms.GetProtocol(ProtocolName, "Production");
+			var elements = dms.GetElements().Where(IsCounterElement).ToList();
+
+			if (elements.Count > 1)
+			{
+				throw new InvalidOperationException($"Expected one '{ProtocolName}' element, but found {elements.Count}. Remove the duplicate elements and retry.");
+			}
+
+			IDmsElement element = elements.SingleOrDefault();
+			if (element == null)
+			{
+				// Every caller targets the same Agent and name; never fail over creation to another Agent.
+				var owner = dms.GetAgents().OrderBy(agent => agent.Id).FirstOrDefault()
+					?? throw new InvalidOperationException($"No DataMiner Agent is available to host the '{CounterElementName}' element.");
+				element = CreateOrDiscoverCounterElement(dms, owner, protocol, log, creationTimeout);
+			}
+
+			string productionVersion = protocol.ReferencedVersion;
+			if (!IsCounterElement(element)
+				|| (!String.Equals(element.Protocol.Version, "Production", StringComparison.OrdinalIgnoreCase)
+					&& !String.Equals(element.Protocol.Version, productionVersion, StringComparison.OrdinalIgnoreCase)))
+			{
+				throw new InvalidOperationException($"The existing '{CounterElementName}' element is not using the production '{ProtocolName}' protocol.");
+			}
+
+			if (!IsRunning(element))
+			{
+				element.Start();
+				DmsElementId elementId = element.DmsElementId;
+				if (!WaitFor(() => IsRunning(dms.GetElement(elementId)), TimeSpan.FromMinutes(2)))
+				{
+					throw new TimeoutException($"The '{CounterElementName}' element did not become active.");
+				}
+
+				element = dms.GetElement(elementId);
+			}
+
+			return element;
+		}
+
+		private static string Allocate(IEngine engine, Counter counter, Func<string, bool> idExists, Func<long> highestExistingSuffix)
 		{
 			IDmsElement element = GetCounterElement(engine);
-			long floor = 1;
+			long floor = GetInitialReservationFloor(ReadCounter(element, counter.ParameterId), highestExistingSuffix);
 
 			for (int attempt = 0; attempt < MaxAllocationAttempts; attempt++)
 			{
@@ -153,7 +229,7 @@ namespace SLC_SM_Common.IdGeneration
 
 				// The counter is behind the stored records (e.g. the element was recreated): skip past them.
 				engine.Log($"Allocate|{counter.Name} ID '{id}' already exists; raising the counter above the existing records.");
-				floor = Math.Max(number, highestExistingSuffix()) + 1;
+				floor = checked(Math.Max(number, highestExistingSuffix()) + 1L);
 			}
 
 			throw new InvalidOperationException($"Could not allocate a unique {counter.Name} ID after {MaxAllocationAttempts} attempts.");
@@ -161,16 +237,12 @@ namespace SLC_SM_Common.IdGeneration
 
 		// Preview only: nothing is reserved, so the ID returned by the real allocation on save can differ
 		// when another user allocates in between.
-		private static string Peek(IEngine engine, Counter counter, Func<int> highestExistingSuffix)
+		private static string Peek(IEngine engine, Counter counter, Func<long> highestExistingSuffix)
 		{
 			IDmsElement element = GetCounterElement(engine);
 			long next = ReadCounter(element, counter.ParameterId) ?? 1;
 
-			// A counter at its default value means the element was (re)created; preview past the existing records.
-			if (next <= 1)
-			{
-				next = Math.Max(next, highestExistingSuffix() + 1L);
-			}
+			next = Math.Max(next, GetInitialReservationFloor(next, highestExistingSuffix));
 
 			return counter.Format(next);
 		}
@@ -238,60 +310,68 @@ namespace SLC_SM_Common.IdGeneration
 
 		private static IDmsElement EnsureCounterElementCore(IEngine engine)
 		{
+			// This mutex only reduces local contention; cross-Agent recovery uses one creation owner and name.
 			using (ElementCreationLock.Acquire())
 			{
-				return FindOrCreateCounterElement(engine);
+				return FindOrCreateCounterElement(engine.GetDms(), message => engine.Log(message), TimeSpan.FromMinutes(2));
 			}
 		}
 
-		private static IDmsElement FindOrCreateCounterElement(IEngine engine)
+		private static IDmsElement CreateOrDiscoverCounterElement(
+			IDms dms,
+			IDma owner,
+			IDmsProtocol protocol,
+			Action<string> log,
+			TimeSpan creationTimeout)
 		{
-			IDms dms = engine.GetDms();
-			var protocol = dms.GetProtocol(ProtocolName, "Production");
-			var elements = dms.GetElements().Where(IsCounterElement).ToList();
-
-			if (elements.Count > 1)
+			IDmsElement element = DiscoverCounterElement(owner);
+			if (element != null)
 			{
-				throw new InvalidOperationException($"Expected one '{ProtocolName}' element, but found {elements.Count}. Remove the duplicate elements and retry.");
+				return element;
 			}
 
-			IDmsElement element;
-			if (elements.Count == 1)
+			try
 			{
-				element = elements[0];
-				string productionVersion = protocol.ReferencedVersion;
-				if (!String.Equals(element.Protocol.Version, "Production", StringComparison.OrdinalIgnoreCase)
-					&& !String.Equals(element.Protocol.Version, productionVersion, StringComparison.OrdinalIgnoreCase))
-				{
-					throw new InvalidOperationException($"The existing '{ProtocolName}' element is not using the production protocol version.");
-				}
+				owner.CreateElement(new ElementConfiguration(dms, CounterElementName, protocol));
 			}
-			else
+			catch (Exception ex) when (ex is DmsException || ex is DataMinerException || ex is TimeoutException)
 			{
-				var agent = dms.GetAgents().FirstOrDefault()
-					?? throw new InvalidOperationException($"No DataMiner Agent is available to host the '{CounterElementName}' element.");
-				DmsElementId elementId = agent.CreateElement(new ElementConfiguration(dms, CounterElementName, protocol));
-				if (!WaitFor(() => dms.ElementExists(elementId), TimeSpan.FromMinutes(2)))
+				if (WaitForCounterElement(owner, creationTimeout, out element))
 				{
-					throw new TimeoutException($"The '{CounterElementName}' element was not available after creation.");
+					log($"CreateOrDiscoverCounterElement|Creation failed on Agent {owner.Id}, but the named element is now available; using the competing creation. {ex.GetType().Name}");
+					return element;
 				}
 
-				element = dms.GetElement(elementId);
+				throw;
 			}
 
-			if (!IsRunning(element))
+			if (!WaitForCounterElement(owner, creationTimeout, out element))
 			{
-				element.Start();
-				DmsElementId elementId = element.DmsElementId;
-				if (!WaitFor(() => IsRunning(dms.GetElement(elementId)), TimeSpan.FromMinutes(2)))
-				{
-					throw new TimeoutException($"The '{CounterElementName}' element did not become active.");
-				}
-
-				element = dms.GetElement(elementId);
+				throw new TimeoutException($"The '{CounterElementName}' element was not available on Agent {owner.Id} after creation.");
 			}
 
 			return element;
+		}
+
+		private static bool WaitForCounterElement(IDma owner, TimeSpan timeout, out IDmsElement element)
+		{
+			IDmsElement discovered = DiscoverCounterElement(owner);
+			bool found = discovered != null || WaitFor(() => (discovered = DiscoverCounterElement(owner)) != null, timeout);
+			element = discovered;
+			return found;
+		}
+
+		private static IDmsElement DiscoverCounterElement(IDma owner)
+		{
+			try
+			{
+				return owner.ElementExists(CounterElementName) ? owner.GetElement(CounterElementName) : null;
+			}
+			catch (ElementNotFoundException)
+			{
+				// Deleted between the existence check and read; keep waiting for the replacement.
+				return null;
+			}
 		}
 
 		private static bool IsCounterElement(IDmsElement element)
@@ -310,7 +390,7 @@ namespace SLC_SM_Common.IdGeneration
 			return value.HasValue ? (long)value.Value : (long?)null;
 		}
 
-		private static int HighestExistingServiceSuffix(IServiceManagementApiHelper inventory)
+		private static long HighestExistingServiceSuffix(IServiceManagementApiHelper inventory)
 		{
 			var ids = new List<string>();
 			foreach (var page in inventory.ServiceInventory.Services.ReadPaged(new TRUEFilterElement<ServiceManagementService>(), ReadPageSize))
@@ -325,7 +405,7 @@ namespace SLC_SM_Common.IdGeneration
 			return HighestSuffix(ids, ServiceCounter.Prefix);
 		}
 
-		private static int HighestExistingServiceOrderSuffix(IServiceManagementApiHelper ordering)
+		private static long HighestExistingServiceOrderSuffix(IServiceManagementApiHelper ordering)
 		{
 			var ids = new List<string>();
 			foreach (var page in ordering.ServiceOrder.ServiceOrders.ReadPaged(new TRUEFilterElement<ServiceOrder>(), ReadPageSize))
@@ -338,16 +418,6 @@ namespace SLC_SM_Common.IdGeneration
 			}
 
 			return HighestSuffix(ids, ServiceOrderCounter.Prefix);
-		}
-
-		private static int HighestSuffix(IEnumerable<string> ids, string prefix)
-		{
-			return (ids ?? Enumerable.Empty<string>())
-				.Where(id => !String.IsNullOrWhiteSpace(id)
-					&& id.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-				.Select(id => Int32.TryParse(id.Substring(prefix.Length), NumberStyles.None, CultureInfo.InvariantCulture, out int value) ? value : 0)
-				.DefaultIfEmpty(0)
-				.Max();
 		}
 
 		private static bool WaitFor(Func<bool> condition, TimeSpan timeout)
