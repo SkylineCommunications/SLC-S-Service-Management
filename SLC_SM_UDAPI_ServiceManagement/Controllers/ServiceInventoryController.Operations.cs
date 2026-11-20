@@ -10,6 +10,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 	using Skyline.DataMiner.SDM;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
 	using Skyline.DataMiner.Utils.UserDefinedApiToolkit;
+	using SLC_SM_Common.IdGeneration;
 	using SLC_SM_UDAPI_ServiceManagement.Exceptions;
 	using SLC_SM_UDAPI_ServiceManagement.Helpers;
 	using SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory;
@@ -168,8 +169,9 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 					return NotFound(CreateError("Not found", $"Service '{id?.Trim()}' does not exist.", 404));
 				}
 
-				var services = serviceManagementApiHelper.ServiceInventory.Services;
-				var duplicate = new ServiceDuplicator(serviceManagementApiHelper).Duplicate(source, ServiceIdGenerator.NextFree(services));
+				string serviceId = idGenerator.AllocateServiceId(engineAccessor.Value);
+				var duplicate = new ServiceDuplicator(serviceManagementApiHelper)
+					.Duplicate(source, serviceId);
 				return Created(duplicate);
 			}
 			catch (Exception ex)

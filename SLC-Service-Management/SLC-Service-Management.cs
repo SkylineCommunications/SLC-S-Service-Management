@@ -24,11 +24,13 @@ internal partial class Script
 			engine.GenerateInformation("Starting installation");
 
 			solutionInstaller.InstallDefaultContent();
+			solutionInstaller.UpdateMediationConnector();
 			solutionInstaller.DeployMediaOpsDependencies();
 			solutionInstaller.ExportLegacyData();
 			solutionInstaller.InstallSolutionDom();
 			solutionInstaller.DeployDataMinerApp();
 			solutionInstaller.MigrateLegacyData();
+			solutionInstaller.InitializeServiceManagementCounters();
 			//solutionInstaller.DeployAssistantContext();
 			//solutionInstaller.RegisterAssistantTools();
 			solutionInstaller.RegisterSolution();

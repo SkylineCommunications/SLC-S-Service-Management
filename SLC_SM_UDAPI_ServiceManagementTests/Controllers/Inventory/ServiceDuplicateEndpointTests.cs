@@ -36,7 +36,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Tests.Controllers
 
 			Assert.AreEqual(201, StatusCode(result));
 			var duplicate = StoredServices.Single(service => !ReferenceEquals(service, source));
-			Assert.AreEqual("SERVICE-00002", duplicate.ServiceID);
+			Assert.AreEqual("SERVICE-00001", duplicate.ServiceID);
 			Assert.IsFalse(duplicate.GenerateMonitoringService);
 			Assert.AreEqual(String.Empty, duplicate.MonitoringService);
 			Assert.AreEqual(1, duplicate.ServiceItems.Count);

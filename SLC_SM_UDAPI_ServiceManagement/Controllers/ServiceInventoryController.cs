@@ -15,6 +15,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 	using Skyline.DataMiner.SDM;
 	using Skyline.DataMiner.SDM.OData;
 	using Skyline.DataMiner.Utils.UserDefinedApiToolkit;
+	using SLC_SM_Common.IdGeneration;
 	using SLC_SM_UDAPI_ServiceManagement.Exceptions;
 	using SLC_SM_UDAPI_ServiceManagement.Helpers;
 	using SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory;
@@ -60,6 +61,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 		private readonly IMonitoringServiceManager monitoringServices;
 		private readonly IServiceOrganizationRepository organizations;
 		private readonly IServiceManagementApiHelper serviceManagementApiHelper;
+		private readonly IServiceManagementIdGenerator idGenerator;
 
 		private sealed class ServiceFieldSelector
 		{
@@ -80,7 +82,8 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 			IAccessor<IEngine> engineAccessor,
 			IMonitoringServiceManager monitoringServices,
 			IServiceOrganizationRepository organizations,
-			IServiceItemImplementations itemImplementations)
+			IServiceItemImplementations itemImplementations,
+			IServiceManagementIdGenerator idGenerator = null)
 		{
 			_logger = logger ?? throw new ArgumentNullException(nameof(logger));
 			this.serviceManagementApiHelper = serviceManagementApiHelper ?? throw new ArgumentNullException(nameof(serviceManagementApiHelper));
@@ -88,6 +91,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 			this.monitoringServices = monitoringServices ?? throw new ArgumentNullException(nameof(monitoringServices));
 			this.organizations = organizations ?? throw new ArgumentNullException(nameof(organizations));
 			this.itemImplementations = itemImplementations ?? throw new ArgumentNullException(nameof(itemImplementations));
+			this.idGenerator = idGenerator ?? new ServiceManagementIdGenerator();
 			_translator = new ODataSdmTranslator<Service>();
 		}
 
@@ -104,6 +108,10 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 			try
 			{
 				ValidateCreateRequest(request);
+				if (!String.IsNullOrWhiteSpace(request.ServiceId))
+				{
+					return BadRequest(CreateError("Invalid request", "Service ID is assigned automatically and cannot be supplied.", 400));
+				}
 
 				var catalog = serviceManagementApiHelper.ServiceCatalog;
 
@@ -120,8 +128,15 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 				ValidateOrganization(request.OrganizationId);
 
 				var services = serviceManagementApiHelper.ServiceInventory.Services;
-				string name = request.Name.Trim();
-				if (services.Read(ServiceExposers.Name.Equal(name)).Any())
+				string requestedName = request.Name?.Trim();
+				if (!String.IsNullOrEmpty(requestedName) && services.Read(ServiceExposers.Name.Equal(requestedName)).Any())
+				{
+					return Conflict(CreateError("Conflict", $"A service with name '{requestedName}' already exists.", 409));
+				}
+
+				string serviceId = idGenerator.AllocateServiceId(engineAccessor.Value);
+				string name = String.IsNullOrEmpty(requestedName) ? serviceId : requestedName;
+				if (String.IsNullOrEmpty(requestedName) && services.Read(ServiceExposers.Name.Equal(name)).Any())
 				{
 					return Conflict(CreateError("Conflict", $"A service with name '{name}' already exists.", 409));
 				}
@@ -152,13 +167,8 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 					ConfigurationVersions = new List<SdmObjectReference<ServiceConfigurationVersion>>(),
 				};
 
-				if (!String.IsNullOrWhiteSpace(request.ServiceId) && ServiceIdGenerator.IsTaken(services, request.ServiceId.Trim()))
-				{
-					return Conflict(CreateError("Conflict", $"A service with ID '{request.ServiceId.Trim()}' already exists.", 409));
-				}
-
 				service.Identifier = Guid.NewGuid().ToString();
-				service.ServiceID = String.IsNullOrWhiteSpace(request.ServiceId) ? ServiceIdGenerator.NextFree(services) : request.ServiceId.Trim();
+				service.ServiceID = serviceId;
 				services.Create(service);
 
 				// Resolve the monitoring service before the organization association.
@@ -1000,16 +1010,6 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 			if (request == null)
 			{
 				throw new InvalidQueryException("A request body is required.");
-			}
-
-			if (String.IsNullOrWhiteSpace(request.Name))
-			{
-				throw new InvalidQueryException("'name' is required.");
-			}
-
-			if (!String.IsNullOrWhiteSpace(request.ServiceId) && !ServiceIdPattern.IsMatch(request.ServiceId.Trim()))
-			{
-				throw new InvalidQueryException("'serviceId' must use the format SERVICE-<number>.");
 			}
 
 			if (request.StartTime.HasValue && request.EndTime.HasValue && request.EndTime.Value < request.StartTime.Value)

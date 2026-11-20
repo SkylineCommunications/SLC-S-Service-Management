@@ -103,12 +103,7 @@ test.describe('Service Management workspace', () => {
         await expect(form.getByText('Name already exists!', { exact: true })).toBeVisible();
         await expect(save).toBeDisabled();
 
-        await form.getByRole('textbox', { name: 'Service ID' }).fill('SERVICE-1');
-        await expect(form.getByText('Service ID already exists!', { exact: true })).toBeVisible();
-        await form.getByRole('textbox', { name: 'Service ID' }).fill('SVC-NEW-001');
-        await expect(form.getByText('Service ID must look like SERVICE-123.', { exact: true })).toBeVisible();
-        await expect(save).toBeDisabled();
-        await form.getByRole('textbox', { name: 'Service ID' }).fill('SERVICE-2');
+        await expect(form.getByRole('textbox', { name: 'Service ID', exact: true })).toHaveCount(0);
         await form.getByRole('textbox', { name: 'Name' }).fill('New service');
         await expect(save).toBeEnabled();
 
@@ -482,7 +477,7 @@ test.describe('Service Management workspace', () => {
 
         await page.getByRole('button', { name: 'Add service', exact: true }).click();
         const createForm = page.getByRole('form', { name: 'New service' });
-        await createForm.getByRole('textbox', { name: 'Service ID' }).fill('SERVICE-7');
+        await expect(createForm.getByRole('textbox', { name: 'Service ID', exact: true })).toHaveCount(0);
         await createForm.getByRole('textbox', { name: 'Name' }).fill('UDAPI service');
         await createForm.getByRole('combobox', { name: 'Category' }).selectOption('Production');
         await createForm.getByRole('combobox', { name: 'Service specification' }).selectOption('Managed switching');
@@ -494,7 +489,9 @@ test.describe('Service Management workspace', () => {
         await expect(createForm).toBeHidden();
         const create = lastRequest(3);
         expect(create.Route).toBe(SERVICES_ROUTE);
-        expect(JSON.parse(create.Body)).toMatchObject({ serviceId: 'SERVICE-7', name: 'UDAPI service', category: { name: 'Production' }, serviceSpecificationId: 'spec-1', organizationId: 'org-1', endTime: null, generateMonitoringService: true, monitoringService: '12/34' });
+        const createBody = JSON.parse(create.Body);
+        expect(createBody).toMatchObject({ name: 'UDAPI service', category: { name: 'Production' }, serviceSpecificationId: 'spec-1', organizationId: 'org-1', endTime: null, generateMonitoringService: true, monitoringService: '12/34' });
+        expect(createBody).not.toHaveProperty('serviceId');
         const createdRow = page.locator('.service-row').filter({ hasText: 'UDAPI service' });
         await expect(createdRow).toBeVisible();
 
@@ -1122,9 +1119,9 @@ test.describe('Service Management workspace', () => {
         const rows = page.locator('.order-row');
         await expect(rows).toHaveCount(3);
         const network = rows.filter({ hasText: 'Network refresh' });
-        for (const text of ['SO-1042', 'Skyline Broadcast', 'High priority', 'In Progress']) await expect(network).toContainText(text);
+        for (const text of ['ORDER-000001', 'Skyline Broadcast', 'High priority', 'In Progress']) await expect(network).toContainText(text);
         const studio = rows.filter({ hasText: 'Studio expansion' });
-        for (const text of ['7A2D3B81', 'Acme Media', 'Medium priority', 'New']) await expect(studio).toContainText(text);
+        for (const text of ['ORDER-000002', 'Acme Media', 'Medium priority', 'New']) await expect(studio).toContainText(text);
         await expect(rows.filter({ hasText: 'Backup link' }).locator('.state-badge')).toHaveText('Completed');
         await expect(page.getByTestId('open-orders')).toHaveText('2');
         await expect(page.getByText('3 orders in total')).toBeVisible();
@@ -1190,7 +1187,7 @@ test.describe('Service Management workspace', () => {
     test('shows the order pop-up with lifecycle progress, fulfillment and item cards', { tag: '@D7' }, async ({ page }) => {
         await page.locator('.order-row').filter({ hasText: 'Network refresh' }).getByRole('button', { name: 'Open details of Network refresh' }).click();
         const panel = page.getByRole('dialog', { name: 'Network refresh' });
-        await expect(panel.locator('.order-modal-header')).toContainText('Service order · ID 6F1C2A90');
+        await expect(panel.locator('.order-modal-header')).toContainText('Service order · ID ORDER-000001');
         await expect(panel.locator('.priority-chip')).toHaveText('High priority');
         await expect(panel.locator('.order-stepper li.done')).toHaveText([/New$/, /Acknowledged$/]);
         await expect(panel.locator('.order-stepper li[aria-current="step"]')).toContainText('In Progress');

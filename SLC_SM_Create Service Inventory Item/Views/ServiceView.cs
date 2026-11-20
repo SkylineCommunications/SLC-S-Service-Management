@@ -19,7 +19,7 @@
 			AddWidget(LblServiceId, row, 0);
 			AddWidget(ServiceId, row, 1, 1, 2);
 
-			ServiceId.IsEnabled = action == Defaults.ScriptAction_CreateServiceInventoryItem.Add || action == Defaults.ScriptAction_CreateServiceInventoryItem.Duplicate;
+			ServiceId.IsEnabled = false;
 
 			AddWidget(LblName, ++row, 0);
 			AddWidget(TboxName, row, 1, 1, 2);

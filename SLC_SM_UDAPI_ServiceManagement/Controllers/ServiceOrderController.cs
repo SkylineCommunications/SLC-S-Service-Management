@@ -13,6 +13,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 	using Skyline.DataMiner.SDM;
 	using Skyline.DataMiner.Utils.UserDefinedApiToolkit;
+	using SLC_SM_Common.IdGeneration;
 	using SLC_SM_UDAPI_ServiceManagement.Models.Order;
 	using SLC_SM_UDAPI_ServiceManagement.Exceptions;
 	using SLC_SM_UDAPI_ServiceManagement.Helpers;
@@ -66,6 +67,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 		private readonly ILogger<ServiceOrderController> _logger;
 		private readonly IServiceManagementApiHelper _serviceManagementApiHelper;
 		private readonly IAccessor<IEngine> _engineAccessor;
+		private readonly IServiceManagementIdGenerator _idGenerator;
 
 		/// <summary>
 		/// Initializes a new instance of the <see cref="ServiceOrderController"/> class.
@@ -74,11 +76,16 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 		/// <param name="serviceManagementApiHelper">Access to the service order and service catalog repositories.</param>
 		/// <param name="engineAccessor">Access to the engine, used to read the DOM metadata (created) and the organizations.</param>
 		/// <exception cref="ArgumentNullException">An argument is <see langword="null"/>.</exception>
-		public ServiceOrderController(ILogger<ServiceOrderController> logger, IServiceManagementApiHelper serviceManagementApiHelper, IAccessor<IEngine> engineAccessor)
+		public ServiceOrderController(
+			ILogger<ServiceOrderController> logger,
+			IServiceManagementApiHelper serviceManagementApiHelper,
+			IAccessor<IEngine> engineAccessor,
+			IServiceManagementIdGenerator idGenerator = null)
 		{
 			_logger = logger ?? throw new ArgumentNullException(nameof(logger));
 			_serviceManagementApiHelper = serviceManagementApiHelper ?? throw new ArgumentNullException(nameof(serviceManagementApiHelper));
 			_engineAccessor = engineAccessor ?? throw new ArgumentNullException(nameof(engineAccessor));
+			_idGenerator = idGenerator ?? new ServiceManagementIdGenerator();
 		}
 
 		/// <summary>
@@ -246,7 +253,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 			{
 				var latestServices = PagedRead.All<Service>(services);
 				service.Identifier = Guid.NewGuid().ToString();
-				service.ServiceID = ServiceIdGenerator.NextFree(services, latestServices.Select(candidate => candidate.ServiceID));
+				service.ServiceID = _idGenerator.AllocateServiceId(_engineAccessor.Value);
 				service.Name = GenerateUniqueServiceName(item.Name, latestServices.Select(candidate => candidate.Name));
 				if (copyConfiguration)
 				{
@@ -435,7 +442,8 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 		/// Creates a service order with its items.
 		/// </summary>
 		/// <remarks>
-		/// <para><c>POST service-management/v1/serviceOrder</c>. The order ID is generated as <c>ORDER-nnnnnn</c>, one above the highest existing number.</para>
+		/// <para><c>POST service-management/v1/serviceOrder</c>. The order ID is allocated as <c>ORDER-nnnnnn</c> from the central Service Management Mediation counter.
+		/// When <c>name</c> is empty, the allocated order ID is used as the name.</para>
 		/// <para>
 		/// For each item with a <c>serviceSpecificationId</c>, the specification's configuration values are copied to the item.
 		/// Values in the item's <c>configurationValues</c> replace the specification values for the same parameter. Every
@@ -453,7 +461,6 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 		public IApiResult CreateServiceOrder([FromBody] CreateServiceOrderRequest request)
 		{
 			/* TODO:
-			 * Order ID race: two requests arriving at the same moment could get the same order ID.
 			 * Response format: validate with definition.
 			 */
 			_logger.LogInformation("CreateServiceOrder called with name={Name}", request?.Name);
@@ -471,8 +478,6 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 				var configurationPlans = BuildConfigurationPlans(request.OrderItems);
 
 				var orders = _serviceManagementApiHelper.ServiceOrder.ServiceOrders;
-				var existingOrderIds = PagedRead.All<ServiceOrder>(orders).Select(o => o.OrderId).ToList();
-
 				var items = new List<ServiceOrderItem>();
 				var entries = new List<ServiceOrderEntry>();
 				for (int i = 0; i < request.OrderItems.Count; i++)
@@ -500,7 +505,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 					entries.Add(new ServiceOrderEntry { ServiceOrderItemId = item, Priority = itemRequest.Priority ?? i });
 				}
 
-				string orderId = GenerateOrderId(existingOrderIds);
+				string orderId = _idGenerator.AllocateServiceOrderId(_engineAccessor.Value);
 				var order = new ServiceOrder
 				{
 					Identifier = Guid.NewGuid().ToString(),
@@ -1759,30 +1764,6 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 			return response;
 		}
 
-		/// <summary>Generates the next order ID as <c>ORDER-nnnnnn</c>, one above the highest number after <c>ORDER-</c> in the existing order IDs.</summary>
-		/// <param name="existingOrderIds">The existing order IDs.</param>
-		/// <returns>The new order ID. Not safe against concurrent requests.</returns>
-		private static string GenerateOrderId(IEnumerable<string> existingOrderIds)
-		{
-			int max = existingOrderIds
-				.Select(ParseOrderNumber)
-				.DefaultIfEmpty(0)
-				.Max();
-
-			return $"ORDER-{max + 1:000000}";
-		}
-
-		private static int ParseOrderNumber(string value)
-		{
-			const string Prefix = "ORDER-";
-			string text = value?.Trim();
-			return text != null
-				&& text.StartsWith(Prefix, StringComparison.OrdinalIgnoreCase)
-				&& Int32.TryParse(text.Substring(Prefix.Length), NumberStyles.None, CultureInfo.InvariantCulture, out int number)
-				? number
-				: 0;
-		}
-
 		private static string GenerateUniqueServiceName(string requestedName, IEnumerable<string> existingServiceNames)
 		{
 			string baseName = String.IsNullOrWhiteSpace(requestedName) ? "Service" : requestedName.Trim();
@@ -2360,7 +2341,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 
 		/// <summary>Validates the order-level fields of a create request.</summary>
 		/// <param name="request">The request.</param>
-		/// <exception cref="InvalidQueryException">The body, <c>name</c> or items are missing, or <c>priority</c> is invalid.</exception>
+		/// <exception cref="InvalidQueryException">The body is missing, items contain null, or <c>priority</c> is invalid.</exception>
 		private static void ValidateCreateRequest(CreateServiceOrderRequest request)
 		{
 			if (request == null)

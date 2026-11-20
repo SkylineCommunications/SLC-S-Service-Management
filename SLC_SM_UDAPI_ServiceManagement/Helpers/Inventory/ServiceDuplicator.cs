@@ -278,7 +278,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 		}
 
 		/// <summary>
-		/// Duplicates a service with the given service ID (see <see cref="ServiceIdGenerator.NextFree(IServiceRepository)"/>).
+		/// Duplicates a service with the given service ID (allocated via <see cref="SLC_SM_Common.IdGeneration.IServiceManagementIdGenerator.AllocateServiceId"/>).
 		/// </summary>
 		/// <param name="source">The service to copy.</param>
 		/// <param name="newServiceId">The service ID of the copy.</param>
@@ -287,6 +287,11 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Inventory
 			if (source == null)
 			{
 				throw new ArgumentNullException(nameof(source));
+			}
+
+			if (String.IsNullOrWhiteSpace(newServiceId))
+			{
+				throw new ArgumentException("A generated service ID is required.", nameof(newServiceId));
 			}
 
 			var versionMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);

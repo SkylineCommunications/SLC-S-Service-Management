@@ -36,6 +36,7 @@ namespace SLC_SM_Create_Service_Inventory_Item
 	using Skyline.DataMiner.Utils.InteractiveAutomationScript;
 	using Skyline.DataMiner.Utils.ServiceManagement.Common.Extensions;
 	using SLC_SM_Common.Extensions;
+	using SLC_SM_Common.IdGeneration;
 	using SLC_SM_Create_Service_Inventory_Item.Presenters;
 	using SLC_SM_Create_Service_Inventory_Item.Views;
 	using ConfigModels = Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.Configurations;
@@ -110,11 +111,6 @@ namespace SLC_SM_Create_Service_Inventory_Item
 
 			return sdmHelper.ServiceInventory.Services.Read(SdmModels.ServiceExposers.Identifier.Equal(domId.ToString())).FirstOrDefault()
 				?? throw new InvalidOperationException($"No Dom Instance with ID '{domId}' found on the system!");
-		}
-
-		private static bool ServiceIdExists(IServiceManagementApiHelper sdmHelper, string serviceId)
-		{
-			return sdmHelper.ServiceInventory.Services.Read(SdmModels.ServiceExposers.ServiceID.Equal(serviceId)).Any();
 		}
 
 		private static HashSet<string> GetSourceConfigurationVersionIds(SdmModels.Service sourceService)
@@ -897,15 +893,6 @@ namespace SLC_SM_Create_Service_Inventory_Item
 		{
 			var newServiceId = Guid.NewGuid();
 			var existingServices = sdmHelper.ServiceInventory.Services.Read(new TRUEFilterElement<SdmModels.Service>()).ToList();
-			var serviceIds = existingServices.Select(x => x.ServiceID).Where(x => !String.IsNullOrWhiteSpace(x)).ToList();
-			var maxValue = serviceIds
-				.Select(x =>
-				{
-					var parts = x.Split('-');
-					return parts.Length > 1 && Int32.TryParse(parts.Last(), out var number) ? number : 0;
-				})
-				.DefaultIfEmpty(0)
-				.Max();
 
 			var categoryReference = serviceOrderItem.ServiceInfo != null ? serviceOrderItem.ServiceInfo.ServiceCategoryId : null;
 			var specReference = serviceOrderItem.ServiceInfo != null ? serviceOrderItem.ServiceInfo.SpecificationId : null;
@@ -925,7 +912,7 @@ namespace SLC_SM_Create_Service_Inventory_Item
 			var newService = new SdmModels.Service
 			{
 				Identifier = newServiceId.ToString(),
-				ServiceID = $"SERVICE-{maxValue + 1:00000}",
+				ServiceID = new ServiceManagementIdGenerator().AllocateServiceId(_engine),
 				Name = GenerateUniqueServiceName(serviceOrderItem.Name, existingServices.Select(service => service.Name)),
 				Description = serviceOrderItem.Name,
 				StartTime = serviceOrderItem.StartTime,
@@ -1011,13 +998,7 @@ namespace SLC_SM_Create_Service_Inventory_Item
 						return;
 					}
 
-					if (ServiceIdExists(sdmHelper, presenter.ServiceId))
-					{
-						presenter.ShowServiceIdExistsError();
-						return;
-					}
-
-					AddOrUpdateServiceViaSdm(sdmHelper, presenter.SdmInstance);
+					AddOrUpdateServiceViaSdm(sdmHelper, presenter.CreateNewSdmInstance());
 					throw new ScriptAbortException("OK");
 				};
 			}
@@ -1032,13 +1013,7 @@ namespace SLC_SM_Create_Service_Inventory_Item
 						return;
 					}
 
-					if (ServiceIdExists(sdmHelper, presenter.ServiceId))
-					{
-						presenter.ShowServiceIdExistsError();
-						return;
-					}
-
-					DuplicateServiceViaSdm(sdmHelper, sourceService, presenter.SdmInstance);
+					DuplicateServiceViaSdm(sdmHelper, sourceService, presenter.CreateNewSdmInstance());
 					throw new ScriptAbortException("OK");
 				};
 			}
@@ -1098,7 +1073,7 @@ namespace SLC_SM_Create_Service_Inventory_Item
 				var duplicate = new SdmModels.Service
 				{
 					Identifier = Guid.NewGuid().ToString(),
-					ServiceID = GenerateUniqueServiceId(services.Select(existing => existing.ServiceID)),
+					ServiceID = new ServiceManagementIdGenerator().AllocateServiceId(_engine),
 					Name = $"{source.Name} (Copy)",
 					Description = source.Description,
 					StartTime = source.StartTime,
@@ -1114,11 +1089,6 @@ namespace SLC_SM_Create_Service_Inventory_Item
 			}
 
 			Guid? organizationId = ResolveOrganizationId(payload.Organization);
-			if (action == Defaults.ScriptAction_CreateServiceInventoryItem.Add
-				&& String.IsNullOrWhiteSpace(payload.Name))
-			{
-				throw new InvalidOperationException("A service name is required.");
-			}
 
 			if (payload.LinkService && String.IsNullOrWhiteSpace(payload.LinkedService))
 			{
@@ -1132,9 +1102,22 @@ namespace SLC_SM_Create_Service_Inventory_Item
 				domId = _engine.ReadScriptParamFromApp<Guid>("DOM ID");
 				existingService = GetService(helper, domId);
 			}
-			string serviceId = String.IsNullOrWhiteSpace(payload.ServiceID)
-				? existingService?.ServiceID ?? GenerateUniqueServiceId(services.Select(existing => existing.ServiceID))
-				: payload.ServiceID.Trim();
+			if (action == Defaults.ScriptAction_CreateServiceInventoryItem.Add
+				&& !String.IsNullOrWhiteSpace(payload.ServiceID))
+			{
+				throw new InvalidOperationException("Service IDs are assigned automatically; do not provide ServiceID.");
+			}
+
+			if (action == Defaults.ScriptAction_CreateServiceInventoryItem.Edit
+				&& !String.IsNullOrWhiteSpace(payload.ServiceID)
+				&& !String.Equals(payload.ServiceID.Trim(), existingService.ServiceID, StringComparison.OrdinalIgnoreCase))
+			{
+				throw new InvalidOperationException("A service ID cannot be changed after creation.");
+			}
+
+			string serviceId = action == Defaults.ScriptAction_CreateServiceInventoryItem.Edit
+				? existingService.ServiceID
+				: new ServiceManagementIdGenerator().AllocateServiceId(_engine);
 
 			if (services.Any(existing =>
 				!String.Equals(existing.Identifier, existingService?.Identifier, StringComparison.OrdinalIgnoreCase)
@@ -1213,16 +1196,6 @@ namespace SLC_SM_Create_Service_Inventory_Item
 			}
 
 			return parsed.ToUniversalTime();
-		}
-
-		private static string GenerateUniqueServiceId(IEnumerable<string> existingServiceIds)
-		{
-			int highest = existingServiceIds
-				.Where(value => !String.IsNullOrWhiteSpace(value))
-				.Select(value => Int32.TryParse(value.Split('-').Last(), out int number) ? number : 0)
-				.DefaultIfEmpty()
-				.Max();
-			return $"SERVICE-{highest + 1:00000}";
 		}
 
 		private static string GenerateUniqueServiceName(string requestedName, IEnumerable<string> existingServiceNames)

@@ -7,4 +7,11 @@
 		</Selection>
 	</CatalogReference>
 
+	<CatalogReference id="c0aac375-1dbf-4119-9172-1e34d531afac">
+		<Name>2.Skyline Service Management Mediation</Name>
+		<Selection>
+			<Range>1.0.0</Range>
+		</Selection>
+	</CatalogReference>
+
 </CatalogReferences>

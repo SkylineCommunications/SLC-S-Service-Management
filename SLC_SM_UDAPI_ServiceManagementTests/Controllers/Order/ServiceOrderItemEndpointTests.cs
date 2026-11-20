@@ -267,20 +267,17 @@
 		}
 
 		[TestMethod]
-		public void InitializeServiceFromOrderItem_WithDuplicateAndLargeServiceIds_GeneratesUnusedServiceId()
+		public void InitializeServiceFromOrderItem_AllocatesServiceIdFromCentralCounter()
 		{
 			var item = AddItem();
 			item.ServiceInfo.SpecificationId = new Skyline.DataMiner.SDM.SdmObjectReference<ServiceSpecification>(AddSpecification().ToString());
 			AddOrder("New", item);
-			foreach (string serviceId in new[] { "SERVICE-845525618", "SERVICE-845525618", "SERVICE-3000000000", "SERVICE-3000000001x" })
-			{
-				StoredServices.Add(new Service { Identifier = Guid.NewGuid().ToString(), ServiceID = serviceId, Name = Guid.NewGuid().ToString() });
-			}
 
 			var result = Controller.InitializeServiceFromOrderItem(OrderId, item.Identifier);
 
 			Assert.AreEqual(201, StatusCode(result));
-			Assert.AreEqual("SERVICE-3000000001", Value<Service>(result).ServiceID);
+			Assert.AreEqual("SERVICE-00001", Value<Service>(result).ServiceID);
+			IdGenerator.Verify(generator => generator.AllocateServiceId(It.IsAny<Skyline.DataMiner.Automation.IEngine>()), Times.Once);
 		}
 
 

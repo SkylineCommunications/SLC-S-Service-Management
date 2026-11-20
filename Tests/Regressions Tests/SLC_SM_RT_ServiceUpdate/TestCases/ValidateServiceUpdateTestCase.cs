@@ -39,7 +39,6 @@ namespace SLC_SM_RT_ServiceUpdate.TestCases
 			TestTools.Assert(service != null, $"[{stage}] Service '{testData.ServiceId}' was not found after the edit.");
 
 			// Edited fields.
-			TestTools.AssertEqual(testData.ExpectedServiceIdentifier, service.ServiceID, $"[{stage}] Service ID of service '{testData.ServiceId}'");
 			TestTools.AssertEqual(testData.ExpectedName, service.Name, $"[{stage}] Name of service '{testData.ServiceId}'");
 			AssertDate(testData.ExpectedStartTime, service.StartTime, $"[{stage}] Start time of service '{testData.ServiceId}'");
 			AssertDate(testData.ExpectedEndTime, service.EndTime, $"[{stage}] End time of service '{testData.ServiceId}'");
@@ -48,6 +47,7 @@ namespace SLC_SM_RT_ServiceUpdate.TestCases
 
 			// Kept fields.
 			TestTools.AssertEqual(baseline.Identifier, service.Identifier, $"[{stage}] Identifier of the edited service");
+			TestTools.AssertEqual(baseline.ServiceIdentifier, service.ServiceID, $"[{stage}] Service ID of the edited service");
 			TestTools.AssertEqual(baseline.Status, service.Status.ToString(), $"[{stage}] Lifecycle state of service '{testData.ServiceId}'");
 			TestTools.AssertEqual(baseline.Description, service.Description ?? String.Empty, $"[{stage}] Description of service '{testData.ServiceId}'");
 			TestTools.AssertEqual(baseline.SpecificationId, service.ServiceSpecificationId != null ? service.ServiceSpecificationId.Identifier : null, $"[{stage}] Specification of service '{testData.ServiceId}'");
