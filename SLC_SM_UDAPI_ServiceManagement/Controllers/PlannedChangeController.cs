@@ -23,7 +23,7 @@ namespace SLC_SM_UDAPI_ServiceManagement.Controllers
 	/// Kept in its own controller so the route cannot clash with <c>service-management/v1/service/{id}</c>.
 	/// </remarks>
 	[ApiController]
-	[Route("service-management/v1/plannedChange")]
+	[Route("service-management/v1/service/plannedChange")]
 	public sealed class PlannedChangeController : ControllerBase
 	{
 		private const int MaxLimit = 500;
