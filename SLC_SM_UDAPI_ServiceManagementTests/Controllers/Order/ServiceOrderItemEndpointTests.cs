@@ -3,7 +3,6 @@
 	using System.Collections.Generic;
 	using Moq;
 	using Newtonsoft.Json.Linq;
-	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.SDM;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 	using SLC_SM_UDAPI_ServiceManagement.Models.Order;

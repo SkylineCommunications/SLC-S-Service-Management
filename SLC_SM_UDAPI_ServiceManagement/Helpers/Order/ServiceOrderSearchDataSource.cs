@@ -8,8 +8,6 @@ namespace SLC_SM_UDAPI_ServiceManagement.Helpers.Order
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ApiHelpers;
 	using Skyline.DataMiner.ProjectApi.ServiceManagement.SDM.ServiceManagement;
 	using Skyline.DataMiner.SDM;
-
-	using SLC_SM_UDAPI_ServiceManagement.Controllers;
 	/// <summary>
 	/// <see cref="IServiceOrderSearchDataSource"/> that reads from the Service Management API, in batches of OR-ed filters.
 	/// </summary>

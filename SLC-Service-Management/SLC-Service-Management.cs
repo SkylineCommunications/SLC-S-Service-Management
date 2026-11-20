@@ -26,7 +26,7 @@ internal partial class Script
 			solutionInstaller.InstallDefaultContent();
 			solutionInstaller.DeployMediaOpsDependencies();
 			solutionInstaller.ExportLegacyData();
-			solutionInstaller.ImportSolutionDom();
+			solutionInstaller.InstallSolutionDom();
 			solutionInstaller.DeployDataMinerApp();
 			solutionInstaller.MigrateLegacyData();
 			solutionInstaller.InitializeServiceManagementCounters();

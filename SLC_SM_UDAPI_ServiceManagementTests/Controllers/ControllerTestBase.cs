@@ -3,10 +3,8 @@ namespace SLC_SM_UDAPI_ServiceManagement.Tests.Controllers
 	using System.Collections.Generic;
 	using System.Reflection;
 	using Newtonsoft.Json.Linq;
-	using Skyline.DataMiner.Net.Messages.SLDataGateway;
 	using Skyline.DataMiner.SDM;
 	using Skyline.DataMiner.Utils.UserDefinedApiToolkit;
-	using SLDataGateway.API.Querying;
 	using SLDataGateway.API.Types.Querying;
 
 	/// <summary>

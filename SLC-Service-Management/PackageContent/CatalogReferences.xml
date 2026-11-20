@@ -7,15 +7,8 @@
 		</Selection>
 	</CatalogReference>
 
-	<CatalogReference id="8ce7d7af-62f6-4cfd-8687-663e24f3c5be">
-		<Name>2.DOM ImportExport</Name>
-		<Selection>
-			<Range>1.0.0</Range>
-		</Selection>
-	</CatalogReference>
-
 	<CatalogReference id="c0aac375-1dbf-4119-9172-1e34d531afac">
-		<Name>3.Skyline Service Management Mediation</Name>
+		<Name>2.Skyline Service Management Mediation</Name>
 		<Selection>
 			<Range>1.0.0</Range>
 		</Selection>
